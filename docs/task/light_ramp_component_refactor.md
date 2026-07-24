@@ -17,12 +17,140 @@ Replace discrete light quantization with a configurable brightness ramp evaluate
   `mixed_rgb = light_rgb / light_amount`, then apply the sampled scalar brightness. Ambient light remains separate and unmodified.
 - Update existing examples, MMS tokens (`LR`), serialization, registry entries, and generated-facing documentation to the new component name and constructor.
 
+## Component API
+
+Use a validated, fixed-capacity value type so `VisualInstance` and `DrawBatch` can remain `Copy`. Unused point entries must be zero-filled, giving equivalent ramps a canonical representation.
+
+```rust
+pub const MAX_LIGHT_RAMP_POINTS: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LightRamp {
+    point_count: u32,
+    points: [[f32; 2]; MAX_LIGHT_RAMP_POINTS],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LightRampComponent {
+    ramp: LightRamp,
+}
+
+impl LightRampComponent {
+    /// Construct the built-in near-hard three-band ramp.
+    pub fn new() -> Self;
+
+    /// Validate and construct a custom ramp.
+    pub fn from_points(
+        points: Vec<[f32; 2]>,
+    ) -> Result<Self, LightRampError>;
+
+    /// Return only the initialized control points.
+    pub fn points(&self) -> &[[f32; 2]];
+}
+```
+
+The public validation error must distinguish the actionable failure cases:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LightRampError {
+    TooFewPoints,
+    TooManyPoints,
+    NonFinite { index: usize },
+    OutOfRange { index: usize },
+    InputsNotIncreasing { index: usize },
+}
+```
+
+Both coordinates must be finite and inside `0..=1`. Inputs must be strictly increasing, so interpolation can never divide by zero. Construction must return an error rather than sorting, clamping, merging, or falling back to the default.
+
+The MMS constructor accepts one nested array and applies the same validation:
+
+```text
+LightRamp.points([
+    [0.00, 0.00],
+    [0.28, 0.08],
+    [0.34, 0.42],
+    [0.62, 0.50],
+    [0.68, 0.86],
+    [1.00, 1.00],
+])
+```
+
+Serialization must emit `LightRamp.points(...)` with all initialized points, including for the default ramp, so save/load preserves the exact curve without relying on implicit defaults.
+
+## GPU Representation and Shader
+
+Replace `quant_steps` in `MaterialUBO` with the control-point count and eight padded points. Each point occupies one `vec4` to keep the Rust and GLSL `std140` layout unambiguous; only `xy` is used.
+
+```glsl
+layout(set = 1, binding = 0) uniform MaterialUBO {
+    vec4 base_color;
+
+    uint ramp_point_count;
+    uint emissive;
+    uint _pad0;
+    uint _pad1;
+
+    // xy = input illumination, output brightness
+    vec4 ramp_points[8];
+} mat;
+```
+
+The Rust-side material uniform must mirror this layout with `ramp_points: [[f32; 4]; 8]`. Upload the validated points into `xy` and zero the remaining components and unused entries.
+
+Sample the curve with clamped endpoints and linear interpolation between adjacent points:
+
+```glsl
+float sample_light_ramp(float x) {
+    uint count = clamp(mat.ramp_point_count, 2u, 8u);
+    vec2 left = mat.ramp_points[0].xy;
+
+    if (x <= left.x) {
+        return left.y;
+    }
+
+    for (uint i = 1u; i < count; ++i) {
+        vec2 right = mat.ramp_points[i].xy;
+
+        if (x <= right.x) {
+            float t = (x - left.x) / (right.x - left.x);
+            return mix(left.y, right.y, t);
+        }
+
+        left = right;
+    }
+
+    return left.y;
+}
+```
+
+Apply the ramp once, after all point, spot, and directional lights have contributed:
+
+```glsl
+float brightness = sample_light_ramp(light_amount);
+
+vec3 mixed_light = light_amount > 1e-6
+    ? (light_rgb / light_amount) * brightness
+    : vec3(0.0);
+```
+
+Ambient illumination remains outside this ramp calculation.
+
+## Batching and Material Cache
+
+- Carry `LightRamp` through pending renderable state, `VisualInstance`, and `DrawBatch`.
+- Define an internal canonical cache key containing `point_count` and `[[u32; 2]; 8]`, populated with `f32::to_bits()`.
+- Use that key for draw sorting, batch equality, and cached material descriptor lookup; do not compare or hash raw `f32` values.
+- Identical ramps must share batches and descriptor sets. Any difference in initialized point bits or point count must produce distinct material state.
+
 ## Test Plan
 
 - Validate accepted ramps and every rejection case: too few/many points, non-finite values, out-of-range coordinates, duplicates, and unordered inputs.
 - Test exact control-point values, interpolation within segments, and endpoint clamping.
 - Test the default curve at its shallow band regions and steep transition regions.
 - Test MMS construction and serialization round trips for nested point arrays.
+- Test that unused fixed-capacity entries are zero-filled and do not destabilize equality or cache keys.
 - Test that identical ramps batch together while different ramps produce distinct material state.
 - Compile the GLSL shader with `glslangValidator`, run relevant Rust tests, and run `cargo check`.
 
