@@ -171,9 +171,29 @@ Window smoke validation on 2026-07-24:
   its `ED` subtree materializes roughly 12,000 runtime components before window creation.
 - `vtuber-mirror-example`: mirror and XR rendering were visually confirmed working.
 
+Revision-comparison measurement on 2026-07-25:
+
+- Probe: `tests/renderer_optimization_profile.rs`, run by
+  `scripts/compare_render_stream_revisions.sh` in separate detached worktrees and separate Cargo
+  target directories.
+- Revisions: `65ce0cb` before the refactor and `89d1526` after it.
+- Workload: release build, 2,048 synthetic instances distributed evenly across opaque, cutout,
+  single-layer transparent, and overlay phases; 25 independently constructed first dirty-cache
+  builds per scenario. Hardware was an Intel Core i5-10400 on Linux 7.1.3.
+- Confirmation-run artifact:
+  `docs/.debug/render-stream-comparison-20260725T041253Z.txt`.
+- Unclipped median cache-build time fell from 69,582 ns to 34,809 ns (50.0%); allocator calls fell
+  from 116 to 68 (41.4%); requested allocation bytes fell from 50,528 to 33,280 (34.1%).
+- Clipped median cache-build time changed from 70,186 ns to 60,392 ns; allocator calls from 127 to
+  123; requested allocation bytes from 71,392 to 70,752. The smaller difference is expected because
+  clipped worlds retain depth grouping and DFS construction.
+- Generated output stayed structurally equal: the unclipped scenario produced 4 operations and
+  2,048 stream instances in both revisions; the clipped scenario produced 13 operations and 2,052
+  stream instances in both revisions.
+- For one ordinary view, the baseline copied 6,264 bytes of opaque/cutout/overlay stream payload in
+  the unclipped scenario and 6,556 bytes in the clipped scenario, using six vector allocations.
+  Current code borrows those cached slices, so both copied bytes and copy allocations are zero.
+
 Still required before marking complete:
 
 - Visually compare a representative unclipped window scene and confirm the `scrolling` output.
-- Record before/after cache-build timing, allocation counts, copied stream bytes, operation counts,
-  and instance counts. The structural copied-byte result is zero for ordinary opaque, cutout, and
-  overlay stream selection after this change; runtime measurements are still pending.

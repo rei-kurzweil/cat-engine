@@ -102,7 +102,7 @@ improvements above.
 
 | Effort | Status | Target | Evidence / outcome |
 | --- | --- | --- | --- |
-| [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Implemented; validation pending | Remove duplicate phase caches and common-path per-view stream copies | Automated tests pass; `clip-shape` and `vtuber-mirror-example` work, and `scrolling` reaches sustained window rendering; unclipped comparison and profiling checks remain |
+| [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Implemented; final visual validation pending | Remove duplicate phase caches and common-path per-view stream copies | Automated tests pass; revision comparison records a 50.0% unclipped cache-build reduction, 41.4% fewer allocation calls, and zero common-path stream-copy bytes; final unclipped and `scrolling` visual comparison remains |
 | [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Planned | Keep clip membership indexed and omit fully outside content without per-frame scans | Pending |
 | [Opt-in system, MMS, Vulkano, and XR profiling](../opt-in-system-mms-vulkano-xr-profiling.md) | Planned | Establish selectable CPU/GPU measurements for optimization work | Pending |
 | [Renderer thread refactor](../refactor/renderer-thread.md) | Design | Move recording/submission work off the simulation thread | Requires profiling and a decided snapshot/command boundary |
