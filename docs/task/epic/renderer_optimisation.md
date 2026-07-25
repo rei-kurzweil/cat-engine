@@ -68,19 +68,25 @@ After steps 1–5 are complete:
 Do not begin CPU culling until this gate passes, so culling is built on one authoritative stream
 representation.
 
+Gate result: passed on 2026-07-25. Automated stream tests and checks passed, revision-comparison
+measurements were recorded, and representative unclipped, clipped, scrolling, mirror, and XR
+rendering were visually confirmed.
+
 ### Phase 2: omit fully outside clipped content
 
 Implement
 [event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md):
 
-1. Add clip-to-members and renderable-to-ancestor-clips indexes to `ClippingSystem`.
-2. Reuse `VisualWorld::update_model`'s existing instance lookup to identify only changed clipped
+1. Capture the pre-culling `scrolling` baseline: overlap-test count, emitted instances,
+   instance-buffer bytes, draw instances, and CPU draw-cache preparation time.
+2. Add clip-to-members and renderable-to-ancestor-clips indexes to `ClippingSystem`.
+3. Reuse `VisualWorld::update_model`'s existing instance lookup to identify only changed clipped
    content and clip sources during transform propagation.
-3. Pass that synchronous, deduplicated change batch to `ClippingSystem` after final world matrices
+4. Pass that synchronous, deduplicated change batch to `ClippingSystem` after final world matrices
    settle; do not use reactive signals or a transform-dependency index.
-4. Perform conservative clip-local 2D bounds rejection and exclude culled instances before stream
+5. Perform conservative clip-local 2D bounds rejection and exclude culled instances before stream
    construction.
-5. Validate nested clips, topology changes, transform streams, transform-parent dependents,
+6. Validate nested clips, topology changes, transform streams, transform-parent dependents,
    visibility restoration, and rotated 3D UI.
 
 ### Phase 3: reduce active-stencil recording cost
@@ -102,8 +108,8 @@ improvements above.
 
 | Effort | Status | Target | Evidence / outcome |
 | --- | --- | --- | --- |
-| [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Implemented; final visual validation pending | Remove duplicate phase caches and common-path per-view stream copies | Automated tests pass; revision comparison records a 50.0% unclipped cache-build reduction, 41.4% fewer allocation calls, and zero common-path stream-copy bytes; final unclipped and `scrolling` visual comparison remains |
-| [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Planned | Keep clip membership indexed and omit fully outside content without per-frame scans | Pending |
+| [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Complete | Remove duplicate phase caches and common-path per-view stream copies | Validation gate passed; revision comparison records a 50.0% unclipped cache-build reduction, 41.4% fewer allocation calls, and zero common-path stream-copy bytes |
+| [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Next; baseline pending | Keep clip membership indexed and omit fully outside content without per-frame scans | Capture the pre-culling `scrolling` workload baseline before implementation |
 | [Opt-in system, MMS, Vulkano, and XR profiling](../opt-in-system-mms-vulkano-xr-profiling.md) | Planned | Establish selectable CPU/GPU measurements for optimization work | Pending |
 | [Renderer thread refactor](../refactor/renderer-thread.md) | Design | Move recording/submission work off the simulation thread | Requires profiling and a decided snapshot/command boundary |
 | [Renderer CPU-time complexity](../../analysis/renderer-cpu-time-complexity.md) | Analysis | Submission, future cleanup, waits, uploads, and threading opportunities | Existing investigation and candidate mitigations |

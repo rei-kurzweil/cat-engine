@@ -1,6 +1,6 @@
 # Render streams as the single source for clip-capable phases
 
-Status: implemented; visual smoke tests and performance measurements pending.
+Status: complete.
 
 Epic: [Renderer optimisation](epic/renderer_optimisation.md)
 
@@ -194,6 +194,8 @@ Revision-comparison measurement on 2026-07-25:
   the unclipped scenario and 6,556 bytes in the clipped scenario, using six vector allocations.
   Current code borrows those cached slices, so both copied bytes and copy allocations are zero.
 
-Still required before marking complete:
+Final visual validation on 2026-07-25:
 
-- Visually compare a representative unclipped window scene and confirm the `scrolling` output.
+- Representative unclipped window rendering and the `scrolling` scene were visually confirmed.
+- Together with the clipped, mirror, and XR smoke results above, the Phase 1 validation gate is
+  complete.
