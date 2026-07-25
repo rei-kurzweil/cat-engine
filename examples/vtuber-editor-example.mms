@@ -6,6 +6,9 @@
 // To run:
 //   cargo run --release --example vtuber-mirror-example
 
+import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
+import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
+
 RendererSettings {
     window_size(640, 480)
 }
@@ -182,6 +185,8 @@ ED {
                     GLTF.new("assets/models/bisket.glb") {
                         EM.on()
                         PoseCapture { label("Bisket") asset_name("bisket") }
+                        bisket_colliders()
+                        bisket_shirt_physics(false)
                     }
                 }
 
@@ -190,8 +195,14 @@ ED {
                     CXR { Pointer {} }
                 }
 
-                XRHand.new(true, Left,  Grip) { T { Pointer {} } }
-                XRHand.new(true, Right, Grip) { T { Pointer {} } }
+                XRHand.new(true, Left, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
+                    T { Pointer {} }
+                }
+                XRHand.new(true, Right, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
+                    T { Pointer {} }
+                }
             }
 
             OV {

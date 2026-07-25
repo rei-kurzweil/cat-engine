@@ -4394,28 +4394,63 @@ fn roundtrip_spring_collision_configuration() {
 #[test]
 fn all_bisket_secondary_motion_examples_evaluate_with_explicit_colliders() {
     use crate::engine::ecs::component::{
-        SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
+        ControllerXRComponent, PointerComponent, SpringBoneComponent, SpringColliderComponent,
+        SpringCollidersComponent,
     };
-    for (path, source, expected_chains) in [
+    for (path, source, expected_chains, expected_pointer_hands) in [
         (
             "examples/secondary-motion-desktop.mms",
             include_str!("../../examples/secondary-motion-desktop.mms"),
             17,
+            0,
         ),
         (
             "examples/gltf-pose-animation.mms",
             include_str!("../../examples/gltf-pose-animation.mms"),
             17,
+            0,
         ),
         (
             "examples/vtuber-secondary-motion.mms",
             include_str!("../../examples/vtuber-secondary-motion.mms"),
-            17,
+            23,
+            2,
         ),
         (
             "examples/xr-grab-demo.mms",
             include_str!("../../examples/xr-grab-demo.mms"),
             23,
+            2,
+        ),
+        (
+            "examples/vtuber-mirror-example.mms",
+            include_str!("../../examples/vtuber-mirror-example.mms"),
+            23,
+            2,
+        ),
+        (
+            "examples/bisket-vr-demo.mms",
+            include_str!("../../examples/bisket-vr-demo.mms"),
+            23,
+            2,
+        ),
+        (
+            "examples/bisket-vr-only-example.mms",
+            include_str!("../../examples/bisket-vr-only-example.mms"),
+            23,
+            2,
+        ),
+        (
+            "examples/input-xr-gamepad.mms",
+            include_str!("../../examples/input-xr-gamepad.mms"),
+            23,
+            2,
+        ),
+        (
+            "examples/vtuber-editor-example.mms",
+            include_str!("../../examples/vtuber-editor-example.mms"),
+            23,
+            2,
         ),
     ] {
         let mut world = World::default();
@@ -4441,6 +4476,30 @@ fn all_bisket_secondary_motion_examples_evaluate_with_explicit_colliders() {
             expected_chains,
             "{path}"
         );
+        let laser_hands: Vec<_> = world
+            .all_components()
+            .filter(|id| {
+                world
+                    .get_component_by_id_as::<ControllerXRComponent>(*id)
+                    .is_some_and(|controller| controller.laser)
+            })
+            .collect();
+        assert_eq!(laser_hands.len(), expected_pointer_hands, "{path}");
+        for hand in laser_hands {
+            let mut pending = vec![hand];
+            let mut has_pointer = false;
+            while let Some(component) = pending.pop() {
+                if world
+                    .get_component_by_id_as::<PointerComponent>(component)
+                    .is_some()
+                {
+                    has_pointer = true;
+                    break;
+                }
+                pending.extend(world.children_of(component).iter().copied());
+            }
+            assert!(has_pointer, "{path}: XR hand is missing a Pointer child");
+        }
         assert_eq!(
             world
                 .all_components()
@@ -4460,6 +4519,71 @@ fn all_bisket_secondary_motion_examples_evaluate_with_explicit_colliders() {
                 .count(),
             1,
             "{path}"
+        );
+    }
+}
+
+#[test]
+fn pc_rei_vr_input_evaluates_with_secondary_motion_and_hand_pointers() {
+    use crate::engine::ecs::component::{
+        ControllerXRComponent, PointerComponent, SpringBoneComponent, SpringColliderComponent,
+    };
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let mut render_assets = RenderAssets::new();
+    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+        include_str!("../../examples/vr-input.mms"),
+        Some("examples/vr-input.mms"),
+        &mut world,
+        &mut rx,
+        Some(&mut render_assets),
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "{:?}", output.errors);
+    assert_eq!(
+        world
+            .all_components()
+            .filter(|id| world
+                .get_component_by_id_as::<SpringBoneComponent>(*id)
+                .is_some())
+            .count(),
+        10
+    );
+    assert_eq!(
+        world
+            .all_components()
+            .filter(|id| world
+                .get_component_by_id_as::<SpringColliderComponent>(*id)
+                .is_some())
+            .count(),
+        7
+    );
+    let laser_hands: Vec<_> = world
+        .all_components()
+        .filter(|id| {
+            world
+                .get_component_by_id_as::<ControllerXRComponent>(*id)
+                .is_some_and(|controller| controller.laser)
+        })
+        .collect();
+    assert_eq!(laser_hands.len(), 2);
+    for hand in laser_hands {
+        let mut pending = vec![hand];
+        assert!(
+            loop {
+                let Some(component) = pending.pop() else {
+                    break false;
+                };
+                if world
+                    .get_component_by_id_as::<PointerComponent>(component)
+                    .is_some()
+                {
+                    break true;
+                }
+                pending.extend(world.children_of(component).iter().copied());
+            },
+            "laser-enabled PC-Rei hand is missing a Pointer child"
         );
     }
 }

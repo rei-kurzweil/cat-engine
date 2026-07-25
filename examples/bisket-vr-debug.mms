@@ -72,8 +72,14 @@ ED {
                     C3D {}
                 }
 
-                XRHand.new(true, Left, Grip) { T {} }
-                XRHand.new(true, Right, Grip) { T {} }
+                XRHand.new(true, Left, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
+                    T { Pointer {} }
+                }
+                XRHand.new(true, Right, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
+                    T { Pointer {} }
+                }
             }
         }
     }

@@ -79,11 +79,19 @@ fn main() {
     mittens_engine::example_support::ensure_model_assets();
     utils::logger::init();
 
-    let output = scripting::MeowMeowRunner::eval(include_str!("vtuber-editor-example.mms"));
+    let output = scripting::MeowMeowRunner::eval_with_path(
+        include_str!("vtuber-editor-example.mms"),
+        "examples/vtuber-editor-example.mms",
+    );
 
     for error in &output.errors {
         eprintln!("[mms] {error}");
     }
+    assert!(
+        output.errors.is_empty(),
+        "MMS evaluation produced errors: {:?}",
+        output.errors,
+    );
     println!(
         "[mms] {} intent(s) from vtuber-editor-example.mms",
         output.intents.len()

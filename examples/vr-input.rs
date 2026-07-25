@@ -1,11 +1,12 @@
 use mittens_engine::engine::ecs::component::{
     AmbientLightComponent, AvatarControlComponent, BackgroundColorComponent, BloomComponent,
-    BlurPassComponent, Camera3DComponent, CameraXRComponent, ColorComponent, ControllerHand,
-    ControllerPoseKind, ControllerXRComponent, DirectionalLightComponent, EditorComponent,
-    EmissiveComponent, EmissivePassComponent, GLTFComponent, InputComponent,
+    BlurPassComponent, Camera3DComponent, CameraXRComponent, ColorComponent, ComponentRef,
+    ControllerHand, ControllerPoseKind, ControllerXRComponent, DirectionalLightComponent,
+    EditorComponent, EmissiveComponent, EmissivePassComponent, GLTFComponent, InputComponent,
     InputTransformModeComponent, InputXRComponent, PointerComponent, QuatTemporalFilterComponent,
     RaycastableComponent, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RendererStatsComponent, TransformComponent, TransformForkTRSComponent,
+    RendererStatsComponent, SecondaryMotionComponent, SpringBoneComponent, SpringColliderComponent,
+    SpringCollidersComponent, TransformComponent, TransformForkTRSComponent,
     TransformMapRotationComponent, TransformMapScaleComponent, TransformMapTranslationComponent,
     XrComponent,
 };
@@ -181,6 +182,124 @@ fn spawn_controller_cube(
     let _ = universe.attach(cube, cube_color);
 
     controller_marker
+}
+
+fn component_query(name: &str) -> ComponentRef {
+    ComponentRef::Query(format!("[name='{name}']"))
+}
+
+fn component_queries(names: &[&str]) -> Vec<ComponentRef> {
+    names.iter().map(|name| component_query(name)).collect()
+}
+
+fn attach_pc_rei_secondary_motion(
+    universe: &mut engine::Universe,
+    model: engine::ecs::ComponentId,
+) {
+    let colliders = universe
+        .world
+        .add_component(SpringCollidersComponent::new());
+    let collider_specs: [(&str, Vec<&str>, f32); 7] = [
+        ("pc_rei_collider_head", vec!["J_Bip_C_Head"], 0.11),
+        ("pc_rei_collider_neck", vec!["J_Bip_C_Neck"], 0.055),
+        (
+            "pc_rei_collider_upper_chest",
+            vec!["J_Bip_C_UpperChest"],
+            0.075,
+        ),
+        ("pc_rei_collider_spine", vec!["J_Bip_C_Spine"], 0.09),
+        ("pc_rei_collider_hips", vec!["J_Bip_C_Hips"], 0.13),
+        (
+            "pc_rei_colliders_hands",
+            vec!["J_Bip_L_Hand", "J_Bip_R_Hand"],
+            0.045,
+        ),
+        (
+            "pc_rei_colliders_upper_arms",
+            vec!["J_Bip_L_UpperArm", "J_Bip_R_UpperArm"],
+            0.05,
+        ),
+    ];
+    for (name, targets, radius) in collider_specs {
+        let collider = universe.world.add_component_boxed_named(
+            name,
+            Box::new(SpringColliderComponent::spheres(
+                component_queries(&targets),
+                radius,
+            )),
+        );
+        let _ = universe.attach(colliders, collider);
+    }
+    let _ = universe.attach(model, colliders);
+
+    let secondary = universe
+        .world
+        .add_component(SecondaryMotionComponent::new());
+    for root in [
+        "hair-mid-top",
+        "hair-left-front-top",
+        "hair-right-front-top",
+        "hair-left-back-top",
+        "hair-right-back-top",
+    ] {
+        let chain = universe.world.add_component(
+            SpringBoneComponent::from_root(component_query(root))
+                .virtual_end_length_ratio(1.0)
+                .stiffness(1.0)
+                .drag_force(0.35)
+                .gravity(3.0, [0.0, -1.0, 0.0])
+                .colliders(component_queries(&[
+                    "pc_rei_collider_head",
+                    "pc_rei_collider_neck",
+                    "pc_rei_collider_upper_chest",
+                ]))
+                .hit_radius(0.015),
+        );
+        let _ = universe.attach(secondary, chain);
+    }
+    for root in ["ear-left-bottom", "ear-right-bottom"] {
+        let chain = universe.world.add_component(
+            SpringBoneComponent::from_root(component_query(root))
+                .virtual_end_length_ratio(1.0)
+                .stiffness(1.5)
+                .drag_force(0.45)
+                .gravity(1.5, [0.0, -1.0, 0.0])
+                .colliders(component_queries(&["pc_rei_collider_head"]))
+                .hit_radius(0.012),
+        );
+        let _ = universe.attach(secondary, chain);
+    }
+    for root in ["J_Sec_L_Bust1", "J_Sec_R_Bust1"] {
+        let chain = universe.world.add_component(
+            SpringBoneComponent::from_root(component_query(root))
+                .virtual_end_length_ratio(1.0)
+                .stiffness(4.0)
+                .drag_force(0.60)
+                .gravity(0.35, [0.0, -1.0, 0.0])
+                .colliders(component_queries(&[
+                    "pc_rei_collider_upper_chest",
+                    "pc_rei_collider_spine",
+                    "pc_rei_colliders_hands",
+                    "pc_rei_colliders_upper_arms",
+                ]))
+                .hit_radius(0.025),
+        );
+        let _ = universe.attach(secondary, chain);
+    }
+    let tail = universe.world.add_component(
+        SpringBoneComponent::from_root(component_query("canine-tail"))
+            .virtual_end_length_ratio(1.0)
+            .stiffness(1.0)
+            .drag_force(0.25)
+            .gravity(0.8, [0.0, -1.0, 0.0])
+            .colliders(component_queries(&[
+                "pc_rei_collider_spine",
+                "pc_rei_collider_hips",
+            ]))
+            .hit_radius(0.035),
+    );
+    let _ = universe.attach(secondary, tail);
+    let _ = universe.attach(model, secondary);
 }
 
 fn main() {
@@ -364,22 +483,28 @@ fn main() {
     // Grip controllers for hand bone splicing — children of AvatarControlComponent so
     // AvatarControlSystem discovers them by topology. Each needs a TransformComponent
     // child (driven_t) that OpenXRSystem writes each tick.
-    let left_grip = universe.world.add_component(ControllerXRComponent::new(
-        true,
-        ControllerHand::Left,
-        ControllerPoseKind::Grip,
-    ));
+    let left_grip = universe.world.add_component(
+        ControllerXRComponent::new(true, ControllerHand::Left, ControllerPoseKind::Grip)
+            .laser_from_avatar_finger(
+                component_query("J_Bip_L_Middle1"),
+                component_query("J_Bip_L_Middle2"),
+                component_query("J_Bip_L_Middle3"),
+            ),
+    );
     let left_grip_t = universe.world.add_component(TransformComponent::new());
     let _ = universe.attach(left_grip, left_grip_t);
     let left_pointer = universe.world.add_component(PointerComponent::new());
     let _ = universe.attach(left_grip_t, left_pointer);
     let _ = universe.attach(avatar_control, left_grip);
 
-    let right_grip = universe.world.add_component(ControllerXRComponent::new(
-        true,
-        ControllerHand::Right,
-        ControllerPoseKind::Grip,
-    ));
+    let right_grip = universe.world.add_component(
+        ControllerXRComponent::new(true, ControllerHand::Right, ControllerPoseKind::Grip)
+            .laser_from_avatar_finger(
+                component_query("J_Bip_R_Middle1"),
+                component_query("J_Bip_R_Middle2"),
+                component_query("J_Bip_R_Middle3"),
+            ),
+    );
     let right_grip_t = universe.world.add_component(TransformComponent::new());
     let _ = universe.attach(right_grip, right_grip_t);
     let right_pointer = universe.world.add_component(PointerComponent::new());
@@ -397,6 +522,7 @@ fn main() {
     let _ = universe.attach(editor_root, avatar_input_xr);
     let _ = universe.attach(avatar_control, model_root);
     let _ = universe.attach(model_root, model);
+    attach_pc_rei_secondary_motion(&mut universe, model);
     universe.add(editor_root);
 
     // --- Controller debug cubes (tracked poses) ---

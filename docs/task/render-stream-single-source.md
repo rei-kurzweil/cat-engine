@@ -169,11 +169,11 @@ Window smoke validation on 2026-07-24:
   outer transform block. The source was repaired and its wrapper now treats MMS errors as fatal
   instead of continuing into an empty scene. It remains a slow editor-integration target because
   its `ED` subtree materializes roughly 12,000 runtime components before window creation.
+- `vtuber-mirror-example`: mirror and XR rendering were visually confirmed working.
 
 Still required before marking complete:
 
 - Visually compare a representative unclipped window scene and confirm the `scrolling` output.
-- Smoke-test a mirror scene and XR where the runtime is available.
 - Record before/after cache-build timing, allocation counts, copied stream bytes, operation counts,
   and instance counts. The structural copied-byte result is zero for ordinary opaque, cutout, and
   overlay stream selection after this change; runtime measurements are still pending.

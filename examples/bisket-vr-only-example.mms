@@ -1,5 +1,7 @@
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 import { voxel_terrain } from "../assets/components/floors/voxel_terrain.mms"
+import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
+import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 
 // bisket-vr-only-example scene
 //
@@ -229,6 +231,8 @@ ED {
                     GLTF.new("assets/models/bisket.glb") {
                         EM.on() 
                         PoseCapture { label("Bisket") asset_name("bisket") }
+                        bisket_colliders()
+                        bisket_shirt_physics(false)
                     }
                 }
 
@@ -247,8 +251,14 @@ ED {
                 
                 // Tracked Grip controllers — re-parented to lower-arm bones
                 // by AVC, drive J_Bip_{L,R}_Hand via TwoBoneIK.
-                XRHand.new(true, Left,  Grip) { T { Pointer {} } }
-                XRHand.new(true, Right, Grip) { T { Pointer {} } }
+                XRHand.new(true, Left, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
+                    T { Pointer {} }
+                }
+                XRHand.new(true, Right, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
+                    T { Pointer {} }
+                }
             }
             
             // debug camera marker

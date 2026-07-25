@@ -1,5 +1,7 @@
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 import { voxel_terrain } from "../assets/components/floors/voxel_terrain.mms"
+import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
+import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 
 // bisket-vr-demo scene
 //
@@ -229,6 +231,8 @@ ED {
                     GLTF.new("assets/models/bisket.glb") {
                         EM.on() 
                         PoseCapture { label("Bisket") asset_name("bisket") }
+                        bisket_colliders()
+                        bisket_shirt_physics(false)
                     }
                 }
 

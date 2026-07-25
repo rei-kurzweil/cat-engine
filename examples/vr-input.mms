@@ -1,6 +1,9 @@
 // vr-input scene
 // Corresponds to examples/vr-input.rs
 
+import { pc_rei_secondary_motion } from "../assets/components/secondary_motion/pc-rei.mms"
+import { pc_rei_colliders } from "../assets/components/colliders/pc-rei.mms"
+
 // --- Renderer settings ---
 let renderer = RendererSettings.msaa_off() {
     window_size(640, 480)
@@ -130,15 +133,25 @@ ED {
                 hand_grip_rotation_right([-0.6408564, -0.29883623, -0.29883623, 0.6408564])
 
                 T {
-                    GLTF.new("assets/models/pc-rei.hoodie.glb") { EM.on() }
+                    GLTF.new("assets/models/pc-rei.hoodie.glb") {
+                        EM.on()
+                        pc_rei_colliders()
+                        pc_rei_secondary_motion()
+                    }
                 }
 
                 T.position(0.0, 0.18, 0.12) {
                         name = "xr_camera_wrapper"
                         CXR { Pointer {} }
                 }
-                XRHand.new(true, Left, Grip) { T { Pointer {} } }
-                XRHand.new(true, Right, Grip) { T { Pointer {} } }
+                XRHand.new(true, Left, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
+                    T { Pointer {} }
+                }
+                XRHand.new(true, Right, Grip)
+                    .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
+                    T { Pointer {} }
+                }
             }
         }
     }

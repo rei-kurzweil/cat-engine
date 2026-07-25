@@ -1,8 +1,8 @@
 // XR-only secondary-motion prototype. Spring metadata is attached by the Rust loader.
-// Move and turn your head/body in front of the mirror: the fourteen hair strands
-// should sag visibly under gravity, lag behind the primary avatar pose, keep
-// their lengths, and oscillate briefly before settling.
-import { bisket_secondary_motion } from "../assets/components/secondary_motion/bisket.mms"
+// Move and turn your head/body in front of the mirror: hair, bust, tail, and
+// shirt-hem chains should sag visibly under gravity, lag behind the primary
+// avatar pose, keep their lengths, and oscillate briefly before settling.
+import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 
 RendererSettings { window_size(640, 480) }
@@ -54,7 +54,7 @@ ED {
                         GLTF.new("assets/models/bisket.glb") {
                             EM.on()
                             bisket_colliders()
-                            bisket_secondary_motion(false)
+                            bisket_shirt_physics(false)
                         }
                     }
 
@@ -63,8 +63,14 @@ ED {
                         CXR { Pointer {} }
                     }
 
-                    XRHand.new(true, Left, Grip) { T { Pointer {} } }
-                    XRHand.new(true, Right, Grip) { T { Pointer {} } }
+                    XRHand.new(true, Left, Grip)
+                        .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
+                        T { Pointer {} }
+                    }
+                    XRHand.new(true, Right, Grip)
+                        .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
+                        T { Pointer {} }
+                    }
                 }
             }
         }
