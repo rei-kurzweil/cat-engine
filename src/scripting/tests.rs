@@ -4391,6 +4391,46 @@ fn roundtrip_spring_collision_configuration() {
     assert_eq!(chain.colliders.len(), 2);
 }
 
+fn assert_xr_gamepad_locomotion_targets(world: &World, path: &str) {
+    use crate::engine::ecs::component::{InputXRComponent, InputXRGamepadComponent};
+    use crate::engine::ecs::system::input_xr_gamepad_system::xr_locomotion_target_transform;
+
+    let gamepads: Vec<_> = world
+        .all_components()
+        .filter(|id| {
+            world
+                .get_component_by_id_as::<InputXRGamepadComponent>(*id)
+                .is_some()
+        })
+        .collect();
+    assert!(!gamepads.is_empty(), "{path}: missing InputXRGamepad");
+
+    for gamepad in gamepads {
+        let config = world
+            .get_component_by_id_as::<InputXRGamepadComponent>(gamepad)
+            .unwrap();
+        assert!(config.locomotion, "{path}: gamepad locomotion is disabled");
+
+        let mut ancestor = world.parent_of(gamepad);
+        let input_xr = loop {
+            let Some(component) = ancestor else {
+                panic!("{path}: InputXRGamepad has no InputXR ancestor");
+            };
+            if world
+                .get_component_by_id_as::<InputXRComponent>(component)
+                .is_some()
+            {
+                break component;
+            }
+            ancestor = world.parent_of(component);
+        };
+        assert!(
+            xr_locomotion_target_transform(world, input_xr).is_some(),
+            "{path}: InputXRGamepad has no locomotion Transform above InputXR"
+        );
+    }
+}
+
 #[test]
 fn all_bisket_secondary_motion_examples_evaluate_with_explicit_colliders() {
     use crate::engine::ecs::component::{
@@ -4466,6 +4506,9 @@ fn all_bisket_secondary_motion_examples_evaluate_with_explicit_colliders() {
             &mut emit,
         );
         assert!(output.errors.is_empty(), "{path}: {:?}", output.errors);
+        if expected_pointer_hands > 0 {
+            assert_xr_gamepad_locomotion_targets(&world, path);
+        }
         assert_eq!(
             world
                 .all_components()
@@ -4551,6 +4594,7 @@ fn pc_rei_xr_examples_evaluate_with_secondary_motion_and_hand_pointers() {
             &mut emit,
         );
         assert!(output.errors.is_empty(), "{path}: {:?}", output.errors);
+        assert_xr_gamepad_locomotion_targets(&world, path);
         assert_eq!(
             world
             .all_components()

@@ -95,19 +95,23 @@ fn main() {
 
     let _ = universe.attach(model, emissive);
 
+    let xr_locomotion_root = universe.world.add_component(TransformComponent::new());
     let xr_input = universe.world.add_component(InputXRComponent::on());
-    let xr_gamepad = universe
-        .world
-        .add_component(engine::ecs::component::InputXRGamepadComponent::new().speed(1.5));
+    let xr_gamepad = universe.world.add_component(
+        engine::ecs::component::InputXRGamepadComponent::new()
+            .locomotion()
+            .speed(1.5),
+    );
     let xr_head = universe.world.add_component(TransformComponent::new());
     let xr_camera = universe.world.add_component(CameraXRComponent::on());
+    let _ = universe.attach(xr_locomotion_root, xr_input);
     let _ = universe.attach(xr_input, xr_head);
     let _ = universe.attach(xr_input, xr_gamepad);
     let _ = universe.attach(xr_head, xr_camera);
     let _ = universe.attach(xr_head, model_root);
 
     let _ = universe.attach(model_root, model);
-    universe.add(xr_input);
+    universe.add(xr_locomotion_root);
     universe.add(model_root);
 
     // --- Background clouds (occluded + lit) ---

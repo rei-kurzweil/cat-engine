@@ -402,12 +402,8 @@ fn main() {
 
     // --- XR rig (Aim controller debug cubes only; camera has moved to AVC) ---
     let xr_input = universe.world.add_component(InputXRComponent::on());
-    let xr_gamepad = universe.world.add_component(
-        mittens_engine::engine::ecs::component::InputXRGamepadComponent::new().speed(1.5),
-    );
     let xr_rig = universe.world.add_component(TransformComponent::new());
     let _ = universe.attach(xr_input, xr_rig);
-    let _ = universe.attach(xr_input, xr_gamepad);
 
     // renderer stats
     let renderer_stats = universe
@@ -452,9 +448,12 @@ fn main() {
 
     let editor_root = universe.world.add_component(EditorComponent::new());
 
+    let avatar_locomotion_root = universe.world.add_component(TransformComponent::new());
     let avatar_input_xr = universe.world.add_component(InputXRComponent::on());
     let avatar_xr_gamepad = universe.world.add_component(
-        mittens_engine::engine::ecs::component::InputXRGamepadComponent::new().speed(1.5),
+        mittens_engine::engine::ecs::component::InputXRGamepadComponent::new()
+            .locomotion()
+            .speed(1.5),
     );
     let avatar_driven_t = universe.world.add_component(TransformComponent::new());
     let _ = universe.attach(avatar_input_xr, avatar_driven_t);
@@ -519,7 +518,8 @@ fn main() {
     let emissive = universe.world.add_component(EmissiveComponent::on());
     let _ = universe.attach(model, emissive);
 
-    let _ = universe.attach(editor_root, avatar_input_xr);
+    let _ = universe.attach(editor_root, avatar_locomotion_root);
+    let _ = universe.attach(avatar_locomotion_root, avatar_input_xr);
     let _ = universe.attach(avatar_control, model_root);
     let _ = universe.attach(model_root, model);
     attach_pc_rei_secondary_motion(&mut universe, model);

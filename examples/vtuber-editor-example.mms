@@ -157,13 +157,15 @@ ED {
 
 // --- bisket avatar — preserve the useful XR topology from bisket-vr-demo ---
 ED {
-    InputXR.on() {
-        InputXRGamepad {
-            locomotion()
-            speed(1.5)
-        }
-        T {
-            AVC {
+    T {
+        name = "avatar_locomotion_root"
+        InputXR.on() {
+            InputXRGamepad {
+                locomotion()
+                speed(1.5)
+            }
+            T {
+                AVC {
                 head_bone("J_Bip_C_Head")
                 camera_bone("J_Bip_C_Head")
                 left_hand_bone("J_Bip_L_Hand")
@@ -203,13 +205,14 @@ ED {
                     .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
                     T { Pointer {} }
                 }
-            }
+                }
 
-            OV {
-                T.scale(0.06, 0.06, 0.12) {
-                    R.cube() {
-                        C.rgba(0.00, 1.0, 1.0, 0.5)
-                        EM.on()
+                OV {
+                    T.scale(0.06, 0.06, 0.12) {
+                        R.cube() {
+                            C.rgba(0.00, 1.0, 1.0, 0.5)
+                            EM.on()
+                        }
                     }
                 }
             }

@@ -36,10 +36,12 @@ ED {
         R.cube() { Mirror.quality(2048) {} }
     }
 
-    InputXR.on() {
-        InputXRGamepad { locomotion() speed(1.5) }
-        T {
-            AVC {
+    T {
+        name = "avatar_locomotion_root"
+        InputXR.on() {
+            InputXRGamepad { locomotion() speed(1.5) }
+            T {
+                AVC {
                 head_bone("J_Bip_C_Head")
                 camera_bone("J_Bip_C_Head")
                 left_hand_bone("J_Bip_L_Hand")
@@ -72,6 +74,7 @@ ED {
                 XRHand.new(true, Right, Grip)
                     .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
                     T { Pointer {} }
+                }
                 }
             }
         }
