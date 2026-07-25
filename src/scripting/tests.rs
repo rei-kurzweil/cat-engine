@@ -4524,67 +4524,80 @@ fn all_bisket_secondary_motion_examples_evaluate_with_explicit_colliders() {
 }
 
 #[test]
-fn pc_rei_vr_input_evaluates_with_secondary_motion_and_hand_pointers() {
+fn pc_rei_xr_examples_evaluate_with_secondary_motion_and_hand_pointers() {
     use crate::engine::ecs::component::{
         ControllerXRComponent, PointerComponent, SpringBoneComponent, SpringColliderComponent,
     };
-    let mut world = World::default();
-    let mut rx = RxWorld::default();
-    let mut emit = CommandQueue::new();
-    let mut render_assets = RenderAssets::new();
-    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
-        include_str!("../../examples/vr-input.mms"),
-        Some("examples/vr-input.mms"),
-        &mut world,
-        &mut rx,
-        Some(&mut render_assets),
-        &mut emit,
-    );
-    assert!(output.errors.is_empty(), "{:?}", output.errors);
-    assert_eq!(
-        world
+    for (path, source) in [
+        (
+            "examples/vr-input.mms",
+            include_str!("../../examples/vr-input.mms"),
+        ),
+        (
+            "examples/pc-rei-mirror-example.mms",
+            include_str!("../../examples/pc-rei-mirror-example.mms"),
+        ),
+    ] {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut emit = CommandQueue::new();
+        let mut render_assets = RenderAssets::new();
+        let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+            source,
+            Some(path),
+            &mut world,
+            &mut rx,
+            Some(&mut render_assets),
+            &mut emit,
+        );
+        assert!(output.errors.is_empty(), "{path}: {:?}", output.errors);
+        assert_eq!(
+            world
             .all_components()
             .filter(|id| world
                 .get_component_by_id_as::<SpringBoneComponent>(*id)
                 .is_some())
             .count(),
-        10
-    );
-    assert_eq!(
-        world
+            10,
+            "{path}"
+        );
+        assert_eq!(
+            world
             .all_components()
             .filter(|id| world
                 .get_component_by_id_as::<SpringColliderComponent>(*id)
                 .is_some())
             .count(),
-        7
-    );
-    let laser_hands: Vec<_> = world
-        .all_components()
-        .filter(|id| {
-            world
-                .get_component_by_id_as::<ControllerXRComponent>(*id)
-                .is_some_and(|controller| controller.laser)
-        })
-        .collect();
-    assert_eq!(laser_hands.len(), 2);
-    for hand in laser_hands {
-        let mut pending = vec![hand];
-        assert!(
-            loop {
-                let Some(component) = pending.pop() else {
-                    break false;
-                };
-                if world
-                    .get_component_by_id_as::<PointerComponent>(component)
-                    .is_some()
-                {
-                    break true;
-                }
-                pending.extend(world.children_of(component).iter().copied());
-            },
-            "laser-enabled PC-Rei hand is missing a Pointer child"
+            7,
+            "{path}"
         );
+        let laser_hands: Vec<_> = world
+            .all_components()
+            .filter(|id| {
+                world
+                    .get_component_by_id_as::<ControllerXRComponent>(*id)
+                    .is_some_and(|controller| controller.laser)
+            })
+            .collect();
+        assert_eq!(laser_hands.len(), 2, "{path}");
+        for hand in laser_hands {
+            let mut pending = vec![hand];
+            assert!(
+                loop {
+                    let Some(component) = pending.pop() else {
+                        break false;
+                    };
+                    if world
+                        .get_component_by_id_as::<PointerComponent>(component)
+                        .is_some()
+                    {
+                        break true;
+                    }
+                    pending.extend(world.children_of(component).iter().copied());
+                },
+                "{path}: laser-enabled PC-Rei hand is missing a Pointer child"
+            );
+        }
     }
 }
 
