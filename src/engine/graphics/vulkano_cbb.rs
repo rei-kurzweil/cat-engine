@@ -583,15 +583,12 @@ impl VulkanoState {
     pub(super) fn record_transparent_multi_draws(
         &mut self,
         cbb: &mut AutoCommandBufferBuilder<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
-        visual_world: &mut VisualWorld,
+        visual_world: &VisualWorld,
         global_set: &Arc<DescriptorSet>,
         rig_set: &Arc<DescriptorSet>,
-        camera_target: crate::engine::graphics::CameraTarget,
-        eye: usize,
         excluded_instance: Option<InstanceHandle>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // --- Transparent pass (multi-layer, sorted) ---
-        visual_world.prepare_transparent_multi_draw_cache_for_eye(camera_target, eye);
         let owned_transparent = if excluded_instance.is_some() {
             Some(visual_world.transparent_multi_draw_excluding(excluded_instance))
         } else {

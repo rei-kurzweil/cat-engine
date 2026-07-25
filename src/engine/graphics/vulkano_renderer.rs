@@ -2883,7 +2883,8 @@ mod vulkano_backend {
                     excluded_instance, ..
                 } => *excluded_instance,
                 _ => None,
-            };
+            }
+            .filter(|&handle| visual_world.instance(handle).is_some());
 
             let queue = self.context.graphics_queue().clone();
 
@@ -2910,12 +2911,14 @@ mod vulkano_backend {
 
             // --- Opaque pass ---
             // Buffer indexed by opaque_stream().1; use its length for cache invalidation.
-            let (opaque_ops, opaque_instances) = if excluded_instance.is_some() {
-                visual_world.opaque_stream_excluding(excluded_instance)
-            } else {
-                let (ops, instances) = visual_world.opaque_stream();
-                (ops.to_vec(), instances.to_vec())
-            };
+            let owned_opaque_stream = excluded_instance
+                .map(|excluded| visual_world.opaque_stream_excluding(Some(excluded)));
+            let (opaque_ops, opaque_instances) =
+                if let Some((ops, instances)) = owned_opaque_stream.as_ref() {
+                    (&ops[..], &instances[..])
+                } else {
+                    visual_world.opaque_stream()
+                };
             let instance_count = opaque_instances.len();
 
             // --- Background pass ---
@@ -2927,22 +2930,26 @@ mod vulkano_backend {
                 background_instance_count > 0 || background_occluded_lit_instance_count > 0;
 
             // --- Cutout pass ---
-            let (cutout_ops, cutout_instances) = if excluded_instance.is_some() {
-                visual_world.cutout_stream_excluding(excluded_instance)
-            } else {
-                let (ops, instances) = visual_world.cutout_stream();
-                (ops.to_vec(), instances.to_vec())
-            };
+            let owned_cutout_stream = excluded_instance
+                .map(|excluded| visual_world.cutout_stream_excluding(Some(excluded)));
+            let (cutout_ops, cutout_instances) =
+                if let Some((ops, instances)) = owned_cutout_stream.as_ref() {
+                    (&ops[..], &instances[..])
+                } else {
+                    visual_world.cutout_stream()
+                };
             let cutout_instance_count = cutout_instances.len();
 
             // --- Overlay pass ---
             // Buffer indexed by overlay_stream().1; use its length for cache invalidation.
-            let (overlay_ops, overlay_instances) = if excluded_instance.is_some() {
-                visual_world.overlay_stream_excluding(excluded_instance)
-            } else {
-                let (ops, instances) = visual_world.overlay_stream();
-                (ops.to_vec(), instances.to_vec())
-            };
+            let owned_overlay_stream = excluded_instance
+                .map(|excluded| visual_world.overlay_stream_excluding(Some(excluded)));
+            let (overlay_ops, overlay_instances) =
+                if let Some((ops, instances)) = owned_overlay_stream.as_ref() {
+                    (&ops[..], &instances[..])
+                } else {
+                    visual_world.overlay_stream()
+                };
             let overlay_instance_count = overlay_instances.len();
 
             let stencil_clip_debug_requested = camera_target
@@ -3482,7 +3489,7 @@ mod vulkano_backend {
                 &rig_set,
                 &instance_buffer,
                 instance_count,
-                Some((&opaque_ops, &opaque_instances)),
+                Some((opaque_ops, opaque_instances)),
             )?;
 
             if let Some(cutout_instance_buffer) = cutout_instance_buffer.as_ref() {
@@ -3493,7 +3500,7 @@ mod vulkano_backend {
                     &rig_set,
                     cutout_instance_buffer,
                     cutout_instance_count,
-                    Some((&cutout_ops, &cutout_instances)),
+                    Some((cutout_ops, cutout_instances)),
                 )?;
             }
 
@@ -3511,8 +3518,6 @@ mod vulkano_backend {
                 visual_world,
                 &global_set_fg,
                 &rig_set,
-                camera_target,
-                eye,
                 excluded_instance,
             )?;
 
@@ -3539,7 +3544,7 @@ mod vulkano_backend {
                         &rig_set,
                         overlay_instance_buffer,
                         overlay_instance_count,
-                        Some((&overlay_ops, &overlay_instances)),
+                        Some((overlay_ops, overlay_instances)),
                     )?;
                 }
             }
@@ -3834,7 +3839,7 @@ mod vulkano_backend {
                             &rig_set,
                             overlay_instance_buffer,
                             overlay_instance_count,
-                            Some((&overlay_ops, &overlay_instances)),
+                            Some((overlay_ops, overlay_instances)),
                         )?;
                     }
                     cbb.end_rendering()?;

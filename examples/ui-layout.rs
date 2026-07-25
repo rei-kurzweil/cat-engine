@@ -9,9 +9,10 @@ fn main() {
     for error in &output.errors {
         eprintln!("[mms] {error}");
     }
-    println!(
-        "[mms] {} intent(s) from ui-layout.mms",
-        output.intents.len()
+    assert!(
+        output.errors.is_empty(),
+        "MMS evaluation produced errors: {:?}",
+        output.errors,
     );
 
     let world = engine::ecs::World::default();

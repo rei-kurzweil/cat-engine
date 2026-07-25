@@ -179,7 +179,6 @@ pub struct VisualWorld {
     background_occluded_lit_emissive_order: Vec<u32>,
     background_occluded_lit_emissive_batches: Vec<DrawBatch>,
     draw_order: Vec<u32>, // indices into `instances`
-    draw_batches: Vec<DrawBatch>,
 
     // Emissive-only opaque draw data (rebuilt when dirty).
     emissive_draw_order: Vec<u32>,
@@ -187,7 +186,6 @@ pub struct VisualWorld {
 
     // Alpha-to-coverage cutout draw data (rebuilt when dirty).
     cutout_order: Vec<u32>,
-    cutout_batches: Vec<DrawBatch>,
 
     // Emissive-only alpha-to-coverage draw data (rebuilt when dirty).
     emissive_cutout_order: Vec<u32>,
@@ -200,7 +198,6 @@ pub struct VisualWorld {
     // Overlay draw data (rebuilt when dirty).
     // Overlay is drawn on top of all other phases.
     overlay_order: Vec<u32>,
-    overlay_batches: Vec<DrawBatch>,
 
     // Stencil clip sources: indices into `instances` where `is_stencil_clip=true`,
     // sorted ascending by stencil_ref (outer clips first). Rebuilt with draw cache.
@@ -219,7 +216,6 @@ pub struct VisualWorld {
     // Transparent draw data.
     // - Single-layer: cached (order does not depend on view), instanced.
     transparent_single_draw_order: Vec<u32>,
-    transparent_single_draw_batches: Vec<DrawBatch>,
     transparent_single_stream: Vec<RenderOp>,
     transparent_single_stream_instances: Vec<u32>,
     // - Multi-layer: rebuilt per-eye (ordering depends on view), sorted + drawn one-by-one.
@@ -331,19 +327,16 @@ impl Default for VisualWorld {
             background_occluded_lit_emissive_order: Vec::new(),
             background_occluded_lit_emissive_batches: Vec::new(),
             draw_order: Vec::new(),
-            draw_batches: Vec::new(),
             emissive_draw_order: Vec::new(),
             emissive_draw_batches: Vec::new(),
 
             cutout_order: Vec::new(),
-            cutout_batches: Vec::new(),
             emissive_cutout_order: Vec::new(),
             emissive_cutout_batches: Vec::new(),
             cutout_stream: Vec::new(),
             cutout_stream_instances: Vec::new(),
 
             overlay_order: Vec::new(),
-            overlay_batches: Vec::new(),
 
             stencil_clip_order: Vec::new(),
 
@@ -354,7 +347,6 @@ impl Default for VisualWorld {
             opaque_stream_instances: Vec::new(),
 
             transparent_single_draw_order: Vec::new(),
-            transparent_single_draw_batches: Vec::new(),
             transparent_single_stream: Vec::new(),
             transparent_single_stream_instances: Vec::new(),
             transparent_multi_draw_order: Vec::new(),
@@ -732,6 +724,122 @@ mod tests {
                 .background_occluded_lit_emissive_batches()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn no_clip_streams_are_draw_batches_covering_each_phase_order_once() {
+        let mut visuals = VisualWorld::default();
+
+        for (component, alpha, cutout, overlay) in [
+            (120, 1.0, false, false),
+            (121, 1.0, true, false),
+            (122, 0.5, false, false),
+            (123, 1.0, false, true),
+        ] {
+            let _ = visuals.register(
+                cid(component),
+                dummy_renderable(),
+                Transform::default(),
+                [1.0, 1.0, 1.0, alpha],
+                1.0,
+                false,
+                cutout,
+                false,
+                false,
+                overlay,
+                0.0,
+                None,
+                3.0,
+            );
+        }
+
+        visuals.prepare_draw_cache();
+
+        for (order, (ops, stream_instances)) in [
+            (visuals.draw_order(), visuals.opaque_stream()),
+            (visuals.cutout_order(), visuals.cutout_stream()),
+            (
+                visuals.transparent_single_draw_order(),
+                visuals.transparent_single_stream(),
+            ),
+            (visuals.overlay_order(), visuals.overlay_stream()),
+        ] {
+            assert_eq!(stream_instances, order);
+            assert!(ops.iter().all(|op| matches!(
+                op,
+                RenderOp::DrawBatch(batch) if batch.stencil_ref == 0
+            )));
+            let drawn_instances = ops
+                .iter()
+                .map(|op| match op {
+                    RenderOp::DrawBatch(batch) => batch.count,
+                    _ => 0,
+                })
+                .sum::<usize>();
+            assert_eq!(drawn_instances, order.len());
+        }
+    }
+
+    #[test]
+    fn draw_cache_switches_between_no_clip_and_clip_stream_construction() {
+        let mut visuals = VisualWorld::default();
+        let clip_handle = visuals.register(
+            cid(124),
+            dummy_renderable(),
+            Transform::default(),
+            [1.0, 1.0, 1.0, 1.0],
+            1.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0.0,
+            None,
+            3.0,
+        );
+        let content_handle = visuals.register(
+            cid(125),
+            dummy_renderable(),
+            Transform::default(),
+            [1.0, 1.0, 1.0, 1.0],
+            1.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0.0,
+            None,
+            3.0,
+        );
+
+        visuals.prepare_draw_cache();
+        assert!(
+            visuals
+                .opaque_stream()
+                .0
+                .iter()
+                .all(|op| matches!(op, RenderOp::DrawBatch(_)))
+        );
+
+        assert!(visuals.register_stencil_clip(clip_handle, 0));
+        assert!(visuals.update_stencil_ref(content_handle, 1));
+        visuals.prepare_draw_cache();
+        assert!(
+            visuals
+                .opaque_stream()
+                .0
+                .iter()
+                .any(|op| matches!(op, RenderOp::EnterClip { .. }))
+        );
+
+        assert!(visuals.unregister_stencil_clip(clip_handle));
+        visuals.prepare_draw_cache();
+        assert!(visuals.opaque_stream().0.iter().all(|op| matches!(
+            op,
+            RenderOp::DrawBatch(batch) if batch.stencil_ref == 0
+        )));
     }
 
     #[test]
@@ -1514,6 +1622,7 @@ impl VisualWorld {
     fn build_phase_render_stream(
         instances: &[VisualInstance],
         phase_order: &[u32],
+        has_stencil_clips: bool,
         out_ops: &mut Vec<RenderOp>,
         out_instances: &mut Vec<u32>,
     ) {
@@ -1521,6 +1630,11 @@ impl VisualWorld {
         out_instances.clear();
 
         if phase_order.is_empty() {
+            return;
+        }
+
+        if !has_stencil_clips {
+            Self::append_stream_batches(instances, phase_order, 0, out_ops, out_instances);
             return;
         }
 
@@ -1588,6 +1702,18 @@ impl VisualWorld {
 
         let excluded_index =
             excluded_instance.and_then(|handle| self.handle_to_index.get(&handle).copied());
+        let has_stencil_clips = self.instances.iter().any(|inst| inst.is_stencil_clip);
+        if !has_stencil_clips {
+            Self::append_stream_batches(
+                &self.instances,
+                &filtered_order,
+                0,
+                out_ops,
+                out_instances,
+            );
+            return;
+        }
+
         let max_depth = filtered_order
             .iter()
             .map(|&i| self.instances[i as usize].stencil_ref)
@@ -1876,18 +2002,15 @@ impl VisualWorld {
         self.background_occluded_lit_emissive_order.clear();
         self.background_occluded_lit_emissive_batches.clear();
         self.draw_order.clear();
-        self.draw_batches.clear();
         self.emissive_draw_order.clear();
         self.emissive_draw_batches.clear();
         self.cutout_order.clear();
-        self.cutout_batches.clear();
         self.emissive_cutout_order.clear();
         self.emissive_cutout_batches.clear();
         self.cutout_stream.clear();
         self.cutout_stream_instances.clear();
 
         self.transparent_single_draw_order.clear();
-        self.transparent_single_draw_batches.clear();
         self.transparent_single_stream.clear();
         self.transparent_single_stream_instances.clear();
         self.transparent_multi_draw_order.clear();
@@ -2162,10 +2285,6 @@ impl VisualWorld {
         &self.draw_order
     }
 
-    pub fn draw_batches(&self) -> &[DrawBatch] {
-        &self.draw_batches
-    }
-
     /// Indices into `instances()` in the order they should be drawn (emissive opaque batching).
     pub fn emissive_draw_order(&self) -> &[u32] {
         &self.emissive_draw_order
@@ -2178,10 +2297,6 @@ impl VisualWorld {
     /// Indices into `instances()` in the order they should be drawn (alpha-to-coverage cutout pass).
     pub fn cutout_order(&self) -> &[u32] {
         &self.cutout_order
-    }
-
-    pub fn cutout_batches(&self) -> &[DrawBatch] {
-        &self.cutout_batches
     }
 
     /// DFS-ordered render stream for the alpha-to-coverage cutout phase.
@@ -2216,10 +2331,6 @@ impl VisualWorld {
     /// Indices into `instances()` in the order they should be drawn (overlay pass).
     pub fn overlay_order(&self) -> &[u32] {
         &self.overlay_order
-    }
-
-    pub fn overlay_batches(&self) -> &[DrawBatch] {
-        &self.overlay_batches
     }
 
     /// DFS-ordered render stream for the single-layer transparent phase.
@@ -2341,10 +2452,6 @@ impl VisualWorld {
         &self.transparent_single_draw_order
     }
 
-    pub fn transparent_single_draw_batches(&self) -> &[DrawBatch] {
-        &self.transparent_single_draw_batches
-    }
-
     /// Indices into `instances()` in the order they should be drawn (multi-layer transparent pass).
     pub fn transparent_multi_draw_order(&self) -> &[u32] {
         &self.transparent_multi_draw_order
@@ -2408,6 +2515,7 @@ impl VisualWorld {
         }
         self.stencil_clip_order
             .sort_by_key(|&i| self.instances[i as usize].stencil_ref);
+        let has_stencil_clips = !self.stencil_clip_order.is_empty();
 
         // Background pass: batch aggressively (order does not depend on view).
         // NOTE: Background instances are excluded from the normal opaque/transparent lists.
@@ -2488,13 +2596,11 @@ impl VisualWorld {
             )
         });
 
-        let draw_order = &self.draw_order;
-        Self::build_draw_batches_for_order(instances, draw_order, &mut self.draw_batches);
-
         // Build the DFS render stream for the opaque phase.
         Self::build_phase_render_stream(
             instances,
             &self.draw_order,
+            has_stencil_clips,
             &mut self.opaque_stream,
             &mut self.opaque_stream_instances,
         );
@@ -2524,12 +2630,10 @@ impl VisualWorld {
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
             )
         });
-        let cutout_order = &self.cutout_order;
-        Self::build_draw_batches_for_order(instances, cutout_order, &mut self.cutout_batches);
-
         Self::build_phase_render_stream(
             instances,
             &self.cutout_order,
+            has_stencil_clips,
             &mut self.cutout_stream,
             &mut self.cutout_stream_instances,
         );
@@ -2559,16 +2663,10 @@ impl VisualWorld {
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
             )
         });
-        let transparent_single_draw_order = &self.transparent_single_draw_order;
-        Self::build_draw_batches_for_order(
-            instances,
-            transparent_single_draw_order,
-            &mut self.transparent_single_draw_batches,
-        );
-
         Self::build_phase_render_stream(
             instances,
             &self.transparent_single_draw_order,
+            has_stencil_clips,
             &mut self.transparent_single_stream,
             &mut self.transparent_single_stream_instances,
         );
@@ -2591,13 +2689,11 @@ impl VisualWorld {
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
             )
         });
-        let overlay_order = &self.overlay_order;
-        Self::build_draw_batches_for_order(instances, overlay_order, &mut self.overlay_batches);
-
         // Build the DFS render stream for the overlay phase.
         Self::build_phase_render_stream(
             instances,
             &self.overlay_order,
+            has_stencil_clips,
             &mut self.overlay_stream,
             &mut self.overlay_stream_instances,
         );

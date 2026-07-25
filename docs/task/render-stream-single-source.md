@@ -1,6 +1,6 @@
 # Render streams as the single source for clip-capable phases
 
-Status: planned.
+Status: implemented; visual smoke tests and performance measurements pending.
 
 Epic: [Renderer optimisation](epic/renderer_optimisation.md)
 
@@ -134,3 +134,46 @@ the four main phase streams.
   unchanged.
 - Profiling records the before/after command-buffer preparation time and allocation count for at
   least one unclipped scene and one clipped scene.
+
+## Implementation record
+
+Implemented on 2026-07-24:
+
+- The opaque, cutout, single-layer transparent, and overlay flat batch caches, accessors, and
+  rebuild calls were removed. Their sorted phase orders now feed only the authoritative streams.
+- Dirty-cache preparation computes clip presence once and passes it to all four stream builders.
+  The no-clip path appends batches directly from the sorted order with stencil reference zero,
+  without depth discovery, clip-source grouping, or DFS.
+- Ordinary window and XR views borrow opaque, cutout, and overlay stream slices. Owned filtered
+  streams are constructed only when a mirror view supplies an excluded instance. Single-layer
+  transparency follows the same borrowed/owned convention.
+- Multi-layer transparency remains a specialized per-view flat cache. Its redundant second
+  per-eye rebuild during command recording was removed, preserving the render-view-specific sort
+  prepared before stream borrowing (including mirror views).
+- Added regression coverage for all four no-clip phase streams and for transitions from no clips,
+  to an active clip, and back.
+
+Automated validation:
+
+- `cargo check`: passed.
+- `cargo test visual_world --lib`: 12 passed.
+- `cargo test engine::graphics --lib`: 19 passed.
+- Existing nested-clip, cross-phase clip-source, and mirror-exclusion stream tests pass.
+
+Window smoke validation on 2026-07-24:
+
+- `clip-shape`: visually confirmed working.
+- `scrolling`: launched through first window render and remained in its present loop; use this as
+  the lightweight two-clip UI smoke scene.
+- `ui-layout`: was not a valid renderer smoke result because its MMS source had an unterminated
+  outer transform block. The source was repaired and its wrapper now treats MMS errors as fatal
+  instead of continuing into an empty scene. It remains a slow editor-integration target because
+  its `ED` subtree materializes roughly 12,000 runtime components before window creation.
+
+Still required before marking complete:
+
+- Visually compare a representative unclipped window scene and confirm the `scrolling` output.
+- Smoke-test a mirror scene and XR where the runtime is available.
+- Record before/after cache-build timing, allocation counts, copied stream bytes, operation counts,
+  and instance counts. The structural copied-byte result is zero for ordinary opaque, cutout, and
+  overlay stream selection after this change; runtime measurements are still pending.

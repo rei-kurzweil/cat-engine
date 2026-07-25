@@ -102,7 +102,7 @@ improvements above.
 
 | Effort | Status | Target | Evidence / outcome |
 | --- | --- | --- | --- |
-| [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Planned | Remove duplicate phase caches and common-path per-view stream copies | Pending |
+| [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Implemented; validation pending | Remove duplicate phase caches and common-path per-view stream copies | Automated tests pass; `clip-shape` works and `scrolling` reaches sustained window rendering; unclipped, mirror/XR, and profiling checks remain |
 | [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Planned | Keep clip membership indexed and omit fully outside content without per-frame scans | Pending |
 | [Opt-in system, MMS, Vulkano, and XR profiling](../opt-in-system-mms-vulkano-xr-profiling.md) | Planned | Establish selectable CPU/GPU measurements for optimization work | Pending |
 | [Renderer thread refactor](../refactor/renderer-thread.md) | Design | Move recording/submission work off the simulation thread | Requires profiling and a decided snapshot/command boundary |
