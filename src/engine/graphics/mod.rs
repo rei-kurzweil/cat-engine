@@ -1,4 +1,6 @@
 pub mod bounds;
+#[cfg(test)]
+pub(crate) mod deformation_reference;
 pub mod mesh;
 pub mod pipeline_descriptor_set_layouts;
 pub mod post_processing;

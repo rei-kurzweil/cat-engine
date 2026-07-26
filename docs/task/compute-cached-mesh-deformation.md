@@ -170,3 +170,20 @@ Draw and instance counts must remain unchanged except where measurement exposes 
 - Before/after evidence is recorded on the hardware required by the epic.
 - Graphics-stage skinning and its compatibility path are removed.
 
+## Implementation record
+
+### Slice 1: CPU deformation reference
+
+Completed on 2026-07-26:
+
+- Added a test-only CPU reference that mirrors the existing
+  `skinned-toon-mesh.vert` conventions: column-major matrices, direct four-weight matrix blending,
+  identity fallback, mesh-local position output, and normalized 3x3-transformed normals.
+- Covered identity, single-joint, four-weight, normal deformation, and two independently posed
+  instances sharing one base mesh.
+- Added clear failures for mismatched vertex-attribute counts and out-of-range joints.
+- `cargo test deformation_reference --lib`: 6 passed.
+
+The reference remains independent of the future compute implementation so GPU readback tests can
+use it as an oracle. The next slice is to settle the GPU input/output layouts and frames-in-flight
+ownership, then implement and test stable deformation-range allocation.
