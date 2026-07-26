@@ -1,6 +1,6 @@
 # Renderer optimisation
 
-Status: active tracker.
+Status: active tracker; GPU-cached deformation is the current implementation priority.
 
 ## Purpose
 
@@ -72,7 +72,7 @@ Gate result: passed on 2026-07-25. Automated stream tests and checks passed, rev
 measurements were recorded, and representative unclipped, clipped, scrolling, mirror, and XR
 rendering were visually confirmed.
 
-### Phase 2: omit fully outside clipped content
+### Deferred: omit fully outside clipped content
 
 Implement
 [event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md):
@@ -89,7 +89,11 @@ Implement
 6. Validate nested clips, topology changes, transform streams, transform-parent dependents,
    visibility restoration, and rotated 3D UI.
 
-### Phase 3: reduce active-stencil recording cost
+This phase is paused before baseline capture. Resume it only after the current
+[GPU-cached deformation and morph-target epic](gpu-cached-deformation-and-morph-targets.md)
+reaches an explicit stopping point or profiling changes the priority.
+
+### Deferred: reduce active-stencil recording cost
 
 Create focused follow-up tasks, with measurements, for:
 
@@ -98,7 +102,21 @@ Create focused follow-up tasks, with measurements, for:
 - omitting a clip's stencil operations from phases that have no visible content requiring that
   clip.
 
-### Phase 4: broader renderer work
+### Current direction: cache mesh deformation on the GPU
+
+Execute
+[GPU-cached deformation and morph targets](gpu-cached-deformation-and-morph-targets.md):
+
+1. Move repeated graphics-stage skinning to an event-driven compute pass.
+2. Cache mesh-local position and normal once per dirty deformation generation.
+3. Reuse that output across desktop, mirror, extraction, and XR-eye consumers.
+4. Extend the same pass with glTF morph targets and selected-instance editor controls.
+
+This work supersedes CPU clip culling as the next optimization effort. Completed render-stream
+work and its measurements remain the foundation and historical record; clipping tasks remain
+planned but deferred.
+
+### Broader renderer work
 
 Use profiling results to order instance-buffer reuse, upload batching, submission/wait reduction,
 and renderer-thread work. Do not make renderer threading a prerequisite for the cache and clipping
@@ -109,7 +127,8 @@ improvements above.
 | Effort | Status | Target | Evidence / outcome |
 | --- | --- | --- | --- |
 | [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Complete | Remove duplicate phase caches and common-path per-view stream copies | Validation gate passed; revision comparison records a 50.0% unclipped cache-build reduction, 41.4% fewer allocation calls, and zero common-path stream-copy bytes |
-| [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Next; baseline pending | Keep clip membership indexed and omit fully outside content without per-frame scans | Capture the pre-culling `scrolling` workload baseline before implementation |
+| [GPU-cached deformation and morph targets](gpu-cached-deformation-and-morph-targets.md) | Active; Phase 1 next | Evaluate dirty deformation once and reuse it across passes/views, then add morph targets and editor controls | Capture the graphics-stage skinning baseline before Phase 1 implementation |
+| [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Deferred; baseline not captured | Keep clip membership indexed and omit fully outside content without per-frame scans | Resume with the pre-culling `scrolling` workload baseline |
 | [Opt-in system, MMS, Vulkano, and XR profiling](../opt-in-system-mms-vulkano-xr-profiling.md) | Planned | Establish selectable CPU/GPU measurements for optimization work | Pending |
 | [Renderer thread refactor](../refactor/renderer-thread.md) | Design | Move recording/submission work off the simulation thread | Requires profiling and a decided snapshot/command boundary |
 | [Renderer CPU-time complexity](../../analysis/renderer-cpu-time-complexity.md) | Analysis | Submission, future cleanup, waits, uploads, and threading opportunities | Existing investigation and candidate mitigations |

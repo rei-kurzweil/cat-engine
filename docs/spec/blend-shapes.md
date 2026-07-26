@@ -1,6 +1,19 @@
 # Blend Shapes (Morph Targets) — Draft Spec
 
-Status: **draft**. No code changes yet — this doc is for design alignment.
+Status: **superseded** by
+[GPU-cached deformation and morph targets](../task/epic/gpu-cached-deformation-and-morph-targets.md).
+Implementation is tracked in
+[compute-cached mesh deformation](../task/compute-cached-mesh-deformation.md) and
+[morph targets and the editor panel](../task/morph-targets-and-editor-panel.md).
+
+This document remains as background research. Its glTF semantics, bind-pose morph-before-skin
+ordering, target naming, memory estimates, active-weight observations, and editor/pose terminology
+remain useful.
+
+Do not implement its runtime dense-versus-sparse analyzer, CSR storage selection, multiple morph
+graphics pipelines, authoring storage overrides, compute deferral, or morph-aware LOD proposal.
+The current plan normalizes all v1 targets to dense target-major arrays and evaluates morphs plus
+skinning once in the shared compute-cached deformation pass.
 
 This spec covers adding glTF morph targets ("blend shapes") to cat-engine alongside
 the existing static and skinned toon pipelines. The headline deliverable is a

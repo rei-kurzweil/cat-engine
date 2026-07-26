@@ -1,5 +1,7 @@
 # GPU-Cached Deformation and Morph Targets Documentation
 
+Status: complete.
+
 ## Summary
 
 Create a new epic that makes compute-cached mesh deformation the current optimization priority:
@@ -112,3 +114,16 @@ blend-shape proposal as superseded.
   execution optimization.
 - Disk caching, morph animation, VRM expression presets, serialized presets, retargeting, and LOD
   remain explicitly tracked follow-ups.
+
+## Implementation record
+
+Completed on 2026-07-26:
+
+- Added the active
+  [GPU-cached deformation and morph-target epic](epic/gpu-cached-deformation-and-morph-targets.md).
+- Added the Phase 1 [compute-cached mesh deformation](compute-cached-mesh-deformation.md) task.
+- Added the Phase 2 [morph targets and editor panel](morph-targets-and-editor-panel.md) task.
+- Marked the old [blend-shape draft](../spec/blend-shapes.md) as superseded while retaining useful
+  background research.
+- Updated the [renderer optimization tracker](epic/renderer_optimisation.md) to preserve completed
+  render-stream evidence, defer clipping work, and make cached deformation the current priority.
