@@ -122,12 +122,20 @@ Use profiling results to order instance-buffer reuse, upload batching, submissio
 and renderer-thread work. Do not make renderer threading a prerequisite for the cache and clipping
 improvements above.
 
+The corrected XR deformation measurements also isolated
+[spring-bone visualization command-flush performance](../spring-bone-visualization-command-flush-performance.md)
+as an adjacent CPU-update bottleneck. Marker calculation takes about `0.08 ms`, while executing
+the per-marker transform intents through the generic signal and transform path takes about
+`66 ms`. Address that measured batching problem independently of compute deformation and the
+secondary-motion solver.
+
 ## Effort tracker
 
 | Effort | Status | Target | Evidence / outcome |
 | --- | --- | --- | --- |
 | [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Complete | Remove duplicate phase caches and common-path per-view stream copies | Validation gate passed; revision comparison records a 50.0% unclipped cache-build reduction, 41.4% fewer allocation calls, and zero common-path stream-copy bytes |
 | [GPU-cached deformation and morph targets](gpu-cached-deformation-and-morph-targets.md) | Active; Phase 1 next | Evaluate dirty deformation once and reuse it across passes/views, then add morph targets and editor controls | Capture the graphics-stage skinning baseline before Phase 1 implementation |
+| [Spring-bone visualization command-flush performance](../spring-bone-visualization-command-flush-performance.md) | Open; measured | Batch retained debug-marker transform updates without repeating generic world dependency work per marker | Corrected XR baseline: visualization calculation `0.082 ms`, post-pose command flush `66.345 ms`, visualization-on FPS `8.389` |
 | [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Deferred; baseline not captured | Keep clip membership indexed and omit fully outside content without per-frame scans | Resume with the pre-culling `scrolling` workload baseline |
 | [Opt-in system, MMS, Vulkano, and XR profiling](../opt-in-system-mms-vulkano-xr-profiling.md) | Planned | Establish selectable CPU/GPU measurements for optimization work | Pending |
 | [Renderer thread refactor](../refactor/renderer-thread.md) | Design | Move recording/submission work off the simulation thread | Requires profiling and a decided snapshot/command boundary |
