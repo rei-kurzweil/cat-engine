@@ -867,7 +867,7 @@ pub(crate) fn sync_editor_cursor_visual(
     emit.push_intent_now(
         marker,
         IntentValue::UpdateTransform {
-            component_ids: vec![marker],
+            component_id: marker,
             translation,
             rotation_quat_xyzw: rotation,
             scale: [CURSOR_MARKER_SIZE, CURSOR_MARKER_SIZE, CURSOR_MARKER_SIZE],
@@ -881,11 +881,11 @@ pub(crate) fn sync_editor_cursor_visual(
             opacity.opacity = target_opacity;
         }
     }
-    if !opacity_ids.is_empty() {
+    for opacity_id in opacity_ids {
         emit.push_intent_now(
-            marker,
+            opacity_id,
             IntentValue::RegisterOpacity {
-                component_ids: opacity_ids,
+                component_id: opacity_id,
             },
         );
     }
@@ -1025,15 +1025,17 @@ fn ensure_cursor_marker(
     emit.push_intent_now(
         marker_root,
         IntentValue::RegisterTransform {
-            component_ids: vec![marker_root],
+            component_id: marker_root,
         },
     );
-    emit.push_intent_now(
-        marker_root,
-        IntentValue::RegisterRenderable {
-            component_ids: renderable_ids,
-        },
-    );
+    for renderable_id in renderable_ids {
+        emit.push_intent_now(
+            renderable_id,
+            IntentValue::RegisterRenderable {
+                component_id: renderable_id,
+            },
+        );
+    }
     marker_root
 }
 

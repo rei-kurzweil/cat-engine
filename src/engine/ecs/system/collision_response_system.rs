@@ -390,7 +390,7 @@ impl CollisionResponseSystem {
                 emit.push_intent_now(
                     transform_cid,
                     IntentValue::UpdateTransform {
-                        component_ids: vec![transform_cid],
+                        component_id: transform_cid,
                         translation: transform.translation,
                         rotation_quat_xyzw: transform.rotation,
                         scale: transform.scale,

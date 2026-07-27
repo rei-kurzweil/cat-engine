@@ -241,5 +241,4 @@ mod tests {
         assert!((bounds.height() - 3.0).abs() < 1e-4);
         assert!((bounds.depth() - 2.0).abs() < 1e-4);
     }
-
 }

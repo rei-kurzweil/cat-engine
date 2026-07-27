@@ -119,7 +119,7 @@ impl ArmatureVisualizationSystem {
             emit.push_intent_now(
                 marker_root,
                 IntentValue::RemoveSubtree {
-                    component_ids: vec![marker_root],
+                    component_id: marker_root,
                 },
             );
         }

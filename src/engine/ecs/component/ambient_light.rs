@@ -50,7 +50,7 @@ impl Component for AmbientLightComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterAmbientLight {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

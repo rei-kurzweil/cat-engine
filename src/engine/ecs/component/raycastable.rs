@@ -99,7 +99,7 @@ impl Component for RaycastableComponent {
             component,
             crate::engine::ecs::IntentSignal::now(
                 crate::engine::ecs::IntentValue::RegisterRaycastable {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             ),
         );
@@ -114,7 +114,7 @@ impl Component for RaycastableComponent {
             component,
             crate::engine::ecs::IntentSignal::now(
                 crate::engine::ecs::IntentValue::RemoveRaycastable {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             ),
         );

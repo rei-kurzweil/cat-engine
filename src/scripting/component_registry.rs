@@ -10,11 +10,12 @@ use crate::engine::ecs::component::style::VerticalAlign;
 /// ctor info, applies builder calls, named assignments, and positionals, then
 /// recurses into children.
 use crate::engine::ecs::component::{
-    ActionComponent, AlignItems, AmbientLightComponent, AnimationComponent, AnimationState,
-    AudioClipComponent, AudioOscillator, AudioOscillatorComponent, AudioOutputComponent,
-    AudioTriggerMode, AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent,
-    BackgroundComponent, BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing,
-    Camera2DComponent, Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
+    AlignItems, AmbientLightComponent, AnimationComponent, AnimationState,
+    AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioLimiterComponent,
+    AudioOscillator, AudioOscillatorComponent, AudioOutputComponent, AudioTriggerMode,
+    AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent, BackgroundComponent,
+    BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing, Camera2DComponent,
+    Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
     CollisionResponseComponent, CollisionShape, CollisionShapeComponent, ColorComponent,
     ControllerHand, ControllerPoseKind, DataComponent, DataValue, DirectionalLightComponent,
     Display, DraggableComponent, DraggablePlane, EdgeInsets, EditorComponent,
@@ -35,15 +36,15 @@ use crate::engine::ecs::component::{
     SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
     SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
     SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
-    SpringJointComponent, StencilClipComponent,
-    StyleComponent, TextAlign, TextComponent, TextInputComponent, TextShadowComponent,
-    TextureComponent, TextureFilteringComponent, ToggleComponent, TransformCameraSpecificComponent,
-    TransformComponent, TransformDropComponent, TransformForkTRSComponent, TransformGizmoAxis,
-    TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoRotateComponent,
-    TransformGizmoScaleComponent, TransformGizmoTranslateComponent, TransformMapRotationComponent,
-    TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
-    TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
-    TransitionEasing, TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
+    SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
+    TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
+    ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
+    TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
+    TransformGizmoCoordSpace, TransformGizmoRotateComponent, TransformGizmoScaleComponent,
+    TransformGizmoTranslateComponent, TransformMapRotationComponent, TransformMapScaleComponent,
+    TransformMapTranslationComponent, TransformMergeTRSComponent, TransformParentComponent,
+    TransformSampleAncestorComponent, TransitionComponent, TransitionEasing,
+    TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
     Vector3TemporalFilterComponent, WordWrapMode, XRHandComponent, XrComponent, XrHandPreference,
 };
 use crate::engine::ecs::{ComponentId, World};
@@ -71,11 +72,13 @@ pub fn with_live_render_assets<R>(render_assets: &mut RenderAssets, f: impl FnOn
 }
 
 pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
-    "Action",
     "AmbientLight",
     "Animation",
     "AssetPayload",
+    "AudioBandPassFilter",
     "AudioClip",
+    "AudioGain",
+    "AudioLimiter",
     "AudioOscillator",
     "AudioOutput",
     "AvatarBodyYaw",
@@ -522,19 +525,10 @@ fn collect_referenced_guids_filtered(
     node: ComponentId,
     out: &mut std::collections::HashSet<uuid::Uuid>,
 ) {
-    use crate::engine::ecs::component::{
-        ActionComponent, ComponentRef, IKChainComponent, TransformParentComponent,
-    };
+    use crate::engine::ecs::component::{ComponentRef, IKChainComponent, TransformParentComponent};
 
     let visible = filtered_save_visibility(world, node);
     if visible {
-        if let Some(action) = world.get_component_by_id_as::<ActionComponent>(node) {
-            for src in &action.target_sources {
-                if let ComponentRef::Guid(u) = src {
-                    out.insert(*u);
-                }
-            }
-        }
         if let Some(ik) = world.get_component_by_id_as::<IKChainComponent>(node) {
             for src in [&ik.target_source, &ik.end_effector_source]
                 .iter()
@@ -614,10 +608,7 @@ pub fn subtree_to_ce_ast_limited(
     root: ComponentId,
     max_depth: usize,
 ) -> Result<ComponentExpression, String> {
-    // First pass: collect every GUID referenced by any ActionComponent in
-    // the subtree via `ComponentRef::Guid`. These are the targets that
-    // need their GUID preserved across save/load so the dumped
-    // `@uuid:<g>` selector still resolves on reload.
+    // First pass: collect GUIDs referenced by serializable component references.
     let mut referenced_guids: std::collections::HashSet<uuid::Uuid> =
         std::collections::HashSet::new();
     collect_referenced_guids_limited(world, root, 0, max_depth, &mut referenced_guids);
@@ -632,16 +623,7 @@ fn collect_referenced_guids_limited(
     max_depth: usize,
     out: &mut std::collections::HashSet<uuid::Uuid>,
 ) {
-    use crate::engine::ecs::component::{
-        ActionComponent, ComponentRef, IKChainComponent, TransformParentComponent,
-    };
-    if let Some(action) = world.get_component_by_id_as::<ActionComponent>(node) {
-        for src in &action.target_sources {
-            if let ComponentRef::Guid(u) = src {
-                out.insert(*u);
-            }
-        }
-    }
+    use crate::engine::ecs::component::{ComponentRef, IKChainComponent, TransformParentComponent};
     if let Some(ik) = world.get_component_by_id_as::<IKChainComponent>(node) {
         for src in [&ik.target_source, &ik.end_effector_source]
             .iter()
@@ -1143,11 +1125,7 @@ fn parse_editor_ui_panel_specs(args: &[Value]) -> Result<Vec<EditorUIPanelSpec>,
                                 "show_gltf_colliders",
                                 true,
                             )?,
-                            show_spring_bones: editor_ui_bool(
-                                &config,
-                                "show_spring_bones",
-                                true,
-                            )?,
+                            show_spring_bones: editor_ui_bool(&config, "show_spring_bones", true)?,
                         })
                     }
                     _ if config.is_empty() => EditorUIPanelConfig::Empty,
@@ -1401,12 +1379,14 @@ fn create_component(
                 let tessellations = arg_u32(args, 0).unwrap_or(0);
                 let sphericalness = arg_f32(args, 1).unwrap_or(0.0);
                 let thickness = arg_f32(args, 2).unwrap_or(0.02);
-                Ok(world.add_component(RenderableComponent::wireframe_icosahedron(
-                    render_assets,
-                    tessellations,
-                    sphericalness,
-                    thickness,
-                )))
+                Ok(
+                    world.add_component(RenderableComponent::wireframe_icosahedron(
+                        render_assets,
+                        tessellations,
+                        sphericalness,
+                        thickness,
+                    )),
+                )
             }),
             Some("circle2d") => add!(RenderableComponent::circle2d()),
             Some("cone") => {
@@ -1716,7 +1696,10 @@ fn create_component(
                 arg_component_ref_vec(world, args, 0)?,
                 arg_f32(args, 1)?,
             )),
-            _ => Err("SpringCollider requires .sphere(target, radius) or .spheres(targets, radius)".into()),
+            _ => Err(
+                "SpringCollider requires .sphere(target, radius) or .spheres(targets, radius)"
+                    .into(),
+            ),
         },
         "SpringBone" => match ctor {
             Some("new") => add!(SpringBoneComponent::new(arg_str(args, 0)?)),
@@ -1961,129 +1944,6 @@ fn create_component(
             Some("at") => add!(KeyframeComponent::new(arg_f32(args, 0)? as f64)),
             _ => Err("Keyframe requires .at(beat)".into()),
         },
-        "Action" => {
-            use crate::engine::ecs::IntentValue as IV;
-            use slotmap::Key;
-            let null_ids = |n: usize| vec![ComponentId::null(); n];
-            match ctor {
-                Some("noop") => add!(ActionComponent::default()),
-                Some("print") => add!(ActionComponent::print(arg_str(args, 0)?)),
-                Some("set_color") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let rgba = arg_f32_arr::<4>(args, 1)?;
-                    let signal = IV::SetColor {
-                        component_ids: null_ids(targets.len()),
-                        rgba,
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("set_text") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let text = arg_str(args, 1)?.to_string();
-                    let signal = IV::SetText {
-                        component_ids: null_ids(targets.len()),
-                        text,
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("set_emissive_intensity") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let intensity = arg_f32(args, 1)?.max(0.0);
-                    let signal = IV::SetEmissiveIntensity {
-                        component_ids: null_ids(targets.len()),
-                        intensity,
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("set_position") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let position = arg_f32_arr::<3>(args, 1)?;
-                    let signal = IV::SetPosition {
-                        component_ids: null_ids(targets.len()),
-                        position,
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("attach") => {
-                    let parents = arg_component_ref_vec(world, args, 0)?;
-                    let child = arg_component_ref(world, args, 1)?;
-                    let mut sources = parents.clone();
-                    sources.push(child);
-                    let signal = IV::Attach {
-                        parents: null_ids(parents.len()),
-                        child: ComponentId::null(),
-                    };
-                    add!(ActionComponent::new_authored(signal, sources))
-                }
-                Some("attach_clone") => {
-                    let parents = arg_component_ref_vec(world, args, 0)?;
-                    let prefab = arg_component_ref(world, args, 1)?;
-                    let mut sources = parents.clone();
-                    sources.push(prefab);
-                    let signal = IV::AttachClone {
-                        parents: null_ids(parents.len()),
-                        prefab_root: ComponentId::null(),
-                    };
-                    add!(ActionComponent::new_authored(signal, sources))
-                }
-                Some("detach") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let signal = IV::Detach {
-                        component_ids: null_ids(targets.len()),
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("remove_subtree") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let signal = IV::RemoveSubtree {
-                        component_ids: null_ids(targets.len()),
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("request_raycast") => {
-                    let targets = arg_component_ref_vec(world, args, 0)?;
-                    let signal = IV::RequestRaycast {
-                        component_ids: null_ids(targets.len()),
-                    };
-                    add!(ActionComponent::new_authored(signal, targets))
-                }
-                Some("update_transform") => {
-                    let target = arg_component_ref(world, args, 0)?;
-                    let translation = arg_f32_arr::<3>(args, 1)?;
-                    let rotation_euler = arg_f32_arr::<3>(args, 2)?;
-                    let scale = arg_f32_arr::<3>(args, 3)?;
-                    let transform = TransformComponent::new()
-                        .with_position(translation[0], translation[1], translation[2])
-                        .with_rotation_euler(
-                            rotation_euler[0],
-                            rotation_euler[1],
-                            rotation_euler[2],
-                        )
-                        .with_scale(scale[0], scale[1], scale[2]);
-                    let signal = IV::UpdateTransform {
-                        component_ids: null_ids(1),
-                        translation: transform.transform.translation,
-                        rotation_quat_xyzw: transform.transform.rotation,
-                        scale: transform.transform.scale,
-                    };
-                    add!(ActionComponent::new_authored(signal, vec![target]))
-                }
-                Some("update_transform_quat") => {
-                    let target = arg_component_ref(world, args, 0)?;
-                    let translation = arg_f32_arr::<3>(args, 1)?;
-                    let rotation_quat = arg_f32_arr::<4>(args, 2)?;
-                    let scale = arg_f32_arr::<3>(args, 3)?;
-                    let signal = IV::UpdateTransform {
-                        component_ids: null_ids(1),
-                        translation,
-                        rotation_quat_xyzw: rotation_quat,
-                        scale,
-                    };
-                    add!(ActionComponent::new_authored(signal, vec![target]))
-                }
-                _ => add!(ActionComponent::default()),
-            }
-        }
         "NormalVis" => {
             let mut c = NormalVisualisationComponent::new();
             if let Some("thickness") = ctor {
@@ -2230,8 +2090,26 @@ fn create_component(
             }
             add!(mn)
         }
-        "AudioOutput" => {
-            add!(AudioOutputComponent::new())
+        "AudioOutput" => match ctor {
+            Some("off") => add!(AudioOutputComponent::off()),
+            _ => add!(AudioOutputComponent::new()),
+        },
+        "AudioGain" => {
+            add!(AudioGainComponent::new(arg_f32(args, 0)?))
+        }
+        "AudioBandPassFilter" => {
+            add!(AudioBandPassFilterComponent::new(
+                arg_f32(args, 0)?,
+                arg_f32(args, 1)?,
+                arg_f32(args, 2)?,
+            ))
+        }
+        "AudioLimiter" => {
+            add!(AudioLimiterComponent::new(
+                arg_f32(args, 0)?,
+                arg_f32(args, 1)?,
+                arg_f32(args, 2)?,
+            ))
         }
         "AudioOscillator" => {
             let kind = match ctor {
@@ -3354,7 +3232,6 @@ fn apply_call(
         .get_component_by_id_as::<AnimationComponent>(id)
         .is_some()
     {
-        use crate::engine::ecs::component::ResolveTargetsMode;
         let scope_src = if method == "scope" {
             Some(arg_component_ref(world, args, 0)?)
         } else {
@@ -3375,18 +3252,6 @@ fn apply_call(
                 *anim = anim
                     .clone()
                     .with_scope_source(scope_src.expect("scope arg pre-parsed"));
-            }
-            "resolve_targets" => {
-                let mode = match arg_str(args, 0)? {
-                    "on_attach" => ResolveTargetsMode::OnAttach,
-                    "on_play" => ResolveTargetsMode::OnPlay,
-                    other => {
-                        return Err(format!(
-                            "Animation.resolve_targets: expected 'on_attach' or 'on_play', got {other:?}"
-                        ));
-                    }
-                };
-                *anim = anim.clone().with_resolve_targets(mode);
             }
             _ => {}
         }

@@ -187,7 +187,7 @@ pub(crate) fn sync_editor_settings_armature_toggle(
         emit.push_intent_now(
             toggle,
             IntentValue::ToggleSet {
-                component_ids: vec![toggle],
+                component_id: toggle,
                 value: editor_context.armature_visible,
             },
         );
@@ -199,7 +199,7 @@ pub(crate) fn sync_editor_settings_armature_toggle(
             emit.push_intent_now(
                 child,
                 IntentValue::RemoveSubtree {
-                    component_ids: vec![child],
+                    component_id: child,
                 },
             );
         }
@@ -279,7 +279,7 @@ fn sync_boolean_toggle(
         emit.push_intent_now(
             toggle,
             IntentValue::ToggleSet {
-                component_ids: vec![toggle],
+                component_id: toggle,
                 value: on,
             },
         );
@@ -288,7 +288,7 @@ fn sync_boolean_toggle(
         emit.push_intent_now(
             child,
             IntentValue::RemoveSubtree {
-                component_ids: vec![child],
+                component_id: child,
             },
         );
     }
@@ -543,7 +543,7 @@ pub(crate) fn handle_editor_settings_panel_click(
                 emit.push_intent_now(
                     owner,
                     IntentValue::CollisionVisualizationSet {
-                        component_ids: vec![owner],
+                        component_id: owner,
                         scope_roots: effective_editor_roots(world, installed_editor_roots),
                         mode,
                     },
@@ -568,7 +568,7 @@ pub(crate) fn handle_editor_settings_panel_click(
                 emit.push_intent_now(
                     owner,
                     IntentValue::CameraVisualizationSet {
-                        component_ids: vec![owner],
+                        component_id: owner,
                         scope_roots: effective_editor_roots(world, installed_editor_roots),
                         visible,
                     },
@@ -593,7 +593,7 @@ pub(crate) fn handle_editor_settings_panel_click(
                 emit.push_intent_now(
                     owner,
                     IntentValue::SpringBoneVisualizationSet {
-                        component_ids: vec![owner],
+                        component_id: owner,
                         scope_roots: effective_editor_roots(world, installed_editor_roots),
                         visible,
                     },
@@ -629,7 +629,7 @@ pub(crate) fn handle_editor_settings_panel_click(
                 emit.push_intent_now(
                     gltf_component,
                     IntentValue::GLTFArmatureVisible {
-                        component_ids: vec![gltf_component],
+                        component_id: gltf_component,
                         visible,
                     },
                 );
@@ -870,19 +870,16 @@ mod tests {
         let roots = Arc::new(Mutex::new(vec![editor_root]));
 
         assert!(handle_editor_settings_panel_click(
-            &mut world,
-            &mut emit,
-            editor_ui,
-            row,
-            &context,
-            &roots,
+            &mut world, &mut emit, editor_ui, row, &context, &roots,
         ));
         systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut emit);
         assert!(context.lock().unwrap().spring_bones_visible);
-        assert!(systems
-            .spring_bone_visualization
-            .requests()
-            .contains_key(&editor_ui));
+        assert!(
+            systems
+                .spring_bone_visualization
+                .requests()
+                .contains_key(&editor_ui)
+        );
         assert!(systems.collision_visualization.requests().is_empty());
     }
 }

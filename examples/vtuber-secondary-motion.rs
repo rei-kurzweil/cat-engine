@@ -92,7 +92,7 @@ fn apply_perf_case(universe: &mut engine::Universe, case: VrPerfCase) {
             universe.command_queue.push_intent_now(
                 component,
                 engine::ecs::IntentValue::RemoveSubtree {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             );
         }
@@ -102,7 +102,7 @@ fn apply_perf_case(universe: &mut engine::Universe, case: VrPerfCase) {
             universe.command_queue.push_intent_now(
                 component,
                 engine::ecs::IntentValue::RemoveSubtree {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             );
         }

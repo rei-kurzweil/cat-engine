@@ -598,7 +598,7 @@ pub(crate) fn rerender_inspector_panels(
         emit.push_intent_now(
             child,
             IntentValue::RemoveSubtree {
-                component_ids: vec![child],
+                component_id: child,
             },
         );
     }
@@ -627,7 +627,7 @@ pub(crate) fn rerender_inspector_panels(
         emit.push_intent_now(
             layout_root,
             IntentValue::Attach {
-                parents: vec![layout_root],
+                parent: layout_root,
                 child: instance_root,
             },
         );
@@ -663,7 +663,7 @@ pub(crate) fn rerender_single_inspector_panel_sidebar(
         emit.push_intent_now(
             existing_content_root,
             IntentValue::RemoveSubtree {
-                component_ids: vec![existing_content_root],
+                component_id: existing_content_root,
             },
         );
     }
@@ -773,7 +773,7 @@ pub(crate) fn update_inspector_panel_instance_tree(
         emit.push_intent_now(
             title_label,
             IntentValue::SetText {
-                component_ids: vec![title_label],
+                component_id: title_label,
                 text: model.title.clone(),
             },
         );
@@ -1304,7 +1304,7 @@ pub(crate) fn set_inspector_pin_button_state(
         emit.push_intent_now(
             text,
             IntentValue::SetText {
-                component_ids: vec![text],
+                component_id: text,
                 text: if pinned { "Unpin" } else { "Pin" }.to_string(),
             },
         );
@@ -1497,7 +1497,7 @@ pub(crate) fn focus_panel_from_descendant_click(
         emit.push_intent_now(
             panel_layout_selection,
             IntentValue::SelectionSet {
-                component_ids: vec![panel_layout_selection],
+                component_id: panel_layout_selection,
                 entries: vec![SelectionEntry {
                     index: None,
                     component: panel_root,
@@ -1524,7 +1524,7 @@ pub(crate) fn focus_panel_from_descendant_click(
         emit.push_intent_now(
             panel_layout_selection,
             IntentValue::SelectionSet {
-                component_ids: vec![panel_layout_selection],
+                component_id: panel_layout_selection,
                 entries: vec![SelectionEntry {
                     index: None,
                     component: panel_root,
@@ -1585,11 +1585,11 @@ mod tests {
         assert_eq!(*scope, panel_layout_selection);
         match &intent.value {
             IntentValue::SelectionSet {
-                component_ids,
+                component_id,
                 entries,
                 primary,
             } => {
-                assert_eq!(component_ids, &vec![panel_layout_selection]);
+                assert_eq!(component_id, &panel_layout_selection);
                 assert_eq!(entries.len(), 1);
                 assert_eq!(entries[0].component, settings_panel_root);
                 assert_eq!(*primary, Some(settings_panel_root));

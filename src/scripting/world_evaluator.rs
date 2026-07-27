@@ -2013,7 +2013,7 @@ fn eval_method_call(
             push_eval_intent(
                 ctx,
                 IntentValue::AudioSchedulePlay {
-                    component_ids: vec![target],
+                    component_id: target,
                     beat_offset: 0.0,
                     beat_context: None,
                     note: Some(note),
@@ -2127,7 +2127,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::SetAnimationState {
-                        component_ids: vec![id],
+                        component_id: id,
                         state,
                     },
                 );
@@ -2219,7 +2219,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::SetLayoutAvailableWidth {
-                        component_ids: vec![id],
+                        component_id: id,
                         width,
                     },
                 );
@@ -2265,7 +2265,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::SetLayoutAvailableHeight {
-                        component_ids: vec![id],
+                        component_id: id,
                         height,
                     },
                 );
@@ -2296,7 +2296,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::SetLayoutInspect {
-                        component_ids: vec![id],
+                        component_id: id,
                         enabled,
                     },
                 );
@@ -2322,7 +2322,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::SetText {
-                        component_ids: vec![id],
+                        component_id: id,
                         text,
                     },
                 );
@@ -2358,7 +2358,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::UpdateTransform {
-                        component_ids: vec![id],
+                        component_id: id,
                         translation: next.translation,
                         rotation_quat_xyzw: next.rotation,
                         scale: next.scale,
@@ -2400,12 +2400,7 @@ fn eval_method_call(
                     camera.enabled = enabled;
                     return Ok(Value::Null);
                 }
-                push_eval_intent(
-                    ctx,
-                    IntentValue::MakeActiveCamera {
-                        component_ids: vec![id],
-                    },
-                );
+                push_eval_intent(ctx, IntentValue::MakeActiveCamera { component_id: id });
                 return Ok(Value::Null);
             }
 
@@ -2442,12 +2437,7 @@ fn eval_method_call(
                     camera.enabled = enabled;
                     return Ok(Value::Null);
                 }
-                push_eval_intent(
-                    ctx,
-                    IntentValue::MakeActiveCamera {
-                        component_ids: vec![id],
-                    },
-                );
+                push_eval_intent(ctx, IntentValue::MakeActiveCamera { component_id: id });
                 return Ok(Value::Null);
             }
 
@@ -2482,7 +2472,7 @@ fn eval_method_call(
                 push_eval_intent(
                     ctx,
                     IntentValue::SetText {
-                        component_ids: vec![id],
+                        component_id: id,
                         text: cur_text,
                     },
                 );

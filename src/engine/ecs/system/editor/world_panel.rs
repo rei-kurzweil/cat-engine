@@ -487,7 +487,7 @@ fn rerender_panel_status(
         emit.push_intent_now(
             existing_status_root,
             crate::engine::ecs::IntentValue::RemoveSubtree {
-                component_ids: vec![existing_status_root],
+                component_id: existing_status_root,
             },
         );
     }
@@ -510,7 +510,7 @@ fn rerender_panel_status(
     emit.push_intent_now(
         spawned_status_root,
         crate::engine::ecs::IntentValue::Attach {
-            parents: vec![status_wrap],
+            parent: status_wrap,
             child: spawned_status_root,
         },
     );

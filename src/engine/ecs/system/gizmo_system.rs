@@ -741,12 +741,7 @@ impl TransformGizmoSystem {
         }
 
         if let Some(root) = old_debug_root {
-            emit.push_intent_now(
-                root,
-                IntentValue::RemoveSubtree {
-                    component_ids: vec![root],
-                },
-            );
+            emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
         }
 
         if Self::debug_drag_plane_enabled() {
@@ -1140,12 +1135,7 @@ impl TransformGizmoSystem {
 
             if Self::debug_drag_plane_enabled() {
                 if let Some(root) = g.debug_drag_plane_root.take() {
-                    emit.push_intent_now(
-                        root,
-                        IntentValue::RemoveSubtree {
-                            component_ids: vec![root],
-                        },
-                    );
+                    emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
                 }
             }
         }

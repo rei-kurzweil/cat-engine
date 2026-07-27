@@ -101,7 +101,7 @@ impl RendererStatsSystem {
                 queue.push_intent_now(
                     stats_id,
                     crate::engine::ecs::IntentValue::SetText {
-                        component_ids: vec![text_id],
+                        component_id: text_id,
                         text: new_text,
                     },
                 );

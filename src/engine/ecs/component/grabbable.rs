@@ -59,7 +59,7 @@ impl Component for GrabbableComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterGrabbable {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

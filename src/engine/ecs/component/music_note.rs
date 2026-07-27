@@ -294,7 +294,7 @@ impl Component for MusicNoteComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::AudioSchedulePlay {
-                component_ids: vec![target],
+                component_id: target,
                 beat_offset: 0.0,
                 beat_context: self.scheduled_beat,
                 note: Some(self.note),

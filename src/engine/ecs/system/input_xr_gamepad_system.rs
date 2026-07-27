@@ -374,7 +374,7 @@ fn apply_locomotion(
     emit.push_intent_now(
         target_tcid,
         IntentValue::UpdateTransform {
-            component_ids: vec![target_tcid],
+            component_id: target_tcid,
             translation: transform.translation,
             rotation_quat_xyzw: transform.rotation,
             scale: transform.scale,

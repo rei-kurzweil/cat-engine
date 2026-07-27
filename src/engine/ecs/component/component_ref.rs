@@ -2,7 +2,7 @@
 //! the surface form the author wrote.
 //!
 //! Used by components that hold pointers to other components in MMS
-//! source (`ActionComponent.target_sources`, `IKChainComponent.target_source`,
+//! source (`IKChainComponent.target_source`,
 //! `IKChainComponent.end_effector_source`, …). The two variants cover the
 //! two durable on-disk forms; whichever was authored is preserved
 //! verbatim through dump so save → reload reproduces the original

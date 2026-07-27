@@ -82,16 +82,13 @@ fn wireframe_box_mesh_is_cached_by_thickness_and_retains_unit_extents() {
 fn curved_wireframe_meshes_reuse_normalized_cache_keys() {
     let mut assets = RenderAssets::new();
     let sphere = RenderableComponent::wireframe_sphere(&mut assets, 1, 2, 0.0);
-    let sphere_normalized =
-        RenderableComponent::wireframe_sphere(&mut assets, 2, 3, 0.0001);
-    let sphere_detailed =
-        RenderableComponent::wireframe_sphere(&mut assets, 3, 3, 0.0001);
+    let sphere_normalized = RenderableComponent::wireframe_sphere(&mut assets, 2, 3, 0.0001);
+    let sphere_detailed = RenderableComponent::wireframe_sphere(&mut assets, 3, 3, 0.0001);
     assert_eq!(sphere.renderable.mesh, sphere_normalized.renderable.mesh);
     assert_ne!(sphere.renderable.mesh, sphere_detailed.renderable.mesh);
 
     let ico = RenderableComponent::wireframe_icosahedron(&mut assets, 1, 2.0, 0.8);
-    let ico_normalized =
-        RenderableComponent::wireframe_icosahedron(&mut assets, 1, 1.0, 0.5);
+    let ico_normalized = RenderableComponent::wireframe_icosahedron(&mut assets, 1, 1.0, 0.5);
     assert_eq!(ico.renderable.mesh, ico_normalized.renderable.mesh);
 }
 
@@ -201,7 +198,7 @@ fn attaching_gizmo_does_not_move_target_or_unrelated_follower() {
     queue.push_intent_now(
         avatar_root,
         IntentValue::Attach {
-            parents: vec![tail],
+            parent: tail,
             child: gizmo,
         },
     );
@@ -240,7 +237,7 @@ fn follower_updates_when_an_ancestor_of_its_target_moves() {
     queue.push_intent_now(
         model_root,
         IntentValue::UpdateTransform {
-            component_ids: vec![model_root],
+            component_id: model_root,
             translation: [0.0, 4.0, 0.0],
             rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],

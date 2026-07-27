@@ -50,6 +50,44 @@ fn repo_path(rel: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel)
 }
 
+#[test]
+fn migrated_keyframe_mms_examples_materialize_in_live_worlds() {
+    for scene in [
+        "animation-example.mms",
+        "animation-for-topology.mms",
+        "audio-graph-example.mms",
+        "mesh-factory-example.mms",
+        "raycast-topology-animation.mms",
+        "text-animation.mms",
+    ] {
+        let path = repo_path(&format!("examples/{scene}"));
+        let source = fs::read_to_string(&path).expect("example source");
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut assets = RenderAssets::new();
+        let mut queue = CommandQueue::new();
+        let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+            &source,
+            path.to_str(),
+            &mut world,
+            &mut rx,
+            Some(&mut assets),
+            &mut queue,
+        );
+        assert!(
+            output.errors.is_empty(),
+            "{scene} failed to materialize: {:?}",
+            output.errors
+        );
+        assert!(
+            world.all_components().any(|id| world
+                .get_component_by_id_as::<crate::engine::ecs::component::AnimationComponent>(id)
+                .is_some()),
+            "{scene} should materialize an animation"
+        );
+    }
+}
+
 /// Helper: extract a `ComponentExpression` from a `Statement::Expression(Expression::Component(_))`.
 macro_rules! as_component {
     ($stmt:expr) => {{
@@ -601,15 +639,17 @@ fn live_eval_emitted_tree_is_queryable_by_next_statement() {
 
     let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut rx, &mut emit);
     assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
-    assert!(world
-        .find_component(
-            world
-                .all_components()
-                .find(|&id| world.parent_of(id).is_none())
-                .unwrap(),
-            "#btn_a"
-        )
-        .is_some());
+    assert!(
+        world
+            .find_component(
+                world
+                    .all_components()
+                    .find(|&id| world.parent_of(id).is_none())
+                    .unwrap(),
+                "#btn_a"
+            )
+            .is_some()
+    );
 }
 
 #[test]
@@ -1186,8 +1226,8 @@ fn live_eval_imported_factory_keyframe_closure_captures_live_component_objects()
 
 #[test]
 fn live_keyframe_block_music_note_emits_audio_schedule_play() {
-    use crate::engine::ecs::component::MusicNote;
     use crate::engine::ecs::IntentValue;
+    use crate::engine::ecs::component::MusicNote;
 
     let src = r##"
         Clock.bpm(60) {}
@@ -1242,11 +1282,11 @@ fn live_keyframe_block_music_note_emits_audio_schedule_play() {
         .find_map(
             |signal| match signal.intent.as_ref().map(|intent| &intent.value) {
                 Some(IntentValue::AudioSchedulePlay {
-                    component_ids,
+                    component_id,
                     note,
                     beat_offset,
                     ..
-                }) => Some((component_ids.clone(), note.clone(), *beat_offset)),
+                }) => Some((component_id.clone(), note.clone(), *beat_offset)),
                 _ => None,
             },
         )
@@ -1257,7 +1297,7 @@ fn live_keyframe_block_music_note_emits_audio_schedule_play() {
     assert_eq!(note.pitch_name(), MusicNote::e(4, 0.25).pitch_name());
     assert_eq!(note.octave(), 4);
     assert!((note.duration_beats() - 0.25).abs() < 1.0e-6);
-    assert_eq!(audio.0.len(), 1);
+    assert!(world.get_component_record(audio.0).is_some());
 }
 
 #[test]
@@ -1360,8 +1400,8 @@ fn live_handler_component_attach_emits_reparent_intent() {
     let intents = rx.drain_ready_intents();
     assert!(intents.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child: attached_child })
-            if parents.as_slice() == [new_parent] && *attached_child == child
+        Some(IntentValue::Attach { parent, child: attached_child })
+            if *parent == new_parent && *attached_child == child
     )));
 }
 
@@ -1424,8 +1464,8 @@ fn gltf_initialized_event_exposes_live_gltf_uri_and_scoped_query() {
     let intents = rx.drain_ready_intents();
     assert!(intents.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child })
-            if parents.as_slice() == [head] && *child == camera_slot
+        Some(IntentValue::Attach { parent, child })
+            if *parent == head && *child == camera_slot
     )));
 }
 
@@ -1811,8 +1851,7 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
     use crate::engine::ecs::component::{
         Camera3DComponent, CameraXRComponent, CollisionComponent, CollisionMode, InputComponent,
         InputTransformModeComponent, InputXRComponent, RenderableComponent,
-        SecondaryMotionComponent, SpotLightComponent, SpringBoneComponent,
-        SpringColliderComponent,
+        SecondaryMotionComponent, SpotLightComponent, SpringBoneComponent, SpringColliderComponent,
     };
     let source = include_str!("../../examples/secondary-motion-desktop.mms");
     let mut world = World::default();
@@ -1942,9 +1981,7 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
     }
     assert_eq!(
         world
-            .get_component_by_id_as::<SpringColliderComponent>(named(
-                "bisket_collider_hips"
-            ))
+            .get_component_by_id_as::<SpringColliderComponent>(named("bisket_collider_hips"))
             .unwrap()
             .radius,
         0.1375
@@ -1968,15 +2005,18 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
                 .count()
                 >= 6
         );
-        assert!(tree
-            .iter()
-            .any(|&id| world.component_label(id) == Some("tripod_light_housing")));
-        assert!(tree
-            .iter()
-            .any(|&id| world.component_label(id) == Some("tripod_light_rear_mount")));
-        assert!(tree
-            .iter()
-            .any(|&id| world.component_label(id) == Some("tripod_light_emissive_face")));
+        assert!(
+            tree.iter()
+                .any(|&id| world.component_label(id) == Some("tripod_light_housing"))
+        );
+        assert!(
+            tree.iter()
+                .any(|&id| world.component_label(id) == Some("tripod_light_rear_mount"))
+        );
+        assert!(
+            tree.iter()
+                .any(|&id| world.component_label(id) == Some("tripod_light_emissive_face"))
+        );
     }
 
     let scenery = [
@@ -2105,8 +2145,8 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
     let initialized = rx.drain_ready_intents();
     assert!(initialized.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child })
-            if parents.as_slice() == [head] && *child == first_person_camera_slot
+        Some(IntentValue::Attach { parent, child })
+            if *parent == head && *child == first_person_camera_slot
     )));
 
     let click = || EventSignal::Click {
@@ -2119,26 +2159,26 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
     let first_toggle = rx.drain_ready_intents();
     assert!(first_toggle.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child })
-            if parents.as_slice() == [first_person_camera_slot] && *child == desktop_camera_rig
+        Some(IntentValue::Attach { parent, child })
+            if *parent == first_person_camera_slot && *child == desktop_camera_rig
     )));
     assert!(first_toggle.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child })
-            if parents.as_slice() == [fixed_camera_slot] && *child == fixed_camera_icon
+        Some(IntentValue::Attach { parent, child })
+            if *parent == fixed_camera_slot && *child == fixed_camera_icon
     )));
 
     rx.dispatch_event_handlers(&mut world, &Signal::event(toggle, click()));
     let second_toggle = rx.drain_ready_intents();
     assert!(second_toggle.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child })
-            if parents.as_slice() == [fixed_camera_slot] && *child == desktop_camera_rig
+        Some(IntentValue::Attach { parent, child })
+            if *parent == fixed_camera_slot && *child == desktop_camera_rig
     )));
     assert!(second_toggle.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
-        Some(IntentValue::Attach { parents, child })
-            if parents.as_slice() == [hidden_camera_icon_parking] && *child == fixed_camera_icon
+        Some(IntentValue::Attach { parent, child })
+            if *parent == hidden_camera_icon_parking && *child == fixed_camera_icon
     )));
 }
 
@@ -2412,9 +2452,11 @@ fn tripod_light_without_a_mounted_light_has_no_emissive_face() {
         &mut emit,
     );
     assert!(output.errors.is_empty(), "{:?}", output.errors);
-    assert!(world
-        .all_components()
-        .all(|id| world.component_label(id) != Some("tripod_light_emissive_face")));
+    assert!(
+        world
+            .all_components()
+            .all(|id| world.component_label(id) != Some("tripod_light_emissive_face"))
+    );
     let fixture = world
         .all_components()
         .find(|id| world.component_label(*id) == Some("empty_fixture"))
@@ -3378,8 +3420,8 @@ export fn procedural_defaults() {
 
     assert!(world.get_component_record(root).is_some());
     assert_eq!(world.children_of(root).len(), 9);
-    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
     use crate::engine::ecs::component::RenderableComponent;
+    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
     let authored: Vec<_> = world
         .children_of(root)
         .iter()
@@ -3389,26 +3431,34 @@ export fn procedural_defaults() {
                 .and_then(|renderable| renderable.authored_shape.clone())
         })
         .collect();
-    assert!(authored.contains(&AuthoredRenderableShape::WireframeSphere {
-        latitude_segments: 16,
-        longitude_segments: 32,
-        thickness: 0.02,
-    }));
-    assert!(authored.contains(&AuthoredRenderableShape::WireframeSphere {
-        latitude_segments: 5,
-        longitude_segments: 9,
-        thickness: 0.03,
-    }));
-    assert!(authored.contains(&AuthoredRenderableShape::WireframeIcosahedron {
-        tessellations: 0,
-        sphericalness: 0.0,
-        thickness: 0.02,
-    }));
-    assert!(authored.contains(&AuthoredRenderableShape::WireframeIcosahedron {
-        tessellations: 2,
-        sphericalness: 0.75,
-        thickness: 0.04,
-    }));
+    assert!(
+        authored.contains(&AuthoredRenderableShape::WireframeSphere {
+            latitude_segments: 16,
+            longitude_segments: 32,
+            thickness: 0.02,
+        })
+    );
+    assert!(
+        authored.contains(&AuthoredRenderableShape::WireframeSphere {
+            latitude_segments: 5,
+            longitude_segments: 9,
+            thickness: 0.03,
+        })
+    );
+    assert!(
+        authored.contains(&AuthoredRenderableShape::WireframeIcosahedron {
+            tessellations: 0,
+            sphericalness: 0.0,
+            thickness: 0.02,
+        })
+    );
+    assert!(
+        authored.contains(&AuthoredRenderableShape::WireframeIcosahedron {
+            tessellations: 2,
+            sphericalness: 0.75,
+            thickness: 0.04,
+        })
+    );
 }
 
 #[test]
@@ -4597,21 +4647,21 @@ fn pc_rei_xr_examples_evaluate_with_secondary_motion_and_hand_pointers() {
         assert_xr_gamepad_locomotion_targets(&world, path);
         assert_eq!(
             world
-            .all_components()
-            .filter(|id| world
-                .get_component_by_id_as::<SpringBoneComponent>(*id)
-                .is_some())
-            .count(),
+                .all_components()
+                .filter(|id| world
+                    .get_component_by_id_as::<SpringBoneComponent>(*id)
+                    .is_some())
+                .count(),
             10,
             "{path}"
         );
         assert_eq!(
             world
-            .all_components()
-            .filter(|id| world
-                .get_component_by_id_as::<SpringColliderComponent>(*id)
-                .is_some())
-            .count(),
+                .all_components()
+                .filter(|id| world
+                    .get_component_by_id_as::<SpringColliderComponent>(*id)
+                    .is_some())
+                .count(),
             7,
             "{path}"
         );
@@ -4683,220 +4733,6 @@ fn roundtrip_animation_paused() {
         .get_component_by_id_as::<AnimationComponent>(id)
         .unwrap();
     assert_eq!(got.state, AnimationState::Paused);
-}
-
-#[test]
-fn roundtrip_animation_resolve_targets_on_play() {
-    use crate::engine::ecs::component::{AnimationComponent, ResolveTargetsMode};
-    let (world, id) = roundtrip_component(
-        AnimationComponent::new().with_resolve_targets(ResolveTargetsMode::OnPlay),
-    );
-    let got = world
-        .get_component_by_id_as::<AnimationComponent>(id)
-        .unwrap();
-    assert_eq!(got.resolve_targets, ResolveTargetsMode::OnPlay);
-}
-
-// ---------------------------------------------------------------------------
-// Action round-trip tests
-//
-// These exercise the subtree dump path (`subtree_to_ce_ast`) because Action
-// references other components by ComponentId — the dump needs the surrounding
-// world to derive `@uuid:` strings and the guid-preservation pre-pass needs
-// the full subtree to know which targets are referenced.
-// ---------------------------------------------------------------------------
-
-/// Build a live source world, dump the subtree rooted at `root` via
-/// `subtree_to_ce_ast`, unparse → parse → spawn into a fresh world, and
-/// return the fresh world plus the respawned root id.
-fn roundtrip_subtree(source_world: &World, root: ComponentId) -> (World, ComponentId) {
-    let ce_ast = crate::scripting::component_registry::subtree_to_ce_ast(source_world, root)
-        .expect("subtree_to_ce_ast");
-    let text = crate::scripting::unparser::unparse_component(&ce_ast);
-    let prog = parse(&text);
-    assert_eq!(prog.len(), 1, "unparsed `{text}` did not produce one stmt");
-    let parsed_ce = as_component!(prog.into_iter().next().unwrap());
-    let mat = crate::scripting::component_registry::ce_ast_to_materialized(&parsed_ce)
-        .expect("materialize");
-    let mut world = World::default();
-    let mut emit = CommandQueue::new();
-    let id =
-        crate::scripting::component_registry::spawn_tree_uninitialized(&mat, &mut world, &mut emit)
-            .expect("spawn");
-    (world, id)
-}
-
-#[test]
-fn roundtrip_action_query_selector_preserved_verbatim() {
-    use crate::engine::ecs::component::{
-        ActionComponent, ComponentRef, KeyframeComponent, TransformComponent,
-    };
-    use crate::engine::ecs::IntentValue;
-    use slotmap::Key;
-
-    let mut w = World::default();
-    let root = w.add_component(TransformComponent::new());
-    let target = w.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-    w.add_child(root, target).unwrap();
-    let kf = w.add_component(KeyframeComponent::new(0.0));
-    w.add_child(root, kf).unwrap();
-    let signal = IntentValue::SetColor {
-        component_ids: vec![ComponentId::null()],
-        rgba: [1.0, 0.0, 0.0, 1.0],
-    };
-    let action = w.add_component(ActionComponent::new_authored(
-        signal,
-        vec![ComponentRef::Query("#hero".to_string())],
-    ));
-    w.add_child(kf, action).unwrap();
-
-    let (new_world, new_root) = roundtrip_subtree(&w, root);
-    // Find the respawned Action by walking.
-    let new_action = find_first::<ActionComponent>(&new_world, new_root).expect("action exists");
-    let comp = new_world
-        .get_component_by_id_as::<ActionComponent>(new_action)
-        .unwrap();
-    assert_eq!(comp.target_sources.len(), 1);
-    match &comp.target_sources[0] {
-        ComponentRef::Query(s) => assert_eq!(s, "#hero"),
-        other => panic!("expected Query selector, got {other:?}"),
-    }
-}
-
-#[test]
-fn roundtrip_action_handle_becomes_guid_and_target_keeps_guid() {
-    use crate::engine::ecs::component::{
-        ActionComponent, ComponentRef, KeyframeComponent, TransformComponent,
-    };
-    use crate::engine::ecs::IntentValue;
-    use slotmap::Key;
-
-    let mut w = World::default();
-    let root = w.add_component(TransformComponent::new());
-    // Unnamed target; only the GUID identifies it.
-    let target = w.add_component(TransformComponent::new());
-    w.add_child(root, target).unwrap();
-    let target_guid = w.get_component_record(target).unwrap().guid;
-
-    let kf = w.add_component(KeyframeComponent::new(0.0));
-    w.add_child(root, kf).unwrap();
-
-    let signal = IntentValue::SetPosition {
-        component_ids: vec![ComponentId::null()],
-        position: [1.0, 2.0, 3.0],
-    };
-    let action = w.add_component(ActionComponent::new_authored(
-        signal,
-        vec![ComponentRef::Guid(target_guid)],
-    ));
-    w.add_child(kf, action).unwrap();
-
-    let (new_world, new_root) = roundtrip_subtree(&w, root);
-
-    // The action's target_sources should preserve the same guid.
-    let new_action = find_first::<ActionComponent>(&new_world, new_root).unwrap();
-    let comp = new_world
-        .get_component_by_id_as::<ActionComponent>(new_action)
-        .unwrap();
-    match &comp.target_sources[0] {
-        ComponentRef::Guid(u) => assert_eq!(*u, target_guid),
-        other => panic!("expected Guid, got {other:?}"),
-    }
-
-    // The target component should have its guid restored on the new
-    // world's guid_index — otherwise OnAttach/OnPlay resolution would
-    // fail to find it.
-    assert!(
-        new_world.component_id_by_guid(target_guid).is_some(),
-        "target guid not restored across round-trip"
-    );
-}
-
-#[test]
-fn roundtrip_action_named_and_guid_referenced_target_emits_both() {
-    use crate::engine::ecs::component::{
-        ActionComponent, ComponentRef, KeyframeComponent, TransformComponent,
-    };
-    use crate::engine::ecs::IntentValue;
-    use slotmap::Key;
-
-    let mut w = World::default();
-    let root = w.add_component(TransformComponent::new());
-    // Target has BOTH a name and gets referenced by guid (author wrote
-    // `let hero = T { name = "hero" }; Action.set_color(hero, ...)`).
-    let target = w.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-    w.add_child(root, target).unwrap();
-    let target_guid = w.get_component_record(target).unwrap().guid;
-
-    let kf = w.add_component(KeyframeComponent::new(0.0));
-    w.add_child(root, kf).unwrap();
-    let signal = IntentValue::SetColor {
-        component_ids: vec![ComponentId::null()],
-        rgba: [0.0, 1.0, 0.0, 1.0],
-    };
-    let action = w.add_component(ActionComponent::new_authored(
-        signal,
-        vec![ComponentRef::Guid(target_guid)],
-    ));
-    w.add_child(kf, action).unwrap();
-
-    // Inspect the dump text directly: both `name = "hero"` and
-    // `guid = "<uuid>"` should be present on the target's CE.
-    let ce = crate::scripting::component_registry::subtree_to_ce_ast(&w, root)
-        .expect("subtree_to_ce_ast");
-    let text = crate::scripting::unparser::unparse_component(&ce);
-    assert!(
-        text.contains("name = \"hero\""),
-        "expected name emit: {text}"
-    );
-    assert!(
-        text.contains(&format!("guid = \"{target_guid}\"")),
-        "expected guid emit: {text}"
-    );
-
-    // And both round-trip live.
-    let (new_world, new_root) = roundtrip_subtree(&w, root);
-    let new_target = new_world
-        .component_id_by_guid(target_guid)
-        .expect("target guid restored");
-    let new_target_node = new_world.get_component_record(new_target).unwrap();
-    assert_eq!(new_target_node.name, "hero");
-    assert_eq!(new_target_node.guid, target_guid);
-
-    // The action's target_sources still resolves to the same guid.
-    let new_action = find_first::<ActionComponent>(&new_world, new_root).unwrap();
-    let comp = new_world
-        .get_component_by_id_as::<ActionComponent>(new_action)
-        .unwrap();
-    match &comp.target_sources[0] {
-        ComponentRef::Guid(u) => assert_eq!(*u, target_guid),
-        other => panic!("expected Guid, got {other:?}"),
-    }
-}
-
-#[test]
-fn roundtrip_action_unreferenced_component_does_not_get_guid_emit() {
-    use crate::engine::ecs::component::{ActionComponent, TransformComponent};
-    use crate::engine::ecs::IntentValue;
-
-    let mut w = World::default();
-    let root = w.add_component(TransformComponent::new());
-    let bystander = w.add_component(TransformComponent::new());
-    w.add_child(root, bystander).unwrap();
-    // No Action references `bystander`.
-    let action = w.add_component(ActionComponent::new(IntentValue::Print {
-        message: "hi".into(),
-    }));
-    w.add_child(root, action).unwrap();
-
-    let ce = crate::scripting::component_registry::subtree_to_ce_ast(&w, root)
-        .expect("subtree_to_ce_ast");
-    let text = crate::scripting::unparser::unparse_component(&ce);
-    let bystander_guid = w.get_component_record(bystander).unwrap().guid;
-    assert!(
-        !text.contains(&format!("guid = \"{bystander_guid}\"")),
-        "unreferenced component should not get guid emit: {text}"
-    );
 }
 
 // Temporarily gated: see docs/bugs/ik-solver-api-drift-breaks-tests.md.
@@ -5010,21 +4846,6 @@ fn find_first<C: ComponentTrait + 'static>(
         }
     }
     None
-}
-
-#[test]
-fn roundtrip_animation_default_omits_resolve_targets_in_text() {
-    use crate::engine::ecs::component::AnimationComponent;
-    let original = AnimationComponent::new();
-    let world_stub = crate::engine::ecs::World::default();
-    let text = crate::scripting::unparser::unparse_component(&ComponentTrait::to_mms_ast(
-        &original,
-        &world_stub,
-    ));
-    assert!(
-        !text.contains("resolve_targets"),
-        "default mode should not emit resolve_targets call: {text}"
-    );
 }
 
 #[test]
@@ -5258,15 +5079,21 @@ fn editor_ui_settings_only_materializes_under_authored_transform() {
         1,
         "re-registering EditorUI must not duplicate its selection marker"
     );
-    assert!(world
-        .find_component(editor_ui, "#editor_panel_layout_root")
-        .is_some());
-    assert!(world
-        .find_component(editor_ui, "#editor_panel_layout_selection")
-        .is_some());
-    assert!(world
-        .find_component(editor_ui, "#editor_settings_panel_root")
-        .is_some());
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_panel_layout_root")
+            .is_some()
+    );
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_panel_layout_selection")
+            .is_some()
+    );
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_settings_panel_root")
+            .is_some()
+    );
     for default_row in [
         "#editor_settings_armature_visibility",
         "#editor_settings_bounds_visibility",
@@ -5990,8 +5817,8 @@ fn roundtrip_music_note_c5() {
 #[cfg(any())]
 #[test]
 fn roundtrip_ik_chain_aim() {
-    use crate::engine::ecs::component::{IKChainComponent, IKSolver};
     use crate::engine::ecs::ComponentId;
+    use crate::engine::ecs::component::{IKChainComponent, IKSolver};
     use slotmap::Key;
     let sentinel = ComponentId::null();
     let original = IKChainComponent::new(
@@ -6257,8 +6084,7 @@ fn xr_grab_demo_evaluates_with_editor_settings_and_grabbable_playground() {
     let shirt_chains: Vec<_> = world
         .all_components()
         .filter_map(|id| {
-            world
-                .get_component_by_id_as::<crate::engine::ecs::component::SpringBoneComponent>(id)
+            world.get_component_by_id_as::<crate::engine::ecs::component::SpringBoneComponent>(id)
         })
         .filter(|chain| chain.stable_name.contains("TopsUpperLeg"))
         .collect();

@@ -272,7 +272,7 @@ pub(crate) fn select_editor_target(
         emit.push_intent_now(
             editor_root,
             IntentValue::Attach {
-                parents: vec![target_transform],
+                parent: target_transform,
                 child: gizmo,
             },
         );

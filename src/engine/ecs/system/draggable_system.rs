@@ -53,7 +53,7 @@ impl DraggableSystem {
             emit.push_intent_now(
                 owner,
                 IntentValue::UpdateTransform {
-                    component_ids: vec![owner],
+                    component_id: owner,
                     translation,
                     rotation_quat_xyzw: transform.transform.rotation,
                     scale: transform.transform.scale,
@@ -410,15 +410,15 @@ mod tests {
         let intents = rx.drain_ready_intents();
         assert!(intents.iter().any(|signal| matches!(
             signal.intent.as_ref().map(|intent| &intent.value),
-            Some(IntentValue::UpdateTransform { component_ids, translation, .. })
-                if component_ids.as_slice() == [owner]
+            Some(IntentValue::UpdateTransform { component_id, translation, .. })
+                if component_id == &owner
                     && *translation == [0.25, -0.5, 0.0]
         )));
 
         rx.dispatch_event_handlers(&mut world, &drag(None));
         assert!(rx.drain_ready_intents().iter().any(|signal| matches!(
             signal.intent.as_ref().map(|intent| &intent.value),
-            Some(IntentValue::UpdateTransform { component_ids, .. }) if component_ids.as_slice() == [owner]
+            Some(IntentValue::UpdateTransform { component_id, .. }) if component_id == &owner
         )));
     }
 

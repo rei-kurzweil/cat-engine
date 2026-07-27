@@ -52,7 +52,7 @@ impl Component for ToggleComponent {
         emit.push_intent_now(
             component,
             IntentValue::ToggleSet {
-                component_ids: vec![component],
+                component_id: component,
                 value: self.value,
             },
         );

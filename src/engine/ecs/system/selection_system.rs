@@ -310,7 +310,7 @@ fn set_styled_selection(
         emit.push_intent_now(
             state_id,
             IntentValue::RemoveSubtree {
-                component_ids: vec![state_id],
+                component_id: state_id,
             },
         );
     }
@@ -394,7 +394,7 @@ fn ensure_selection_overlay(world: &mut World, emit: &mut dyn SignalEmitter, ite
     emit.push_intent_now(
         highlight_id,
         IntentValue::UpdateTransform {
-            component_ids: vec![highlight_id],
+            component_id: highlight_id,
             translation: [
                 center[0],
                 center[1],
@@ -417,7 +417,7 @@ fn remove_selection_overlay(world: &World, emit: &mut dyn SignalEmitter, item_id
                 emit.push_intent_now(
                     child,
                     IntentValue::RemoveSubtree {
-                        component_ids: vec![child],
+                        component_id: child,
                     },
                 );
             }
@@ -1943,7 +1943,7 @@ mod tests {
         systems.rx.push_intent_now(
             selection_root,
             IntentValue::SelectionSet {
-                component_ids: vec![selection_root],
+                component_id: selection_root,
                 entries: vec![
                     SelectionEntry {
                         index: Some(0),

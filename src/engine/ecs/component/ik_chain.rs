@@ -177,7 +177,7 @@ impl Component for IKChainComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterIkChain {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -5,9 +5,9 @@ use crate::engine::ecs::component::{
     OpacityComponent, OverlayComponent, RaycastableComponent, RenderableComponent,
     SelectableComponent, SerializeComponent, TransformComponent,
 };
+use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::system::collision_shape_resolver::resolve_collision_shape;
 use crate::engine::ecs::system::model::collision_types::CollisionShape;
-use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
 use crate::engine::graphics::{RenderAssets, VisualWorld};
 
@@ -103,7 +103,7 @@ impl CollisionVisualizationSystem {
                     emit.push_intent_now(
                         marker.root,
                         IntentValue::RemoveSubtree {
-                            component_ids: vec![marker.root],
+                            component_id: marker.root,
                         },
                     );
                 }
@@ -122,7 +122,7 @@ impl CollisionVisualizationSystem {
                 emit.push_intent_now(
                     marker.root,
                     IntentValue::RemoveSubtree {
-                        component_ids: vec![marker.root],
+                        component_id: marker.root,
                     },
                 );
             }
@@ -140,7 +140,7 @@ impl CollisionVisualizationSystem {
             emit.push_intent_now(
                 marker.root,
                 IntentValue::UpdateTransform {
-                    component_ids: vec![marker.root],
+                    component_id: marker.root,
                     translation: position,
                     rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
                     scale,
@@ -251,9 +251,9 @@ fn spawn_marker(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::component::CollisionShapeComponent;
     use crate::engine::ecs::system::SystemWorld;
-    use crate::engine::ecs::CommandQueue;
 
     #[test]
     fn request_spawns_styled_marker_and_removal_cleans_it_up() {
@@ -352,13 +352,17 @@ mod tests {
             &mut assets,
             &mut queue,
         );
-        assert!(systems
-            .collision_visualization
-            .markers
-            .contains_key(&capsule_collision));
-        assert!(!systems
-            .collision_visualization
-            .markers
-            .contains_key(&unrelated_collision));
+        assert!(
+            systems
+                .collision_visualization
+                .markers
+                .contains_key(&capsule_collision)
+        );
+        assert!(
+            !systems
+                .collision_visualization
+                .markers
+                .contains_key(&unrelated_collision)
+        );
     }
 }

@@ -113,7 +113,7 @@ fn tick_one(
                 emit.push_intent_now(
                     head_bone_id,
                     IntentValue::UpdateTransform {
-                        component_ids: vec![head_bone_id],
+                        component_id: head_bone_id,
                         translation: [0.0, 0.0, 0.0],
                         rotation_quat_xyzw: head_t.transform.rotation,
                         scale: head_t.transform.scale,
@@ -246,13 +246,13 @@ fn try_init_or_route_capsule(
     emit.push_intent_now(
         collision,
         IntentValue::RegisterCollision {
-            component_ids: vec![collision],
+            component_id: collision,
         },
     );
     emit.push_intent_now(
         response,
         IntentValue::RegisterCollisionResponse {
-            component_ids: vec![response],
+            component_id: response,
         },
     );
 }
@@ -610,7 +610,7 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
         emit.push_intent_now(
             model_root_id,
             IntentValue::UpdateTransform {
-                component_ids: vec![model_root_id],
+                component_id: model_root_id,
                 translation: txyz,
                 rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],
@@ -750,7 +750,7 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
     emit.push_intent_now(
         head_bone_id,
         IntentValue::UpdateTransform {
-            component_ids: vec![head_bone_id],
+            component_id: head_bone_id,
             translation: [0.0, 0.0, 0.0],
             rotation_quat_xyzw: head_rest_rot,
             scale: head_rest_s,
@@ -999,7 +999,7 @@ fn emit_attach(emit: &mut dyn SignalEmitter, parent: ComponentId, child: Compone
     emit.push_intent_now(
         parent,
         IntentValue::Attach {
-            parents: vec![parent],
+            parent: parent,
             child,
         },
     );
@@ -1102,7 +1102,7 @@ fn update_local_rotation(
     emit.push_intent_now(
         component_id,
         IntentValue::UpdateTransform {
-            component_ids: vec![component_id],
+            component_id: component_id,
             translation,
             rotation_quat_xyzw: rotation,
             scale,

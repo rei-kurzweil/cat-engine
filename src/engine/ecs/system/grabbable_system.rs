@@ -178,7 +178,7 @@ impl GrabbableSystem {
             emit.push_intent_now(
                 grab.target,
                 IntentValue::UpdateTransform {
-                    component_ids: vec![grab.target],
+                    component_id: grab.target,
                     translation: next,
                     rotation_quat_xyzw: transform.transform.rotation,
                     scale: transform.transform.scale,
@@ -421,7 +421,7 @@ pub fn reparent_preserving_world(
     emit.push_intent_now(
         child,
         IntentValue::UpdateTransform {
-            component_ids: vec![child],
+            component_id: child,
             translation,
             rotation_quat_xyzw: rotation,
             scale,
@@ -431,7 +431,7 @@ pub fn reparent_preserving_world(
         emit.push_intent_now(
             parent,
             IntentValue::AudioGraphDirtyImmediate {
-                component_ids: vec![parent],
+                component_id: parent,
             },
         );
     }
@@ -439,7 +439,7 @@ pub fn reparent_preserving_world(
         emit.push_intent_now(
             parent,
             IntentValue::AudioGraphDirtyImmediate {
-                component_ids: vec![parent],
+                component_id: parent,
             },
         );
     }

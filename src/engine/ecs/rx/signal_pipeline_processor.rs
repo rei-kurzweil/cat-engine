@@ -26,144 +26,130 @@ impl SignalPipelineProcessor {
 
         let kind_name = intent.value.kind_name();
 
-        let Some(component_ids) = Self::recipient_component_ids_mut(&mut intent.value) else {
+        let Some(component_id) = Self::recipient_component_id_mut(&mut intent.value) else {
             return env;
         };
 
-        if component_ids.is_empty() {
-            return env;
-        }
-
-        let mut out: Vec<ComponentId> = Vec::with_capacity(component_ids.len());
-        for &cid in component_ids.iter() {
-            let mut cur = cid;
-
-            for pipeline in rx.pipelines_for_component(cid).iter() {
-                for op in pipeline.ops.iter() {
-                    match op {
-                        SignalPipelineOp::RouteUpward(r) => {
-                            if r.applies_to_intent_kind(kind_name) {
-                                cur = r.route(world, cur);
-                            }
+        let mut routed = *component_id;
+        for pipeline in rx.pipelines_for_component(*component_id).iter() {
+            for op in pipeline.ops.iter() {
+                match op {
+                    SignalPipelineOp::RouteUpward(r) => {
+                        if r.applies_to_intent_kind(kind_name) {
+                            routed = r.route(world, routed);
                         }
                     }
                 }
             }
-
-            out.push(cur);
         }
-
-        out.sort();
-        out.dedup();
-        *component_ids = out;
+        *component_id = routed;
 
         env
     }
 
     /// Returns the standardized intent recipients, if the intent variant has them.
-    pub fn recipient_component_ids(value: &IntentValue) -> Option<&[ComponentId]> {
+    pub fn recipient_component_id(value: &IntentValue) -> Option<ComponentId> {
         match value {
-            IntentValue::SetColor { component_ids, .. }
-            | IntentValue::SetText { component_ids, .. }
-            | IntentValue::SetEmissiveIntensity { component_ids, .. }
-            | IntentValue::SetPosition { component_ids, .. }
-            | IntentValue::LookAt { component_ids, .. }
-            | IntentValue::GLTFArmatureVisible { component_ids, .. }
-            | IntentValue::SetLayoutAvailableWidth { component_ids, .. }
-            | IntentValue::SetLayoutAvailableHeight { component_ids, .. }
-            | IntentValue::SetLayoutInspect { component_ids, .. }
-            | IntentValue::SelectionSet { component_ids, .. }
-            | IntentValue::ToggleSet { component_ids, .. }
-            | IntentValue::CollisionVisualizationSet { component_ids, .. }
-            | IntentValue::SpringBoneVisualizationSet { component_ids, .. }
-            | IntentValue::CameraVisualizationSet { component_ids, .. }
-            | IntentValue::Detach { component_ids }
-            | IntentValue::RemoveSubtree { component_ids }
-            | IntentValue::AudioGraphRebuild { component_ids }
-            | IntentValue::RequestRaycast { component_ids }
-            | IntentValue::AudioLowPassSetCutoffHz { component_ids, .. }
-            | IntentValue::AudioBandPassSetCenterHz { component_ids, .. }
-            | IntentValue::OscillatorSetEnabled { component_ids, .. }
-            | IntentValue::OscillatorSetPitch { component_ids, .. }
-            | IntentValue::OscillatorScheduleSetPitch { component_ids, .. }
-            | IntentValue::AudioSchedulePlay { component_ids, .. }
-            | IntentValue::RegisterRenderable { component_ids }
-            | IntentValue::RemoveRenderable { component_ids }
-            | IntentValue::RegisterStencilClip { component_ids }
-            | IntentValue::UnregisterStencilClip { component_ids }
-            | IntentValue::RegisterRouter { component_ids }
-            | IntentValue::RegisterHttpServer { component_ids }
-            | IntentValue::RegisterHttpClient { component_ids }
-            | IntentValue::RegisterScrolling { component_ids }
-            | IntentValue::RegisterTransform { component_ids }
-            | IntentValue::UpdateTransform { component_ids, .. }
-            | IntentValue::RemoveTransform { component_ids }
-            | IntentValue::RegisterCamera3d { component_ids }
-            | IntentValue::RegisterCamera2d { component_ids }
-            | IntentValue::MakeActiveCamera { component_ids }
-            | IntentValue::RegisterInput { component_ids }
-            | IntentValue::RegisterUv { component_ids }
-            | IntentValue::RegisterLight { component_ids }
-            | IntentValue::RegisterColor { component_ids }
-            | IntentValue::RegisterOpacity { component_ids }
-            | IntentValue::RegisterTransparentCutout { component_ids }
-            | IntentValue::RegisterBackgroundColor { component_ids }
-            | IntentValue::RegisterRendererSettings { component_ids }
-            | IntentValue::RegisterRenderGraph { component_ids }
-            | IntentValue::RegisterAmbientLight { component_ids }
-            | IntentValue::RegisterEmissive { component_ids }
-            | IntentValue::RegisterLightQuantization { component_ids }
-            | IntentValue::RegisterTexture { component_ids }
-            | IntentValue::RegisterTextureFiltering { component_ids }
-            | IntentValue::RegisterText { component_ids }
-            | IntentValue::RegisterGLTF { component_ids }
-            | IntentValue::RegisterTextInput { component_ids }
-            | IntentValue::RegisterCollision { component_ids }
-            | IntentValue::RemoveCollision { component_ids }
-            | IntentValue::RegisterCollisionResponse { component_ids }
-            | IntentValue::RemoveCollisionResponse { component_ids }
-            | IntentValue::RegisterAvatarControl { component_ids }
-            | IntentValue::RegisterAvatarBodyYaw { component_ids }
-            | IntentValue::RegisterIkChain { component_ids }
-            | IntentValue::RegisterSecondaryMotion { component_ids }
-            | IntentValue::SecondaryMotionConfigurationChanged { component_ids }
-            | IntentValue::SecondaryMotionTopologyChanged { component_ids }
-            | IntentValue::SecondaryMotionGltfInitialized { component_ids }
-            | IntentValue::UnregisterSecondaryMotion { component_ids }
-            | IntentValue::ResetSecondaryMotion { component_ids }
-            | IntentValue::RegisterXr { component_ids }
-            | IntentValue::RegisterInputXr { component_ids }
-            | IntentValue::RegisterControllerXr { component_ids }
-            | IntentValue::RegisterInputXrGamepad { component_ids }
-            | IntentValue::RemoveInputXr { component_ids }
-            | IntentValue::RemoveControllerXr { component_ids }
-            | IntentValue::RemoveInputXrGamepad { component_ids }
-            | IntentValue::RegisterRaycast { component_ids }
-            | IntentValue::RegisterRaycastable { component_ids }
-            | IntentValue::RegisterPointer { component_ids }
-            | IntentValue::RegisterGrabbable { component_ids }
-            | IntentValue::RegisterDraggable { component_ids }
-            | IntentValue::RemoveRaycast { component_ids }
-            | IntentValue::RemoveRaycastable { component_ids }
-            | IntentValue::RegisterAnimation { component_ids }
-            | IntentValue::SetAnimationState { component_ids, .. }
-            | IntentValue::RegisterKeyframe { component_ids }
-            | IntentValue::RegisterAudioOutput { component_ids }
-            | IntentValue::AudioGraphDirtyImmediate { component_ids }
-            | IntentValue::RegisterAudioOscillator { component_ids }
-            | IntentValue::RegisterAudioClip { component_ids }
-            | IntentValue::RegisterAudioBufferSize { component_ids }
-            | IntentValue::RegisterClock { component_ids }
-            | IntentValue::RegisterTransformGizmo { component_ids }
-            | IntentValue::RegisterNormalVis { component_ids }
-            | IntentValue::RegisterEditor { component_ids }
-            | IntentValue::RegisterEditorUI { component_ids }
-            | IntentValue::RegisterAction { component_ids }
-            | IntentValue::ScheduleAudioOp { component_ids, .. }
-            | IntentValue::ScheduleAudioGraphSwap { component_ids, .. }
-            | IntentValue::ScheduleAudioPitchSetHz { component_ids, .. }
-            | IntentValue::ScheduleAudioOscillatorEnabled { component_ids, .. }
-            | IntentValue::ScheduleAudioGainSet { component_ids, .. } => Some(component_ids),
+            IntentValue::SetColor { component_id, .. }
+            | IntentValue::SetText { component_id, .. }
+            | IntentValue::SetEmissiveIntensity { component_id, .. }
+            | IntentValue::SetPosition { component_id, .. }
+            | IntentValue::LookAt { component_id, .. }
+            | IntentValue::GLTFArmatureVisible { component_id, .. }
+            | IntentValue::SetLayoutAvailableWidth { component_id, .. }
+            | IntentValue::SetLayoutAvailableHeight { component_id, .. }
+            | IntentValue::SetLayoutInspect { component_id, .. }
+            | IntentValue::SelectionSet { component_id, .. }
+            | IntentValue::ToggleSet { component_id, .. }
+            | IntentValue::CollisionVisualizationSet { component_id, .. }
+            | IntentValue::SpringBoneVisualizationSet { component_id, .. }
+            | IntentValue::CameraVisualizationSet { component_id, .. }
+            | IntentValue::Detach { component_id }
+            | IntentValue::RemoveSubtree { component_id }
+            | IntentValue::AudioGraphRebuild { component_id }
+            | IntentValue::RequestRaycast { component_id }
+            | IntentValue::AudioLowPassSetCutoffHz { component_id, .. }
+            | IntentValue::AudioBandPassSetCenterHz { component_id, .. }
+            | IntentValue::OscillatorSetEnabled { component_id, .. }
+            | IntentValue::OscillatorSetPitch { component_id, .. }
+            | IntentValue::OscillatorScheduleSetPitch { component_id, .. }
+            | IntentValue::AudioSchedulePlay { component_id, .. }
+            | IntentValue::RegisterRenderable { component_id }
+            | IntentValue::RemoveRenderable { component_id }
+            | IntentValue::RegisterStencilClip { component_id }
+            | IntentValue::UnregisterStencilClip { component_id }
+            | IntentValue::RegisterRouter { component_id }
+            | IntentValue::RegisterHttpServer { component_id }
+            | IntentValue::RegisterHttpClient { component_id }
+            | IntentValue::RegisterScrolling { component_id }
+            | IntentValue::RegisterTransform { component_id }
+            | IntentValue::UpdateTransform { component_id, .. }
+            | IntentValue::RemoveTransform { component_id }
+            | IntentValue::RegisterCamera3d { component_id }
+            | IntentValue::RegisterCamera2d { component_id }
+            | IntentValue::MakeActiveCamera { component_id }
+            | IntentValue::RegisterInput { component_id }
+            | IntentValue::RegisterUv { component_id }
+            | IntentValue::RegisterLight { component_id }
+            | IntentValue::RegisterColor { component_id }
+            | IntentValue::RegisterOpacity { component_id }
+            | IntentValue::RegisterTransparentCutout { component_id }
+            | IntentValue::RegisterBackgroundColor { component_id }
+            | IntentValue::RegisterRendererSettings { component_id }
+            | IntentValue::RegisterRenderGraph { component_id }
+            | IntentValue::RegisterAmbientLight { component_id }
+            | IntentValue::RegisterEmissive { component_id }
+            | IntentValue::RegisterLightQuantization { component_id }
+            | IntentValue::RegisterTexture { component_id }
+            | IntentValue::RegisterTextureFiltering { component_id }
+            | IntentValue::RegisterText { component_id }
+            | IntentValue::RegisterGLTF { component_id }
+            | IntentValue::RegisterTextInput { component_id }
+            | IntentValue::RegisterCollision { component_id }
+            | IntentValue::RemoveCollision { component_id }
+            | IntentValue::RegisterCollisionResponse { component_id }
+            | IntentValue::RemoveCollisionResponse { component_id }
+            | IntentValue::RegisterAvatarControl { component_id }
+            | IntentValue::RegisterAvatarBodyYaw { component_id }
+            | IntentValue::RegisterIkChain { component_id }
+            | IntentValue::RegisterSecondaryMotion { component_id }
+            | IntentValue::SecondaryMotionConfigurationChanged { component_id }
+            | IntentValue::SecondaryMotionTopologyChanged { component_id }
+            | IntentValue::SecondaryMotionGltfInitialized { component_id }
+            | IntentValue::UnregisterSecondaryMotion { component_id }
+            | IntentValue::ResetSecondaryMotion { component_id }
+            | IntentValue::RegisterXr { component_id }
+            | IntentValue::RegisterInputXr { component_id }
+            | IntentValue::RegisterControllerXr { component_id }
+            | IntentValue::RegisterInputXrGamepad { component_id }
+            | IntentValue::RemoveInputXr { component_id }
+            | IntentValue::RemoveControllerXr { component_id }
+            | IntentValue::RemoveInputXrGamepad { component_id }
+            | IntentValue::RegisterRaycast { component_id }
+            | IntentValue::RegisterRaycastable { component_id }
+            | IntentValue::RegisterPointer { component_id }
+            | IntentValue::RegisterGrabbable { component_id }
+            | IntentValue::RegisterDraggable { component_id }
+            | IntentValue::RemoveRaycast { component_id }
+            | IntentValue::RemoveRaycastable { component_id }
+            | IntentValue::RegisterAnimation { component_id }
+            | IntentValue::SetAnimationState { component_id, .. }
+            | IntentValue::RegisterKeyframe { component_id }
+            | IntentValue::RegisterAudioOutput { component_id }
+            | IntentValue::AudioGraphDirtyImmediate { component_id }
+            | IntentValue::RegisterAudioOscillator { component_id }
+            | IntentValue::RegisterAudioClip { component_id }
+            | IntentValue::RegisterAudioBufferSize { component_id }
+            | IntentValue::RegisterClock { component_id }
+            | IntentValue::RegisterTransformGizmo { component_id }
+            | IntentValue::RegisterNormalVis { component_id }
+            | IntentValue::RegisterEditor { component_id }
+            | IntentValue::RegisterEditorUI { component_id }
+            | IntentValue::ScheduleAudioOp { component_id, .. }
+            | IntentValue::ScheduleAudioGraphSwap { component_id, .. }
+            | IntentValue::ScheduleAudioPitchSetHz { component_id, .. }
+            | IntentValue::ScheduleAudioOscillatorEnabled { component_id, .. }
+            | IntentValue::ScheduleAudioGainSet { component_id, .. } => Some(*component_id),
 
             IntentValue::Noop
             | IntentValue::RetryXrRuntime
@@ -195,109 +181,108 @@ impl SignalPipelineProcessor {
         }
     }
 
-    fn recipient_component_ids_mut(value: &mut IntentValue) -> Option<&mut Vec<ComponentId>> {
+    fn recipient_component_id_mut(value: &mut IntentValue) -> Option<&mut ComponentId> {
         match value {
-            IntentValue::SetColor { component_ids, .. }
-            | IntentValue::SetText { component_ids, .. }
-            | IntentValue::SetEmissiveIntensity { component_ids, .. }
-            | IntentValue::SetPosition { component_ids, .. }
-            | IntentValue::LookAt { component_ids, .. }
-            | IntentValue::GLTFArmatureVisible { component_ids, .. }
-            | IntentValue::SetLayoutAvailableWidth { component_ids, .. }
-            | IntentValue::SetLayoutAvailableHeight { component_ids, .. }
-            | IntentValue::SetLayoutInspect { component_ids, .. }
-            | IntentValue::SelectionSet { component_ids, .. }
-            | IntentValue::ToggleSet { component_ids, .. }
-            | IntentValue::CollisionVisualizationSet { component_ids, .. }
-            | IntentValue::SpringBoneVisualizationSet { component_ids, .. }
-            | IntentValue::CameraVisualizationSet { component_ids, .. }
-            | IntentValue::Detach { component_ids }
-            | IntentValue::RemoveSubtree { component_ids }
-            | IntentValue::AudioGraphRebuild { component_ids }
-            | IntentValue::RequestRaycast { component_ids }
-            | IntentValue::AudioLowPassSetCutoffHz { component_ids, .. }
-            | IntentValue::AudioBandPassSetCenterHz { component_ids, .. }
-            | IntentValue::OscillatorSetEnabled { component_ids, .. }
-            | IntentValue::OscillatorSetPitch { component_ids, .. }
-            | IntentValue::OscillatorScheduleSetPitch { component_ids, .. }
-            | IntentValue::AudioSchedulePlay { component_ids, .. }
-            | IntentValue::RegisterRenderable { component_ids }
-            | IntentValue::RemoveRenderable { component_ids }
-            | IntentValue::RegisterStencilClip { component_ids }
-            | IntentValue::UnregisterStencilClip { component_ids }
-            | IntentValue::RegisterRouter { component_ids }
-            | IntentValue::RegisterHttpServer { component_ids }
-            | IntentValue::RegisterHttpClient { component_ids }
-            | IntentValue::RegisterScrolling { component_ids }
-            | IntentValue::RegisterTransform { component_ids }
-            | IntentValue::UpdateTransform { component_ids, .. }
-            | IntentValue::RemoveTransform { component_ids }
-            | IntentValue::RegisterCamera3d { component_ids }
-            | IntentValue::RegisterCamera2d { component_ids }
-            | IntentValue::MakeActiveCamera { component_ids }
-            | IntentValue::RegisterInput { component_ids }
-            | IntentValue::RegisterUv { component_ids }
-            | IntentValue::RegisterLight { component_ids }
-            | IntentValue::RegisterColor { component_ids }
-            | IntentValue::RegisterOpacity { component_ids }
-            | IntentValue::RegisterTransparentCutout { component_ids }
-            | IntentValue::RegisterBackgroundColor { component_ids }
-            | IntentValue::RegisterRendererSettings { component_ids }
-            | IntentValue::RegisterRenderGraph { component_ids }
-            | IntentValue::RegisterAmbientLight { component_ids }
-            | IntentValue::RegisterEmissive { component_ids }
-            | IntentValue::RegisterLightQuantization { component_ids }
-            | IntentValue::RegisterTexture { component_ids }
-            | IntentValue::RegisterTextureFiltering { component_ids }
-            | IntentValue::RegisterText { component_ids }
-            | IntentValue::RegisterGLTF { component_ids }
-            | IntentValue::RegisterTextInput { component_ids }
-            | IntentValue::RegisterCollision { component_ids }
-            | IntentValue::RemoveCollision { component_ids }
-            | IntentValue::RegisterCollisionResponse { component_ids }
-            | IntentValue::RemoveCollisionResponse { component_ids }
-            | IntentValue::RegisterAvatarControl { component_ids }
-            | IntentValue::RegisterAvatarBodyYaw { component_ids }
-            | IntentValue::RegisterIkChain { component_ids }
-            | IntentValue::RegisterSecondaryMotion { component_ids }
-            | IntentValue::SecondaryMotionConfigurationChanged { component_ids }
-            | IntentValue::SecondaryMotionTopologyChanged { component_ids }
-            | IntentValue::SecondaryMotionGltfInitialized { component_ids }
-            | IntentValue::UnregisterSecondaryMotion { component_ids }
-            | IntentValue::ResetSecondaryMotion { component_ids }
-            | IntentValue::RegisterXr { component_ids }
-            | IntentValue::RegisterInputXr { component_ids }
-            | IntentValue::RegisterControllerXr { component_ids }
-            | IntentValue::RegisterInputXrGamepad { component_ids }
-            | IntentValue::RemoveInputXr { component_ids }
-            | IntentValue::RemoveControllerXr { component_ids }
-            | IntentValue::RemoveInputXrGamepad { component_ids }
-            | IntentValue::RegisterRaycast { component_ids }
-            | IntentValue::RegisterRaycastable { component_ids }
-            | IntentValue::RegisterPointer { component_ids }
-            | IntentValue::RegisterGrabbable { component_ids }
-            | IntentValue::RegisterDraggable { component_ids }
-            | IntentValue::RemoveRaycast { component_ids }
-            | IntentValue::RemoveRaycastable { component_ids }
-            | IntentValue::RegisterAnimation { component_ids }
-            | IntentValue::SetAnimationState { component_ids, .. }
-            | IntentValue::RegisterKeyframe { component_ids }
-            | IntentValue::RegisterAudioOutput { component_ids }
-            | IntentValue::AudioGraphDirtyImmediate { component_ids }
-            | IntentValue::RegisterAudioOscillator { component_ids }
-            | IntentValue::RegisterAudioClip { component_ids }
-            | IntentValue::RegisterAudioBufferSize { component_ids }
-            | IntentValue::RegisterClock { component_ids }
-            | IntentValue::RegisterTransformGizmo { component_ids }
-            | IntentValue::RegisterNormalVis { component_ids }
-            | IntentValue::RegisterEditor { component_ids }
-            | IntentValue::RegisterEditorUI { component_ids }
-            | IntentValue::RegisterAction { component_ids }
-            | IntentValue::ScheduleAudioOp { component_ids, .. }
-            | IntentValue::ScheduleAudioGraphSwap { component_ids, .. }
-            | IntentValue::ScheduleAudioPitchSetHz { component_ids, .. }
-            | IntentValue::ScheduleAudioOscillatorEnabled { component_ids, .. }
-            | IntentValue::ScheduleAudioGainSet { component_ids, .. } => Some(component_ids),
+            IntentValue::SetColor { component_id, .. }
+            | IntentValue::SetText { component_id, .. }
+            | IntentValue::SetEmissiveIntensity { component_id, .. }
+            | IntentValue::SetPosition { component_id, .. }
+            | IntentValue::LookAt { component_id, .. }
+            | IntentValue::GLTFArmatureVisible { component_id, .. }
+            | IntentValue::SetLayoutAvailableWidth { component_id, .. }
+            | IntentValue::SetLayoutAvailableHeight { component_id, .. }
+            | IntentValue::SetLayoutInspect { component_id, .. }
+            | IntentValue::SelectionSet { component_id, .. }
+            | IntentValue::ToggleSet { component_id, .. }
+            | IntentValue::CollisionVisualizationSet { component_id, .. }
+            | IntentValue::SpringBoneVisualizationSet { component_id, .. }
+            | IntentValue::CameraVisualizationSet { component_id, .. }
+            | IntentValue::Detach { component_id }
+            | IntentValue::RemoveSubtree { component_id }
+            | IntentValue::AudioGraphRebuild { component_id }
+            | IntentValue::RequestRaycast { component_id }
+            | IntentValue::AudioLowPassSetCutoffHz { component_id, .. }
+            | IntentValue::AudioBandPassSetCenterHz { component_id, .. }
+            | IntentValue::OscillatorSetEnabled { component_id, .. }
+            | IntentValue::OscillatorSetPitch { component_id, .. }
+            | IntentValue::OscillatorScheduleSetPitch { component_id, .. }
+            | IntentValue::AudioSchedulePlay { component_id, .. }
+            | IntentValue::RegisterRenderable { component_id }
+            | IntentValue::RemoveRenderable { component_id }
+            | IntentValue::RegisterStencilClip { component_id }
+            | IntentValue::UnregisterStencilClip { component_id }
+            | IntentValue::RegisterRouter { component_id }
+            | IntentValue::RegisterHttpServer { component_id }
+            | IntentValue::RegisterHttpClient { component_id }
+            | IntentValue::RegisterScrolling { component_id }
+            | IntentValue::RegisterTransform { component_id }
+            | IntentValue::UpdateTransform { component_id, .. }
+            | IntentValue::RemoveTransform { component_id }
+            | IntentValue::RegisterCamera3d { component_id }
+            | IntentValue::RegisterCamera2d { component_id }
+            | IntentValue::MakeActiveCamera { component_id }
+            | IntentValue::RegisterInput { component_id }
+            | IntentValue::RegisterUv { component_id }
+            | IntentValue::RegisterLight { component_id }
+            | IntentValue::RegisterColor { component_id }
+            | IntentValue::RegisterOpacity { component_id }
+            | IntentValue::RegisterTransparentCutout { component_id }
+            | IntentValue::RegisterBackgroundColor { component_id }
+            | IntentValue::RegisterRendererSettings { component_id }
+            | IntentValue::RegisterRenderGraph { component_id }
+            | IntentValue::RegisterAmbientLight { component_id }
+            | IntentValue::RegisterEmissive { component_id }
+            | IntentValue::RegisterLightQuantization { component_id }
+            | IntentValue::RegisterTexture { component_id }
+            | IntentValue::RegisterTextureFiltering { component_id }
+            | IntentValue::RegisterText { component_id }
+            | IntentValue::RegisterGLTF { component_id }
+            | IntentValue::RegisterTextInput { component_id }
+            | IntentValue::RegisterCollision { component_id }
+            | IntentValue::RemoveCollision { component_id }
+            | IntentValue::RegisterCollisionResponse { component_id }
+            | IntentValue::RemoveCollisionResponse { component_id }
+            | IntentValue::RegisterAvatarControl { component_id }
+            | IntentValue::RegisterAvatarBodyYaw { component_id }
+            | IntentValue::RegisterIkChain { component_id }
+            | IntentValue::RegisterSecondaryMotion { component_id }
+            | IntentValue::SecondaryMotionConfigurationChanged { component_id }
+            | IntentValue::SecondaryMotionTopologyChanged { component_id }
+            | IntentValue::SecondaryMotionGltfInitialized { component_id }
+            | IntentValue::UnregisterSecondaryMotion { component_id }
+            | IntentValue::ResetSecondaryMotion { component_id }
+            | IntentValue::RegisterXr { component_id }
+            | IntentValue::RegisterInputXr { component_id }
+            | IntentValue::RegisterControllerXr { component_id }
+            | IntentValue::RegisterInputXrGamepad { component_id }
+            | IntentValue::RemoveInputXr { component_id }
+            | IntentValue::RemoveControllerXr { component_id }
+            | IntentValue::RemoveInputXrGamepad { component_id }
+            | IntentValue::RegisterRaycast { component_id }
+            | IntentValue::RegisterRaycastable { component_id }
+            | IntentValue::RegisterPointer { component_id }
+            | IntentValue::RegisterGrabbable { component_id }
+            | IntentValue::RegisterDraggable { component_id }
+            | IntentValue::RemoveRaycast { component_id }
+            | IntentValue::RemoveRaycastable { component_id }
+            | IntentValue::RegisterAnimation { component_id }
+            | IntentValue::SetAnimationState { component_id, .. }
+            | IntentValue::RegisterKeyframe { component_id }
+            | IntentValue::RegisterAudioOutput { component_id }
+            | IntentValue::AudioGraphDirtyImmediate { component_id }
+            | IntentValue::RegisterAudioOscillator { component_id }
+            | IntentValue::RegisterAudioClip { component_id }
+            | IntentValue::RegisterAudioBufferSize { component_id }
+            | IntentValue::RegisterClock { component_id }
+            | IntentValue::RegisterTransformGizmo { component_id }
+            | IntentValue::RegisterNormalVis { component_id }
+            | IntentValue::RegisterEditor { component_id }
+            | IntentValue::RegisterEditorUI { component_id }
+            | IntentValue::ScheduleAudioOp { component_id, .. }
+            | IntentValue::ScheduleAudioGraphSwap { component_id, .. }
+            | IntentValue::ScheduleAudioPitchSetHz { component_id, .. }
+            | IntentValue::ScheduleAudioOscillatorEnabled { component_id, .. }
+            | IntentValue::ScheduleAudioGainSet { component_id, .. } => Some(component_id),
 
             IntentValue::RegisterSignalRouteUpward { .. }
             | IntentValue::RemoveSignalRouteUpward { .. }
@@ -328,5 +313,45 @@ impl SignalPipelineProcessor {
             | IntentValue::HttpClientRequest { .. }
             | IntentValue::HttpServerReply { .. } => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::ecs::component::{
+        ColorComponent, SignalRouteUpwardComponent, TransformComponent,
+    };
+    use crate::engine::ecs::system::PipelineSystem;
+    use crate::engine::ecs::{IntentSignal, Signal};
+
+    #[test]
+    fn routing_rewrites_one_recipient_and_preserves_scope() {
+        let mut world = World::default();
+        let routed_parent = world.add_component(TransformComponent::new());
+        let recipient = world.add_component(ColorComponent::rgba(1.0, 1.0, 1.0, 1.0));
+        let operator =
+            world.add_component(SignalRouteUpwardComponent::new("set_color", "transform"));
+        world.add_child(routed_parent, recipient).unwrap();
+        world.add_child(recipient, operator).unwrap();
+
+        let mut rx = RxWorld::default();
+        PipelineSystem.register_signal_route_upward(&world, &mut rx, operator);
+        let scope = operator;
+        let signal = Signal::intent(
+            scope,
+            IntentSignal::now(IntentValue::SetColor {
+                component_id: recipient,
+                rgba: [0.0, 0.0, 0.0, 1.0],
+            }),
+        );
+
+        let output = SignalPipelineProcessor.process_intent(&world, &rx, signal);
+        assert_eq!(output.scope, scope);
+        assert!(matches!(
+            output.intent.map(|intent| intent.value),
+            Some(IntentValue::SetColor { component_id, .. })
+                if component_id == routed_parent
+        ));
     }
 }

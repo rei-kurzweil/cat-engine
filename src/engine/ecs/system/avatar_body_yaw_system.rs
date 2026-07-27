@@ -94,7 +94,7 @@ fn tick_one(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmitter, dt
     emit.push_intent_now(
         model_root,
         IntentValue::UpdateTransform {
-            component_ids: vec![model_root],
+            component_id: model_root,
             translation,
             rotation_quat_xyzw: quat_rotation_y(new_body_yaw),
             scale,

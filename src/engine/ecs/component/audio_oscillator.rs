@@ -129,13 +129,13 @@ impl Component for AudioOscillatorComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterAudioOscillator {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::AudioGraphDirtyImmediate {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

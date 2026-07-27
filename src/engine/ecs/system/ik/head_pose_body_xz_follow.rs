@@ -155,7 +155,7 @@ fn tick_one(avc_id: ComponentId, world: &mut World, emit: &mut dyn SignalEmitter
     emit.push_intent_now(
         model_root_id,
         IntentValue::UpdateTransformWorld {
-            component_ids: vec![model_root_id],
+            component_id: model_root_id,
         },
     );
 
@@ -172,7 +172,7 @@ fn tick_one(avc_id: ComponentId, world: &mut World, emit: &mut dyn SignalEmitter
                 emit.push_intent_now(
                     neck_id,
                     IntentValue::UpdateTransform {
-                        component_ids: vec![neck_id],
+                        component_id: neck_id,
                         translation: neck_rest_t,
                         rotation_quat_xyzw: rot,
                         scale: scl,

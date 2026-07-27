@@ -54,7 +54,7 @@ impl Component for HttpServerComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterHttpServer {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -47,7 +47,7 @@ impl Component for TransparentCutoutComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterTransparentCutout {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

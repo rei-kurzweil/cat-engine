@@ -109,7 +109,7 @@ impl Component for ControllerXRComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterControllerXr {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -122,7 +122,7 @@ impl Component for ControllerXRComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RemoveControllerXr {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

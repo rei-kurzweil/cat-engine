@@ -75,7 +75,7 @@ pub fn update_preview_pose(
     emit.push_intent_now(
         preview_root,
         IntentValue::UpdateTransform {
-            component_ids: vec![preview_root],
+            component_id: preview_root,
             translation: pose.translation,
             rotation_quat_xyzw: pose.rotation,
             scale: transform.transform.scale,

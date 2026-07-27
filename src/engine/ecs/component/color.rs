@@ -49,7 +49,7 @@ impl Component for ColorComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterColor {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

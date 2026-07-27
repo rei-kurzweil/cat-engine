@@ -115,14 +115,14 @@ fn set_button_pressed(
     emit.push_intent_now(
         button_root,
         engine::ecs::IntentValue::SetColor {
-            component_ids: vec![state.frame_color],
+            component_id: state.frame_color,
             rgba: frame_rgba,
         },
     );
     emit.push_intent_now(
         button_root,
         engine::ecs::IntentValue::SetColor {
-            component_ids: vec![state.face_color],
+            component_id: state.face_color,
             rgba: face_rgba,
         },
     );
@@ -132,7 +132,7 @@ fn set_button_pressed(
     emit.push_intent_now(
         button_root,
         engine::ecs::IntentValue::RemoveSubtree {
-            component_ids: vec![state.text_color],
+            component_id: state.text_color,
         },
     );
     let new_text_color =
@@ -140,7 +140,7 @@ fn set_button_pressed(
     emit.push_intent_now(
         button_root,
         engine::ecs::IntentValue::Attach {
-            parents: vec![state.text_id],
+            parent: state.text_id,
             child: new_text_color,
         },
     );
@@ -151,7 +151,7 @@ fn set_button_pressed(
     emit.push_intent_now(
         button_root,
         engine::ecs::IntentValue::SetPosition {
-            component_ids: vec![state.cap_root],
+            component_id: state.cap_root,
             position: [0.0, 0.0, cap_z],
         },
     );

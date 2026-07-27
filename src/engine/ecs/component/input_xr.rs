@@ -60,7 +60,7 @@ impl Component for InputXRComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterInputXr {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -73,7 +73,7 @@ impl Component for InputXRComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RemoveInputXr {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -240,7 +240,7 @@ impl Component for EditorUIComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterEditorUI {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

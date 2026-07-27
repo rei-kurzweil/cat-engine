@@ -457,7 +457,7 @@ impl GridSystem {
         emit.push_intent_now(
             owner_transform,
             IntentValue::RemoveSubtree {
-                component_ids: vec![owner_transform],
+                component_id: owner_transform,
             },
         );
         self.mark_dirty();
@@ -600,13 +600,19 @@ impl GridSystem {
         emit.push_intent_now(
             live_root,
             IntentValue::RegisterTransform {
-                component_ids: vec![live_root, live_shape],
+                component_id: live_root,
+            },
+        );
+        emit.push_intent_now(
+            live_shape,
+            IntentValue::RegisterTransform {
+                component_id: live_shape,
             },
         );
         emit.push_intent_now(
             live_renderable,
             IntentValue::RegisterRenderable {
-                component_ids: vec![live_renderable],
+                component_id: live_renderable,
             },
         );
     }
@@ -634,7 +640,7 @@ impl GridSystem {
             emit.push_intent_now(
                 owner_transform,
                 IntentValue::RegisterOpacity {
-                    component_ids: vec![opacity_id],
+                    component_id: opacity_id,
                 },
             );
         }

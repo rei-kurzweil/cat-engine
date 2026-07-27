@@ -62,7 +62,7 @@ impl Component for TextInputComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterTextInput {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

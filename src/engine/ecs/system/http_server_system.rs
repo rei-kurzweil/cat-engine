@@ -287,8 +287,8 @@ impl HttpServerSystem {
 
 impl Drop for HttpServerSystem {
     fn drop(&mut self) {
-        let component_ids: Vec<_> = self.runtimes.keys().copied().collect();
-        for component_id in component_ids {
+        let component_id: Vec<_> = self.runtimes.keys().copied().collect();
+        for component_id in component_id {
             self.remove_component(component_id);
         }
     }

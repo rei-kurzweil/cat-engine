@@ -34,7 +34,7 @@ impl Component for SignalRouteUpwardComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterSignalRouteUpward {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -43,7 +43,7 @@ impl Component for SignalRouteUpwardComponent {
         emit.push_intent_now(
             component,
             IntentValue::RemoveSignalRouteUpward {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

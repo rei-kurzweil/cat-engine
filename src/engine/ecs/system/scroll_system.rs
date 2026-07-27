@@ -372,7 +372,7 @@ impl ScrollingSystem {
         emit.push_intent_now(
             track_id,
             IntentValue::UpdateTransform {
-                component_ids: vec![track_id],
+                component_id: track_id,
                 translation,
                 rotation_quat_xyzw: rotation,
                 scale,
@@ -470,7 +470,7 @@ mod tests {
         queue.push_intent_now(
             late,
             IntentValue::Attach {
-                parents: vec![scrolling],
+                parent: scrolling,
                 child: late,
             },
         );

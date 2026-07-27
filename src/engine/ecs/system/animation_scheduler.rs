@@ -107,7 +107,7 @@ impl AnimationScheduler {
             };
             let kf_local_beat = kf.beat - min_beat;
 
-            if kf_local_beat > local_beat + 1e-9 && kf_local_beat <= local_end + 1e-9 {
+            if kf_local_beat >= local_beat - 1e-9 && kf_local_beat <= local_end + 1e-9 {
                 if scheduled_cycle != Some(current_cycle) {
                     out.push((kf_id, kf_local_beat, current_cycle));
                 }

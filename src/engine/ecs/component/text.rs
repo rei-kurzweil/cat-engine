@@ -230,7 +230,7 @@ impl Component for TextComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterText {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

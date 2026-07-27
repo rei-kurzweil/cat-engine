@@ -75,7 +75,7 @@ fn on_click_cube(
     emit.push_intent_now(
         root,
         engine::ecs::IntentValue::SetColor {
-            component_ids: vec![state.color_node],
+            component_id: state.color_node,
             rgba,
         },
     );
@@ -157,7 +157,7 @@ fn on_drag_move(
             emit.push_intent_now(
                 id,
                 engine::ecs::IntentValue::SetPosition {
-                    component_ids: vec![id],
+                    component_id: id,
                     position: [x + delta[0], y + delta[1], z + delta[2]],
                 },
             );
@@ -248,7 +248,7 @@ fn on_both_cube(
             emit.push_intent_now(
                 root,
                 engine::ecs::IntentValue::SetColor {
-                    component_ids: vec![state.color_node],
+                    component_id: state.color_node,
                     rgba,
                 },
             );

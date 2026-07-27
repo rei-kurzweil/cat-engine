@@ -150,7 +150,7 @@ impl Component for CollisionResponseComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterCollisionResponse {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -163,7 +163,7 @@ impl Component for CollisionResponseComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RemoveCollisionResponse {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

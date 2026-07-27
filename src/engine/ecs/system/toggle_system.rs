@@ -143,10 +143,12 @@ mod tests {
 
         systems.rx.push_event(owner, click());
         systems.process_commands(&mut world, &mut visuals, &mut assets, &mut queue);
-        assert!(world
-            .get_component_by_id_as::<ToggleComponent>(toggle)
-            .unwrap()
-            .value());
+        assert!(
+            world
+                .get_component_by_id_as::<ToggleComponent>(toggle)
+                .unwrap()
+                .value()
+        );
         assert_ne!(
             world
                 .get_component_by_id_as::<StyleComponent>(style)
@@ -157,10 +159,12 @@ mod tests {
 
         systems.rx.push_event(owner, click());
         systems.process_commands(&mut world, &mut visuals, &mut assets, &mut queue);
-        assert!(!world
-            .get_component_by_id_as::<ToggleComponent>(toggle)
-            .unwrap()
-            .value());
+        assert!(
+            !world
+                .get_component_by_id_as::<ToggleComponent>(toggle)
+                .unwrap()
+                .value()
+        );
         assert_eq!(
             world
                 .get_component_by_id_as::<StyleComponent>(style)

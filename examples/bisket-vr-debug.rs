@@ -1024,7 +1024,7 @@ fn set_local_transform(
     emit.push_intent_now(
         id,
         IntentValue::UpdateTransform {
-            component_ids: vec![id],
+            component_id: id,
             translation,
             rotation_quat_xyzw,
             scale,

@@ -46,7 +46,7 @@ impl Component for KeyframeComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterKeyframe {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

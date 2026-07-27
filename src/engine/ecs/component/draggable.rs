@@ -74,7 +74,7 @@ impl Component for DraggableComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterDraggable {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

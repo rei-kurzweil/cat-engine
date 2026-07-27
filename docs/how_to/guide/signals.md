@@ -32,10 +32,21 @@ The canonical model is now:
 
 Older docs may refer to an “action” layer or `ActionMethod` as if it were the public conceptual API. That is historical terminology only.
 
-Implementation note:
+`ActionComponent` and `ActionSystem` have been removed. Deferred animation is
+authored only with executable `Keyframe.at(...) { ... }` blocks that capture
+live component handles.
 
-- `ActionComponent` / `ActionSystem` may still appear in code as legacy plumbing reused by intent execution
-- but the architectural model to document and build on is **intent vs event**, not **action vs event**
+### Every intent has one recipient
+
+An intent dispatch addresses exactly one `ComponentId`. Recipient fields use
+the singular name `component_id`; topology intents use `parent` and `child`.
+If a caller needs to affect several components it emits several intents in
+deterministic order.
+
+`Signal.scope` remains the origin and routing context. It is not an execution
+recipient and pipeline routing may rewrite the intent recipient without
+changing the signal scope. Semantic collections such as selection entries,
+visualization `scope_roots`, HTTP headers, and query results remain vectors.
 
 ### One stream, explicit drain points
 
@@ -179,13 +190,12 @@ surface area.
 - `CommandQueue` is a transitional per-frame staging emitter (no raw pointers); it drains into `SystemWorld.rx` at drain points.
 - `RemoveSubtreeImmediate` is gone; `RemoveSubtree { target }` is the one subtree deletion action.
 - `SetTextImmediate` is gone; `SetText` executes at drain points and rebuilds the glyph subtree.
-- Intent execution is in transition:
-  - `RxIntentExecutor` exists and currently reuses some legacy `ActionSystem` interpretation logic for many high-level `IntentValue`s.
-    - The default intent executor (`execute_intent_signal`) applies canonical side effects.
+- `RxIntentExecutor` interprets high-level `IntentValue`s and the mutation
+  executor applies canonical side effects.
 
 ## MMS exposure labels and limitations
 
-The catalogs below describe the implementation as it exists, not proposed syntax. Event labels are **observable with payload**, **observable with partial payload**, **observable with `null`**, or **unavailable**. Intent labels are **directly authorable through `Action`**, **available through a live method/builtin**, **indirectly emitted by component lifecycle**, or **engine-only**.
+The catalogs below describe the implementation as it exists, not proposed syntax. Event labels are **observable with payload**, **observable with partial payload**, **observable with `null`**, or **unavailable**. Intent labels are **available through a live method/builtin**, **indirectly emitted by component lifecycle**, or **engine-only**.
 
 Three limitations are especially easy to miss:
 
@@ -458,70 +468,70 @@ scope
 
 #### `Noop`
 <!-- catalog:signal source="Noop" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `Noop` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `Noop` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
-Action.noop()
+Transform {}
 ```
 
 #### `SpawnComponentTree`
 <!-- catalog:signal source="SpawnComponentTree" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `SpawnComponentTree` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `SpawnComponentTree` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `Print`
 <!-- catalog:signal source="Print" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `Print` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `Print` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
-Action.print("intent example")
+print("intent example")
 ```
 
 #### `ReplExec`
 <!-- catalog:signal source="ReplExec" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `ReplExec` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `ReplExec` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterRouter`
 <!-- catalog:signal source="RegisterRouter" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRouter` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRouter` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterHttpServer`
 <!-- catalog:signal source="RegisterHttpServer" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterHttpServer` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterHttpServer` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterHttpClient`
 <!-- catalog:signal source="RegisterHttpClient" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterHttpClient` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterHttpClient` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterInput`
 <!-- catalog:signal source="RegisterInput" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterInput` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterInput` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterTransparentCutout`
 <!-- catalog:signal source="RegisterTransparentCutout" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTransparentCutout` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTransparentCutout` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterEditor`
 <!-- catalog:signal source="RegisterEditor" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterEditor` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterEditor` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -533,23 +543,16 @@ Transform {}
 EditorUI {}
 ```
 
-#### `RegisterAction`
-<!-- catalog:signal source="RegisterAction" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAction` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
-```mms parse-only
-Transform {}
-```
-
 #### `RegisterSignalRouteUpward`
 <!-- catalog:signal source="RegisterSignalRouteUpward" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterSignalRouteUpward` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterSignalRouteUpward` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveSignalRouteUpward`
 <!-- catalog:signal source="RemoveSignalRouteUpward" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveSignalRouteUpward` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveSignalRouteUpward` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -558,16 +561,16 @@ Transform {}
 
 #### `SetPosition`
 <!-- catalog:signal source="SetPosition" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `SetPosition` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetPosition` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `LookAt`
 <!-- catalog:signal source="LookAt" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `LookAt` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `LookAt` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let node = Transform {}
 node.look_at([0, 0, -1])
@@ -575,101 +578,101 @@ node.look_at([0, 0, -1])
 
 #### `Attach`
 <!-- catalog:signal source="Attach" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `Attach` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `Attach` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `QueryFindComponent`
 <!-- catalog:signal source="QueryFindComponent" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `QueryFindComponent` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `QueryFindComponent` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `QueryFindAllComponents`
 <!-- catalog:signal source="QueryFindAllComponents" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `QueryFindAllComponents` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `QueryFindAllComponents` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `AttachClone`
 <!-- catalog:signal source="AttachClone" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `AttachClone` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `AttachClone` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `Detach`
 <!-- catalog:signal source="Detach" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `Detach` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `Detach` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `RemoveChild`
 <!-- catalog:signal source="RemoveChild" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveChild` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveChild` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveChildren`
 <!-- catalog:signal source="RemoveChildren" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveChildren` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveChildren` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveSubtree`
 <!-- catalog:signal source="RemoveSubtree" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `RemoveSubtree` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `RemoveSubtree` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `RegisterTransform`
 <!-- catalog:signal source="RegisterTransform" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTransform` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTransform` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `UpdateTransformWorld`
 <!-- catalog:signal source="UpdateTransformWorld" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `UpdateTransformWorld` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `UpdateTransformWorld` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `UpdateTransform`
 <!-- catalog:signal source="UpdateTransform" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `UpdateTransform` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `UpdateTransform` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `RemoveTransform`
 <!-- catalog:signal source="RemoveTransform" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveTransform` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveTransform` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterTransformGizmo`
 <!-- catalog:signal source="RegisterTransformGizmo" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTransformGizmo` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTransformGizmo` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -678,158 +681,158 @@ Transform {}
 
 #### `SetColor`
 <!-- catalog:signal source="SetColor" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `SetColor` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetColor` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `SetEmissiveIntensity`
 <!-- catalog:signal source="SetEmissiveIntensity" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `SetEmissiveIntensity` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetEmissiveIntensity` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `GLTFArmatureVisible`
 <!-- catalog:signal source="GLTFArmatureVisible" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `GLTFArmatureVisible` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `GLTFArmatureVisible` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterRenderable`
 <!-- catalog:signal source="RegisterRenderable" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRenderable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRenderable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveRenderable`
 <!-- catalog:signal source="RemoveRenderable" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveRenderable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveRenderable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterStencilClip`
 <!-- catalog:signal source="RegisterStencilClip" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterStencilClip` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterStencilClip` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `UnregisterStencilClip`
 <!-- catalog:signal source="UnregisterStencilClip" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `UnregisterStencilClip` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `UnregisterStencilClip` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterCamera3d`
 <!-- catalog:signal source="RegisterCamera3d" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCamera3d` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCamera3d` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterCamera2d`
 <!-- catalog:signal source="RegisterCamera2d" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCamera2d` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCamera2d` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `MakeActiveCamera`
 <!-- catalog:signal source="MakeActiveCamera" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `MakeActiveCamera` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `MakeActiveCamera` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Camera3D {}
 ```
 
 #### `RegisterUv`
 <!-- catalog:signal source="RegisterUv" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterUv` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterUv` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterLight`
 <!-- catalog:signal source="RegisterLight" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterLight` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterLight` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterColor`
 <!-- catalog:signal source="RegisterColor" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterColor` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterColor` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterOpacity`
 <!-- catalog:signal source="RegisterOpacity" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterOpacity` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterOpacity` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterBackgroundColor`
 <!-- catalog:signal source="RegisterBackgroundColor" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterBackgroundColor` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterBackgroundColor` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterRendererSettings`
 <!-- catalog:signal source="RegisterRendererSettings" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRendererSettings` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRendererSettings` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterRenderGraph`
 <!-- catalog:signal source="RegisterRenderGraph" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRenderGraph` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRenderGraph` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterAmbientLight`
 <!-- catalog:signal source="RegisterAmbientLight" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAmbientLight` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAmbientLight` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterEmissive`
 <!-- catalog:signal source="RegisterEmissive" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterEmissive` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterEmissive` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterLightQuantization`
 <!-- catalog:signal source="RegisterLightQuantization" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterLightQuantization` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterLightQuantization` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterGLTF`
 <!-- catalog:signal source="RegisterGLTF" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterGLTF` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterGLTF` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterNormalVis`
 <!-- catalog:signal source="RegisterNormalVis" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterNormalVis` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterNormalVis` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -838,7 +841,7 @@ Transform {}
 
 #### `SelectionSet`
 <!-- catalog:signal source="SelectionSet" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `SelectionSet` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SelectionSet` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -866,72 +869,72 @@ EditorUI {}
 
 #### `RequestRaycast`
 <!-- catalog:signal source="RequestRaycast" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `RequestRaycast` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `RequestRaycast` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `RegisterCollision`
 <!-- catalog:signal source="RegisterCollision" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCollision` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCollision` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveCollision`
 <!-- catalog:signal source="RemoveCollision" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveCollision` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveCollision` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterCollisionResponse`
 <!-- catalog:signal source="RegisterCollisionResponse" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCollisionResponse` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterCollisionResponse` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveCollisionResponse`
 <!-- catalog:signal source="RemoveCollisionResponse" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveCollisionResponse` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveCollisionResponse` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterRaycast`
 <!-- catalog:signal source="RegisterRaycast" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRaycast` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRaycast` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterRaycastable`
 <!-- catalog:signal source="RegisterRaycastable" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRaycastable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterRaycastable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterPointer`
 <!-- catalog:signal source="RegisterPointer" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterPointer` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterPointer` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveRaycast`
 <!-- catalog:signal source="RemoveRaycast" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveRaycast` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveRaycast` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveRaycastable`
 <!-- catalog:signal source="RemoveRaycastable" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveRaycastable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveRaycastable` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -940,114 +943,114 @@ Transform {}
 
 #### `SetText`
 <!-- catalog:signal source="SetText" kind="intent" mms="action" -->
-**Intent — Directly authorable through `Action`.** Requests the `SetText` operation. An `Action` constructor authors this intent; the action system resolves targets and the intent executor performs it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetText` operation. It is emitted by a supported live method or engine code and consumed at a drain point. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let target = Transform {}
-Action.noop()
+Transform {}
 target
 ```
 
 #### `SetLayoutAvailableWidth`
 <!-- catalog:signal source="SetLayoutAvailableWidth" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `SetLayoutAvailableWidth` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetLayoutAvailableWidth` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `SetLayoutAvailableHeight`
 <!-- catalog:signal source="SetLayoutAvailableHeight" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `SetLayoutAvailableHeight` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetLayoutAvailableHeight` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `SetLayoutInspect`
 <!-- catalog:signal source="SetLayoutInspect" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `SetLayoutInspect` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetLayoutInspect` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterScrolling`
 <!-- catalog:signal source="RegisterScrolling" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterScrolling` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterScrolling` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterTexture`
 <!-- catalog:signal source="RegisterTexture" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTexture` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTexture` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterTextureFiltering`
 <!-- catalog:signal source="RegisterTextureFiltering" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTextureFiltering` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTextureFiltering` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterText`
 <!-- catalog:signal source="RegisterText" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterText` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterText` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterTextInput`
 <!-- catalog:signal source="RegisterTextInput" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTextInput` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterTextInput` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputSetFocus`
 <!-- catalog:signal source="TextInputSetFocus" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputSetFocus` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputSetFocus` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputClearFocus`
 <!-- catalog:signal source="TextInputClearFocus" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputClearFocus` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputClearFocus` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputInsertText`
 <!-- catalog:signal source="TextInputInsertText" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputInsertText` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputInsertText` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputBackspace`
 <!-- catalog:signal source="TextInputBackspace" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputBackspace` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputBackspace` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputDeleteForward`
 <!-- catalog:signal source="TextInputDeleteForward" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputDeleteForward` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputDeleteForward` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputMoveCaret`
 <!-- catalog:signal source="TextInputMoveCaret" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputMoveCaret` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputMoveCaret` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `TextInputMoveCaretTo`
 <!-- catalog:signal source="TextInputMoveCaretTo" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `TextInputMoveCaretTo` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `TextInputMoveCaretTo` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -1056,49 +1059,49 @@ Transform {}
 
 #### `InitializePoseCapture`
 <!-- catalog:signal source="InitializePoseCapture" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `InitializePoseCapture` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `InitializePoseCapture` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `PoseCapture`
 <!-- catalog:signal source="PoseCapture" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `PoseCapture` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `PoseCapture` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `PoseApply`
 <!-- catalog:signal source="PoseApply" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `PoseApply` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `PoseApply` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 PoseCapturePose.new("idle")
 ```
 
 #### `PoseReset`
 <!-- catalog:signal source="PoseReset" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `PoseReset` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `PoseReset` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterAvatarControl`
 <!-- catalog:signal source="RegisterAvatarControl" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAvatarControl` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAvatarControl` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterAvatarBodyYaw`
 <!-- catalog:signal source="RegisterAvatarBodyYaw" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAvatarBodyYaw` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAvatarBodyYaw` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterIkChain`
 <!-- catalog:signal source="RegisterIkChain" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterIkChain` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterIkChain` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -1132,14 +1135,14 @@ SecondaryMotion {}
 
 #### `RegisterAnimation`
 <!-- catalog:signal source="RegisterAnimation" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAnimation` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAnimation` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `SetAnimationState`
 <!-- catalog:signal source="SetAnimationState" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `SetAnimationState` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `SetAnimationState` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 let animation = Animation {}
 animation.play()
@@ -1147,7 +1150,7 @@ animation.play()
 
 #### `RegisterKeyframe`
 <!-- catalog:signal source="RegisterKeyframe" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterKeyframe` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterKeyframe` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -1156,126 +1159,126 @@ Transform {}
 
 #### `AudioGraphRebuild`
 <!-- catalog:signal source="AudioGraphRebuild" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `AudioGraphRebuild` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `AudioGraphRebuild` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `AudioLowPassSetCutoffHz`
 <!-- catalog:signal source="AudioLowPassSetCutoffHz" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `AudioLowPassSetCutoffHz` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `AudioLowPassSetCutoffHz` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `AudioBandPassSetCenterHz`
 <!-- catalog:signal source="AudioBandPassSetCenterHz" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `AudioBandPassSetCenterHz` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `AudioBandPassSetCenterHz` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `OscillatorSetEnabled`
 <!-- catalog:signal source="OscillatorSetEnabled" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `OscillatorSetEnabled` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `OscillatorSetEnabled` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `OscillatorSetPitch`
 <!-- catalog:signal source="OscillatorSetPitch" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `OscillatorSetPitch` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `OscillatorSetPitch` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `OscillatorScheduleSetPitch`
 <!-- catalog:signal source="OscillatorScheduleSetPitch" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `OscillatorScheduleSetPitch` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `OscillatorScheduleSetPitch` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `AudioSchedulePlay`
 <!-- catalog:signal source="AudioSchedulePlay" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `AudioSchedulePlay` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `AudioSchedulePlay` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 AudioOscillator.sin()
 ```
 
 #### `RegisterAudioOutput`
 <!-- catalog:signal source="RegisterAudioOutput" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioOutput` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioOutput` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `AudioGraphDirtyImmediate`
 <!-- catalog:signal source="AudioGraphDirtyImmediate" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `AudioGraphDirtyImmediate` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `AudioGraphDirtyImmediate` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterAudioOscillator`
 <!-- catalog:signal source="RegisterAudioOscillator" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioOscillator` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioOscillator` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterAudioClip`
 <!-- catalog:signal source="RegisterAudioClip" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioClip` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioClip` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterAudioBufferSize`
 <!-- catalog:signal source="RegisterAudioBufferSize" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioBufferSize` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterAudioBufferSize` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterClock`
 <!-- catalog:signal source="RegisterClock" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterClock` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterClock` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `ScheduleAudioOp`
 <!-- catalog:signal source="ScheduleAudioOp" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `ScheduleAudioOp` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `ScheduleAudioOp` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `ScheduleAudioGraphSwap`
 <!-- catalog:signal source="ScheduleAudioGraphSwap" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `ScheduleAudioGraphSwap` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `ScheduleAudioGraphSwap` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `ScheduleAudioPitchSetHz`
 <!-- catalog:signal source="ScheduleAudioPitchSetHz" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `ScheduleAudioPitchSetHz` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `ScheduleAudioPitchSetHz` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `ScheduleAudioOscillatorEnabled`
 <!-- catalog:signal source="ScheduleAudioOscillatorEnabled" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `ScheduleAudioOscillatorEnabled` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `ScheduleAudioOscillatorEnabled` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `ScheduleAudioGainSet`
 <!-- catalog:signal source="ScheduleAudioGainSet" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `ScheduleAudioGainSet` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `ScheduleAudioGainSet` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -1284,56 +1287,56 @@ Transform {}
 
 #### `RetryXrRuntime`
 <!-- catalog:signal source="RetryXrRuntime" kind="intent" mms="engine-only" -->
-**Intent — Engine-only.** Requests the `RetryXrRuntime` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Engine-only.** Requests the `RetryXrRuntime` operation. Only engine code emits this internal operation; MMS has no direct constructor, method, or builtin for it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterXr`
 <!-- catalog:signal source="RegisterXr" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterInputXr`
 <!-- catalog:signal source="RegisterInputXr" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterInputXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterInputXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterControllerXr`
 <!-- catalog:signal source="RegisterControllerXr" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterControllerXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterControllerXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RegisterInputXrGamepad`
 <!-- catalog:signal source="RegisterInputXrGamepad" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterInputXrGamepad` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RegisterInputXrGamepad` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveInputXr`
 <!-- catalog:signal source="RemoveInputXr" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveInputXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveInputXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveControllerXr`
 <!-- catalog:signal source="RemoveControllerXr" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveControllerXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveControllerXr` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
 
 #### `RemoveInputXrGamepad`
 <!-- catalog:signal source="RemoveInputXrGamepad" kind="intent" mms="component-lifecycle" -->
-**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveInputXrGamepad` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveInputXrGamepad` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Transform {}
 ```
@@ -1342,14 +1345,14 @@ Transform {}
 
 #### `HttpClientRequest`
 <!-- catalog:signal source="HttpClientRequest" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `HttpClientRequest` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `HttpClientRequest` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 HttpClient {}
 ```
 
 #### `HttpServerReply`
 <!-- catalog:signal source="HttpServerReply" kind="intent" mms="live-api" -->
-**Intent — Available through a live method/builtin.** Requests the `HttpServerReply` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS action registry](../../../src/scripting/component_registry.rs).
+**Intent — Available through a live method/builtin.** Requests the `HttpServerReply` operation. A live component method or evaluator builtin requests this intent; the RX/default executor or owning system consumes it. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 HttpServer {}
 ```

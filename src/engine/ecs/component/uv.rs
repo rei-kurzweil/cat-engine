@@ -61,7 +61,7 @@ impl Component for UVComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterUv {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -49,7 +49,7 @@ impl Component for RouterComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterRouter {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

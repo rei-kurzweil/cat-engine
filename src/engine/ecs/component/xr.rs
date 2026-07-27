@@ -47,7 +47,7 @@ impl Component for XrComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterXr {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

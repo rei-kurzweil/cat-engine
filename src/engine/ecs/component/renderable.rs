@@ -347,7 +347,7 @@ impl Component for RenderableComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterRenderable {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -360,7 +360,7 @@ impl Component for RenderableComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RemoveRenderable {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

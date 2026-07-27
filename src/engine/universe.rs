@@ -214,7 +214,7 @@ impl Universe {
         self.command_queue.push_intent_now(
             child,
             ecs::IntentValue::Attach {
-                parents: vec![parent],
+                parent: parent,
                 child,
             },
         );
@@ -245,7 +245,7 @@ impl Universe {
         self.command_queue.push_intent_now(
             parent,
             ecs::IntentValue::RemoveChild {
-                parents: vec![parent],
+                parent: parent,
                 index,
             },
         );
@@ -270,12 +270,8 @@ impl Universe {
         // Snapshot child list for the return value.
         let children: Vec<ecs::ComponentId> = self.world.children_of(parent).to_vec();
 
-        self.command_queue.push_intent_now(
-            parent,
-            ecs::IntentValue::RemoveChildren {
-                parents: vec![parent],
-            },
-        );
+        self.command_queue
+            .push_intent_now(parent, ecs::IntentValue::RemoveChildren { parent: parent });
         self.drain_pending_signals();
         Ok(children)
     }
@@ -305,7 +301,7 @@ impl Universe {
         self.command_queue.push_intent_now(
             parent,
             ecs::IntentValue::AttachClone {
-                parents: vec![parent],
+                parent: parent,
                 prefab_root,
             },
         );

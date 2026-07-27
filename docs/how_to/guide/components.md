@@ -776,14 +776,6 @@ MusicNote.a(4, 1)
 
 ## Signals, data, networking, and lifecycle
 
-### `ActionComponent`
-<!-- catalog:component source="ActionComponent" mms="direct" names="Action" -->
-Stores an authored intent template that is resolved and emitted during component initialization. Use it when a tree needs this state or behavior. RX/pipeline systems; registration intents and routed events are the important signals.
-**Directly constructible** as `Action`. Sources: [Rust implementation](../../../src/engine/ecs/component/action.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
-```mms parse-only
-Action {}
-```
-
 ### `AssetPayloadComponent`
 <!-- catalog:component source="AssetPayloadComponent" mms="direct" names="AssetPayload" -->
 Carries asset payload state used when that engine feature is present in a component tree. Use it when a tree needs this state or behavior. The Asset Payload engine subsystem; its component lifecycle is processed at signal drain points.

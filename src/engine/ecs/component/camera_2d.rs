@@ -31,7 +31,7 @@ impl Camera2DComponent {
                 emit.push_intent_now(
                     component,
                     crate::engine::ecs::IntentValue::MakeActiveCamera {
-                        component_ids: vec![component],
+                        component_id: component,
                     },
                 );
             }
@@ -63,7 +63,7 @@ impl Component for Camera2DComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterCamera2d {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

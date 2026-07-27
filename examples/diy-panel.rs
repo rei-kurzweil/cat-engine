@@ -154,7 +154,7 @@ fn spawn_container_item_debug_clones(
         universe.command_queue.push_intent_now(
             clone_root,
             IntentValue::UpdateTransform {
-                component_ids: vec![clone_root],
+                component_id: clone_root,
                 translation: clone_translation,
                 rotation_quat_xyzw: clone_rotation,
                 scale: clone_scale,

@@ -148,7 +148,7 @@ impl TransformComponent {
         emit.push_intent_now(
             cid,
             IntentValue::UpdateTransform {
-                component_ids: vec![cid],
+                component_id: cid,
                 translation: self.transform.translation,
                 rotation_quat_xyzw: self.transform.rotation,
                 scale: self.transform.scale,
@@ -166,7 +166,7 @@ impl TransformComponent {
         emit.push_intent_now(
             cid,
             IntentValue::UpdateTransform {
-                component_ids: vec![cid],
+                component_id: cid,
                 translation: self.transform.translation,
                 rotation_quat_xyzw: self.transform.rotation,
                 scale: self.transform.scale,
@@ -184,7 +184,7 @@ impl TransformComponent {
         emit.push_intent_now(
             cid,
             IntentValue::UpdateTransform {
-                component_ids: vec![cid],
+                component_id: cid,
                 translation: self.transform.translation,
                 rotation_quat_xyzw: self.transform.rotation,
                 scale: self.transform.scale,
@@ -202,7 +202,7 @@ impl TransformComponent {
         emit.push_intent_now(
             cid,
             IntentValue::UpdateTransform {
-                component_ids: vec![cid],
+                component_id: cid,
                 translation: self.transform.translation,
                 rotation_quat_xyzw: self.transform.rotation,
                 scale: self.transform.scale,
@@ -232,14 +232,14 @@ impl Component for TransformComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterTransform {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
         if let Some(target_world) = self.pending_look_at_target_world.take() {
             emit.push_intent_now(
                 component,
                 crate::engine::ecs::IntentValue::LookAt {
-                    component_ids: vec![component],
+                    component_id: component,
                     target_world,
                 },
             );
@@ -334,7 +334,7 @@ mod tests {
         queue.push_intent_now(
             root,
             IntentValue::LookAt {
-                component_ids: vec![root],
+                component_id: root,
                 target_world: [1.0, 2.0, 8.0],
             },
         );
@@ -379,7 +379,7 @@ mod tests {
         queue.push_intent_now(
             child,
             IntentValue::LookAt {
-                component_ids: vec![child],
+                component_id: child,
                 target_world: target,
             },
         );
@@ -474,14 +474,14 @@ mod tests {
         queue.push_intent_now(
             same_target,
             IntentValue::LookAt {
-                component_ids: vec![same_target],
+                component_id: same_target,
                 target_world: [2.0, 3.0, 4.0],
             },
         );
         queue.push_intent_now(
             vertical_target,
             IntentValue::LookAt {
-                component_ids: vec![vertical_target],
+                component_id: vertical_target,
                 target_world: [0.0, 5.0, 0.0],
             },
         );

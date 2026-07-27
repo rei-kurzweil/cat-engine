@@ -113,7 +113,7 @@ pub(crate) fn layout_items(
         emit.push_intent_now(
             item.tc_id,
             IntentValue::UpdateTransform {
-                component_ids: vec![item.tc_id],
+                component_id: item.tc_id,
                 translation,
                 rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
                 scale: tc_scale,

@@ -45,7 +45,7 @@ impl Component for AudioBufferSizeComponent {
             emit.push_intent_now(
                 component,
                 crate::engine::ecs::IntentValue::RegisterAudioBufferSize {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             );
         }

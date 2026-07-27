@@ -27,7 +27,7 @@ impl IKSystem {
         for id in ids {
             // Lazy resolution of `target_source` / `end_effector_source` into
             // the actual ComponentId fields. Matches AnimationSystem's
-            // behavior for ActionComponent and supports forward refs
+            // other selector-backed components and supports forward refs
             // (sources authored before the referent exists). No-op when the
             // ids are already filled (either by registry-time resolve at
             // call-construction, or by a previous tick).
@@ -381,7 +381,7 @@ fn solve_aim(
     emit.push_intent_now(
         root_tc,
         IntentValue::UpdateTransform {
-            component_ids: vec![root_tc],
+            component_id: root_tc,
             translation: local_t,
             rotation_quat_xyzw: local_rot,
             scale: s,
@@ -563,7 +563,7 @@ fn solve_two_bone(
     emit.push_intent_now(
         root_tc,
         IntentValue::UpdateTransform {
-            component_ids: vec![root_tc],
+            component_id: root_tc,
             translation: rt,
             rotation_quat_xyzw: upper_local,
             scale: rs,
@@ -578,7 +578,7 @@ fn solve_two_bone(
     emit.push_intent_now(
         mid_tc,
         IntentValue::UpdateTransform {
-            component_ids: vec![mid_tc],
+            component_id: mid_tc,
             translation: mt,
             rotation_quat_xyzw: lower_local,
             scale: ms,
@@ -604,7 +604,7 @@ fn solve_two_bone(
         emit.push_intent_now(
             end_tc,
             IntentValue::UpdateTransform {
-                component_ids: vec![end_tc],
+                component_id: end_tc,
                 translation: et,
                 rotation_quat_xyzw: end_local,
                 scale: es,
@@ -778,7 +778,7 @@ fn update_debug_segment(
     emit.push_intent_now(
         component_id,
         IntentValue::UpdateTransform {
-            component_ids: vec![component_id],
+            component_id: component_id,
             translation: local_mid,
             rotation_quat_xyzw: local_rot,
             scale: [thickness, thickness, len.max(thickness)],
@@ -797,7 +797,7 @@ fn update_debug_point(
     emit.push_intent_now(
         component_id,
         IntentValue::UpdateTransform {
-            component_ids: vec![component_id],
+            component_id: component_id,
             translation: local_pos,
             rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
             scale,
@@ -1010,7 +1010,7 @@ fn solve_fabrik(
         emit.push_intent_now(
             tc,
             IntentValue::UpdateTransform {
-                component_ids: vec![tc],
+                component_id: tc,
                 translation: t,
                 rotation_quat_xyzw: local_rot,
                 scale: s,

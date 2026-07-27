@@ -1328,7 +1328,7 @@ mod tests {
         emit.push_intent_now(
             editor_root,
             IntentValue::Attach {
-                parents: vec![scene_root],
+                parent: scene_root,
                 child: child_transform,
             },
         );
@@ -1349,7 +1349,7 @@ mod tests {
         emit.push_intent_now(
             editor_root,
             IntentValue::Attach {
-                parents: vec![sibling_root],
+                parent: sibling_root,
                 child: child_transform,
             },
         );

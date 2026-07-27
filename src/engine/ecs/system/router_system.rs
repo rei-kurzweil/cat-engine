@@ -95,7 +95,7 @@ impl RouterSystem {
         emit.push_intent_now(
             child,
             IntentValue::Attach {
-                parents: vec![router.target_component],
+                parent: router.target_component,
                 child,
             },
         );
@@ -266,7 +266,7 @@ mod tests {
         queue.push_intent_now(
             late,
             IntentValue::Attach {
-                parents: vec![owner],
+                parent: owner,
                 child: late,
             },
         );

@@ -125,7 +125,7 @@ impl Component for ScrollingComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterScrolling {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

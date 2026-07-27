@@ -219,7 +219,7 @@ pub(crate) fn layout_items(
         emit.push_intent_now(
             item.measured.tc_id,
             IntentValue::UpdateTransform {
-                component_ids: vec![item.measured.tc_id],
+                component_id: item.measured.tc_id,
                 translation: [
                     content_origin_x_gu * unit_scale,
                     -(content_origin_y_gu * unit_scale),
@@ -581,10 +581,10 @@ mod tests {
             .iter()
             .find_map(|(_, intent)| match &intent.value {
                 IntentValue::UpdateTransform {
-                    component_ids,
+                    component_id,
                     translation,
                     ..
-                } if component_ids == &vec![tc_id] => Some(*translation),
+                } if component_id == &tc_id => Some(*translation),
                 _ => None,
             })
             .unwrap()

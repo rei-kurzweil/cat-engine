@@ -67,7 +67,7 @@ impl Component for NormalVisualisationComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterNormalVis {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -80,9 +80,7 @@ impl Component for NormalVisualisationComponent {
         for root in self.spawned_roots.drain(..) {
             emit.push_intent_now(
                 root,
-                crate::engine::ecs::IntentValue::RemoveSubtree {
-                    component_ids: vec![root],
-                },
+                crate::engine::ecs::IntentValue::RemoveSubtree { component_id: root },
             );
         }
     }

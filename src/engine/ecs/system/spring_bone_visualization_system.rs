@@ -164,12 +164,7 @@ fn reconcile_removed<K: Copy + Eq + std::hash::Hash>(
     for key in markers.keys().copied().collect::<Vec<_>>() {
         if !wanted.contains(&key) {
             let root = markers.remove(&key).unwrap();
-            emit.push_intent_now(
-                root,
-                IntentValue::RemoveSubtree {
-                    component_ids: vec![root],
-                },
-            );
+            emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
         }
     }
 }
@@ -195,7 +190,7 @@ fn update_transform(
     emit.push_intent_now(
         marker,
         IntentValue::UpdateTransform {
-            component_ids: vec![marker],
+            component_id: marker,
             translation,
             rotation_quat_xyzw,
             scale,
@@ -248,10 +243,10 @@ fn spawn_marker(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::system::{
         SecondaryMotionColliderSnapshot, SecondaryMotionSegmentSnapshot, SystemWorld,
     };
-    use crate::engine::ecs::CommandQueue;
     use crate::engine::graphics::VisualWorld;
 
     #[test]

@@ -118,7 +118,7 @@ impl Component for InputXRGamepadComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterInputXrGamepad {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -131,7 +131,7 @@ impl Component for InputXRGamepadComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RemoveInputXrGamepad {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

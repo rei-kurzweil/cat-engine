@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::engine::ecs::component::{
-    ActionComponent, AnimationComponent, AnimationState, KeyframeComponent, ResolveTargetsMode,
-};
+use crate::engine::ecs::component::{AnimationComponent, AnimationState, KeyframeComponent};
 use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::animation_keyframe_evaluator::AnimationKeyframeEvaluator;
 use crate::engine::ecs::system::animation_scheduler::AnimationScheduler;
@@ -21,11 +19,6 @@ struct AnimationRuntime {
     audio_cycle: u64,
     start_beat: f64,
     pending_state: Option<AnimationState>,
-    /// For `ResolveTargetsMode::OnAttach`: set once the first tick has
-    /// bulk-resolved every ActionComponent target under this animation's
-    /// keyframes. `OnPlay` mode ignores this and resolves per-action lazily
-    /// just before each push.
-    attach_resolved: bool,
 }
 
 #[derive(Debug, Default)]
@@ -139,9 +132,9 @@ impl AnimationSystem {
 
         // Drive animations.
         for (&anim, runtime) in self.animations.iter_mut() {
-            let (state, resolve_mode, length_override) =
+            let (state, length_override) =
                 match world.get_component_by_id_as::<AnimationComponent>(anim) {
-                    Some(c) => (c.state, c.resolve_targets, c.length_beats),
+                    Some(c) => (c.state, c.length_beats),
                     None => continue,
                 };
 
@@ -151,40 +144,6 @@ impl AnimationSystem {
 
             if runtime.keyframes.is_empty() {
                 continue;
-            }
-
-            // OnAttach: on first tick, eagerly resolve every action under this
-            // animation's keyframes. Errors are logged but don't halt the
-            // animation — individual broken actions just skip in the push
-            // path below. OnPlay defers per-action to the push site.
-            if matches!(resolve_mode, ResolveTargetsMode::OnAttach) && !runtime.attach_resolved {
-                let action_ids: Vec<ComponentId> = runtime
-                    .keyframes
-                    .iter()
-                    .flat_map(|&kf| {
-                        world
-                            .children_of(kf)
-                            .iter()
-                            .copied()
-                            .filter(|&cid| {
-                                world
-                                    .get_component_by_id_as::<ActionComponent>(cid)
-                                    .is_some()
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .collect();
-                for action_cid in action_ids {
-                    if let Err(e) = self
-                        .keyframe_evaluator
-                        .resolve_action_targets(world, action_cid)
-                    {
-                        eprintln!(
-                            "[AnimationSystem] OnAttach resolve failed for {action_cid:?}: {e}"
-                        );
-                    }
-                }
-                runtime.attach_resolved = true;
             }
 
             // Compute beat range for this animation.
@@ -238,7 +197,7 @@ impl AnimationSystem {
             // Audio lookahead scheduling phase.
             //
             // Key detail: scheduled audio actions take a beat *offset* relative to the
-            // beat context passed into ActionSystem::execute. For lookahead, we want that
+            // beat context passed into keyframe evaluation. For lookahead, we want that
             // context to be the keyframe's intended beat time (global), not "now".
             let audio_due = self.scheduler.audio_due_keyframes(
                 world,
@@ -336,145 +295,14 @@ impl System for AnimationSystem {
 mod tests {
     use super::*;
     use crate::engine::ecs::IntentValue;
-    use crate::engine::ecs::component::{
-        AudioOscillatorComponent, ComponentRef, TransformComponent,
-    };
-    use crate::engine::ecs::system::animation_keyframe_evaluator::AnimationKeyframeEvaluator;
+    use crate::engine::ecs::component::{AudioOscillatorComponent, TransformComponent};
     use crate::scripting::ast::{
         BinOpKind, BlockStatement, CallExpression, Expression, Ident, Statement,
     };
     use crate::scripting::object::{RuntimeClosure, Value};
     use crate::scripting::world_evaluator::{RuntimeClosureExecMode, eval_runtime_closure};
-    use slotmap::Key;
     use std::collections::HashMap;
     use std::sync::Arc;
-
-    #[test]
-    fn resolve_action_targets_supports_relative_parent_prefixes() {
-        let mut world = World::default();
-        let root = world.add_component(TransformComponent::new());
-        let target = world.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-        world.add_child(root, target).unwrap();
-
-        let keyframe = world.add_component(KeyframeComponent::new(0.0));
-        world.add_child(root, keyframe).unwrap();
-
-        let action = world.add_component(ActionComponent::new_authored(
-            IntentValue::SetPosition {
-                component_ids: vec![ComponentId::null()],
-                position: [1.0, 2.0, 3.0],
-            },
-            vec![ComponentRef::Query("../../#hero".to_string())],
-        ));
-        world.add_child(keyframe, action).unwrap();
-
-        AnimationKeyframeEvaluator
-            .resolve_action_targets(&mut world, action)
-            .expect("action resolves");
-
-        let action = world
-            .get_component_by_id_as::<ActionComponent>(action)
-            .expect("action");
-        match &action.signal {
-            IntentValue::SetPosition { component_ids, .. } => {
-                assert_eq!(component_ids, &vec![target]);
-            }
-            other => panic!("unexpected signal: {other:?}"),
-        }
-        assert!(action.resolved);
-    }
-
-    #[test]
-    fn resolve_action_targets_uses_local_scope_for_bare_queries() {
-        let mut world = World::default();
-
-        let unrelated_root = world.add_component(TransformComponent::new());
-        let unrelated_target =
-            world.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-        world.add_child(unrelated_root, unrelated_target).unwrap();
-
-        let local_root = world.add_component(TransformComponent::new());
-        let keyframe = world.add_component(KeyframeComponent::new(0.0));
-        world.add_child(local_root, keyframe).unwrap();
-
-        let action = world.add_component(ActionComponent::new_authored(
-            IntentValue::SetPosition {
-                component_ids: vec![ComponentId::null()],
-                position: [1.0, 2.0, 3.0],
-            },
-            vec![ComponentRef::Query("#hero".to_string())],
-        ));
-        world.add_child(keyframe, action).unwrap();
-        let local_target =
-            world.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-        world.add_child(action, local_target).unwrap();
-
-        AnimationKeyframeEvaluator
-            .resolve_action_targets(&mut world, action)
-            .expect("action resolves");
-
-        let action = world
-            .get_component_by_id_as::<ActionComponent>(action)
-            .expect("action");
-        match &action.signal {
-            IntentValue::SetPosition { component_ids, .. } => {
-                assert_eq!(component_ids, &vec![local_target]);
-                assert_ne!(component_ids, &vec![unrelated_target]);
-            }
-            other => panic!("unexpected signal: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn resolve_action_targets_use_animation_scope_for_bare_queries() {
-        let mut world = World::default();
-
-        let unrelated_root = world.add_component(TransformComponent::new());
-        let unrelated_target =
-            world.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-        world.add_child(unrelated_root, unrelated_target).unwrap();
-
-        let host = world.add_component(TransformComponent::new());
-        let scoped_root =
-            world.add_component_boxed_named("avatar_root", Box::new(TransformComponent::new()));
-        world.add_child(host, scoped_root).unwrap();
-        let scoped_target =
-            world.add_component_boxed_named("hero", Box::new(TransformComponent::new()));
-        world.add_child(scoped_root, scoped_target).unwrap();
-
-        let animation = world.add_component(
-            AnimationComponent::new()
-                .with_scope_source(ComponentRef::Query("../#avatar_root".to_string())),
-        );
-        world.add_child(host, animation).unwrap();
-
-        let keyframe = world.add_component(KeyframeComponent::new(0.0));
-        world.add_child(animation, keyframe).unwrap();
-
-        let action = world.add_component(ActionComponent::new_authored(
-            IntentValue::SetPosition {
-                component_ids: vec![ComponentId::null()],
-                position: [1.0, 2.0, 3.0],
-            },
-            vec![ComponentRef::Query("#hero".to_string())],
-        ));
-        world.add_child(keyframe, action).unwrap();
-
-        AnimationKeyframeEvaluator
-            .resolve_action_targets(&mut world, action)
-            .expect("action resolves");
-
-        let action = world
-            .get_component_by_id_as::<ActionComponent>(action)
-            .expect("action");
-        match &action.signal {
-            IntentValue::SetPosition { component_ids, .. } => {
-                assert_eq!(component_ids, &vec![scoped_target]);
-                assert_ne!(component_ids, &vec![unrelated_target]);
-            }
-            other => panic!("unexpected signal: {other:?}"),
-        }
-    }
 
     #[test]
     fn keyframe_callback_dispatches_live_component_intent_when_due() {
@@ -536,21 +364,15 @@ mod tests {
             matches!(
                 signal.intent.as_ref().map(|intent| &intent.value),
                 Some(IntentValue::UpdateTransform {
-                    component_ids,
+                    component_id,
                     translation,
                     scale,
                     ..
-                }) if component_ids == &vec![target]
+                }) if component_id == &target
                     && *translation == [1.0, 2.0, 3.0]
                     && *scale == [2.0, 2.0, 2.0]
             )
         }));
-
-        let transform = world
-            .get_component_by_id_as::<TransformComponent>(target)
-            .expect("target transform exists");
-        assert_eq!(transform.transform.translation, [1.0, 2.0, 3.0]);
-        assert_eq!(transform.transform.scale, [2.0, 2.0, 2.0]);
     }
 
     #[test]
@@ -595,9 +417,9 @@ mod tests {
             matches!(
                 signal.intent.as_ref().map(|intent| &intent.value),
                 Some(IntentValue::SetEmissiveIntensity {
-                    component_ids,
+                    component_id,
                     intensity,
-                }) if component_ids == &vec![target] && (*intensity - 2.5).abs() < 1.0e-6
+                }) if component_id == &target && (*intensity - 2.5).abs() < 1.0e-6
             )
         }));
 
@@ -677,10 +499,10 @@ mod tests {
             matches!(
                 signal.intent.as_ref().map(|intent| &intent.value),
                 Some(IntentValue::AudioSchedulePlay {
-                    component_ids,
+                    component_id,
                     beat_context,
                     ..
-                }) if component_ids == &vec![lead] && *beat_context == Some(12.5)
+                }) if component_id == &lead && *beat_context == Some(12.5)
             )
         }));
     }
@@ -755,9 +577,9 @@ mod tests {
             matches!(
                 signal.intent.as_ref().map(|intent| &intent.value),
                 Some(IntentValue::SetEmissiveIntensity {
-                    component_ids,
+                    component_id,
                     intensity,
-                }) if component_ids == &vec![glow] && (*intensity - 2.5).abs() < 1.0e-6
+                }) if component_id == &glow && (*intensity - 2.5).abs() < 1.0e-6
             )
         }));
     }

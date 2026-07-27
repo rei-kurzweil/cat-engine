@@ -1,4 +1,3 @@
-pub mod action;
 pub mod ambient_light;
 pub mod animation;
 pub mod asset_payload;
@@ -106,11 +105,9 @@ pub mod uv;
 
 pub use self::gltf::GLTFComponent;
 pub use crate::engine::ecs::system::model::collision_types::{CollisionMode, CollisionShape};
-pub use action::ActionComponent;
 pub use ambient_light::AmbientLightComponent;
 pub use animation::AnimationComponent;
 pub use animation::AnimationState;
-pub use animation::ResolveTargetsMode;
 pub use asset_payload::AssetPayloadComponent;
 pub use audio_band_pass_filter::*;
 pub use audio_buffer_size::AudioBufferSizeComponent;
@@ -200,8 +197,7 @@ pub use router::RouterComponent;
 pub use scrolling::ScrollingComponent;
 pub use secondary_motion::{
     SecondaryMotionComponent, SpringBoneComponent, SpringColliderComponent,
-    SpringCollidersComponent, SpringJointComponent,
-    export_secondary_motion_sidecar,
+    SpringCollidersComponent, SpringJointComponent, export_secondary_motion_sidecar,
 };
 pub use selectable::SelectableComponent;
 pub use selection::{SelectionComponent, SelectionEntry, SelectionMode};

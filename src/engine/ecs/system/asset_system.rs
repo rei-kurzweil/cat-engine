@@ -340,7 +340,7 @@ impl AssetSystem {
         emit.push_intent_now(
             wrapper,
             crate::engine::ecs::IntentValue::Attach {
-                parents: vec![parent],
+                parent: parent,
                 child: wrapper,
             },
         );
@@ -531,7 +531,7 @@ impl AssetSystem {
                         emit.push_intent_now(
                             preview_shell,
                             crate::engine::ecs::IntentValue::UpdateTransform {
-                                component_ids: vec![preview_shell],
+                                component_id: preview_shell,
                                 translation: [
                                     -center[0] * s,
                                     -center[1] * s,
@@ -545,7 +545,7 @@ impl AssetSystem {
                         emit.push_intent_now(
                             preview_shell,
                             crate::engine::ecs::IntentValue::UpdateTransform {
-                                component_ids: vec![preview_shell],
+                                component_id: preview_shell,
                                 translation: [0.0, 0.0, 0.05],
                                 rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
                                 scale: [0.5, 0.5, 0.5],
@@ -598,7 +598,7 @@ impl AssetSystem {
                 emit.push_intent_now(
                     preview_shell,
                     crate::engine::ecs::IntentValue::UpdateTransform {
-                        component_ids: vec![preview_shell],
+                        component_id: preview_shell,
                         translation: [-center[0] * s, -center[1] * s, -center[2] * s + 0.05],
                         rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
                         scale: [s, s, s],

@@ -97,7 +97,7 @@ impl Component for AvatarBodyYawComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterAvatarBodyYaw {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

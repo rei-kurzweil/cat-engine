@@ -160,7 +160,7 @@ impl Component for AudioClipComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterAudioClip {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

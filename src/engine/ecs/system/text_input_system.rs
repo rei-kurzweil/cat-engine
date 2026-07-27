@@ -104,7 +104,7 @@ impl TextInputSystem {
             emit.push_intent_now(
                 component,
                 IntentValue::SetText {
-                    component_ids: vec![target],
+                    component_id: target,
                     text,
                 },
             );
@@ -383,7 +383,7 @@ impl TextInputSystem {
             emit.push_intent_now(
                 focused,
                 IntentValue::SetText {
-                    component_ids: vec![target],
+                    component_id: target,
                     text: text.clone(),
                 },
             );
@@ -443,7 +443,7 @@ fn sync_caret_bg(
         emit.push_intent_now(
             opacity_id,
             IntentValue::RegisterOpacity {
-                component_ids: vec![opacity_id],
+                component_id: opacity_id,
             },
         );
     }

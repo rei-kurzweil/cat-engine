@@ -391,68 +391,68 @@ pub enum IntentValue {
     },
 
     SetColor {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         rgba: [f32; 4],
     },
     SetText {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         text: String,
     },
     SetEmissiveIntensity {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         intensity: f32,
     },
     SetPosition {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         position: [f32; 3],
     },
     LookAt {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         target_world: [f32; 3],
     },
     GLTFArmatureVisible {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         visible: bool,
     },
     SetLayoutAvailableWidth {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         width: SizeDimension,
     },
     SetLayoutAvailableHeight {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         height: SizeDimension,
     },
     SetLayoutInspect {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         enabled: bool,
     },
     SelectionSet {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         entries: Vec<SelectionEntry>,
         primary: Option<ComponentId>,
     },
     ToggleSet {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         value: bool,
     },
     CollisionVisualizationSet {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         scope_roots: Vec<ComponentId>,
         mode: Option<crate::engine::ecs::system::CollisionVisualizationMode>,
     },
     SpringBoneVisualizationSet {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         scope_roots: Vec<ComponentId>,
         visible: bool,
     },
     CameraVisualizationSet {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         scope_roots: Vec<ComponentId>,
         visible: bool,
     },
 
     Attach {
-        parents: Vec<ComponentId>,
+        parent: ComponentId,
         child: ComponentId,
     },
     QueryFindComponent {
@@ -466,50 +466,50 @@ pub enum IntentValue {
         reply: Sender<Vec<ComponentId>>,
     },
     AttachClone {
-        parents: Vec<ComponentId>,
+        parent: ComponentId,
         prefab_root: ComponentId,
     },
     Detach {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveChild {
-        parents: Vec<ComponentId>,
+        parent: ComponentId,
         index: usize,
     },
     RemoveChildren {
-        parents: Vec<ComponentId>,
+        parent: ComponentId,
     },
     RemoveSubtree {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     AudioGraphRebuild {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RequestRaycast {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     AudioLowPassSetCutoffHz {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         cutoff_hz: f32,
     },
     AudioBandPassSetCenterHz {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         center_hz: f32,
     },
     OscillatorSetEnabled {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         enabled: bool,
     },
     OscillatorSetPitch {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         frequency_hz: f32,
     },
 
     /// Schedule a pitch set at beat = beat_context + beat_offset.
     OscillatorScheduleSetPitch {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat_offset: f64,
         beat_context: Option<f64>,
         frequency_hz: f32,
@@ -524,7 +524,7 @@ pub enum IntentValue {
     /// - clip: `rate` sets playback rate, `gain` overrides note velocity, `duration` overrides note.duration
     /// See docs/spec/audio-sources.md §3 and §4.
     AudioSchedulePlay {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat_offset: f64,
         beat_context: Option<f64>,
         note: Option<crate::engine::ecs::component::MusicNote>,
@@ -534,16 +534,16 @@ pub enum IntentValue {
     },
 
     RegisterRenderable {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveRenderable {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterStencilClip {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     UnregisterStencilClip {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     InitializePoseCapture {
@@ -563,13 +563,13 @@ pub enum IntentValue {
     },
 
     RegisterRouter {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterHttpServer {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterHttpClient {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     HttpClientRequest {
         component_id: ComponentId,
@@ -586,90 +586,90 @@ pub enum IntentValue {
         body_text: String,
     },
     RegisterScrolling {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterTransform {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     /// Recompute transform-derived caches (world matrices, skinning, BVH) without modifying the transform value.
     ///
     /// Intended for topology changes (e.g. Attach/Detach) where world matrices need recomputation.
     UpdateTransformWorld {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     UpdateTransform {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         translation: [f32; 3],
         rotation_quat_xyzw: [f32; 4],
         scale: [f32; 3],
     },
     RemoveTransform {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterCamera3d {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterCamera2d {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     MakeActiveCamera {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterInput {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterUv {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterLight {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterColor {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterOpacity {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterTransparentCutout {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterBackgroundColor {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterRendererSettings {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterRenderGraph {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterAmbientLight {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterEmissive {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterLightQuantization {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterTexture {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterTextureFiltering {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterText {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterGLTF {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterTextInput {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     TextInputSetFocus {
@@ -690,167 +690,163 @@ pub enum IntentValue {
     },
 
     RegisterCollision {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveCollision {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterCollisionResponse {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveCollisionResponse {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterAvatarControl {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterAvatarBodyYaw {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterIkChain {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterSecondaryMotion {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     SecondaryMotionConfigurationChanged {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     SecondaryMotionTopologyChanged {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     SecondaryMotionGltfInitialized {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     UnregisterSecondaryMotion {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     ResetSecondaryMotion {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterXr {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterInputXr {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterControllerXr {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterInputXrGamepad {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveInputXr {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveControllerXr {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveInputXrGamepad {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterRaycast {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterRaycastable {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterPointer {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterGrabbable {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterDraggable {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveRaycast {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveRaycastable {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterAnimation {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     SetAnimationState {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         state: AnimationState,
     },
     RegisterKeyframe {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterAudioOutput {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     AudioGraphDirtyImmediate {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterAudioOscillator {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterAudioClip {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterAudioBufferSize {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterClock {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterTransformGizmo {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterNormalVis {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     RegisterEditor {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RegisterEditorUI {
-        component_ids: Vec<ComponentId>,
-    },
-
-    RegisterAction {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     /// Register/unregister routing operators.
     ///
     /// These are internal mutation-style intents executed by the pipeline system.
     RegisterSignalRouteUpward {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
     RemoveSignalRouteUpward {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
     },
 
     ScheduleAudioOp {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat: f64,
         op: crate::engine::ecs::system::audio_system::AudioOp,
     },
     ScheduleAudioGraphSwap {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat: f64,
     },
     ScheduleAudioPitchSetHz {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat: f64,
         frequency_hz: f32,
     },
     ScheduleAudioOscillatorEnabled {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat: f64,
         enabled: bool,
     },
     ScheduleAudioGainSet {
-        component_ids: Vec<ComponentId>,
+        component_id: ComponentId,
         beat: f64,
         gain: f32,
     },
@@ -999,7 +995,6 @@ impl IntentValue {
             IntentValue::RegisterNormalVis { .. } => "register_normal_vis",
             IntentValue::RegisterEditor { .. } => "register_editor",
             IntentValue::RegisterEditorUI { .. } => "register_editor_ui",
-            IntentValue::RegisterAction { .. } => "register_action",
 
             IntentValue::InitializePoseCapture { .. } => "initialize_pose_capture",
             IntentValue::PoseCapture { .. } => "pose_capture",

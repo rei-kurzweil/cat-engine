@@ -147,7 +147,7 @@ impl Component for TextureComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterTexture {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -502,7 +502,7 @@ impl EditorInspectorSystemStopgapMmsAdapter {
                 emit.push_intent_now(
                     panel_layout_selection,
                     IntentValue::SelectionSet {
-                        component_ids: vec![panel_layout_selection],
+                        component_id: panel_layout_selection,
                         entries: vec![SelectionEntry {
                             index: None,
                             component: world_panel_root,

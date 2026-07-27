@@ -105,7 +105,7 @@ impl DataRendererSystem {
         emit.push_intent_now(
             container,
             IntentValue::Attach {
-                parents: vec![slot],
+                parent: slot,
                 child: container,
             },
         );
@@ -133,7 +133,7 @@ impl DataRendererSystem {
         emit.push_intent_now(
             root,
             IntentValue::Attach {
-                parents: vec![slot],
+                parent: slot,
                 child: root,
             },
         );
@@ -158,7 +158,7 @@ impl DataRendererSystem {
                 emit.push_intent_now(
                     prev_root,
                     IntentValue::RemoveSubtree {
-                        component_ids: vec![prev_root],
+                        component_id: prev_root,
                     },
                 );
             }

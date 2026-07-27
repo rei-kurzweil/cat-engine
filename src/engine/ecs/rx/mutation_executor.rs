@@ -99,40 +99,33 @@ impl RxMutationExecutor {
         };
 
         match &intent.value {
-            IntentValue::RegisterRenderable { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_renderable(world, visuals, component);
-                }
+            IntentValue::RegisterRenderable { component_id } => {
+                let component = *component_id;
+                systems.register_renderable(world, visuals, component);
             }
-            IntentValue::RemoveRenderable { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_renderable(world, visuals, component);
-                }
+            IntentValue::RemoveRenderable { component_id } => {
+                let component = *component_id;
+                systems.remove_renderable(world, visuals, component);
             }
-            IntentValue::RegisterStencilClip { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_stencil_clip(world, visuals, component);
-                }
+            IntentValue::RegisterStencilClip { component_id } => {
+                let component = *component_id;
+                systems.register_stencil_clip(world, visuals, component);
             }
-            IntentValue::UnregisterStencilClip { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.unregister_stencil_clip(world, visuals, component);
-                }
+            IntentValue::UnregisterStencilClip { component_id } => {
+                let component = *component_id;
+                systems.unregister_stencil_clip(world, visuals, component);
             }
-            IntentValue::RegisterRouter { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_router(world, emit, component);
-                }
+            IntentValue::RegisterRouter { component_id } => {
+                let component = *component_id;
+                systems.register_router(world, emit, component);
             }
-            IntentValue::RegisterHttpServer { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_http_server(world, emit, component);
-                }
+            IntentValue::RegisterHttpServer { component_id } => {
+                let component = *component_id;
+                systems.register_http_server(world, emit, component);
             }
-            IntentValue::RegisterHttpClient { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_http_client(world, emit, component);
-                }
+            IntentValue::RegisterHttpClient { component_id } => {
+                let component = *component_id;
+                systems.register_http_client(world, emit, component);
             }
             IntentValue::HttpClientRequest {
                 component_id,
@@ -164,24 +157,21 @@ impl RxMutationExecutor {
                     body_text.clone(),
                 );
             }
-            IntentValue::RegisterScrolling { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_scrolling(world, emit, component);
-                }
+            IntentValue::RegisterScrolling { component_id } => {
+                let component = *component_id;
+                systems.register_scrolling(world, emit, component);
             }
 
-            IntentValue::RegisterTransform { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.transform_changed(world, visuals, component);
-                }
+            IntentValue::RegisterTransform { component_id } => {
+                let component = *component_id;
+                systems.transform_changed(world, visuals, component);
             }
-            IntentValue::UpdateTransformWorld { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.transform_changed(world, visuals, component);
-                }
+            IntentValue::UpdateTransformWorld { component_id } => {
+                let component = *component_id;
+                systems.transform_changed(world, visuals, component);
             }
             IntentValue::UpdateTransform {
-                component_ids,
+                component_id,
                 translation,
                 rotation_quat_xyzw,
                 scale,
@@ -192,126 +182,104 @@ impl RxMutationExecutor {
                 t.scale = *scale;
                 t.recompute_model();
 
-                for &component in component_ids.iter() {
+                {
+                    let component = *component_id;
                     systems.update_transform(world, visuals, component, t);
                 }
             }
-            IntentValue::RemoveTransform { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_transform(world, visuals, component);
-                }
+            IntentValue::RemoveTransform { component_id } => {
+                let component = *component_id;
+                systems.remove_transform(world, visuals, component);
             }
 
-            IntentValue::RegisterCamera3d { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_camera(world, visuals, component);
-                }
+            IntentValue::RegisterCamera3d { component_id } => {
+                let component = *component_id;
+                systems.register_camera(world, visuals, component);
             }
-            IntentValue::RegisterCamera2d { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_camera2d(world, visuals, component);
-                }
+            IntentValue::RegisterCamera2d { component_id } => {
+                let component = *component_id;
+                systems.register_camera2d(world, visuals, component);
             }
-            IntentValue::MakeActiveCamera { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.make_active_camera(world, visuals, component);
-                }
+            IntentValue::MakeActiveCamera { component_id } => {
+                let component = *component_id;
+                systems.make_active_camera(world, visuals, component);
             }
 
-            IntentValue::RegisterInput { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_input(component);
-                }
+            IntentValue::RegisterInput { component_id } => {
+                let component = *component_id;
+                systems.register_input(component);
             }
-            IntentValue::RegisterUv { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_uv(world, visuals, component);
-                }
+            IntentValue::RegisterUv { component_id } => {
+                let component = *component_id;
+                systems.register_uv(world, visuals, component);
             }
 
-            IntentValue::RegisterLight { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_light(world, visuals, component);
-                }
+            IntentValue::RegisterLight { component_id } => {
+                let component = *component_id;
+                systems.register_light(world, visuals, component);
             }
-            IntentValue::RegisterColor { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_color(world, visuals, component);
-                }
+            IntentValue::RegisterColor { component_id } => {
+                let component = *component_id;
+                systems.register_color(world, visuals, component);
             }
-            IntentValue::RegisterOpacity { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_opacity(world, visuals, component);
-                }
+            IntentValue::RegisterOpacity { component_id } => {
+                let component = *component_id;
+                systems.register_opacity(world, visuals, component);
             }
-            IntentValue::RegisterTransparentCutout { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_transparent_cutout(world, visuals, component);
-                }
+            IntentValue::RegisterTransparentCutout { component_id } => {
+                let component = *component_id;
+                systems.register_transparent_cutout(world, visuals, component);
             }
-            IntentValue::RegisterBackgroundColor { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_background_color(world, visuals, component);
-                }
+            IntentValue::RegisterBackgroundColor { component_id } => {
+                let component = *component_id;
+                systems.register_background_color(world, visuals, component);
             }
-            IntentValue::RegisterRendererSettings { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_renderer_settings(world, visuals, component);
-                }
+            IntentValue::RegisterRendererSettings { component_id } => {
+                let component = *component_id;
+                systems.register_renderer_settings(world, visuals, component);
             }
-            IntentValue::RegisterRenderGraph { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_render_graph(world, visuals, component);
-                }
+            IntentValue::RegisterRenderGraph { component_id } => {
+                let component = *component_id;
+                systems.register_render_graph(world, visuals, component);
             }
-            IntentValue::RegisterAmbientLight { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_ambient_light(world, visuals, component);
-                }
+            IntentValue::RegisterAmbientLight { component_id } => {
+                let component = *component_id;
+                systems.register_ambient_light(world, visuals, component);
             }
-            IntentValue::RegisterEmissive { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_emissive(world, visuals, component);
-                }
+            IntentValue::RegisterEmissive { component_id } => {
+                let component = *component_id;
+                systems.register_emissive(world, visuals, component);
             }
-            IntentValue::RegisterLightQuantization { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_light_quantization(world, visuals, component);
-                }
+            IntentValue::RegisterLightQuantization { component_id } => {
+                let component = *component_id;
+                systems.register_light_quantization(world, visuals, component);
             }
 
-            IntentValue::RegisterTexture { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_texture(world, visuals, component);
-                }
+            IntentValue::RegisterTexture { component_id } => {
+                let component = *component_id;
+                systems.register_texture(world, visuals, component);
             }
-            IntentValue::RegisterTextureFiltering { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_texture_filtering(world, visuals, component);
-                }
+            IntentValue::RegisterTextureFiltering { component_id } => {
+                let component = *component_id;
+                systems.register_texture_filtering(world, visuals, component);
             }
 
-            IntentValue::RegisterText { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_text(world, visuals, component, emit);
-                }
+            IntentValue::RegisterText { component_id } => {
+                let component = *component_id;
+                systems.register_text(world, visuals, component, emit);
             }
-            IntentValue::RegisterGLTF { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.gltf.register_component(component);
-                }
+            IntentValue::RegisterGLTF { component_id } => {
+                let component = *component_id;
+                systems.gltf.register_component(component);
             }
-            IntentValue::RegisterTextInput { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_text_input(world, component, emit);
-                }
+            IntentValue::RegisterTextInput { component_id } => {
+                let component = *component_id;
+                systems.register_text_input(world, component, emit);
             }
-            IntentValue::SetText {
-                component_ids,
-                text,
-            } => {
+            IntentValue::SetText { component_id, text } => {
                 let mut text_cids = Vec::new();
-                for &t in component_ids.iter() {
+                {
+                    let t = *component_id;
                     collect_text_targets(world, t, &mut text_cids);
                 }
                 text_cids.sort();
@@ -323,22 +291,24 @@ impl RxMutationExecutor {
             }
 
             IntentValue::SetEmissiveIntensity {
-                component_ids,
+                component_id,
                 intensity,
             } => {
                 let intensity = (*intensity).max(0.0);
-                for &cid in component_ids.iter() {
+                {
+                    let cid = *component_id;
                     systems.update_emissive_intensity(world, visuals, cid, intensity);
                 }
             }
 
             IntentValue::SetLayoutAvailableWidth {
-                component_ids,
+                component_id,
                 width,
             } => {
                 use crate::engine::ecs::component::LayoutComponent;
                 let width = *width;
-                for &cid in component_ids.iter() {
+                {
+                    let cid = *component_id;
                     if let Some(lo) = world.get_component_by_id_as_mut::<LayoutComponent>(cid) {
                         lo.set_available_width_dimension(width);
                     }
@@ -346,12 +316,13 @@ impl RxMutationExecutor {
             }
 
             IntentValue::SetLayoutAvailableHeight {
-                component_ids,
+                component_id,
                 height,
             } => {
                 use crate::engine::ecs::component::LayoutComponent;
                 let height = *height;
-                for &cid in component_ids.iter() {
+                {
+                    let cid = *component_id;
                     if let Some(lo) = world.get_component_by_id_as_mut::<LayoutComponent>(cid) {
                         lo.set_available_height_dimension(height);
                     }
@@ -359,12 +330,13 @@ impl RxMutationExecutor {
             }
 
             IntentValue::SetLayoutInspect {
-                component_ids,
+                component_id,
                 enabled,
             } => {
                 use crate::engine::ecs::component::LayoutComponent;
                 let enabled = *enabled;
-                for &cid in component_ids.iter() {
+                {
+                    let cid = *component_id;
                     if let Some(lo) = world.get_component_by_id_as_mut::<LayoutComponent>(cid) {
                         if lo.inspect != enabled {
                             lo.inspect = enabled;
@@ -384,84 +356,67 @@ impl RxMutationExecutor {
                 systems.text_input.execute_intent(world, emit, env);
             }
 
-            IntentValue::RegisterCollision { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_collision(world, visuals, component);
-                }
+            IntentValue::RegisterCollision { component_id } => {
+                let component = *component_id;
+                systems.register_collision(world, visuals, component);
             }
-            IntentValue::RemoveCollision { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_collision(world, visuals, component);
-                }
+            IntentValue::RemoveCollision { component_id } => {
+                let component = *component_id;
+                systems.remove_collision(world, visuals, component);
             }
-            IntentValue::RegisterCollisionResponse { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_collision_response(world, visuals, component);
-                }
+            IntentValue::RegisterCollisionResponse { component_id } => {
+                let component = *component_id;
+                systems.register_collision_response(world, visuals, component);
             }
-            IntentValue::RemoveCollisionResponse { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_collision_response(world, visuals, component);
-                }
+            IntentValue::RemoveCollisionResponse { component_id } => {
+                let component = *component_id;
+                systems.remove_collision_response(world, visuals, component);
             }
-            IntentValue::RegisterAvatarControl { component_ids } => {
-                for &component in component_ids {
-                    systems.register_avatar_control(component);
-                }
+            IntentValue::RegisterAvatarControl { component_id } => {
+                let component = *component_id;
+                systems.register_avatar_control(component);
             }
-            IntentValue::RegisterAvatarBodyYaw { component_ids } => {
-                for &component in component_ids {
-                    systems.avatar_body_yaw.register(component);
-                }
+            IntentValue::RegisterAvatarBodyYaw { component_id } => {
+                let component = *component_id;
+                systems.avatar_body_yaw.register(component);
             }
-            IntentValue::RegisterIkChain { component_ids } => {
-                for &component in component_ids {
-                    systems.ik.register(component);
-                }
+            IntentValue::RegisterIkChain { component_id } => {
+                let component = *component_id;
+                systems.ik.register(component);
             }
-            IntentValue::RegisterSecondaryMotion { component_ids } => {
-                for &component in component_ids {
-                    systems.secondary_motion.register(world, component);
-                }
+            IntentValue::RegisterSecondaryMotion { component_id } => {
+                let component = *component_id;
+                systems.secondary_motion.register(world, component);
             }
-            IntentValue::SecondaryMotionConfigurationChanged { component_ids } => {
-                for &component in component_ids {
-                    systems
-                        .secondary_motion
-                        .configuration_changed(world, component);
-                }
+            IntentValue::SecondaryMotionConfigurationChanged { component_id } => {
+                let component = *component_id;
+                systems
+                    .secondary_motion
+                    .configuration_changed(world, component);
             }
-            IntentValue::SecondaryMotionTopologyChanged { component_ids } => {
-                for &component in component_ids {
-                    systems.secondary_motion.topology_changed(world, component);
-                }
+            IntentValue::SecondaryMotionTopologyChanged { component_id } => {
+                let component = *component_id;
+                systems.secondary_motion.topology_changed(world, component);
             }
-            IntentValue::SecondaryMotionGltfInitialized { component_ids } => {
-                for &component in component_ids {
-                    systems.secondary_motion.gltf_initialized(world, component);
-                }
+            IntentValue::SecondaryMotionGltfInitialized { component_id } => {
+                let component = *component_id;
+                systems.secondary_motion.gltf_initialized(world, component);
             }
-            IntentValue::UnregisterSecondaryMotion { component_ids } => {
-                for &component in component_ids {
-                    systems.secondary_motion.component_removed(world, component);
-                }
+            IntentValue::UnregisterSecondaryMotion { component_id } => {
+                let component = *component_id;
+                systems.secondary_motion.component_removed(world, component);
             }
-            IntentValue::ResetSecondaryMotion { component_ids } => {
-                for &component in component_ids {
-                    systems.secondary_motion.reset(world, component);
-                }
+            IntentValue::ResetSecondaryMotion { component_id } => {
+                let component = *component_id;
+                systems.secondary_motion.reset(world, component);
             }
 
-            IntentValue::RemoveSubtree { component_ids } => {
-                let mut roots: Vec<ComponentId> = component_ids.iter().copied().collect();
-                roots.sort();
-                roots.dedup();
-                for root in roots {
+            IntentValue::RemoveSubtree { component_id } => {
+                let root = *component_id;
+                {
                     emit.push_intent_now(
                         root,
-                        IntentValue::AudioGraphDirtyImmediate {
-                            component_ids: vec![root],
-                        },
+                        IntentValue::AudioGraphDirtyImmediate { component_id: root },
                     );
                     // Best-effort: if the root is still attached, detach it first and publish
                     // a topology fact before deletion.
@@ -480,273 +435,221 @@ impl RxMutationExecutor {
                 }
             }
 
-            IntentValue::RegisterXr { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_xr(world, visuals, component);
-                }
+            IntentValue::RegisterXr { component_id } => {
+                let component = *component_id;
+                systems.register_xr(world, visuals, component);
             }
-            IntentValue::RegisterInputXr { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_input_xr(world, visuals, component);
-                }
+            IntentValue::RegisterInputXr { component_id } => {
+                let component = *component_id;
+                systems.register_input_xr(world, visuals, component);
             }
-            IntentValue::RegisterControllerXr { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_controller_xr(world, visuals, component, emit);
-                }
+            IntentValue::RegisterControllerXr { component_id } => {
+                let component = *component_id;
+                systems.register_controller_xr(world, visuals, component, emit);
             }
-            IntentValue::RegisterInputXrGamepad { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_input_xr_gamepad(world, visuals, component);
-                }
+            IntentValue::RegisterInputXrGamepad { component_id } => {
+                let component = *component_id;
+                systems.register_input_xr_gamepad(world, visuals, component);
             }
-            IntentValue::RemoveInputXr { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_input_xr(world, visuals, component);
-                }
+            IntentValue::RemoveInputXr { component_id } => {
+                let component = *component_id;
+                systems.remove_input_xr(world, visuals, component);
             }
-            IntentValue::RemoveControllerXr { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_controller_xr(world, visuals, component);
-                }
+            IntentValue::RemoveControllerXr { component_id } => {
+                let component = *component_id;
+                systems.remove_controller_xr(world, visuals, component);
             }
-            IntentValue::RemoveInputXrGamepad { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_input_xr_gamepad(world, visuals, component);
-                }
+            IntentValue::RemoveInputXrGamepad { component_id } => {
+                let component = *component_id;
+                systems.remove_input_xr_gamepad(world, visuals, component);
             }
 
-            IntentValue::RegisterRaycast { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_raycast(world, visuals, component);
-                }
+            IntentValue::RegisterRaycast { component_id } => {
+                let component = *component_id;
+                systems.register_raycast(world, visuals, component);
             }
-            IntentValue::RegisterPointer { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_pointer(world, visuals, component, emit);
-                }
+            IntentValue::RegisterPointer { component_id } => {
+                let component = *component_id;
+                systems.register_pointer(world, visuals, component, emit);
             }
-            IntentValue::RegisterGrabbable { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.grabbable.register(world, component, emit);
-                }
+            IntentValue::RegisterGrabbable { component_id } => {
+                let component = *component_id;
+                systems.grabbable.register(world, component, emit);
             }
-            IntentValue::RegisterDraggable { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.draggable.register(world, component, emit);
-                }
+            IntentValue::RegisterDraggable { component_id } => {
+                let component = *component_id;
+                systems.draggable.register(world, component, emit);
             }
-            IntentValue::RemoveRaycast { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.remove_raycast(world, visuals, component);
-                }
+            IntentValue::RemoveRaycast { component_id } => {
+                let component = *component_id;
+                systems.remove_raycast(world, visuals, component);
             }
 
-            IntentValue::RegisterAnimation { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_animation(world, visuals, component);
-                }
+            IntentValue::RegisterAnimation { component_id } => {
+                let component = *component_id;
+                systems.register_animation(world, visuals, component);
             }
             IntentValue::SetAnimationState {
-                component_ids,
+                component_id,
                 state,
             } => {
                 let state: AnimationState = state.clone();
-                for &component in component_ids.iter() {
+                {
+                    let component = *component_id;
                     systems.set_animation_state(component, state.clone());
                 }
             }
-            IntentValue::RegisterKeyframe { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_keyframe(world, visuals, component);
-                }
+            IntentValue::RegisterKeyframe { component_id } => {
+                let component = *component_id;
+                systems.register_keyframe(world, visuals, component);
             }
 
-            IntentValue::RegisterAudioOutput { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_audio_output(world, visuals, component);
-                }
+            IntentValue::RegisterAudioOutput { component_id } => {
+                let component = *component_id;
+                systems.register_audio_output(world, visuals, component);
             }
-            IntentValue::AudioGraphDirtyImmediate { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.audio_graph_dirty(world, visuals, component);
-                }
+            IntentValue::AudioGraphDirtyImmediate { component_id } => {
+                let component = *component_id;
+                systems.audio_graph_dirty(world, visuals, component);
             }
-            IntentValue::RegisterAudioOscillator { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_audio_oscillator(world, visuals, component);
-                }
+            IntentValue::RegisterAudioOscillator { component_id } => {
+                let component = *component_id;
+                systems.register_audio_oscillator(world, visuals, component);
             }
-            IntentValue::RegisterAudioClip { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_audio_clip(world, visuals, component);
-                }
+            IntentValue::RegisterAudioClip { component_id } => {
+                let component = *component_id;
+                systems.register_audio_clip(world, visuals, component);
             }
-            IntentValue::RegisterAudioBufferSize { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_audio_buffer_size(world, visuals, component);
-                }
+            IntentValue::RegisterAudioBufferSize { component_id } => {
+                let component = *component_id;
+                systems.register_audio_buffer_size(world, visuals, component);
             }
 
-            IntentValue::RegisterClock { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_clock(world, visuals, component);
-                }
+            IntentValue::RegisterClock { component_id } => {
+                let component = *component_id;
+                systems.register_clock(world, visuals, component);
             }
 
-            IntentValue::RegisterTransformGizmo { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_transform_gizmo(world, visuals, component, emit);
-                }
+            IntentValue::RegisterTransformGizmo { component_id } => {
+                let component = *component_id;
+                systems.register_transform_gizmo(world, visuals, component, emit);
             }
 
-            IntentValue::RegisterNormalVis { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_normal_vis(world, component);
-                }
+            IntentValue::RegisterNormalVis { component_id } => {
+                let component = *component_id;
+                systems.register_normal_vis(world, component);
             }
 
             IntentValue::ReplExec { command } => {
                 systems.queue_repl_command(command.clone());
             }
 
-            IntentValue::RegisterEditor { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_editor(world, visuals, render_assets, component, emit);
-                }
+            IntentValue::RegisterEditor { component_id } => {
+                let component = *component_id;
+                systems.register_editor(world, visuals, render_assets, component, emit);
             }
 
-            IntentValue::RegisterEditorUI { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.register_editor_ui(world, visuals, render_assets, component, emit);
-                }
+            IntentValue::RegisterEditorUI { component_id } => {
+                let component = *component_id;
+                systems.register_editor_ui(world, visuals, render_assets, component, emit);
             }
             IntentValue::CollisionVisualizationSet {
-                component_ids,
+                component_id,
                 scope_roots,
                 mode,
             } => {
-                for owner in component_ids {
-                    if let Some(mode) = mode {
-                        systems.collision_visualization.set_request(
-                            *owner,
-                            scope_roots.clone(),
-                            *mode,
-                        );
-                    } else {
-                        systems.collision_visualization.remove_request(*owner);
-                    }
+                let owner = component_id;
+                if let Some(mode) = mode {
+                    systems
+                        .collision_visualization
+                        .set_request(*owner, scope_roots.clone(), *mode);
+                } else {
+                    systems.collision_visualization.remove_request(*owner);
                 }
             }
             IntentValue::SpringBoneVisualizationSet {
-                component_ids,
+                component_id,
                 scope_roots,
                 visible,
             } => {
-                for owner in component_ids {
-                    if *visible {
-                        systems
-                            .spring_bone_visualization
-                            .set_request(*owner, scope_roots.clone());
-                    } else {
-                        systems.spring_bone_visualization.remove_request(*owner);
-                    }
+                let owner = component_id;
+                if *visible {
+                    systems
+                        .spring_bone_visualization
+                        .set_request(*owner, scope_roots.clone());
+                } else {
+                    systems.spring_bone_visualization.remove_request(*owner);
                 }
             }
             IntentValue::CameraVisualizationSet {
-                component_ids,
+                component_id,
                 scope_roots,
                 visible,
             } => {
-                for owner in component_ids {
-                    if *visible {
-                        systems
-                            .camera_visualization
-                            .set_request(*owner, scope_roots.clone());
-                    } else {
-                        systems.camera_visualization.remove_request(*owner);
-                    }
-                }
-            }
-
-            IntentValue::RegisterAction { component_ids } => {
-                for &component in component_ids.iter() {
-                    crate::engine::ecs::system::action_system::register_action(
-                        world, emit, component,
-                    );
-                }
-            }
-
-            IntentValue::RegisterSignalRouteUpward { component_ids } => {
-                for &component in component_ids.iter() {
-                    systems.pipeline.register_signal_route_upward(
-                        world,
-                        &mut systems.rx,
-                        component,
-                    );
-                }
-            }
-            IntentValue::RemoveSignalRouteUpward { component_ids } => {
-                for &component in component_ids.iter() {
+                let owner = component_id;
+                if *visible {
                     systems
-                        .pipeline
-                        .remove_signal_route_upward(&mut systems.rx, component);
+                        .camera_visualization
+                        .set_request(*owner, scope_roots.clone());
+                } else {
+                    systems.camera_visualization.remove_request(*owner);
                 }
+            }
+
+            IntentValue::RegisterSignalRouteUpward { component_id } => {
+                let component = *component_id;
+                systems
+                    .pipeline
+                    .register_signal_route_upward(world, &mut systems.rx, component);
+            }
+            IntentValue::RemoveSignalRouteUpward { component_id } => {
+                let component = *component_id;
+                systems
+                    .pipeline
+                    .remove_signal_route_upward(&mut systems.rx, component);
             }
 
             IntentValue::ScheduleAudioOp {
-                component_ids,
+                component_id,
                 beat,
                 op,
             } => {
-                for &component in component_ids.iter() {
-                    systems.audio.schedule_audio_op(component, *beat, *op);
-                }
+                let component = *component_id;
+                systems.audio.schedule_audio_op(component, *beat, *op);
             }
-            IntentValue::ScheduleAudioGraphSwap {
-                component_ids,
-                beat,
-            } => {
-                for &component in component_ids.iter() {
-                    systems.audio.schedule_graph_swap(&*world, component, *beat);
-                }
+            IntentValue::ScheduleAudioGraphSwap { component_id, beat } => {
+                let component = *component_id;
+                systems.audio.schedule_graph_swap(&*world, component, *beat);
             }
             IntentValue::ScheduleAudioPitchSetHz {
-                component_ids,
+                component_id,
                 beat,
                 frequency_hz,
             } => {
-                for &component in component_ids.iter() {
-                    systems.audio.schedule_audio_op(
-                        component,
-                        *beat,
-                        AudioOp::SetHz(*frequency_hz),
-                    );
-                }
+                let component = *component_id;
+                systems
+                    .audio
+                    .schedule_audio_op(component, *beat, AudioOp::SetHz(*frequency_hz));
             }
             IntentValue::ScheduleAudioOscillatorEnabled {
-                component_ids,
+                component_id,
                 beat,
                 enabled,
             } => {
-                for &component in component_ids.iter() {
-                    systems.audio.schedule_audio_op(
-                        component,
-                        *beat,
-                        AudioOp::SetEnabled(*enabled),
-                    );
-                }
+                let component = *component_id;
+                systems
+                    .audio
+                    .schedule_audio_op(component, *beat, AudioOp::SetEnabled(*enabled));
             }
             IntentValue::ScheduleAudioGainSet {
-                component_ids,
+                component_id,
                 beat,
                 gain,
             } => {
-                for &component in component_ids.iter() {
-                    systems
-                        .audio
-                        .schedule_audio_op(component, *beat, AudioOp::SetGain(*gain));
-                }
+                let component = *component_id;
+                systems
+                    .audio
+                    .schedule_audio_op(component, *beat, AudioOp::SetGain(*gain));
             }
 
             IntentValue::InitializePoseCapture { target } => {

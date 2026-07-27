@@ -174,7 +174,7 @@ impl TextSystem {
             emit.push_intent_now(
                 *child,
                 IntentValue::RegisterColor {
-                    component_ids: vec![*child],
+                    component_id: *child,
                 },
             );
         }

@@ -1558,7 +1558,7 @@ fn place_asset(
     emit.push_intent_now(
         raycastable_root,
         IntentValue::Attach {
-            parents: vec![scene_parent],
+            parent: scene_parent,
             child: raycastable_root,
         },
     );
@@ -1778,7 +1778,7 @@ fn set_status_text(
     emit.push_intent_now(
         status_text,
         IntentValue::SetText {
-            component_ids: vec![status_text],
+            component_id: status_text,
             text: text.to_string(),
         },
     );

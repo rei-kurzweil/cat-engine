@@ -45,7 +45,7 @@ impl Component for AudioLimiterComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::AudioGraphDirtyImmediate {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

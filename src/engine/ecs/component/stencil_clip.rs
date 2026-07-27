@@ -57,7 +57,7 @@ impl Component for StencilClipComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterStencilClip {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -66,7 +66,7 @@ impl Component for StencilClipComponent {
         emit.push_intent_now(
             component,
             IntentValue::UnregisterStencilClip {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

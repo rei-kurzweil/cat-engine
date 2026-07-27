@@ -75,7 +75,7 @@ impl Component for PointerComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterPointer {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

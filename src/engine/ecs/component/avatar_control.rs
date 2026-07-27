@@ -515,7 +515,7 @@ impl Component for AvatarControlComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterAvatarControl {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -49,13 +49,13 @@ impl Component for AudioOutputComponent {
             emit.push_intent_now(
                 component,
                 crate::engine::ecs::IntentValue::RegisterAudioOutput {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             );
             emit.push_intent_now(
                 component,
                 crate::engine::ecs::IntentValue::AudioGraphDirtyImmediate {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             );
         }

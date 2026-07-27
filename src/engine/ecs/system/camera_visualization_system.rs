@@ -91,7 +91,7 @@ impl CameraVisualizationSystem {
                     emit.push_intent_now(
                         marker,
                         IntentValue::RemoveSubtree {
-                            component_ids: vec![marker],
+                            component_id: marker,
                         },
                     );
                 }

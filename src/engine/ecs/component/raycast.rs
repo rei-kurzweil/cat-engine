@@ -81,7 +81,7 @@ impl Component for RayCastComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterRaycast {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -94,7 +94,7 @@ impl Component for RayCastComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RemoveRaycast {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

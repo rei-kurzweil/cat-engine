@@ -169,7 +169,7 @@ fn remove_box_model_viz(world: &mut World, emit: &mut dyn SignalEmitter, owner: 
         emit.push_intent_now(
             viz_root,
             IntentValue::RemoveSubtree {
-                component_ids: vec![viz_root],
+                component_id: viz_root,
             },
         );
     }
@@ -379,7 +379,7 @@ fn remove_owned_viz_quad(
         emit.push_intent_now(
             existing,
             IntentValue::RemoveSubtree {
-                component_ids: vec![existing],
+                component_id: existing,
             },
         );
     }
@@ -410,7 +410,7 @@ fn sync_viz_quad(
     emit.push_intent_now(
         quad_id,
         IntentValue::UpdateTransform {
-            component_ids: vec![quad_id],
+            component_id: quad_id,
             translation: [
                 (left_gu + width_gu / 2.0 - 0.5) * unit_scale,
                 -((top_gu + height_gu / 2.0 - 0.5) * unit_scale),

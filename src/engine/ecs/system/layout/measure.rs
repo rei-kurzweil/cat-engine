@@ -717,7 +717,7 @@ pub(crate) fn apply_text_wrap_for_item(
     emit.push_intent_now(
         text_id,
         crate::engine::ecs::IntentValue::SetText {
-            component_ids: vec![text_id],
+            component_id: text_id,
             text: cur_text,
         },
     );
@@ -759,7 +759,7 @@ pub(crate) fn apply_text_font_size_for_item(
     emit.push_intent_now(
         text_id,
         crate::engine::ecs::IntentValue::SetText {
-            component_ids: vec![text_id],
+            component_id: text_id,
             text: cur_text,
         },
     );
@@ -809,9 +809,7 @@ pub(crate) fn apply_text_color_for_item(
                 }
                 emit.push_intent_now(
                     id,
-                    crate::engine::ecs::IntentValue::RegisterColor {
-                        component_ids: vec![id],
-                    },
+                    crate::engine::ecs::IntentValue::RegisterColor { component_id: id },
                 );
             }
         }
@@ -832,9 +830,7 @@ pub(crate) fn apply_text_color_for_item(
         (None, Some(id)) => {
             emit.push_intent_now(
                 id,
-                crate::engine::ecs::IntentValue::RemoveSubtree {
-                    component_ids: vec![id],
-                },
+                crate::engine::ecs::IntentValue::RemoveSubtree { component_id: id },
             );
         }
         (None, None) => {}

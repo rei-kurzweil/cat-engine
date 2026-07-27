@@ -65,7 +65,7 @@ impl Component for RendererSettingsComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterRendererSettings {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

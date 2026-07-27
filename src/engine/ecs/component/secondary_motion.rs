@@ -36,7 +36,7 @@ impl Component for SecondaryMotionComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterSecondaryMotion {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -74,7 +74,7 @@ impl Component for SpringCollidersComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterSecondaryMotion {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -121,7 +121,7 @@ impl Component for SpringColliderComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterSecondaryMotion {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -240,7 +240,7 @@ impl Component for SpringBoneComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterSecondaryMotion {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }
@@ -343,7 +343,7 @@ impl Component for SpringJointComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterSecondaryMotion {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

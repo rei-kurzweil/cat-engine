@@ -919,7 +919,7 @@ fn secondary_motion_parent_changed(
             emit.push_intent_now(
                 component,
                 IntentValue::SecondaryMotionTopologyChanged {
-                    component_ids: vec![component],
+                    component_id: component,
                 },
             );
         }
@@ -935,7 +935,7 @@ fn secondary_motion_gltf_initialized(
         emit.push_intent_now(
             *gltf,
             IntentValue::SecondaryMotionGltfInitialized {
-                component_ids: vec![*gltf],
+                component_id: *gltf,
             },
         );
     }

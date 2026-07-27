@@ -87,7 +87,7 @@ pub(crate) fn reconcile_editor_panel_layout(
         emit.push_intent_now(
             panel_layout_selection,
             IntentValue::SelectionSet {
-                component_ids: vec![panel_layout_selection],
+                component_id: panel_layout_selection,
                 entries: vec![SelectionEntry {
                     index: Some(0),
                     component: world_panel_root,
@@ -178,7 +178,7 @@ fn populate_asset_panel(
                         emit.push_intent_now(
                             header_root,
                             IntentValue::Attach {
-                                parents: vec![selection_root],
+                                parent: selection_root,
                                 child: header_root,
                             },
                         );
@@ -196,7 +196,7 @@ fn populate_asset_panel(
                 emit.push_intent_now(
                     item_root,
                     IntentValue::Attach {
-                        parents: vec![selection_root],
+                        parent: selection_root,
                         child: item_root,
                     },
                 );
@@ -222,7 +222,7 @@ fn attach_panel_mount(
     emit.push_intent_now(
         panel_mount_root,
         IntentValue::Attach {
-            parents: vec![panel_query_root],
+            parent: panel_query_root,
             child: panel_mount_root,
         },
     );

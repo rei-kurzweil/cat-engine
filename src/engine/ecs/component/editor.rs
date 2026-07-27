@@ -182,7 +182,7 @@ impl Component for EditorComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterEditor {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

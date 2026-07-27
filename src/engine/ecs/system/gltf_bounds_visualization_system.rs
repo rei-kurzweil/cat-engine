@@ -128,7 +128,7 @@ impl GltfBoundsVisualizationSystem {
             emit.push_intent_now(
                 marker.root,
                 IntentValue::RemoveSubtree {
-                    component_ids: vec![marker.root],
+                    component_id: marker.root,
                 },
             );
         }

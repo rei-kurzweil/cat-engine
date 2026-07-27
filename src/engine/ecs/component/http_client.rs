@@ -50,7 +50,7 @@ impl Component for HttpClientComponent {
         emit.push_intent_now(
             component,
             IntentValue::RegisterHttpClient {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

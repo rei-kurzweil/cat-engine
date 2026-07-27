@@ -67,7 +67,7 @@ impl Component for PointLightComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterLight {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

@@ -35,7 +35,7 @@ impl Component for InputComponent {
         emit.push_intent_now(
             component,
             crate::engine::ecs::IntentValue::RegisterInput {
-                component_ids: vec![component],
+                component_id: component,
             },
         );
     }

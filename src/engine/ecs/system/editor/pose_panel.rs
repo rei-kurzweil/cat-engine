@@ -905,10 +905,10 @@ mod tests {
             .iter()
             .find_map(|intent| match intent {
                 IntentValue::UpdateTransform {
-                    component_ids,
+                    component_id,
                     translation,
                     ..
-                } if component_ids == &vec![component] => Some(*translation),
+                } if component_id == &component => Some(*translation),
                 _ => None,
             })
             .unwrap()

@@ -139,7 +139,7 @@ fn layout_items(
         emit.push_intent_now(
             item.tc_id,
             IntentValue::UpdateTransform {
-                component_ids: vec![item.tc_id],
+                component_id: item.tc_id,
                 translation,
                 rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
                 scale: tc_scale,
@@ -270,7 +270,7 @@ pub(crate) fn sync_auto_text_lift(
         emit.push_intent_now(
             child,
             IntentValue::UpdateTransform {
-                component_ids: vec![child],
+                component_id: child,
                 translation,
                 rotation_quat_xyzw,
                 scale,
@@ -605,7 +605,7 @@ pub(crate) fn sync_bg_quad(
                     emit.push_intent_now(
                         color_id,
                         IntentValue::SetColor {
-                            component_ids: vec![color_id],
+                            component_id: color_id,
                             rgba: color_rgba,
                         },
                     );
@@ -615,7 +615,7 @@ pub(crate) fn sync_bg_quad(
             emit.push_intent_now(
                 bg_id,
                 IntentValue::UpdateTransform {
-                    component_ids: vec![bg_id],
+                    component_id: bg_id,
                     translation: [
                         (box_width_gu / 2.0 - padding_left_gu) * unit_scale,
                         (padding_top_gu - box_height_gu / 2.0) * unit_scale,
@@ -641,7 +641,7 @@ pub(crate) fn sync_bg_quad(
         emit.push_intent_now(
             bg_id,
             IntentValue::RemoveSubtree {
-                component_ids: vec![bg_id],
+                component_id: bg_id,
             },
         );
     }
@@ -731,7 +731,7 @@ fn sync_stencil_clip(
         emit.push_intent_now(
             clip_id,
             IntentValue::RemoveSubtree {
-                component_ids: vec![clip_id],
+                component_id: clip_id,
             },
         );
     }
@@ -844,7 +844,7 @@ pub(crate) fn apply_text_align(
     emit.push_intent_now(
         inner_tc,
         IntentValue::UpdateTransform {
-            component_ids: vec![inner_tc],
+            component_id: inner_tc,
             translation: [x_translation, y_translation, translation[2]],
             rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
             scale,
@@ -1003,7 +1003,7 @@ fn sync_bg_author_raycastable(
                 emit.push_intent_now(
                     rc_id,
                     IntentValue::RemoveSubtree {
-                        component_ids: vec![rc_id],
+                        component_id: rc_id,
                     },
                 );
             }
@@ -1011,7 +1011,7 @@ fn sync_bg_author_raycastable(
                 emit.push_intent_now(
                     shape_id,
                     IntentValue::RemoveSubtree {
-                        component_ids: vec![shape_id],
+                        component_id: shape_id,
                     },
                 );
             }
@@ -1073,7 +1073,7 @@ fn sync_scroll_drag_surface(
             emit.push_intent_now(
                 rc_id,
                 IntentValue::RemoveSubtree {
-                    component_ids: vec![rc_id],
+                    component_id: rc_id,
                 },
             );
         }
@@ -1082,7 +1082,7 @@ fn sync_scroll_drag_surface(
             emit.push_intent_now(
                 shape_id,
                 IntentValue::RemoveSubtree {
-                    component_ids: vec![shape_id],
+                    component_id: shape_id,
                 },
             );
         }
