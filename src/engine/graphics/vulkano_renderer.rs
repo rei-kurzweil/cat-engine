@@ -4547,7 +4547,11 @@ mod vulkano_backend {
             }
             self.apply_pending_runtime_texture_updates();
 
-            // Let Vulkano drop finished per-frame resources incrementally.
+            // Let Vulkano release finished resource-use tracking from the renderer-wide
+            // submission chain and per-image completion references.
+            if let Some(fut) = self.submission_future.as_mut() {
+                fut.cleanup_finished();
+            }
             for fut in self.images_in_flight.iter_mut() {
                 if let Some(fut) = fut.as_mut() {
                     fut.cleanup_finished();
