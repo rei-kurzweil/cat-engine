@@ -161,6 +161,11 @@ impl ApplicationHandler for App {
                 // Clear edge-triggered sets after the frame has consumed them.
                 self.user_input.end_frame();
 
+                if universe.exit_requested() {
+                    event_loop.exit();
+                    return;
+                }
+
                 if let Some(w) = &self.window {
                     // w.pre_present_notify();
                     w.request_redraw();

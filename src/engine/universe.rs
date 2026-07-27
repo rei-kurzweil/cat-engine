@@ -5,6 +5,7 @@ use crate::engine::{ecs, graphics};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::mpsc;
+use std::time::Instant;
 use winit::window::Window;
 
 pub struct Universe {
@@ -88,6 +89,15 @@ impl Universe {
     /// Explicitly retry OpenXR initialization after launching without a runtime.
     pub fn retry_xr_runtime(&mut self) -> Result<(), String> {
         self.systems.xr.retry_runtime()
+    }
+
+    pub fn configure_vr_perf(&mut self, config: crate::engine::vr_perf::VrPerfConfig) {
+        self.systems.set_vr_perf_enabled(true);
+        self.systems.xr.configure_vr_perf(config);
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.systems.xr.vr_perf_exit_requested()
     }
 
     /// Add a component subtree to the "live" universe by initializing it.
@@ -407,6 +417,7 @@ impl Universe {
 
     /// Game/update step
     pub fn update(&mut self, dt_sec: f32, input: &InputState) {
+        let vr_update_started = self.systems.vr_perf_enabled().then(Instant::now);
         self.sync_repl(true);
         // 1. Process input events (handled inside systems for now).
         // 2. Let systems call methods on components,
@@ -422,12 +433,21 @@ impl Universe {
         );
 
         // Process commands after tick so any commands queued during tick are processed in the same frame
+        let vr_commands_started = self.systems.vr_perf_enabled().then(Instant::now);
         self.systems.process_commands(
             &mut self.world,
             &mut self.visuals,
             &mut self.render_assets,
             &mut self.command_queue,
         );
+        if let Some(update_started) = vr_update_started {
+            self.systems.set_vr_perf_update_timings(
+                update_started.elapsed(),
+                vr_commands_started
+                    .map(|started| started.elapsed())
+                    .unwrap_or_default(),
+            );
+        }
         log_startup_progress(StartupCheckpoint::FirstUpdateCompleted);
 
         // Editor systems may enqueue REPL navigation commands during this update.
@@ -436,6 +456,7 @@ impl Universe {
     }
 
     pub fn render(&mut self) {
+        let vr_prepare_started = self.systems.vr_perf_enabled().then(Instant::now);
         // Prepare render (mesh uploads) - cast renderer to trait
         self.systems.prepare_render(
             &mut self.world,
@@ -444,6 +465,11 @@ impl Universe {
             &mut self.renderer as &mut dyn graphics::RenderUploader,
             &mut self.command_queue,
         );
+        if let Some(started) = vr_prepare_started {
+            self.systems.set_vr_perf_prepare_render(started.elapsed());
+        }
+        let vr_perf_pre_xr = self.systems.vr_perf_pre_xr();
+        self.systems.xr.set_vr_perf_pre_xr(vr_perf_pre_xr);
         log_startup_progress(StartupCheckpoint::RenderPrepared);
 
         // Render XR (if enabled) before the window present.

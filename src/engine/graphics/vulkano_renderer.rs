@@ -8,7 +8,59 @@ use crate::engine::graphics::visual_world::VisualWorld;
 use std::sync::Arc;
 use winit::window::Window;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RendererPerfCounters {
+    pub queue_submissions: u64,
+    pub cpu_fence_waits: u64,
+    pub cpu_queue_waits: u64,
+    pub mirror_captures: u64,
+    pub xr_eyes: u64,
+    pub deformation_dispatches: u64,
+    pub deformation_jobs: u64,
+    pub deformation_workgroups: u64,
+    pub deformation_dirty_vertices: u64,
+    pub deformation_bone_upload_bytes: u64,
+    pub deformation_job_upload_bytes: u64,
+    pub deformation_weight_upload_bytes: u64,
+}
+
+impl RendererPerfCounters {
+    pub fn saturating_delta(self, earlier: Self) -> Self {
+        Self {
+            queue_submissions: self
+                .queue_submissions
+                .saturating_sub(earlier.queue_submissions),
+            cpu_fence_waits: self.cpu_fence_waits.saturating_sub(earlier.cpu_fence_waits),
+            cpu_queue_waits: self.cpu_queue_waits.saturating_sub(earlier.cpu_queue_waits),
+            mirror_captures: self.mirror_captures.saturating_sub(earlier.mirror_captures),
+            xr_eyes: self.xr_eyes.saturating_sub(earlier.xr_eyes),
+            deformation_dispatches: self
+                .deformation_dispatches
+                .saturating_sub(earlier.deformation_dispatches),
+            deformation_jobs: self
+                .deformation_jobs
+                .saturating_sub(earlier.deformation_jobs),
+            deformation_workgroups: self
+                .deformation_workgroups
+                .saturating_sub(earlier.deformation_workgroups),
+            deformation_dirty_vertices: self
+                .deformation_dirty_vertices
+                .saturating_sub(earlier.deformation_dirty_vertices),
+            deformation_bone_upload_bytes: self
+                .deformation_bone_upload_bytes
+                .saturating_sub(earlier.deformation_bone_upload_bytes),
+            deformation_job_upload_bytes: self
+                .deformation_job_upload_bytes
+                .saturating_sub(earlier.deformation_job_upload_bytes),
+            deformation_weight_upload_bytes: self
+                .deformation_weight_upload_bytes
+                .saturating_sub(earlier.deformation_weight_upload_bytes),
+        }
+    }
+}
+
 mod vulkano_backend {
+    use super::RendererPerfCounters;
     use std::collections::HashMap;
     use std::mem::size_of;
     use std::sync::Arc;
@@ -401,6 +453,10 @@ mod vulkano_backend {
         pub pipeline_emissive_opaque_clipped: Arc<GraphicsPipeline>,
 
         pub msaa_samples: SampleCount,
+        perf_queue_submissions: u64,
+        perf_cpu_fence_waits: u64,
+        perf_mirror_captures: u64,
+        perf_xr_eyes: u64,
 
         // --- Per-frame CPU work reduction ---
         cached_instance_buffer: Option<Subbuffer<[InstanceData]>>,
@@ -1782,6 +1838,10 @@ mod vulkano_backend {
                 pipeline_emissive_opaque_clipped,
 
                 msaa_samples,
+                perf_queue_submissions: 0,
+                perf_cpu_fence_waits: 0,
+                perf_mirror_captures: 0,
+                perf_xr_eyes: 0,
 
                 cached_instance_buffer: None,
                 cached_instance_count: 0,
@@ -1832,6 +1892,39 @@ mod vulkano_backend {
 
         pub fn window_color_format(&self) -> Format {
             self.swapchain_state.swapchain.image_format()
+        }
+
+        pub fn gpu_device_name(&self) -> String {
+            self.context
+                .device()
+                .physical_device()
+                .properties()
+                .device_name
+                .clone()
+        }
+
+        pub fn msaa_description(&self) -> &'static str {
+            match self.msaa_samples {
+                SampleCount::Sample4 => "4x",
+                _ => "off",
+            }
+        }
+
+        pub fn perf_counters(&self) -> RendererPerfCounters {
+            RendererPerfCounters {
+                queue_submissions: self.perf_queue_submissions,
+                cpu_fence_waits: self.perf_cpu_fence_waits,
+                cpu_queue_waits: 0,
+                mirror_captures: self.perf_mirror_captures,
+                xr_eyes: self.perf_xr_eyes,
+                deformation_dispatches: self.deformation_stats.dispatches,
+                deformation_jobs: self.deformation_stats.jobs,
+                deformation_workgroups: self.deformation_stats.workgroups,
+                deformation_dirty_vertices: self.deformation_stats.dirty_vertices,
+                deformation_bone_upload_bytes: self.deformation_stats.bone_upload_bytes,
+                deformation_job_upload_bytes: self.deformation_stats.job_upload_bytes,
+                deformation_weight_upload_bytes: self.deformation_stats.weight_upload_bytes,
+            }
         }
 
         fn ensure_xr_offscreen_targets(
@@ -2111,8 +2204,6 @@ mod vulkano_backend {
                 )?;
             }
 
-            self.render_mirror_captures(visual_world, color_format)?;
-
             let Some(targets) = self.xr_offscreen.as_ref() else {
                 return Err("XR offscreen targets missing".into());
             };
@@ -2214,16 +2305,50 @@ mod vulkano_backend {
             let future = prior
                 .then_execute(queue, cb)?
                 .then_signal_fence_and_flush()?;
+            self.perf_queue_submissions += 1;
             future.wait(None)?;
+            self.perf_cpu_fence_waits += 1;
+            self.perf_xr_eyes += 1;
             self.submission_future = Some(future.boxed());
 
             Ok(())
+        }
+
+        pub fn render_xr_mirror_captures(
+            &mut self,
+            visual_world: &mut VisualWorld,
+            extent: [u32; 2],
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            if !self.pending_runtime_texture_updates.is_empty() {
+                unsafe {
+                    self.context.device().wait_idle().map_err(
+                        |e| -> Box<dyn std::error::Error> {
+                            format!("wait_idle failed before runtime texture swap: {e}").into()
+                        },
+                    )?;
+                }
+            }
+            self.apply_pending_runtime_texture_updates();
+
+            self.ensure_xr_offscreen_targets(2, extent)?;
+            let color_format = self
+                .xr_offscreen
+                .as_ref()
+                .ok_or("XR offscreen targets missing")?
+                .color_format;
+
+            self.render_mirror_captures(
+                visual_world,
+                color_format,
+                crate::engine::graphics::visual_world::MirrorViewerFamily::Stereoscopic,
+            )
         }
 
         fn render_mirror_captures(
             &mut self,
             visual_world: &mut VisualWorld,
             color_format: Format,
+            family: crate::engine::graphics::visual_world::MirrorViewerFamily,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let device = self.context.device().clone();
             let queue = self.context.graphics_queue().clone();
@@ -2231,10 +2356,15 @@ mod vulkano_backend {
             let msaa_samples = self.msaa_samples;
 
             for mirror in mirrors {
-                if mirror.captures.is_empty() {
+                let captures: Vec<_> = mirror
+                    .captures
+                    .iter()
+                    .filter(|capture| capture.family == family)
+                    .collect();
+                if captures.is_empty() {
                     continue;
                 }
-                let capture_count = mirror.captures.len();
+                let capture_count = captures.len();
 
                 let aspect = mirror.aspect_ratio.max(1e-6);
                 let base_extent = (1024.0 * mirror.resolution_scale).max(1.0).floor() as u32;
@@ -2254,8 +2384,7 @@ mod vulkano_backend {
                 }
 
                 let (color_views, msaa_color_views, depth_views) = {
-                    let mirror_offscreen_key = mirror
-                        .captures
+                    let mirror_offscreen_key = captures
                         .first()
                         .map(|capture| capture.target_key.as_str())
                         .ok_or("mirror capture key missing")?;
@@ -2272,7 +2401,7 @@ mod vulkano_backend {
                     )
                 };
 
-                for (capture_slot, capture) in mirror.captures.iter().enumerate() {
+                for (capture_slot, capture) in captures.into_iter().enumerate() {
                     let eye_data = &capture.camera;
 
                     let render_view = RenderView {
@@ -2329,7 +2458,10 @@ mod vulkano_backend {
                     let future = prior
                         .then_execute(queue.clone(), cb)?
                         .then_signal_fence_and_flush()?;
+                    self.perf_queue_submissions += 1;
                     future.wait(None)?;
+                    self.perf_cpu_fence_waits += 1;
+                    self.perf_mirror_captures += 1;
                     self.submission_future = Some(future.boxed());
                 }
             }
@@ -4481,6 +4613,7 @@ mod vulkano_backend {
             self.render_mirror_captures(
                 visual_world,
                 self.swapchain_state.swapchain.image_format(),
+                crate::engine::graphics::visual_world::MirrorViewerFamily::Monoscopic,
             )?;
 
             let (color_attachment_view, color_resolve_view, depth_view) =
@@ -5072,6 +5205,22 @@ impl VulkanoRenderer {
         Some(vk.as_raw() as u32)
     }
 
+    pub fn gpu_device_name(&self) -> Option<String> {
+        Some(self.vulkano.as_ref()?.gpu_device_name())
+    }
+
+    pub fn msaa_description(&self) -> Option<&'static str> {
+        Some(self.vulkano.as_ref()?.msaa_description())
+    }
+
+    pub fn perf_counters(&self) -> RendererPerfCounters {
+        self.vulkano
+            .as_ref()
+            .map_or_else(RendererPerfCounters::default, |vulkano| {
+                vulkano.perf_counters()
+            })
+    }
+
     pub fn render_xr_eye_offscreen(
         &mut self,
         visual_world: &mut VisualWorld,
@@ -5083,6 +5232,18 @@ impl VulkanoRenderer {
         };
 
         vulkano.render_xr_eye_offscreen(visual_world, eye, extent)
+    }
+
+    pub fn render_xr_mirror_captures(
+        &mut self,
+        visual_world: &mut VisualWorld,
+        extent: [u32; 2],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(vulkano) = self.vulkano.as_mut() else {
+            return Err("VulkanoRenderer not initialized (call init_for_window first)".into());
+        };
+
+        vulkano.render_xr_mirror_captures(visual_world, extent)
     }
 
     pub fn xr_offscreen_vk_image(&self, eye: usize) -> Option<ash::vk::Image> {

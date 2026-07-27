@@ -51,6 +51,7 @@ use crate::engine::ecs::system::{
 };
 use crate::engine::graphics::{RenderAssets, RenderUploader, VisualWorld};
 use crate::engine::user_input::InputState;
+use crate::engine::vr_perf::VrPerfPreXrCpu;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -73,6 +74,8 @@ pub struct SystemWorld {
     /// REPL command queue (executed by Universe on the main thread).
     repl_command_queue: Vec<String>,
     phase_profile: SystemPhaseProfile,
+    vr_perf_enabled: bool,
+    vr_perf_pre_xr: VrPerfPreXrCpu,
 
     pub clock: ClockSystem,
     pub audio: AudioSystem,
@@ -932,6 +935,32 @@ mod tests {
 }
 
 impl SystemWorld {
+    pub fn set_vr_perf_enabled(&mut self, enabled: bool) {
+        self.vr_perf_enabled = enabled;
+        self.vr_perf_pre_xr = VrPerfPreXrCpu::default();
+    }
+
+    pub fn vr_perf_pre_xr(&self) -> VrPerfPreXrCpu {
+        self.vr_perf_pre_xr
+    }
+
+    pub fn vr_perf_enabled(&self) -> bool {
+        self.vr_perf_enabled
+    }
+
+    pub fn set_vr_perf_update_timings(
+        &mut self,
+        update_total: Duration,
+        final_command_processing: Duration,
+    ) {
+        self.vr_perf_pre_xr.update_total = update_total;
+        self.vr_perf_pre_xr.final_command_processing = final_command_processing;
+    }
+
+    pub fn set_vr_perf_prepare_render(&mut self, prepare_render: Duration) {
+        self.vr_perf_pre_xr.prepare_render = prepare_render;
+    }
+
     fn profile_systems_enabled() -> bool {
         static ENABLED: OnceLock<bool> = OnceLock::new();
         *ENABLED.get_or_init(|| {
@@ -2700,6 +2729,9 @@ impl SystemWorld {
         queue: &mut crate::engine::ecs::CommandQueue,
         dt_sec: f32,
     ) {
+        if self.vr_perf_enabled {
+            self.vr_perf_pre_xr = VrPerfPreXrCpu::default();
+        }
         visuals.set_window_frame_dt_sec(dt_sec);
 
         // Drain-point signal graph setup.
@@ -2938,17 +2970,33 @@ impl SystemWorld {
         // will actually be rendered. TransformSystem::tick is event-driven/no-op, so
         // secondary-motion writes must identify the roots that need propagation.
         self.transform.tick(world, visuals, input, dt_sec);
+        let vr_stage_started = self.vr_perf_enabled.then(Instant::now);
         let dirty_chain_transform_roots = self.secondary_motion.tick(world, dt_sec);
+        if let Some(started) = vr_stage_started {
+            self.vr_perf_pre_xr.secondary_motion = started.elapsed();
+        }
+        let vr_stage_started = self.vr_perf_enabled.then(Instant::now);
         for root in dirty_chain_transform_roots {
             self.transform_changed(world, visuals, root);
         }
+        if let Some(started) = vr_stage_started {
+            self.vr_perf_pre_xr.spring_transform_propagation = started.elapsed();
+        }
+        let vr_stage_started = self.vr_perf_enabled.then(Instant::now);
         self.spring_bone_visualization.tick_with_queue(
             world,
             &self.secondary_motion,
             render_assets,
             queue,
         );
+        if let Some(started) = vr_stage_started {
+            self.vr_perf_pre_xr.spring_visualization = started.elapsed();
+        }
+        let vr_stage_started = self.vr_perf_enabled.then(Instant::now);
         self.skinned_mesh.tick(world, visuals, input, dt_sec);
+        if let Some(started) = vr_stage_started {
+            self.vr_perf_pre_xr.post_secondary_skinning = started.elapsed();
+        }
 
         if profile_systems {
             self.finish_phase_profile_frame();
@@ -2957,7 +3005,11 @@ impl SystemWorld {
         // Flex-column position pass: emit UpdateTransform for dirty LayoutComponent subtrees.
         // Runs after transforms are propagated so initial world matrices are valid.
         self.layout.tick(world, queue);
+        let vr_stage_started = self.vr_perf_enabled.then(Instant::now);
         queue.flush(world, self, visuals, render_assets);
+        if let Some(started) = vr_stage_started {
+            self.vr_perf_pre_xr.post_pose_command_flush = started.elapsed();
+        }
 
         self.fit_bounds.tick(world, render_assets, queue);
 

@@ -69,41 +69,119 @@ Continuously changing bones expose additional per-frame costs in `record_dirty_d
 Secondary motion makes affected palettes dirty continuously. Avatar control, IK, and headset or
 controller tracking can also make a rig dirty even when secondary motion is disabled.
 
-## Required test matrix
+## One example with four stable presets
 
-Test in a release build on the same headset, runtime, render resolution, MSAA setting, avatar, and
-scene. Do not use only “secondary motion on” versus “off”; use the following controls.
+Use one example executable for the primary comparison. Extend `vtuber-secondary-motion` so its
+Rust harness accepts one named `--vr-perf-case` and configures the same base scene before timed
+measurement begins.
 
-| Case | Avatar / rig activity | Secondary motion | Visualization |
-|---|---|---|---|
-| A | No avatar, XR environment only | Off | Off |
-| B | Avatar loaded; normal XR avatar control / IK | Off | Off |
-| C | Same avatar and pose source as B | On | Off |
-| D | Same as C | On | On |
+Do not automatically switch cases in one running OpenXR session. A case remains stable for the
+whole process. Separate process launches prevent resource creation, shader warm-up, visualization
+spawn/removal, secondary-motion settling, and transition frames from leaking into the next
+average.
 
-Run each case:
+The canonical four-run sequence is:
 
-- without mirrors
-- with the normal mirror configuration
+| Preset | Avatar / XR control | Mirror | Secondary motion | Visualization |
+|---|---|---|---|---|
+| `avatar_no_spring_no_mirror` | On | Off | Off | Off |
+| `avatar_no_spring_mirror` | On | On | Off | Off |
+| `avatar_spring_no_viz_mirror` | On | On | On | Off |
+| `avatar_spring_viz_mirror` | On | On | On | On |
 
-Where practical, also repeat with the desktop companion/window consumer disabled and enabled.
-This separates:
+These four differences are intentional:
 
-- the base OpenXR cost
-- continuously dirty cached skinning from ordinary avatar tracking
-- secondary-motion simulation and additional deformation dirtiness
-- visualization draw cost
-- mirror duplication and synchronization
-- cross-consumer serialization involving the desktop window
+- run 1 → 2 isolates mirror scheduling
+- run 2 → 3 isolates secondary-motion simulation plus its deformation dirtiness
+- run 3 → 4 isolates spring-bone visualization
 
-Use `vtuber-secondary-motion` as the secondary-motion and visualization surface.
-Use `vtuber-mirror-example` as the mirror/render-view surface. If the examples do not expose
-runtime toggles for every matrix cell, add temporary or documented launch-time switches rather
-than maintaining divergent copied scenes.
+“Secondary motion off” does not mean “rig is static.” Normal XR avatar control, head tracking,
+controller tracking, and IK remain enabled, so the first two runs still exercise continuously
+changing cached skinning.
+
+Support an optional `xr_empty` preset later if a no-avatar OpenXR floor is needed, but it is not
+part of the first four-run regression gate.
+
+Suggested commands:
+
+```bash
+cargo run --release --example vtuber-secondary-motion -- \
+  --vr-perf-case avatar_no_spring_no_mirror
+
+cargo run --release --example vtuber-secondary-motion -- \
+  --vr-perf-case avatar_no_spring_mirror
+
+cargo run --release --example vtuber-secondary-motion -- \
+  --vr-perf-case avatar_spring_no_viz_mirror
+
+cargo run --release --example vtuber-secondary-motion -- \
+  --vr-perf-case avatar_spring_viz_mirror
+```
+
+The preset must be printed at startup and included in every report. An unknown or missing preset
+in VR performance mode must fail with usage text instead of silently selecting a default.
+
+The ordinary example invocation without `--vr-perf-case` should retain its current interactive
+demo behavior.
+
+## Sampling and report files
+
+Add optional timing controls:
+
+```text
+--vr-perf-warmup-seconds <seconds>   default: 5
+--vr-perf-sample-seconds <seconds>   default: 10
+```
+
+Start warm-up only after the OpenXR session is running, the avatar and mesh resources are loaded,
+the selected preset has been applied, and headset frames are being presented. Reset all sampled
+counters after warm-up. Measure the stable preset for the requested sample duration, write the
+report, then exit normally.
+
+Write Markdown reports under:
+
+```text
+docs/.debug/vr_perf/
+```
+
+Use descriptive, non-overwriting names rather than numeric `0.md`–`3.md`:
+
+```text
+<timestamp>__avatar_no_spring_no_mirror.md
+<timestamp>__avatar_no_spring_mirror.md
+<timestamp>__avatar_spring_no_viz_mirror.md
+<timestamp>__avatar_spring_viz_mirror.md
+```
+
+For example:
+
+```text
+docs/.debug/vr_perf/20260726-231530__avatar_spring_no_viz_mirror.md
+```
+
+Create the directory if it is absent. Print the completed report path to the terminal. Report-file
+failure must be visible but must not panic inside the OpenXR frame loop.
+
+Average FPS is required, but it must be computed from headset frames presented during the sample,
+not desktop window redraws. Also include:
+
+- sampled frame count and elapsed duration
+- arithmetic average FPS
+- mean, median, p95, p99, minimum, and maximum headset frame time
+- count and percentage of frames exceeding the runtime display interval
+- selected preset and all resolved booleans
+- build profile, GPU/device name, OpenXR runtime, headset target refresh rate, render extent, and
+  MSAA setting
+
+If the runtime exposes dropped, missed, or reprojected frame counters, record those too. Do not
+invent zero values when a counter is unavailable; write `unavailable`.
+
+The report should contain the more detailed renderer/deformation measurements below when their
+instrumentation is available.
 
 ## Measurements
 
-For every matrix cell, record:
+For every preset run, record:
 
 - headset/runtime target refresh rate
 - delivered application FPS and missed/reprojected frame count
@@ -161,15 +239,16 @@ rendered multiple times for the same deformation generation and viewer family.
 
 ## Acceptance criteria
 
-- SteamVR environment/aurora does not flicker through during Cases A–D.
+- SteamVR environment/aurora does not flicker through during any of the four canonical presets.
 - There are no CPU fence waits between mirror captures or XR eyes.
 - Both XR eyes reuse one completed deformation generation.
 - Mirror work is not duplicated by the per-eye entry point.
-- Cases B–D show no per-frame device-buffer or descriptor allocation after warm-up unless capacity
-  actually grows.
-- Case B quantifies the cost of ordinary continuously changing avatar bones without secondary
-  motion.
-- The incremental costs from B → C and C → D are measured separately.
+- All presets show no per-frame device-buffer or descriptor allocation after warm-up unless
+  capacity actually grows.
+- The first preset quantifies ordinary continuously changing avatar bones without secondary
+  motion or mirror work.
+- The reported deltas isolate mirror scheduling, secondary motion, and visualization in that
+  order.
 - Mirror-off versus mirror-on results identify the mirror cost without changing deformation job
   counts.
 - Vulkan synchronization validation reports no transfer/compute/vertex or buffer-retirement
@@ -180,6 +259,6 @@ rendered multiple times for the same deformation generation and viewer family.
 
 ## Hardware validation
 
-Run the main XR regression matrix on the hardware/runtime where the regression was observed.
+Run the four canonical presets on the hardware/runtime where the regression was observed.
 Retain the deformation epic's GTX 1080 and GTX 1050 Ti desktop validation, but do not treat
 desktop-only results as sufficient evidence for this task.

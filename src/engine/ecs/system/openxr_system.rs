@@ -13,13 +13,16 @@ use crate::engine::graphics::XRSwapchain;
 use crate::engine::graphics::XrVulkanGraphics;
 use crate::engine::graphics::xr_renderer;
 use crate::engine::user_input::InputState;
+use crate::engine::vr_perf::{
+    VrPerfCollector, VrPerfConfig, VrPerfFrameCpu, VrPerfMetadata, VrPerfPreXrCpu,
+};
 use crate::utils::math;
 
 use ash::vk::Handle as _;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn openxr_debug_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -486,6 +489,9 @@ pub struct OpenXRSystem {
     last_render_instant: Option<Instant>,
     last_render_dt_sec: Option<f32>,
     render_profile: XrRenderProfile,
+    vr_perf: Option<VrPerfCollector>,
+    vr_perf_exit_requested: bool,
+    vr_perf_pre_xr: VrPerfPreXrCpu,
 
     input_xr_components: HashSet<ComponentId>,
     controller_components: HashSet<ComponentId>,
@@ -1006,6 +1012,9 @@ impl Default for OpenXRSystem {
             last_render_instant: None,
             last_render_dt_sec: None,
             render_profile: XrRenderProfile::default(),
+            vr_perf: None,
+            vr_perf_exit_requested: false,
+            vr_perf_pre_xr: VrPerfPreXrCpu::default(),
 
             input_xr_components: HashSet::new(),
             controller_components: HashSet::new(),
@@ -1029,6 +1038,63 @@ impl std::fmt::Debug for OpenXRSystem {
 }
 
 impl OpenXRSystem {
+    pub fn configure_vr_perf(&mut self, config: VrPerfConfig) {
+        self.vr_perf = Some(VrPerfCollector::new(config));
+        self.vr_perf_exit_requested = false;
+    }
+
+    pub fn vr_perf_exit_requested(&self) -> bool {
+        self.vr_perf_exit_requested
+    }
+
+    pub fn set_vr_perf_pre_xr(&mut self, timings: VrPerfPreXrCpu) {
+        self.vr_perf_pre_xr = timings;
+    }
+
+    fn record_vr_perf_frame(
+        &mut self,
+        visuals: &VisualWorld,
+        renderer: &VulkanoRenderer,
+        runtime: String,
+        extent: [u32; 2],
+        display_interval: Duration,
+        cpu: VrPerfFrameCpu,
+    ) {
+        let Some(collector) = self.vr_perf.as_mut() else {
+            return;
+        };
+        let metadata = VrPerfMetadata {
+            build_profile: if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            },
+            gpu_device: renderer
+                .gpu_device_name()
+                .unwrap_or_else(|| "unavailable".to_string()),
+            openxr_runtime: runtime,
+            render_extent: extent,
+            msaa: renderer
+                .msaa_description()
+                .unwrap_or("unavailable")
+                .to_string(),
+        };
+        let resources_ready = visuals.deformation_cache_live_vertices() > 0;
+        if let Some(result) = collector.presented_frame(
+            Instant::now(),
+            resources_ready,
+            display_interval,
+            cpu,
+            &metadata,
+        ) {
+            match result {
+                Ok(path) => println!("[vr-perf] report written: {}", path.display()),
+                Err(error) => eprintln!("[vr-perf] {error}"),
+            }
+            self.vr_perf_exit_requested = true;
+        }
+    }
+
     fn profile_systems_enabled() -> bool {
         static ENABLED: OnceLock<bool> = OnceLock::new();
         *ENABLED.get_or_init(|| {
@@ -2652,7 +2718,16 @@ impl OpenXRSystem {
         renderer: &mut VulkanoRenderer,
     ) {
         let profile = Self::profile_systems_enabled();
+        let perf_enabled = self.vr_perf.is_some();
         let frame_profile_started = profile.then(Instant::now);
+        let perf_frame_started = Instant::now();
+        let perf_renderer_before = renderer.perf_counters();
+        let perf_pre_xr = self.vr_perf_pre_xr;
+        let mut perf_wait_frame = Duration::ZERO;
+        let mut perf_eye_render = Duration::ZERO;
+        let mut perf_copy = Duration::ZERO;
+        let mut perf_raw_queue_submissions = 0;
+        let mut perf_raw_queue_waits = 0;
         let Some(state) = self.state.as_mut() else {
             self.xr_input_state = XrInputState::default();
             self.xr_gamepad_state = XrGamepadState::default();
@@ -2700,7 +2775,7 @@ impl OpenXRSystem {
             return;
         }
 
-        let stage_started = profile.then(Instant::now);
+        let stage_started = (profile || perf_enabled).then(Instant::now);
         let frame_state = match sess.frame_waiter.wait() {
             Ok(s) => s,
             Err(e) => {
@@ -2709,7 +2784,11 @@ impl OpenXRSystem {
             }
         };
         if let Some(started) = stage_started {
-            self.render_profile.wait_frame += started.elapsed();
+            let elapsed = started.elapsed();
+            perf_wait_frame = elapsed;
+            if profile {
+                self.render_profile.wait_frame += elapsed;
+            }
         }
 
         if let Err(e) = sess.frame_stream.begin() {
@@ -3226,23 +3305,33 @@ impl OpenXRSystem {
                     dst_was_initialized,
                 ) {
                     eprintln!("[OpenXR] clear XR image failed: {e:?}");
-                } else if let Some(slot) =
-                    sess.swapchain_image_initialized.get_mut(image_index_usize)
-                {
-                    *slot = true;
+                } else {
+                    perf_raw_queue_submissions += 1;
+                    perf_raw_queue_waits += 1;
+                    if let Some(slot) = sess.swapchain_image_initialized.get_mut(image_index_usize)
+                    {
+                        *slot = true;
+                    }
                 }
             } else {
-                let eye_render_started = profile.then(Instant::now);
+                let eye_render_started = (profile || perf_enabled).then(Instant::now);
+                if let Err(e) = renderer.render_xr_mirror_captures(visuals, extent_u) {
+                    eprintln!("[OpenXR] render_xr_mirror_captures failed: {e}");
+                }
                 for eye in 0..view_count.min(views.len()) {
                     if let Err(e) = renderer.render_xr_eye_offscreen(visuals, eye, extent_u) {
                         eprintln!("[OpenXR] render_xr_eye_offscreen failed: {e}");
                     }
                 }
                 if let Some(started) = eye_render_started {
-                    self.render_profile.eye_render += started.elapsed();
+                    let elapsed = started.elapsed();
+                    perf_eye_render = elapsed;
+                    if profile {
+                        self.render_profile.eye_render += elapsed;
+                    }
                 }
 
-                let copy_started = profile.then(Instant::now);
+                let copy_started = (profile || perf_enabled).then(Instant::now);
                 if let Err(e) = xr_renderer::copy_offscreen_to_xr_layers(
                     &sess.vk_device,
                     sess.vk_queue,
@@ -3254,13 +3343,20 @@ impl OpenXRSystem {
                     view_count,
                 ) {
                     eprintln!("[OpenXR] copy to XR image failed: {e:?}");
-                } else if let Some(slot) =
-                    sess.swapchain_image_initialized.get_mut(image_index_usize)
-                {
-                    *slot = true;
+                } else {
+                    perf_raw_queue_submissions += 1;
+                    perf_raw_queue_waits += 1;
+                    if let Some(slot) = sess.swapchain_image_initialized.get_mut(image_index_usize)
+                    {
+                        *slot = true;
+                    }
                 }
                 if let Some(started) = copy_started {
-                    self.render_profile.copy += started.elapsed();
+                    let elapsed = started.elapsed();
+                    perf_copy = elapsed;
+                    if profile {
+                        self.render_profile.copy += elapsed;
+                    }
                 }
             }
         }
@@ -3301,7 +3397,7 @@ impl OpenXRSystem {
                 .space(&sess.reference_space)
                 .views(&projection_views);
 
-            let submit_started = profile.then(Instant::now);
+            let submit_started = (profile || perf_enabled).then(Instant::now);
             if let Err(e) = sess.frame_stream.end(
                 frame_state.predicted_display_time,
                 state.blend_mode,
@@ -3309,28 +3405,98 @@ impl OpenXRSystem {
             ) {
                 eprintln!("[OpenXR] end_frame failed: {e:?}");
             }
-            if let Some(started) = submit_started {
-                self.render_profile.submit += started.elapsed();
+            let submit_elapsed = submit_started.map_or(Duration::ZERO, |started| started.elapsed());
+            if profile {
+                self.render_profile.submit += submit_elapsed;
             }
 
+            let extent = sess.xr_swapchain.extent();
+            let runtime = state
+                .instance
+                .properties()
+                .map(|properties| {
+                    format!(
+                        "{} ({:?})",
+                        properties.runtime_name, properties.runtime_version
+                    )
+                })
+                .unwrap_or_else(|_| "unavailable".to_string());
             if let Some(started) = frame_profile_started {
                 self.finish_xr_render_profile_frame(started);
             }
+            self.record_vr_perf_frame(
+                visuals,
+                renderer,
+                runtime,
+                [extent.width as u32, extent.height as u32],
+                Duration::from_nanos(frame_state.predicted_display_period.as_nanos().max(0) as u64),
+                VrPerfFrameCpu {
+                    pre_xr: perf_pre_xr,
+                    total: perf_frame_started.elapsed(),
+                    wait_frame: perf_wait_frame,
+                    eye_render: perf_eye_render,
+                    copy: perf_copy,
+                    submit: submit_elapsed,
+                    renderer: {
+                        let mut counters = renderer
+                            .perf_counters()
+                            .saturating_delta(perf_renderer_before);
+                        counters.queue_submissions += perf_raw_queue_submissions;
+                        counters.cpu_queue_waits += perf_raw_queue_waits;
+                        counters
+                    },
+                },
+            );
             return;
         }
 
-        let submit_started = profile.then(Instant::now);
+        let submit_started = (profile || perf_enabled).then(Instant::now);
         if let Err(e) =
             sess.frame_stream
                 .end(frame_state.predicted_display_time, state.blend_mode, &[])
         {
             eprintln!("[OpenXR] end_frame failed: {e:?}");
         }
-        if let Some(started) = submit_started {
-            self.render_profile.submit += started.elapsed();
+        let submit_elapsed = submit_started.map_or(Duration::ZERO, |started| started.elapsed());
+        if profile {
+            self.render_profile.submit += submit_elapsed;
         }
+        let extent = sess.xr_swapchain.extent();
+        let runtime = state
+            .instance
+            .properties()
+            .map(|properties| {
+                format!(
+                    "{} ({:?})",
+                    properties.runtime_name, properties.runtime_version
+                )
+            })
+            .unwrap_or_else(|_| "unavailable".to_string());
         if let Some(started) = frame_profile_started {
             self.finish_xr_render_profile_frame(started);
         }
+        self.record_vr_perf_frame(
+            visuals,
+            renderer,
+            runtime,
+            [extent.width as u32, extent.height as u32],
+            Duration::from_nanos(frame_state.predicted_display_period.as_nanos().max(0) as u64),
+            VrPerfFrameCpu {
+                pre_xr: perf_pre_xr,
+                total: perf_frame_started.elapsed(),
+                wait_frame: perf_wait_frame,
+                eye_render: perf_eye_render,
+                copy: perf_copy,
+                submit: submit_elapsed,
+                renderer: {
+                    let mut counters = renderer
+                        .perf_counters()
+                        .saturating_delta(perf_renderer_before);
+                    counters.queue_submissions += perf_raw_queue_submissions;
+                    counters.cpu_queue_waits += perf_raw_queue_waits;
+                    counters
+                },
+            },
+        );
     }
 }
