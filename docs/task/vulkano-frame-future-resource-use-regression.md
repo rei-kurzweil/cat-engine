@@ -39,6 +39,20 @@ an image attachment, not a deformation, bone, vertex, or storage buffer.
 The strongest current hypothesis is stale or incomplete future tracking around swapchain-image
 reuse, not skinning or intent dispatch.
 
+The dedicated reproducer's minimal case A fails on current `HEAD` (`a7ebf30`) with one built-in
+cube, bloom off, mirrors off, and MSAA off:
+
+```text
+access to a resource has been denied
+resource use: begin_rendering / DepthStencilAttachment
+error: the resource is already in use, and there is no tracking of concurrent usages
+```
+
+This excludes GLTF loading and deformation as well as bloom, mirror capture, and MSAA. The
+attachment role also shows that the problem is not limited to the previously reported color
+target: the per-swapchain-image depth target can be retained or reused incorrectly by the same
+window submission path.
+
 `VulkanoRenderer::render_visual_world` currently:
 
 1. calls `cleanup_finished()` only on entries in `images_in_flight`;
@@ -138,6 +152,28 @@ Use a matrix that changes one feature at a time:
 If A fails, skinning, bloom, mirrors, and MSAA are all excluded. If only F and later fail, inspect
 deformation resources and submission ordering again. If mirror-free G fails, mirror capture
 deduplication is not required to reproduce the panic.
+
+The dedicated desktop reproducer implements these cases and also exposes every matrix axis as an
+independent flag:
+
+```bash
+# Smallest case (A) is the default.
+RUST_BACKTRACE=full cargo run --example vulkano-frame-future-regression
+
+# Run a named matrix case.
+RUST_BACKTRACE=full cargo run --example vulkano-frame-future-regression -- --case D
+
+# Start from a case and override one variable.
+RUST_BACKTRACE=full cargo run --example vulkano-frame-future-regression -- \
+  --case H --mirror off --window-size 640x480
+
+# Show all accepted flags.
+cargo run --example vulkano-frame-future-regression -- --help
+```
+
+Options are applied from left to right. This makes `--case` useful as a preset while still
+allowing a single variable to be changed without maintaining another scene. The scene choices
+are a built-in cube, the static `color-cat.2.glb`, and the skinned `pc-rei.hoodie.glb`.
 
 ### 3. Add temporary submission tracing
 
