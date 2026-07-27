@@ -236,9 +236,9 @@ impl Material {
         fragment_shader: "assets/shaders/toon-mesh.frag",
     };
 
-    /// Skinned toon material (uses a skinned vertex shader).
+    /// Skinned toon material (reads the compute-populated deformation cache).
     pub const SKINNED_TOON_MESH: Material = Material {
-        vertex_shader: "assets/shaders/skinned-toon-mesh.vert",
+        vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
         fragment_shader: "assets/shaders/toon-mesh.frag",
     };
 
@@ -250,7 +250,7 @@ impl Material {
 
     /// Skinned emissive toon material.
     pub const SKINNED_EMISSIVE_TOON_MESH: Material = Material {
-        vertex_shader: "assets/shaders/skinned-toon-mesh.vert",
+        vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
         fragment_shader: "assets/shaders/emissive-toon-mesh.frag",
     };
 

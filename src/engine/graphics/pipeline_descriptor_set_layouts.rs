@@ -22,7 +22,7 @@ pub struct PipelineDescriptorSetLayouts {
     /// Set 1: material data (textures/params).
     pub material: Arc<DescriptorSetLayout>,
 
-    /// Set 2: per-instance/object data (bones, per-instance lighting, etc).
+    /// Set 2: per-instance/object data (deformation cache, per-instance lighting, etc).
     pub rig: Arc<DescriptorSetLayout>,
 }
 
@@ -85,7 +85,7 @@ impl PipelineDescriptorSetLayouts {
 
         // Set 2 (object/rig):
         // - binding 0: per-instance lighting/shade data (SSBO), indexed by `gl_InstanceIndex`.
-        // - binding 1: placeholder storage buffer for bones.
+        // - binding 1: persistent compute-written deformation cache.
         let mut rig_bindings = BTreeMap::new();
 
         let mut per_instance_lighting =
@@ -94,10 +94,11 @@ impl PipelineDescriptorSetLayouts {
         per_instance_lighting.stages = ShaderStages::FRAGMENT;
         rig_bindings.insert(0, per_instance_lighting);
 
-        let mut bones = DescriptorSetLayoutBinding::descriptor_type(DescriptorType::StorageBuffer);
-        bones.descriptor_count = 1;
-        bones.stages = ShaderStages::VERTEX;
-        rig_bindings.insert(1, bones);
+        let mut deformation =
+            DescriptorSetLayoutBinding::descriptor_type(DescriptorType::StorageBuffer);
+        deformation.descriptor_count = 1;
+        deformation.stages = ShaderStages::VERTEX;
+        rig_bindings.insert(1, deformation);
 
         let rig = DescriptorSetLayout::new(
             device,

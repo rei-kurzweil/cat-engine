@@ -1,4 +1,5 @@
 pub mod bounds;
+pub mod deformation;
 #[cfg(test)]
 pub(crate) mod deformation_reference;
 pub mod mesh;

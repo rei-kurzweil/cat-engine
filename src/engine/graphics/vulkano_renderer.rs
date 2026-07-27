@@ -17,6 +17,10 @@ mod vulkano_backend {
     use crate::engine::ecs::ComponentId;
     use crate::engine::ecs::system::render_to_texture_system::INTERNAL_RENDERER_STENCIL_CLIP_DEBUG_SELECTOR;
     use crate::engine::graphics::MsaaMode;
+    use crate::engine::graphics::deformation::{
+        GpuActiveMorph, GpuBaseDeformationVertex, GpuDeformationJob, GpuDeformationSkinVertex,
+        GpuDeformationWorkgroup, GpuDeformedVertex, GpuMorphDelta, build_workgroups,
+    };
     use crate::engine::graphics::mesh::{CpuMesh, CpuVertex};
     use crate::engine::graphics::pipeline_descriptor_set_layouts::PipelineDescriptorSetLayouts;
     use crate::engine::graphics::post_processing::{
@@ -47,6 +51,7 @@ mod vulkano_backend {
     use vulkano::memory::allocator::{
         AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator,
     };
+    use vulkano::pipeline::compute::ComputePipelineCreateInfo;
     use vulkano::pipeline::graphics::color_blend::{
         AttachmentBlend, BlendFactor, BlendOp, ColorBlendAttachmentState, ColorBlendState,
         ColorComponents,
@@ -65,7 +70,9 @@ mod vulkano_backend {
         VertexInputState,
     };
     use vulkano::pipeline::graphics::viewport::{Scissor, Viewport, ViewportState};
-    use vulkano::pipeline::layout::{PipelineLayout, PipelineLayoutCreateInfo};
+    use vulkano::pipeline::layout::{
+        PipelineDescriptorSetLayoutCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
+    };
 
     use vulkano::DeviceSize;
     use vulkano::Version;
@@ -75,7 +82,8 @@ mod vulkano_backend {
         Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode,
     };
     use vulkano::pipeline::{
-        DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineShaderStageCreateInfo,
+        ComputePipeline, DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint,
+        PipelineShaderStageCreateInfo,
     };
     use vulkano::render_pass::{AttachmentLoadOp, AttachmentStoreOp};
     use vulkano::swapchain::{self, SwapchainPresentInfo};
@@ -100,7 +108,7 @@ mod vulkano_backend {
             .and_then(|s| s.trim().parse::<usize>().ok())
     }
 
-    use vulkano::device::DeviceExtensions;
+    use vulkano::device::{DeviceExtensions, QueueFlags};
 
     // Split out command-buffer recording helpers to keep this file manageable.
     //
@@ -152,7 +160,14 @@ mod vulkano_backend {
     mod skinned_toon_mesh_vs {
         vulkano_shaders::shader! {
             ty: "vertex",
-            path: "assets/shaders/skinned-toon-mesh.vert",
+            path: "assets/shaders/cached-skinned-toon-mesh.vert",
+        }
+    }
+
+    mod mesh_deformation_cs {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            path: "assets/shaders/mesh-deformation.comp",
         }
     }
 
@@ -235,15 +250,13 @@ mod vulkano_backend {
         #[format(R32_SFLOAT)]
         pub i_opacity: f32,
 
-        // For skinned meshes: base index/count into the shared bones palette SSBO.
-        // For non-skinned instances these are 0.
+        // For skinned meshes: base index into the persistent deformation cache.
         #[format(R32_UINT)]
-        pub i_bones_base: u32,
+        pub i_deformed_base: u32,
         #[format(R32_UINT)]
-        pub i_bones_count: u32,
+        pub i_deformed_count: u32,
     }
 
-    /// GPU-uploadable per-vertex skinning attributes (separate vertex buffer).
     #[derive(BufferContents, Debug, Clone, Copy, Default)]
     #[repr(C)]
     pub struct GpuSkinVertex {
@@ -279,7 +292,9 @@ mod vulkano_backend {
         #[allow(dead_code)]
         pub vertices: Subbuffer<[CpuVertex]>,
         #[allow(dead_code)]
-        pub skin_vertices: Option<Subbuffer<[GpuSkinVertex]>>,
+        pub deformation_base: Option<u32>,
+        pub deformation_skin_base: Option<u32>,
+        pub vertex_count: u32,
         #[allow(dead_code)]
         pub indices: Subbuffer<[u32]>,
         #[allow(dead_code)]
@@ -290,6 +305,20 @@ mod vulkano_backend {
         pub view: Arc<ImageView>,
         pub extent: [u32; 2],
         pub format: Format,
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct DeformationStats {
+        pub dispatches: u64,
+        pub jobs: u64,
+        pub workgroups: u64,
+        pub dirty_vertices: u64,
+        pub bone_upload_bytes: u64,
+        pub job_upload_bytes: u64,
+        pub weight_upload_bytes: u64,
+        pub live_cache_bytes: u64,
+        pub allocated_cache_bytes: u64,
+        pub resizes: u64,
     }
 
     pub struct VulkanoState {
@@ -408,12 +437,24 @@ mod vulkano_backend {
         cached_bones_slot_valid: Vec<bool>,
         cached_bones_capacity: usize,
 
+        deformation_pipeline: Arc<ComputePipeline>,
+        deformation_base_cpu: Vec<GpuBaseDeformationVertex>,
+        deformation_skin_cpu: Vec<GpuDeformationSkinVertex>,
+        deformation_base_buffer: Option<Subbuffer<[GpuBaseDeformationVertex]>>,
+        deformation_skin_buffer: Option<Subbuffer<[GpuDeformationSkinVertex]>>,
+        deformation_bones_buffer: Option<Subbuffer<[GpuMat4]>>,
+        deformation_output_buffer: Option<Subbuffer<[GpuDeformedVertex]>>,
+        deformation_output_capacity: u32,
+        deformation_stats: DeformationStats,
+
         xr_offscreen: Option<XrOffscreenTargets>,
         mirror_offscreen: std::collections::HashMap<String, MirrorOffscreenTargets>,
 
         pub window_resized: bool,
         pub recreate_swapchain: bool,
         pub images_in_flight: Vec<Option<Box<dyn GpuFuture>>>,
+        /// One renderer-wide ordering chain for all commands that may touch shared caches.
+        submission_future: Option<Box<dyn GpuFuture>>,
     }
 
     struct XrOffscreenTargets {
@@ -697,6 +738,33 @@ mod vulkano_backend {
                 VulkanoContext::new(config)
             };
             let device = context.device().clone();
+            let graphics_queue = context.graphics_queue();
+            let queue_properties = &device.physical_device().queue_family_properties()
+                [graphics_queue.queue_family_index() as usize];
+            if !queue_properties.queue_flags.intersects(QueueFlags::COMPUTE) {
+                return Err("selected graphics queue family does not support compute".into());
+            }
+            let deformation_limits = device.physical_device().properties();
+            if deformation_limits.max_compute_work_group_size[0] < 64
+                || deformation_limits.max_compute_work_group_invocations < 64
+            {
+                return Err(format!(
+                    "mesh deformation requires compute local_size_x=64, but limits are size_x={} invocations={}",
+                    deformation_limits.max_compute_work_group_size[0],
+                    deformation_limits.max_compute_work_group_invocations
+                )
+                .into());
+            }
+            if deformation_limits.max_per_stage_descriptor_storage_buffers < 8 {
+                return Err(format!(
+                    "mesh deformation requires 8 compute-stage storage buffers, but max_per_stage_descriptor_storage_buffers={}",
+                    deformation_limits.max_per_stage_descriptor_storage_buffers
+                )
+                .into());
+            }
+            if deformation_limits.max_compute_work_group_count[0] == 0 {
+                return Err("max_compute_work_group_count[0] is zero".into());
+            }
 
             // Global toggle: either 4x MSAA (if supported) or no multisampling.
             let msaa_samples = match msaa_mode {
@@ -733,6 +801,22 @@ mod vulkano_backend {
             let grid_fs = grid_square_mesh_fs::load(device.clone())?;
 
             let skinned_vs = skinned_toon_mesh_vs::load(device.clone())?;
+            let deformation_cs = mesh_deformation_cs::load(device.clone())?;
+            let deformation_stage = PipelineShaderStageCreateInfo::new(
+                deformation_cs
+                    .entry_point("main")
+                    .ok_or("missing mesh-deformation.comp entry point")?,
+            );
+            let deformation_layout = PipelineLayout::new(
+                device.clone(),
+                PipelineDescriptorSetLayoutCreateInfo::from_stages([&deformation_stage])
+                    .into_pipeline_layout_create_info(device.clone())?,
+            )?;
+            let deformation_pipeline = ComputePipeline::new(
+                device.clone(),
+                None,
+                ComputePipelineCreateInfo::stage_layout(deformation_stage, deformation_layout),
+            )?;
 
             let stages = vec![
                 PipelineShaderStageCreateInfo::new(
@@ -762,7 +846,7 @@ mod vulkano_backend {
                 PipelineShaderStageCreateInfo::new(
                     skinned_vs
                         .entry_point("main")
-                        .ok_or("missing skinned-toon-mesh.vert entry point")?,
+                        .ok_or("missing cached-skinned-toon-mesh.vert entry point")?,
                 ),
                 PipelineShaderStageCreateInfo::new(
                     fs.entry_point("main")
@@ -799,7 +883,7 @@ mod vulkano_backend {
                 PipelineShaderStageCreateInfo::new(
                     skinned_vs
                         .entry_point("main")
-                        .ok_or("missing skinned-toon-mesh.vert entry point")?,
+                        .ok_or("missing cached-skinned-toon-mesh.vert entry point")?,
                 ),
                 PipelineShaderStageCreateInfo::new(
                     emissive_fs
@@ -951,7 +1035,7 @@ mod vulkano_backend {
 
             // Skinned pipeline: add a separate per-vertex skinning buffer (binding=1),
             // and move per-instance data to binding=2.
-            let vertex_input_state_skinned = VertexInputState::new()
+            let _legacy_vertex_input_state_skinned = VertexInputState::new()
                 .binding(
                     0,
                     VertexInputBindingDescription {
@@ -1106,6 +1190,9 @@ mod vulkano_backend {
                     },
                 );
 
+            // Cached skinning uses the ordinary mesh stream for UV/indexing and the instance
+            // stream for the cache base; JOINTS_0/WEIGHTS_0 are compute-only.
+            let vertex_input_state_skinned = vertex_input_state_static.clone();
             let color_format = swapchain_state.swapchain.image_format();
             let mut pipeline_ci =
                 vulkano::pipeline::graphics::GraphicsPipelineCreateInfo::layout(layout);
@@ -1718,12 +1805,23 @@ mod vulkano_backend {
                 cached_bones_slot_valid: Vec::new(),
                 cached_bones_capacity: 0,
 
+                deformation_pipeline,
+                deformation_base_cpu: Vec::new(),
+                deformation_skin_cpu: Vec::new(),
+                deformation_base_buffer: None,
+                deformation_skin_buffer: None,
+                deformation_bones_buffer: None,
+                deformation_output_buffer: None,
+                deformation_output_capacity: 0,
+                deformation_stats: DeformationStats::default(),
+
                 xr_offscreen: None,
                 mirror_offscreen: HashMap::new(),
 
                 window_resized: false,
                 recreate_swapchain: false,
                 images_in_flight: (0..framebuffer_count).map(|_| None).collect(),
+                submission_future: Some(sync::now(device.clone()).boxed()),
             };
 
             // Default texture: 1x1 white so untextured materials can still bind a sampler.
@@ -2109,11 +2207,15 @@ mod vulkano_backend {
 
             let device = self.context.device().clone();
             let queue = self.context.graphics_queue().clone();
-
-            sync::now(device)
+            let prior = self
+                .submission_future
+                .take()
+                .unwrap_or_else(|| sync::now(device).boxed());
+            let future = prior
                 .then_execute(queue, cb)?
-                .then_signal_fence_and_flush()?
-                .wait(None)?;
+                .then_signal_fence_and_flush()?;
+            future.wait(None)?;
+            self.submission_future = Some(future.boxed());
 
             Ok(())
         }
@@ -2220,10 +2322,15 @@ mod vulkano_backend {
                         runtime_texture_publication,
                     )?;
 
-                    sync::now(device.clone())
+                    let prior = self
+                        .submission_future
+                        .take()
+                        .unwrap_or_else(|| sync::now(device.clone()).boxed());
+                    let future = prior
                         .then_execute(queue.clone(), cb)?
-                        .then_signal_fence_and_flush()?
-                        .wait(None)?;
+                        .then_signal_fence_and_flush()?;
+                    future.wait(None)?;
+                    self.submission_future = Some(future.boxed());
                 }
             }
 
@@ -2536,8 +2643,8 @@ mod vulkano_backend {
                     ),
                     i_emissive: 1.0,
                     i_opacity: 1.0,
-                    i_bones_base: inst.bones_base,
-                    i_bones_count: inst.bones_count,
+                    i_deformed_base: inst.deformed_base,
+                    i_deformed_count: inst.deformed_count,
                 }
             });
 
@@ -2722,8 +2829,8 @@ mod vulkano_backend {
                         i_color: inst.color,
                         i_emissive: inst.emissive,
                         i_opacity: inst.opacity,
-                        i_bones_base: inst.bones_base,
-                        i_bones_count: inst.bones_count,
+                        i_deformed_base: inst.deformed_base,
+                        i_deformed_count: inst.deformed_count,
                     }
                 });
 
@@ -2766,8 +2873,8 @@ mod vulkano_backend {
                     i_color: inst.color,
                     i_emissive: inst.emissive,
                     i_opacity: inst.opacity,
-                    i_bones_base: inst.bones_base,
-                    i_bones_count: inst.bones_count,
+                    i_deformed_base: inst.deformed_base,
+                    i_deformed_count: inst.deformed_count,
                 }
             });
 
@@ -2846,6 +2953,332 @@ mod vulkano_backend {
             Ok(Some(set))
         }
 
+        fn record_dirty_deformations(
+            &mut self,
+            cbb: &mut AutoCommandBufferBuilder<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+            visual_world: &VisualWorld,
+            dirty_bones: &[crate::engine::graphics::deformation::DeformationRange],
+        ) -> Result<Subbuffer<[GpuDeformedVertex]>, Box<dyn std::error::Error>> {
+            let memory_allocator = self.context.memory_allocator().clone();
+            let wanted_capacity = visual_world.deformation_cache_capacity().max(1);
+            if self.deformation_output_capacity < wanted_capacity {
+                let new_capacity = wanted_capacity.next_power_of_two();
+                let new_output = Buffer::new_slice::<GpuDeformedVertex>(
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER
+                            | BufferUsage::TRANSFER_SRC
+                            | BufferUsage::TRANSFER_DST,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                        ..Default::default()
+                    },
+                    new_capacity as DeviceSize,
+                )?;
+                if let Some(old_output) = self.deformation_output_buffer.as_ref() {
+                    cbb.copy_buffer(CopyBufferInfo::buffers(
+                        old_output.clone(),
+                        new_output.clone(),
+                    ))?;
+                }
+                self.deformation_output_buffer = Some(new_output);
+                self.deformation_output_capacity = new_capacity;
+                self.deformation_stats.resizes += 1;
+            }
+            let output = self
+                .deformation_output_buffer
+                .as_ref()
+                .expect("deformation output allocated")
+                .clone();
+
+            let bones_len = visual_world.bones_palette().len().max(1);
+            let bones_reallocated = self
+                .deformation_bones_buffer
+                .as_ref()
+                .is_none_or(|buffer| buffer.len() < bones_len as DeviceSize);
+            if bones_reallocated {
+                self.deformation_bones_buffer = Some(Buffer::new_slice::<GpuMat4>(
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                        ..Default::default()
+                    },
+                    bones_len.next_power_of_two() as DeviceSize,
+                )?);
+            }
+            let bones_buffer = self
+                .deformation_bones_buffer
+                .as_ref()
+                .expect("deformation bones allocated")
+                .clone();
+            let upload_ranges: Vec<_> = if bones_reallocated {
+                vec![crate::engine::graphics::deformation::DeformationRange {
+                    base: 0,
+                    vertex_count: bones_len as u32,
+                }]
+            } else {
+                dirty_bones.to_vec()
+            };
+            for range in upload_ranges {
+                let start = range.base as usize;
+                let end = start + range.vertex_count as usize;
+                if end > visual_world.bones_palette().len() {
+                    return Err("dirty bones interval is outside the palette".into());
+                }
+                let staging = Buffer::from_iter(
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::TRANSFER_SRC,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    visual_world.bones_palette()[start..end]
+                        .iter()
+                        .copied()
+                        .map(|cols| GpuMat4 { cols }),
+                )?;
+                cbb.copy_buffer(CopyBufferInfo::buffers(
+                    staging,
+                    bones_buffer
+                        .clone()
+                        .slice(start as DeviceSize..end as DeviceSize),
+                ))?;
+                self.deformation_stats.bone_upload_bytes +=
+                    (range.vertex_count as usize * size_of::<GpuMat4>()) as u64;
+            }
+
+            let mut jobs = Vec::new();
+            for instance in visual_world.instances() {
+                if !instance.deformation_dirty || instance.deformed_count == 0 {
+                    continue;
+                }
+                let Some(mesh) = self.meshes.get(&instance.renderable.mesh) else {
+                    continue;
+                };
+                let (Some(base_vertex), Some(skin_vertex)) =
+                    (mesh.deformation_base, mesh.deformation_skin_base)
+                else {
+                    continue;
+                };
+                let skin_start = skin_vertex as usize;
+                let skin_end = skin_start + mesh.vertex_count as usize;
+                if self.deformation_skin_cpu[skin_start..skin_end]
+                    .iter()
+                    .flat_map(|vertex| vertex.joints)
+                    .any(|joint| joint >= instance.bones_count)
+                {
+                    return Err(format!(
+                        "mesh {:?} contains a joint index outside instance palette count {}",
+                        instance.renderable.mesh, instance.bones_count
+                    )
+                    .into());
+                }
+                jobs.push(GpuDeformationJob {
+                    base_vertex,
+                    skin_vertex,
+                    output_vertex: instance.deformed_base,
+                    vertex_count: instance.deformed_count,
+                    bones_base: instance.bones_base,
+                    bones_count: instance.bones_count,
+                    active_morph_base: 0,
+                    active_morph_count: 0,
+                });
+            }
+            let workgroups = build_workgroups(&jobs);
+            if jobs.is_empty() {
+                self.deformation_stats.live_cache_bytes =
+                    visual_world.deformation_cache_live_vertices() as u64
+                        * size_of::<GpuDeformedVertex>() as u64;
+                self.deformation_stats.allocated_cache_bytes =
+                    self.deformation_output_capacity as u64 * size_of::<GpuDeformedVertex>() as u64;
+                return Ok(output);
+            }
+
+            let base_buffer = self
+                .deformation_base_buffer
+                .as_ref()
+                .ok_or("missing global base deformation arena")?
+                .clone();
+            let skin_buffer = self
+                .deformation_skin_buffer
+                .as_ref()
+                .ok_or("missing global skin deformation arena")?
+                .clone();
+            let morph_staging = Buffer::from_iter(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                [GpuMorphDelta::default()],
+            )?;
+            let morph_buffer = Buffer::new_slice::<GpuMorphDelta>(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                    ..Default::default()
+                },
+                1,
+            )?;
+            cbb.copy_buffer(CopyBufferInfo::buffers(morph_staging, morph_buffer.clone()))?;
+            let active_morph_staging = Buffer::from_iter(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                [GpuActiveMorph::default()],
+            )?;
+            let active_morph_buffer = Buffer::new_slice::<GpuActiveMorph>(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                    ..Default::default()
+                },
+                1,
+            )?;
+            cbb.copy_buffer(CopyBufferInfo::buffers(
+                active_morph_staging,
+                active_morph_buffer.clone(),
+            ))?;
+            let jobs_staging = Buffer::from_iter(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                jobs.iter().copied(),
+            )?;
+            let jobs_buffer = Buffer::new_slice::<GpuDeformationJob>(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                    ..Default::default()
+                },
+                jobs.len() as DeviceSize,
+            )?;
+            cbb.copy_buffer(CopyBufferInfo::buffers(jobs_staging, jobs_buffer.clone()))?;
+            let workgroups_staging = Buffer::from_iter(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                workgroups.iter().copied(),
+            )?;
+            let workgroups_buffer = Buffer::new_slice::<GpuDeformationWorkgroup>(
+                memory_allocator,
+                BufferCreateInfo {
+                    usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                    ..Default::default()
+                },
+                workgroups.len() as DeviceSize,
+            )?;
+            cbb.copy_buffer(CopyBufferInfo::buffers(
+                workgroups_staging,
+                workgroups_buffer.clone(),
+            ))?;
+            let set = DescriptorSet::new(
+                self.descriptor_set_allocator.clone(),
+                self.deformation_pipeline.layout().set_layouts()[0].clone(),
+                [
+                    WriteDescriptorSet::buffer(0, base_buffer),
+                    WriteDescriptorSet::buffer(1, skin_buffer),
+                    WriteDescriptorSet::buffer(2, bones_buffer),
+                    WriteDescriptorSet::buffer(3, morph_buffer),
+                    WriteDescriptorSet::buffer(4, active_morph_buffer),
+                    WriteDescriptorSet::buffer(5, jobs_buffer),
+                    WriteDescriptorSet::buffer(6, workgroups_buffer),
+                    WriteDescriptorSet::buffer(7, output.clone()),
+                ],
+                [],
+            )?;
+            cbb.bind_pipeline_compute(self.deformation_pipeline.clone())?;
+            cbb.bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                self.deformation_pipeline.layout().clone(),
+                0,
+                set,
+            )?;
+            let max_dispatch = self
+                .context
+                .device()
+                .physical_device()
+                .properties()
+                .max_compute_work_group_count[0] as usize;
+            for first in (0..workgroups.len()).step_by(max_dispatch) {
+                let count = (workgroups.len() - first).min(max_dispatch);
+                cbb.push_constants(
+                    self.deformation_pipeline.layout().clone(),
+                    0,
+                    mesh_deformation_cs::PushConstants {
+                        workgroup_base: first as u32,
+                    },
+                )?;
+                unsafe { cbb.dispatch([count as u32, 1, 1])? };
+                self.deformation_stats.dispatches += 1;
+            }
+            self.deformation_stats.jobs += jobs.len() as u64;
+            self.deformation_stats.workgroups += workgroups.len() as u64;
+            self.deformation_stats.dirty_vertices +=
+                jobs.iter().map(|job| job.vertex_count as u64).sum::<u64>();
+            self.deformation_stats.job_upload_bytes += (jobs.len() * size_of::<GpuDeformationJob>()
+                + workgroups.len() * size_of::<GpuDeformationWorkgroup>())
+                as u64;
+            self.deformation_stats.live_cache_bytes = visual_world.deformation_cache_live_vertices()
+                as u64
+                * size_of::<GpuDeformedVertex>() as u64;
+            self.deformation_stats.allocated_cache_bytes =
+                self.deformation_output_capacity as u64 * size_of::<GpuDeformedVertex>() as u64;
+            Ok(output)
+        }
+
         fn build_draw_batches_command_buffer(
             &mut self,
             visual_world: &mut VisualWorld,
@@ -2887,6 +3320,12 @@ mod vulkano_backend {
             .filter(|&handle| visual_world.instance(handle).is_some());
 
             let queue = self.context.graphics_queue().clone();
+            let mesh_vertex_counts: HashMap<_, _> = self
+                .meshes
+                .iter()
+                .map(|(handle, mesh)| (*handle, mesh.vertex_count))
+                .collect();
+            visual_world.sync_deformation_ranges(&mesh_vertex_counts);
 
             // Always rebuild draw cache cheaply.
             let draw_cache_rebuilt = visual_world.prepare_draw_cache();
@@ -2902,12 +3341,9 @@ mod vulkano_backend {
                 visual_world.instance_data_dirty()
             };
 
-            // Only consume the bones palette dirty flag on the first eye.
-            let bones_palette_dirty = if eye == 0 {
-                visual_world.take_bones_palette_dirty()
-            } else {
-                false
-            };
+            // Shared deformation is consumed by the first command buffer, regardless of view.
+            let dirty_bones_ranges = visual_world.take_dirty_bones_ranges();
+            let bones_palette_dirty = !dirty_bones_ranges.is_empty();
 
             // --- Opaque pass ---
             // Buffer indexed by opaque_stream().1; use its length for cache invalidation.
@@ -3290,7 +3726,15 @@ mod vulkano_backend {
                 Some(set)
             };
 
-            // Rig descriptor set (set=2): shared bones palette + placeholder per-instance lighting.
+            let mut cbb = AutoCommandBufferBuilder::primary(
+                self.command_buffer_allocator.clone(),
+                queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )?;
+            let deformation_output =
+                self.record_dirty_deformations(&mut cbb, visual_world, &dirty_bones_ranges)?;
+
+            // Rig descriptor set (set=2): persistent deformation cache + placeholder lighting.
             // Layout is defined in `PipelineDescriptorSetLayouts::rig`.
             let rig_set: Arc<DescriptorSet> = {
                 static DID_LOG_BONES_PALETTE_UPLOAD: AtomicBool = AtomicBool::new(false);
@@ -3300,8 +3744,7 @@ mod vulkano_backend {
                 let want_slots = bones_slots_total.max(1);
                 let slot = bones_slot.min(want_slots - 1);
 
-                let needs_realloc = self.cached_bones_buffers.len() != want_slots
-                    || self.cached_bones_capacity < want_len;
+                let needs_realloc = false;
 
                 if needs_realloc {
                     let new_cap = want_len.next_power_of_two().max(1);
@@ -3335,11 +3778,8 @@ mod vulkano_backend {
                     }
                 }
 
-                let slot_needs_upload = !self
-                    .cached_bones_slot_valid
-                    .get(slot)
-                    .copied()
-                    .unwrap_or(false);
+                // Graphics-stage bones are retired; binding 1 now receives deformation_output.
+                let slot_needs_upload = false;
 
                 if slot_needs_upload {
                     let bones_src = visual_world.bones_palette();
@@ -3391,8 +3831,6 @@ mod vulkano_backend {
                     }
                 }
 
-                let bones_buffer = self.cached_bones_buffers[slot].clone();
-
                 let per_instance_lighting_buffer: Subbuffer<DummyPerInstanceLightingSSBO> =
                     Buffer::from_data(
                         self.context.memory_allocator().clone(),
@@ -3413,17 +3851,11 @@ mod vulkano_backend {
                     self.set_layouts.rig.clone(),
                     [
                         WriteDescriptorSet::buffer(0, per_instance_lighting_buffer),
-                        WriteDescriptorSet::buffer(1, bones_buffer),
+                        WriteDescriptorSet::buffer(1, deformation_output),
                     ],
                     [],
                 )?
             };
-
-            let mut cbb = AutoCommandBufferBuilder::primary(
-                self.command_buffer_allocator.clone(),
-                queue.queue_family_index(),
-                CommandBufferUsage::OneTimeSubmit,
-            )?;
 
             // Single dynamic-rendering scope. This keeps MSAA resolve straightforward.
             cbb.begin_rendering(rendering_info_clear_color_and_depth)?;
@@ -3961,6 +4393,7 @@ mod vulkano_backend {
                 ))?;
             }
 
+            visual_world.mark_deformations_clean();
             let cb = cbb.build()?;
 
             Ok(cb)
@@ -4107,7 +4540,6 @@ mod vulkano_backend {
 
             // Ensure we never render into a swapchain image (and its paired depth attachment)
             // while a previous frame that used that image is still in flight.
-            let image_i_usize = image_i as usize;
             if self.images_in_flight.len() != self.swapchain_state.swapchain_views.len() {
                 // Defensive: should only happen if swapchain recreation failed partially.
                 self.images_in_flight = (0..self.swapchain_state.swapchain_views.len())
@@ -4115,7 +4547,8 @@ mod vulkano_backend {
                     .collect();
             }
 
-            let image_future: Box<dyn GpuFuture> = self.images_in_flight[image_i_usize]
+            let submission_future = self
+                .submission_future
                 .take()
                 .unwrap_or_else(|| sync::now(device.clone()).boxed());
 
@@ -4123,7 +4556,7 @@ mod vulkano_backend {
             // winit is notified just before we submit/present the rendered buffer.
             self.window.pre_present_notify();
 
-            let execution = image_future
+            let execution = submission_future
                 .join(acquire_future)
                 .then_execute(queue.clone(), cb)?
                 .then_swapchain_present(
@@ -4137,9 +4570,7 @@ mod vulkano_backend {
 
             match execution.map_err(Validated::unwrap) {
                 Ok(future) => {
-                    // Track this swapchain image as in flight; this also keeps per-frame
-                    // resources alive until the GPU is done.
-                    self.images_in_flight[image_i_usize] = Some(future.boxed());
+                    self.submission_future = Some(future.boxed());
                 }
                 Err(VulkanError::OutOfDate) => {
                     self.recreate_swapchain = true;
@@ -4157,6 +4588,7 @@ mod vulkano_backend {
                             }
                         }
                     }
+                    self.submission_future = Some(sync::now(device.clone()).boxed());
                 }
                 Err(e) => {
                     println!("[VulkanoRenderer] failed to flush future: {e}");
@@ -4171,6 +4603,7 @@ mod vulkano_backend {
                             }
                         }
                     }
+                    self.submission_future = Some(sync::now(device.clone()).boxed());
                 }
             }
 
@@ -4194,6 +4627,48 @@ mod vulkano_backend {
             if mesh.indices_u32.is_empty() {
                 return Err("mesh has no indices".into());
             }
+
+            let deformation_upload = match (&mesh.joints0, &mesh.weights0) {
+                (Some(joints), Some(weights))
+                    if joints.len() == mesh.vertices.len()
+                        && weights.len() == mesh.vertices.len() =>
+                {
+                    let mut base = Vec::with_capacity(mesh.vertices.len());
+                    let mut skin = Vec::with_capacity(mesh.vertices.len());
+                    for (vertex_index, ((vertex, joints), weights)) in
+                        mesh.vertices.iter().zip(joints).zip(weights).enumerate()
+                    {
+                        if !vertex
+                            .pos
+                            .iter()
+                            .chain(&vertex.normal)
+                            .chain(weights)
+                            .all(|value| value.is_finite())
+                        {
+                            return Err(format!(
+                                "skinned mesh {handle:?} vertex {vertex_index} contains non-finite deformation input"
+                            )
+                            .into());
+                        }
+                        base.push(GpuBaseDeformationVertex {
+                            position: [vertex.pos[0], vertex.pos[1], vertex.pos[2], 1.0],
+                            normal: [vertex.normal[0], vertex.normal[1], vertex.normal[2], 0.0],
+                        });
+                        skin.push(GpuDeformationSkinVertex {
+                            joints: joints.map(u32::from),
+                            weights: *weights,
+                        });
+                    }
+                    Some((base, skin))
+                }
+                (None, None) => None,
+                _ => {
+                    return Err(format!(
+                        "mesh {handle:?} has incomplete or mismatched JOINTS_0/WEIGHTS_0 attributes"
+                    )
+                    .into());
+                }
+            };
 
             let memory_allocator = self.context.memory_allocator().clone();
             let queue = self.context.graphics_queue().clone();
@@ -4381,6 +4856,76 @@ mod vulkano_backend {
                 mesh.indices_u32.len() as DeviceSize,
             )?;
 
+            let mut deformation_replacement = None;
+            let (deformation_base, deformation_skin_base) =
+                if let Some((base_vertices, skin_vertices)) = deformation_upload {
+                    if self.deformation_base_buffer.is_some() {
+                        // Mesh uploads are rare. Waiting here makes descriptor replacement safe
+                        // without retaining a second immutable arena generation.
+                        unsafe { self.context.device().wait_idle()? };
+                    }
+                    let base_offset = self.deformation_base_cpu.len() as u32;
+                    let skin_offset = self.deformation_skin_cpu.len() as u32;
+                    self.deformation_base_cpu.extend(base_vertices);
+                    self.deformation_skin_cpu.extend(skin_vertices);
+
+                    let base_src = Buffer::from_iter(
+                        memory_allocator.clone(),
+                        BufferCreateInfo {
+                            usage: BufferUsage::TRANSFER_SRC,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                            ..Default::default()
+                        },
+                        self.deformation_base_cpu.iter().copied(),
+                    )?;
+                    let skin_src_global = Buffer::from_iter(
+                        memory_allocator.clone(),
+                        BufferCreateInfo {
+                            usage: BufferUsage::TRANSFER_SRC,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                            ..Default::default()
+                        },
+                        self.deformation_skin_cpu.iter().copied(),
+                    )?;
+                    let base_dst = Buffer::new_slice::<GpuBaseDeformationVertex>(
+                        memory_allocator.clone(),
+                        BufferCreateInfo {
+                            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                            ..Default::default()
+                        },
+                        self.deformation_base_cpu.len() as DeviceSize,
+                    )?;
+                    let skin_dst_global = Buffer::new_slice::<GpuDeformationSkinVertex>(
+                        memory_allocator.clone(),
+                        BufferCreateInfo {
+                            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                            ..Default::default()
+                        },
+                        AllocationCreateInfo {
+                            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                            ..Default::default()
+                        },
+                        self.deformation_skin_cpu.len() as DeviceSize,
+                    )?;
+                    deformation_replacement =
+                        Some((base_src, skin_src_global, base_dst, skin_dst_global));
+                    (Some(base_offset), Some(skin_offset))
+                } else {
+                    (None, None)
+                };
+
             // Copy staging -> device-local.
             let mut cbb = AutoCommandBufferBuilder::primary(
                 self.command_buffer_allocator.clone(),
@@ -4393,6 +4938,15 @@ mod vulkano_backend {
                 cbb.copy_buffer(CopyBufferInfo::buffers(src, dst.clone()))?;
             }
             cbb.copy_buffer(CopyBufferInfo::buffers(indices_src, indices_dst.clone()))?;
+            if let Some((base_src, skin_src_global, base_dst, skin_dst_global)) =
+                deformation_replacement.as_ref()
+            {
+                cbb.copy_buffer(CopyBufferInfo::buffers(base_src.clone(), base_dst.clone()))?;
+                cbb.copy_buffer(CopyBufferInfo::buffers(
+                    skin_src_global.clone(),
+                    skin_dst_global.clone(),
+                ))?;
+            }
 
             let cb = cbb.build()?;
 
@@ -4400,11 +4954,18 @@ mod vulkano_backend {
                 .then_signal_fence_and_flush()?
                 .wait(None)?;
 
+            if let Some((_, _, base_dst, skin_dst_global)) = deformation_replacement {
+                self.deformation_base_buffer = Some(base_dst);
+                self.deformation_skin_buffer = Some(skin_dst_global);
+            }
+
             self.meshes.insert(
                 handle,
                 VulkanoGpuMesh {
                     vertices: vertices_dst,
-                    skin_vertices: skin_dst,
+                    deformation_base,
+                    deformation_skin_base,
+                    vertex_count: mesh.vertices.len() as u32,
                     indices: indices_dst,
                     index_count: mesh.index_count(),
                 },

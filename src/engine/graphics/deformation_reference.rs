@@ -1,8 +1,7 @@
 //! CPU reference for validating compute-cached mesh deformation.
 //!
-//! This deliberately mirrors `assets/shaders/skinned-toon-mesh.vert` rather than trying to be a
-//! general skinning implementation. Keep it independent from the eventual compute implementation
-//! so GPU readback tests can detect changes in shader behavior.
+//! Keep this independent from `assets/shaders/mesh-deformation.comp` so GPU readback tests can
+//! detect changes in shader behavior.
 
 use crate::engine::graphics::primitives::TransformMatrix;
 
@@ -25,9 +24,21 @@ pub(crate) enum DeformationReferenceError {
         joint: u16,
         bones: usize,
     },
+    MorphDeltaOutOfRange {
+        vertex: usize,
+        delta: usize,
+        deltas: usize,
+    },
+    NonFiniteInput,
 }
 
-/// Deforms mesh-local positions and normals using the current graphics-stage skinning semantics.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ActiveMorph {
+    pub delta_base: usize,
+    pub weight: f32,
+}
+
+/// Deforms mesh-local positions and normals using compute-cache semantics.
 ///
 /// In particular:
 ///
@@ -42,6 +53,18 @@ pub(crate) fn deform_vertices(
     weights: &[[f32; 4]],
     bones: &[TransformMatrix],
 ) -> Result<Vec<DeformedVertex>, DeformationReferenceError> {
+    deform_vertices_with_morphs(positions, normals, joints, weights, bones, &[], &[])
+}
+
+pub(crate) fn deform_vertices_with_morphs(
+    positions: &[[f32; 3]],
+    normals: &[[f32; 3]],
+    joints: &[[u16; 4]],
+    weights: &[[f32; 4]],
+    bones: &[TransformMatrix],
+    morph_deltas: &[([f32; 3], [f32; 3])],
+    active_morphs: &[ActiveMorph],
+) -> Result<Vec<DeformedVertex>, DeformationReferenceError> {
     let vertex_count = positions.len();
     if normals.len() != vertex_count
         || joints.len() != vertex_count
@@ -54,6 +77,22 @@ pub(crate) fn deform_vertices(
             weights: weights.len(),
         });
     }
+    if positions
+        .iter()
+        .flatten()
+        .chain(normals.iter().flatten())
+        .chain(weights.iter().flatten())
+        .chain(bones.iter().flatten().flatten())
+        .chain(
+            morph_deltas
+                .iter()
+                .flat_map(|(position, normal)| position.iter().chain(normal.iter())),
+        )
+        .chain(active_morphs.iter().map(|morph| &morph.weight))
+        .any(|value| !value.is_finite())
+    {
+        return Err(DeformationReferenceError::NonFiniteInput);
+    }
 
     positions
         .iter()
@@ -64,6 +103,24 @@ pub(crate) fn deform_vertices(
         .enumerate()
         .map(
             |(vertex, (((position, normal), vertex_joints), vertex_weights))| {
+                let mut position = position;
+                let mut normal = normal;
+                for active in active_morphs {
+                    let delta_index = active.delta_base + vertex;
+                    let Some((position_delta, normal_delta)) =
+                        morph_deltas.get(delta_index).copied()
+                    else {
+                        return Err(DeformationReferenceError::MorphDeltaOutOfRange {
+                            vertex,
+                            delta: delta_index,
+                            deltas: morph_deltas.len(),
+                        });
+                    };
+                    for axis in 0..3 {
+                        position[axis] += position_delta[axis] * active.weight;
+                        normal[axis] += normal_delta[axis] * active.weight;
+                    }
+                }
                 let weight_sum = vertex_weights.iter().sum::<f32>();
                 let skin = if bones.is_empty() || weight_sum <= 0.0 {
                     identity()
@@ -231,6 +288,89 @@ mod tests {
 
         assert_vec3_close(output[0].position, [1.0, 3.0, 4.0]);
         assert_vec3_close(output[0].normal, [0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn non_unit_weight_sum_is_not_renormalized() {
+        let output = deform_vertices(
+            &[[1.0, 0.0, 0.0]],
+            &[[0.0, 1.0, 0.0]],
+            &[[0, 0, 0, 0]],
+            &[[2.0, 0.0, 0.0, 0.0]],
+            &[translation(3.0, 0.0, 0.0)],
+        )
+        .unwrap();
+        assert_vec3_close(output[0].position, [8.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn non_uniform_normal_transform_is_normalized_once() {
+        let scale = [
+            [2.0, 0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0, 0.0],
+            [0.0, 0.0, 4.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let output = deform_vertices(
+            &[[0.0; 3]],
+            &[[1.0, 1.0, 0.0]],
+            &[[0; 4]],
+            &[[1.0, 0.0, 0.0, 0.0]],
+            &[scale],
+        )
+        .unwrap();
+        let inverse_length = 13.0_f32.sqrt().recip();
+        assert_vec3_close(
+            output[0].normal,
+            [2.0 * inverse_length, 3.0 * inverse_length, 0.0],
+        );
+    }
+
+    #[test]
+    fn morph_targets_accumulate_before_skinning() {
+        let deltas = [
+            ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+            ([0.0, 0.0, 2.0], [1.0, 0.0, 0.0]),
+        ];
+        let output = deform_vertices_with_morphs(
+            &[[1.0, 0.0, 0.0]],
+            &[[0.0, 0.0, 1.0]],
+            &[[0; 4]],
+            &[[1.0, 0.0, 0.0, 0.0]],
+            &[rotation_z_90()],
+            &deltas,
+            &[
+                ActiveMorph {
+                    delta_base: 0,
+                    weight: 2.0,
+                },
+                ActiveMorph {
+                    delta_base: 1,
+                    weight: 0.5,
+                },
+            ],
+        )
+        .unwrap();
+        assert_vec3_close(output[0].position, [0.0, 3.0, 1.0]);
+        let inverse_length = 5.25_f32.sqrt().recip();
+        assert_vec3_close(
+            output[0].normal,
+            [-2.0 * inverse_length, 0.5 * inverse_length, inverse_length],
+        );
+    }
+
+    #[test]
+    fn non_finite_values_fail_before_deformation() {
+        assert_eq!(
+            deform_vertices(
+                &[[0.0; 3]],
+                &[[0.0, 1.0, 0.0]],
+                &[[0; 4]],
+                &[[f32::NAN, 0.0, 0.0, 0.0]],
+                &[identity()],
+            ),
+            Err(DeformationReferenceError::NonFiniteInput)
+        );
     }
 
     #[test]

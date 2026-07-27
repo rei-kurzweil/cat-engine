@@ -2,6 +2,7 @@ use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::Transform;
 use crate::engine::graphics::GpuRenderable;
 use crate::engine::graphics::MsaaMode;
+use crate::engine::graphics::deformation::{DeformationRange, DeformationRangeAllocator};
 use crate::engine::graphics::post_processing::PostProcessingConfig;
 use crate::engine::graphics::primitives::InstanceHandle;
 use crate::engine::graphics::primitives::TransformMatrix;
@@ -135,7 +136,8 @@ pub struct VisualWorld {
     // tiny free-list allocator.
     bones_palette: Vec<TransformMatrix>,
     bones_free_ranges: Vec<(u32, u32)>,
-    dirty_bones_palette: bool,
+    dirty_bones_ranges: Vec<DeformationRange>,
+    deformation_ranges: DeformationRangeAllocator,
 
     // Shared skin definitions (glTF skins), keyed by (uri, skin_index).
     skins: SlotMap<SkinId, Skin>,
@@ -243,6 +245,11 @@ pub struct VisualInstance {
     pub bones_base: u32,
     /// Number of bone matrices for this instance.
     pub bones_count: u32,
+    /// Renderer-owned persistent deformation cache range.
+    pub deformed_base: u32,
+    pub deformed_count: u32,
+    /// CPU-only scheduling state.
+    pub deformation_dirty: bool,
 
     /// Which clip region this instance is inside. 0 = unclipped.
     pub stencil_ref: u8,
@@ -283,7 +290,11 @@ impl Default for VisualWorld {
 
             bones_palette: vec![ident4],
             bones_free_ranges: Vec::new(),
-            dirty_bones_palette: true,
+            dirty_bones_ranges: vec![DeformationRange {
+                base: 0,
+                vertex_count: 1,
+            }],
+            deformation_ranges: DeformationRangeAllocator::default(),
 
             skins: SlotMap::with_key(),
             skin_id_by_key: std::collections::HashMap::new(),
@@ -495,7 +506,32 @@ impl VisualWorld {
 
         self.bones_free_ranges.push((base, len));
         self.bones_free_coalesce();
-        self.dirty_bones_palette = true;
+        self.mark_bones_dirty(base, len);
+    }
+
+    fn mark_bones_dirty(&mut self, base: u32, vertex_count: u32) {
+        if vertex_count == 0 {
+            return;
+        }
+        let mut start = base;
+        let mut end = base.saturating_add(vertex_count);
+        let mut index = 0;
+        while index < self.dirty_bones_ranges.len() {
+            let range = self.dirty_bones_ranges[index];
+            let range_end = range.base.saturating_add(range.vertex_count);
+            if range_end < start || end < range.base {
+                index += 1;
+                continue;
+            }
+            start = start.min(range.base);
+            end = end.max(range_end);
+            self.dirty_bones_ranges.swap_remove(index);
+        }
+        self.dirty_bones_ranges.push(DeformationRange {
+            base: start,
+            vertex_count: end - start,
+        });
+        self.dirty_bones_ranges.sort_by_key(|range| range.base);
     }
 
     /// Assigns the skin matrices for an instance into the shared palette.
@@ -530,6 +566,7 @@ impl VisualWorld {
             if self.instances[idx].bones_base != 0 || self.instances[idx].bones_count != 0 {
                 self.instances[idx].bones_base = 0;
                 self.instances[idx].bones_count = 0;
+                self.instances[idx].deformation_dirty = true;
                 self.dirty_instance_data = true;
             }
             return true;
@@ -541,15 +578,19 @@ impl VisualWorld {
 
         if old_count == 0 {
             base = self.bones_alloc_range(want_count);
+            self.mark_bones_dirty(base, want_count);
             self.instances[idx].bones_base = base;
             self.instances[idx].bones_count = want_count;
+            self.instances[idx].deformation_dirty = true;
             self.dirty_instance_data = true;
         } else if old_count != want_count {
             // Reallocate with new size.
             self.bones_free_range(base, old_count);
             base = self.bones_alloc_range(want_count);
+            self.mark_bones_dirty(base, want_count);
             self.instances[idx].bones_base = base;
             self.instances[idx].bones_count = want_count;
+            self.instances[idx].deformation_dirty = true;
             self.dirty_instance_data = true;
         }
 
@@ -559,8 +600,11 @@ impl VisualWorld {
         if end > self.bones_palette.len() {
             self.bones_palette.resize(end, Self::bones_identity());
         }
-        self.bones_palette[start..end].copy_from_slice(bones);
-        self.dirty_bones_palette = true;
+        if self.bones_palette[start..end] != *bones {
+            self.bones_palette[start..end].copy_from_slice(bones);
+            self.mark_bones_dirty(base, want_count);
+            self.instances[idx].deformation_dirty = true;
+        }
 
         if debug_skin_set {
             println!(
@@ -577,11 +621,13 @@ impl VisualWorld {
         &self.bones_palette
     }
 
-    /// Returns whether the bones palette changed since the last call, and clears the dirty flag.
+    pub fn take_dirty_bones_ranges(&mut self) -> Vec<DeformationRange> {
+        std::mem::take(&mut self.dirty_bones_ranges)
+    }
+
+    /// Compatibility helper for callers that do not consume interval information.
     pub fn take_bones_palette_dirty(&mut self) -> bool {
-        let dirty = self.dirty_bones_palette;
-        self.dirty_bones_palette = false;
-        dirty
+        !self.take_dirty_bones_ranges().is_empty()
     }
 
     /// Compatibility helper: updates the skin palette range for an instance.
@@ -607,6 +653,7 @@ impl VisualWorld {
             }
             self.instances[idx].bones_base = bones_base;
             self.instances[idx].bones_count = bones_count;
+            self.instances[idx].deformation_dirty = true;
             self.dirty_instance_data = true;
             true
         } else {
@@ -623,6 +670,7 @@ mod tests {
         GpuRenderable, MaterialHandle, MeshHandle, Transform,
     };
     use slotmap::KeyData;
+    use std::collections::HashMap;
 
     fn cid(n: u64) -> ComponentId {
         KeyData::from_ffi(n).into()
@@ -634,6 +682,117 @@ mod tests {
 
     fn dummy_emissive_renderable() -> GpuRenderable {
         GpuRenderable::new(MeshHandle::SQUARE, MaterialHandle::EMISSIVE_TOON_MESH)
+    }
+
+    fn identity() -> [[f32; 4]; 4] {
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    }
+
+    #[test]
+    fn identical_palette_recomputation_does_not_dirty_deformation() {
+        let mut visuals = VisualWorld::default();
+        let handle = visuals.register(
+            cid(90),
+            dummy_renderable(),
+            Transform::default(),
+            [1.0; 4],
+            1.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0.0,
+            None,
+            3.0,
+        );
+        visuals.take_dirty_bones_ranges();
+        assert!(visuals.set_skin_matrices(handle, &[identity()]));
+        assert!(!visuals.take_dirty_bones_ranges().is_empty());
+        visuals.mark_deformations_clean();
+        assert!(visuals.set_skin_matrices(handle, &[identity()]));
+        assert!(visuals.take_dirty_bones_ranges().is_empty());
+        assert!(!visuals.instance(handle).unwrap().deformation_dirty);
+    }
+
+    #[test]
+    fn deformation_ranges_are_stable_reused_and_reallocated_on_size_change() {
+        let mut visuals = VisualWorld::default();
+        let a = visuals.register(
+            cid(91),
+            dummy_renderable(),
+            Transform::default(),
+            [1.0; 4],
+            1.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0.0,
+            None,
+            3.0,
+        );
+        let b = visuals.register(
+            cid(92),
+            dummy_renderable(),
+            Transform::default(),
+            [1.0; 4],
+            1.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0.0,
+            None,
+            3.0,
+        );
+        visuals.set_skin_matrices(a, &[identity()]);
+        visuals.set_skin_matrices(b, &[identity()]);
+        let mut counts = HashMap::from([(MeshHandle::SQUARE, 12)]);
+        visuals.sync_deformation_ranges(&counts);
+        let a_range = (
+            visuals.instance(a).unwrap().deformed_base,
+            visuals.instance(a).unwrap().deformed_count,
+        );
+        visuals.sync_deformation_ranges(&counts);
+        assert_eq!(
+            (
+                visuals.instance(a).unwrap().deformed_base,
+                visuals.instance(a).unwrap().deformed_count,
+            ),
+            a_range
+        );
+        let b_base = visuals.instance(b).unwrap().deformed_base;
+        visuals.remove(b);
+        let c = visuals.register(
+            cid(93),
+            dummy_renderable(),
+            Transform::default(),
+            [1.0; 4],
+            1.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0.0,
+            None,
+            3.0,
+        );
+        visuals.set_skin_matrices(c, &[identity()]);
+        visuals.sync_deformation_ranges(&counts);
+        assert_eq!(visuals.instance(c).unwrap().deformed_base, b_base);
+        counts.insert(MeshHandle::SQUARE, 17);
+        visuals.sync_deformation_ranges(&counts);
+        assert_eq!(visuals.instance(a).unwrap().deformed_count, 17);
+        assert!(visuals.instance(a).unwrap().deformation_dirty);
     }
 
     #[test]
@@ -2247,6 +2406,63 @@ impl VisualWorld {
         &self.instances
     }
 
+    /// Reconciles persistent output ranges with the current skinned instances.
+    ///
+    /// Existing ranges remain stable while their mesh vertex count is unchanged.
+    pub fn sync_deformation_ranges(
+        &mut self,
+        mesh_vertex_counts: &HashMap<crate::engine::graphics::MeshHandle, u32>,
+    ) -> bool {
+        let mut grew = false;
+        for index in 0..self.instances.len() {
+            let desired = if self.instances[index].bones_count == 0 {
+                0
+            } else {
+                mesh_vertex_counts
+                    .get(&self.instances[index].renderable.mesh)
+                    .copied()
+                    .unwrap_or(0)
+            };
+            if self.instances[index].deformed_count == desired {
+                continue;
+            }
+            let old = DeformationRange {
+                base: self.instances[index].deformed_base,
+                vertex_count: self.instances[index].deformed_count,
+            };
+            self.deformation_ranges.free(old);
+            let (new_range, did_grow) = self.deformation_ranges.allocate_growing(desired);
+            grew |= did_grow;
+            self.instances[index].deformed_base = new_range.base;
+            self.instances[index].deformed_count = new_range.vertex_count;
+            self.instances[index].deformation_dirty = desired != 0;
+            self.dirty_instance_data = true;
+        }
+        grew
+    }
+
+    pub fn deformation_cache_capacity(&self) -> u32 {
+        self.deformation_ranges.capacity()
+    }
+
+    pub fn deformation_cache_live_vertices(&self) -> u32 {
+        self.deformation_ranges.live_vertices()
+    }
+
+    pub fn mark_deformations_clean(&mut self) {
+        for instance in &mut self.instances {
+            instance.deformation_dirty = false;
+        }
+    }
+
+    pub fn mark_all_deformations_dirty(&mut self) {
+        for instance in &mut self.instances {
+            if instance.deformed_count != 0 {
+                instance.deformation_dirty = true;
+            }
+        }
+    }
+
     pub fn instance_count(&self) -> usize {
         self.instances.len()
     }
@@ -2801,6 +3017,9 @@ impl VisualWorld {
 
             bones_base: 0,
             bones_count: 0,
+            deformed_base: 0,
+            deformed_count: 0,
+            deformation_dirty: false,
 
             stencil_ref: 0,
             is_stencil_clip: false,
@@ -2836,6 +3055,10 @@ impl VisualWorld {
             if old_count != 0 {
                 self.bones_free_range(old_base, old_count);
             }
+            self.deformation_ranges.free(DeformationRange {
+                base: self.instances[idx].deformed_base,
+                vertex_count: self.instances[idx].deformed_count,
+            });
 
             self.instances.swap_remove(idx);
 
@@ -3054,6 +3277,7 @@ impl VisualWorld {
         transform: Transform,
     ) -> bool {
         if let Some(&idx) = self.handle_to_index.get(&handle) {
+            let deformation_input_changed = self.instances[idx].renderable.mesh != renderable.mesh;
             // Preserve per-instance color when updating renderable/transform.
             let color = self.instances[idx].color;
             let opacity = self.instances[idx].opacity;
@@ -3068,6 +3292,10 @@ impl VisualWorld {
             let quant_steps = self.instances[idx].quant_steps;
             let bones_base = self.instances[idx].bones_base;
             let bones_count = self.instances[idx].bones_count;
+            let deformed_base = self.instances[idx].deformed_base;
+            let deformed_count = self.instances[idx].deformed_count;
+            let deformation_dirty =
+                self.instances[idx].deformation_dirty || deformation_input_changed;
             let stencil_ref = self.instances[idx].stencil_ref;
             let is_stencil_clip = self.instances[idx].is_stencil_clip;
             self.instances[idx] = VisualInstance {
@@ -3086,6 +3314,9 @@ impl VisualWorld {
                 quant_steps,
                 bones_base,
                 bones_count,
+                deformed_base,
+                deformed_count,
+                deformation_dirty,
                 stencil_ref,
                 is_stencil_clip,
             };

@@ -2,14 +2,6 @@ use super::*;
 use crate::engine::graphics::primitives::InstanceHandle;
 
 impl VulkanoState {
-    fn is_skinned_material(material: crate::engine::graphics::MaterialHandle) -> bool {
-        matches!(
-            material,
-            crate::engine::graphics::MaterialHandle::SKINNED_TOON_MESH
-                | crate::engine::graphics::MaterialHandle::SKINNED_EMISSIVE_TOON_MESH
-        )
-    }
-
     fn pipeline_for_material(
         &self,
         material: crate::engine::graphics::MaterialHandle,
@@ -100,18 +92,7 @@ impl VulkanoState {
             let Some(mesh) = self.meshes.get(&batch.mesh) else {
                 continue;
             };
-            if Self::is_skinned_material(batch.material) {
-                let Some(skin) = mesh.skin_vertices.as_ref() else {
-                    // Skinned pipeline expects a skinning vertex buffer.
-                    continue;
-                };
-                cbb.bind_vertex_buffers(
-                    0,
-                    (mesh.vertices.clone(), skin.clone(), instance_buffer.clone()),
-                )?;
-            } else {
-                cbb.bind_vertex_buffers(0, (mesh.vertices.clone(), instance_buffer.clone()))?;
-            }
+            cbb.bind_vertex_buffers(0, (mesh.vertices.clone(), instance_buffer.clone()))?;
             cbb.bind_index_buffer(mesh.indices.clone())?;
 
             if instance_count > 0 && batch.count > 0 {
@@ -344,20 +325,7 @@ impl VulkanoState {
                     let Some(mesh) = self.meshes.get(&batch.mesh) else {
                         continue;
                     };
-                    if Self::is_skinned_material(batch.material) {
-                        let Some(skin) = mesh.skin_vertices.as_ref() else {
-                            continue;
-                        };
-                        cbb.bind_vertex_buffers(
-                            0,
-                            (mesh.vertices.clone(), skin.clone(), instance_buffer.clone()),
-                        )?;
-                    } else {
-                        cbb.bind_vertex_buffers(
-                            0,
-                            (mesh.vertices.clone(), instance_buffer.clone()),
-                        )?;
-                    }
+                    cbb.bind_vertex_buffers(0, (mesh.vertices.clone(), instance_buffer.clone()))?;
                     cbb.bind_index_buffer(mesh.indices.clone())?;
                     if batch.count > 0 {
                         unsafe {
@@ -666,27 +634,13 @@ impl VulkanoState {
             let Some(mesh) = self.meshes.get(&batch.mesh) else {
                 continue;
             };
-            if Self::is_skinned_material(batch.material) {
-                let Some(skin) = mesh.skin_vertices.as_ref() else {
-                    continue;
-                };
-                cbb.bind_vertex_buffers(
-                    0,
-                    (
-                        mesh.vertices.clone(),
-                        skin.clone(),
-                        transparent_multi_instance_buffer.clone(),
-                    ),
-                )?;
-            } else {
-                cbb.bind_vertex_buffers(
-                    0,
-                    (
-                        mesh.vertices.clone(),
-                        transparent_multi_instance_buffer.clone(),
-                    ),
-                )?;
-            }
+            cbb.bind_vertex_buffers(
+                0,
+                (
+                    mesh.vertices.clone(),
+                    transparent_multi_instance_buffer.clone(),
+                ),
+            )?;
             cbb.bind_index_buffer(mesh.indices.clone())?;
 
             // IMPORTANT: for correct alpha blending order, draw transparent instances

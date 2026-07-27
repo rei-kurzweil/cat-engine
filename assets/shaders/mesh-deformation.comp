@@ -1,0 +1,134 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct BaseVertex {
+    vec4 position;
+    vec4 normal;
+};
+layout(std430, set = 0, binding = 0) readonly buffer BaseVertices {
+    BaseVertex vertices[];
+} base_vertices;
+
+struct SkinVertex {
+    uvec4 joints;
+    vec4 weights;
+};
+layout(std430, set = 0, binding = 1) readonly buffer SkinVertices {
+    SkinVertex vertices[];
+} skin_vertices;
+
+layout(std430, set = 0, binding = 2) readonly buffer Bones {
+    mat4 matrices[];
+} bones;
+
+struct MorphDelta {
+    vec4 position_delta;
+    vec4 normal_delta;
+};
+layout(std430, set = 0, binding = 3) readonly buffer MorphDeltas {
+    MorphDelta deltas[];
+} morph_deltas;
+
+struct ActiveMorph {
+    uint delta_base;
+    float weight;
+};
+layout(std430, set = 0, binding = 4) readonly buffer ActiveMorphs {
+    ActiveMorph morphs[];
+} active_morphs;
+
+struct DeformationJob {
+    uint base_vertex;
+    uint skin_vertex;
+    uint output_vertex;
+    uint vertex_count;
+    uint bones_base;
+    uint bones_count;
+    uint active_morph_base;
+    uint active_morph_count;
+};
+layout(std430, set = 0, binding = 5) readonly buffer Jobs {
+    DeformationJob jobs[];
+} deformation_jobs;
+
+struct DeformationWorkgroup {
+    uint job_index;
+    uint first_vertex;
+};
+layout(std430, set = 0, binding = 6) readonly buffer Workgroups {
+    DeformationWorkgroup records[];
+} workgroups;
+
+struct DeformedVertex {
+    vec3 position;
+    uint packed_normal;
+};
+layout(std430, set = 0, binding = 7) writeonly buffer OutputVertices {
+    DeformedVertex vertices[];
+} output_vertices;
+
+layout(push_constant) uniform PushConstants {
+    uint workgroup_base;
+} push_constants;
+
+const uint ZERO_NORMAL_SENTINEL = 0x80008000u;
+
+float sign_not_zero(float value) {
+    return value < 0.0 ? -1.0 : 1.0;
+}
+
+uint pack_oct_normal(vec3 value) {
+    float length_squared = dot(value, value);
+    if (length_squared == 0.0) {
+        return ZERO_NORMAL_SENTINEL;
+    }
+    vec3 normal = value * inversesqrt(length_squared);
+    normal /= abs(normal.x) + abs(normal.y) + abs(normal.z);
+    vec2 oct = normal.z >= 0.0
+        ? normal.xy
+        : vec2(
+            (1.0 - abs(normal.y)) * sign_not_zero(normal.x),
+            (1.0 - abs(normal.x)) * sign_not_zero(normal.y)
+        );
+    ivec2 quantized = ivec2(round(clamp(oct, -1.0, 1.0) * 32767.0));
+    return (uint(quantized.x) & 0xffffu) | ((uint(quantized.y) & 0xffffu) << 16);
+}
+
+void main() {
+    uint record_index = push_constants.workgroup_base + gl_WorkGroupID.x;
+    DeformationWorkgroup record = workgroups.records[record_index];
+    DeformationJob job = deformation_jobs.jobs[record.job_index];
+    uint local_vertex = record.first_vertex + gl_LocalInvocationID.x;
+    if (local_vertex >= job.vertex_count) {
+        return;
+    }
+
+    BaseVertex base = base_vertices.vertices[job.base_vertex + local_vertex];
+    vec3 position = base.position.xyz;
+    vec3 normal = base.normal.xyz;
+    for (uint index = 0u; index < job.active_morph_count; ++index) {
+        ActiveMorph active_morph = active_morphs.morphs[job.active_morph_base + index];
+        MorphDelta delta = morph_deltas.deltas[active_morph.delta_base + local_vertex];
+        position += delta.position_delta.xyz * active_morph.weight;
+        normal += delta.normal_delta.xyz * active_morph.weight;
+    }
+
+    SkinVertex skin_vertex = skin_vertices.vertices[job.skin_vertex + local_vertex];
+    float weight_sum =
+        skin_vertex.weights.x + skin_vertex.weights.y +
+        skin_vertex.weights.z + skin_vertex.weights.w;
+    mat4 skin = mat4(1.0);
+    if (job.bones_count > 0u && weight_sum > 0.0) {
+        skin =
+            bones.matrices[job.bones_base + skin_vertex.joints.x] * skin_vertex.weights.x +
+            bones.matrices[job.bones_base + skin_vertex.joints.y] * skin_vertex.weights.y +
+            bones.matrices[job.bones_base + skin_vertex.joints.z] * skin_vertex.weights.z +
+            bones.matrices[job.bones_base + skin_vertex.joints.w] * skin_vertex.weights.w;
+    }
+
+    vec3 deformed_position = (skin * vec4(position, 1.0)).xyz;
+    vec3 deformed_normal = mat3(skin) * normal;
+    output_vertices.vertices[job.output_vertex + local_vertex] =
+        DeformedVertex(deformed_position, pack_oct_normal(deformed_normal));
+}

@@ -1,6 +1,8 @@
 # SkinnedMeshSystem: skinning data flow, transforms, gizmos, and routing
 
-This document describes the **current end-to-end runtime pipeline** for glTF skinning in cat-engine.
+This document describes the ECS and glTF side of the current skinning pipeline. GPU deformation is
+compute-cached; its authoritative data, scheduling, synchronization, and lifetime contract is
+`docs/spec/mesh-deformation-pipeline.md`.
 
 It supersedes the older shader-focused notes and aims to be the single place that explains:
 - how glTF armatures/skins are imported and adapted to the ECS
@@ -16,7 +18,8 @@ For mesh/instance fundamentals (non-skinning), see `docs/spec/mesh.md`.
 - **Skin**: a glTF `skin` object containing `joints[]` and `inverseBindMatrices[]`.
 - **IBM**: inverse bind matrix (mesh->joint bind-space inverse) for a joint.
 - **SkinMat**: the per-joint matrix uploaded to the GPU, in **mesh-local** space.
-- **Bones palette**: a global SSBO containing concatenated `SkinMat[]` arrays for all skinned instances.
+- **Bones palette**: a global compute-input buffer containing concatenated `SkinMat[]` arrays for
+  all skinned instances.
 
 ## Key idea: skinning uses cached world matrices
 
@@ -94,8 +97,8 @@ Owns the renderer-facing skin state:
 - per-instance `(bones_base, bones_count)` range used by shaders
 
 ### Renderer
-- uploads the bones palette SSBO (typically per swapchain/XR slot)
-- binds the skinning descriptors and vertex buffers
+- uploads changed bone intervals and dispatches dirty deformation jobs once
+- binds the persistent deformation cache for every graphics view
 
 ## Signals and intent shapes (and why routing matters)
 
@@ -184,4 +187,5 @@ Common env vars:
   - `src/engine/graphics/skin.rs`
   - `src/engine/graphics/mesh.rs`
 - Shaders:
-  - `assets/shaders/skinned-toon-mesh.vert`
+  - `assets/shaders/mesh-deformation.comp`
+  - `assets/shaders/cached-skinned-toon-mesh.vert`
