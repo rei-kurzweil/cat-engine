@@ -4,6 +4,7 @@ Status: open, reproducible validation panic.
 
 Related:
 
+- [Renderer futures and frame timing](../draft/renderer-futures-and-timing.md)
 - [Compute-cached deformation XR performance regression](compute-cached-deformation-xr-performance-regression.md)
 - [Mirror viewer-family captures](mirror-viewer-family-captures.md)
 - [Opt-in System, MMS, Vulkano, and XR profiling](opt-in-system-mms-vulkano-xr-profiling.md)
