@@ -1,15 +1,15 @@
 use crate::engine::ecs::component::{
     AvatarControlComponent, BoneRestPoseComponent, ColorComponent, ComponentRef, ControllerHand,
     ControllerXRComponent, EmissiveComponent, GLTFComponent, InputComponent, InputXRComponent,
-    OpacityComponent, PointerComponent, RayCastComponent, RenderableComponent, SerializeComponent,
-    TransformComponent,
+    OpacityComponent, PointerComponent, RayCastComponent, RenderableComponent, SelectableComponent,
+    SerializeComponent, TransformComponent,
 };
 use crate::engine::ecs::system::XrInputState;
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 use crate::engine::graphics::primitives::Transform;
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
-    mat4_identity, mat4_mul, shortest_arc_quat, vec3_add, vec3_len, vec3_normalize, vec3_sub,
+    mat4_identity, mat4_mul, shortest_arc_quat, vec3_len, vec3_normalize, vec3_sub,
 };
 use std::collections::HashMap;
 use winit::event::MouseButton;
@@ -96,12 +96,13 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
     let laser =
         world.add_component_boxed_named("xr_pointer_laser", Box::new(TransformComponent::new()));
     let serialize = world.add_component(SerializeComponent::off());
+    let selectable = world.add_component(SelectableComponent::off());
     let mesh_transform = world.add_component_boxed_named(
         "xr_pointer_laser_mesh",
         Box::new(
             TransformComponent::new()
                 .with_position(0.0, 0.0, -5.0)
-                .with_scale(0.002, 0.002, 5.0),
+                .with_scale(0.002, 0.002, 10.0),
         ),
     );
     let renderable = world.add_component(RenderableComponent::cube());
@@ -109,6 +110,7 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
     let opacity = world.add_component(OpacityComponent::new().with_opacity(0.55));
     let emissive = world.add_component(EmissiveComponent::on());
     let _ = world.add_child(laser, serialize);
+    let _ = world.add_child(laser, selectable);
     let _ = world.add_child(laser, mesh_transform);
     let _ = world.add_child(mesh_transform, renderable);
     let _ = world.add_child(renderable, color);
@@ -221,18 +223,21 @@ fn avatar_finger_mount(
         return Err("finger's final rest-space segment has zero length".into());
     }
     let direction = vec3_normalize(final_segment);
-    let origin = vec3_add(tip_position, final_segment);
+    // The configured tip joint is the emission anchor. Extending by another
+    // complete joint segment places the ray visibly beyond the fingertip.
     let rotation = shortest_arc_quat([0.0, 0.0, -1.0], direction);
     let mount = world.add_component_boxed_named(
         "xr_avatar_finger_laser_mount",
         Box::new(
             TransformComponent::new()
-                .with_position(origin[0], origin[1], origin[2])
+                .with_position(tip_position[0], tip_position[1], tip_position[2])
                 .with_rotation_quat(rotation),
         ),
     );
     let serialize = world.add_component(SerializeComponent::off());
+    let selectable = world.add_component(SelectableComponent::off());
     let _ = world.add_child(mount, serialize);
+    let _ = world.add_child(mount, selectable);
     world
         .add_child(target, mount)
         .map_err(|_| "could not mount laser beneath the AVC hand target")?;
@@ -596,6 +601,11 @@ mod tests {
                 .get_component_by_id_as::<SerializeComponent>(*c)
                 .is_some_and(|s| !s.enabled)
         }));
+        assert!(world.children_of(laser).iter().any(|c| {
+            world
+                .get_component_by_id_as::<SelectableComponent>(*c)
+                .is_some_and(|s| !s.enabled)
+        }));
         assert!(!world.children_of(laser).iter().any(|c| {
             world
                 .get_component_by_id_as::<crate::engine::ecs::component::RaycastableComponent>(*c)
@@ -611,7 +621,11 @@ mod tests {
             .get_component_by_id_as::<TransformComponent>(mesh_transform)
             .unwrap();
         assert_eq!(mesh.transform.translation, [0.0, 0.0, -5.0]);
-        assert_eq!(mesh.transform.scale, [0.002, 0.002, 5.0]);
+        assert_eq!(mesh.transform.scale, [0.002, 0.002, 10.0]);
+        let near_face_z = mesh.transform.translation[2] + 0.5 * mesh.transform.scale[2];
+        let far_face_z = mesh.transform.translation[2] - 0.5 * mesh.transform.scale[2];
+        assert_eq!(near_face_z, 0.0);
+        assert_eq!(far_face_z, -10.0);
         let renderable = world
             .children_of(mesh_transform)
             .iter()
@@ -622,6 +636,12 @@ mod tests {
                     .is_some()
             })
             .unwrap();
+        assert!(
+            crate::engine::ecs::system::editor_scene_hit::resolve_world_scene_hit(
+                &world, renderable
+            )
+            .is_none()
+        );
         assert!(world.children_of(renderable).iter().any(|c| {
             world
                 .get_component_by_id_as::<EmissiveComponent>(*c)
@@ -726,7 +746,17 @@ mod tests {
         let mount_transform = world
             .get_component_by_id_as::<TransformComponent>(mount)
             .unwrap();
-        assert!((mount_transform.transform.translation[0] - 0.4).abs() < 1e-5);
+        assert!((mount_transform.transform.translation[0] - 0.3).abs() < 1e-5);
+        assert!(world.children_of(mount).iter().any(|c| {
+            world
+                .get_component_by_id_as::<SelectableComponent>(*c)
+                .is_some_and(|s| !s.enabled)
+        }));
+        assert!(
+            crate::engine::ecs::system::editor_scene_hit::has_selectable_off_ancestor(
+                &world, pointer
+            )
+        );
         assert_eq!(
             world
                 .get_component_by_id_as::<TransformComponent>(correction)
@@ -748,6 +778,28 @@ mod tests {
                 .transform
                 .translation,
             [0.0; 3]
+        );
+        let mesh_transform = world
+            .children_of(laser)
+            .iter()
+            .copied()
+            .find(|id| world.component_label(*id) == Some("xr_pointer_laser_mesh"))
+            .expect("laser mesh transform");
+        let renderable = world
+            .children_of(mesh_transform)
+            .iter()
+            .copied()
+            .find(|id| {
+                world
+                    .get_component_by_id_as::<RenderableComponent>(*id)
+                    .is_some()
+            })
+            .expect("laser renderable");
+        assert!(
+            crate::engine::ecs::system::editor_scene_hit::resolve_world_scene_hit(
+                &world, renderable
+            )
+            .is_none()
         );
     }
 

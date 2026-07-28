@@ -2,7 +2,7 @@
 
 Date: 2026-07-28
 
-Status: open / confirmed in VR
+Status: code fixed / automated coverage passing / VR verification pending
 
 Primary reproduction: `examples/bisket-vr-demo.mms`
 
@@ -95,12 +95,17 @@ The cube mesh is centered, so the mesh transform is:
 
 ```text
 translation = [0, 0, -5]
-scale       = [0.002, 0.002, 5]
+scale       = [0.002, 0.002, 10]
 ```
 
-This correctly makes the near face start at laser-local `z = 0` and extends the
-beam ten units along local `-Z`. The reported gap is therefore upstream in the
-avatar-finger mount, not in the centered beam mesh offset.
+Because the cube primitive spans `-0.5..+0.5`, the corrected transform makes
+the near face start at laser-local `z = 0` and extends the beam ten units along
+local `-Z`.
+
+The former `z scale = 5` assumption was incorrect: it produced a five-unit beam
+from `z = -2.5` to `z = -7.5`, leaving a 2.5-unit gap at the pointer origin.
+That explained why the laser still appeared both short/stubby and too far away
+after the avatar mount itself was moved back to the selected tip joint.
 
 Relevant code:
 
@@ -175,11 +180,11 @@ anchor.
 
 ### P0: prevent runtime presentation selection
 
-- [ ] `XR-LASER-01` Add an explicit selection-exclusion marker at the highest
+- [x] `XR-LASER-01` Add an explicit selection-exclusion marker at the highest
   laser presentation root that covers all descendants.
 - [ ] `XR-LASER-02` Verify the marker survives runtime creation, reparenting,
   shared-editor selection routing, and world-panel projection.
-- [ ] `XR-LASER-03` Add a selection regression test which attempts to resolve a
+- [x] `XR-LASER-03` Add a selection regression test which attempts to resolve a
   laser renderable and asserts that it cannot become the semantic editor target.
 - [ ] `XR-LASER-04` Verify clicking through the laser still reaches intended
   scene content.
@@ -193,25 +198,53 @@ disruptive moving gizmo and can interfere with subsequent editing.
 
 - [ ] `XR-LASER-10` Capture left/right mount, `Middle2`, `Middle3`, visible
   fingertip, beam near face, and ray origin in world space.
-- [ ] `XR-LASER-11` Decide the default anchor:
+- [x] `XR-LASER-11` Decide the default anchor:
   - exactly `Middle3`
   - a fractional extension beyond `Middle3`
   - an explicit fourth fingertip/end selector
   - geometry-derived distal endpoint
-- [ ] `XR-LASER-12` Replace the unconditional full-segment extrapolation with
+- [x] `XR-LASER-12` Replace the unconditional full-segment extrapolation with
   the chosen policy.
-- [ ] `XR-LASER-13` Keep pointer ray origin and visible beam near face identical.
-- [ ] `XR-LASER-14` Update the existing unit test so it asserts the chosen
+- [x] `XR-LASER-13` Keep pointer ray origin and visible beam near face identical.
+- [x] `XR-LASER-14` Update the existing unit test so it asserts the chosen
   anchor rather than hard-coding `tip + final_segment`.
 - [ ] `XR-LASER-15` Verify fallback controller-space lasers remain rooted at
   their controller/pointer-driving transform.
 
 Recommended first experiment:
 
-- use `tip_position` directly for the avatar-finger mount
+- [x] use `tip_position` directly for the avatar-finger mount
 - compare both hands in `bisket-vr-demo`
 - only introduce a fractional/configurable extension if the beam visibly begins
   inside the fingertip mesh
+
+## Implemented fix
+
+`pointer_system` now places `Selectable.off` on:
+
+- every `xr_pointer_laser` root, covering the beam mesh/renderable in both
+  controller-space and avatar-finger modes
+- every `xr_avatar_finger_laser_mount`, covering the reparented pointer and its
+  raycaster as well as the beam
+
+The avatar-finger mount now uses the selected third joint position directly.
+The final `middle -> tip` segment is still used to orient local `-Z`, but is no
+longer added to the origin.
+
+The centered unit-cube beam now uses a Z scale of `10` at local Z `-5`, placing
+its near and far faces at `0` and `-10` respectively. Previously its Z scale was
+`5`, which placed those faces at `-2.5` and `-7.5`.
+
+Automated coverage verifies:
+
+- the real world-scene hit resolver rejects both controller-space and
+  avatar-finger beam renderables
+- the avatar-finger pointer is below a selection-exclusion marker
+- left and right mounts are at the selected tip position (`0.3` in the fixture),
+  not the former extrapolated position (`0.4`)
+- the beam root remains at zero relative to the shared pointer mount, keeping
+  the visible near face and ray origin coincident by construction
+- the unit-cube beam bounds are exactly `z = 0..-10`
 
 ## Diagnostic trace
 
