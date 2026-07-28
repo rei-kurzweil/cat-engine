@@ -301,6 +301,169 @@ Recommended Line MVP:
 - place one asset per unique grid cell
 - use the initial valid surface frame for orientation/contact
 
+## Prioritized dependency plan
+
+Priority is based on dependency and verification value, not only severity. A
+later wave should not start until its listed gate is satisfied, except for the
+explicit parallel lanes.
+
+```text
+baseline + policy
+        |
+        v
+shared grid/snap contract ------------------+
+        |                                   |
+        v                                   v
+visual grid agreement                 paint lifecycle stability
+        |                                   |
+        v                                   v
+gizmo anchor + axis behavior          selected-grid paint snap
+        |                                   |
+        +----------------+------------------+
+                         v
+                  end-to-end demo gate
+                         |
+                         v
+                    Line tool MVP
+```
+
+### Wave 0: preserve a baseline and stop presenting known no-ops
+
+These tasks have no implementation prerequisites.
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 0.1 | Run and record `M-01` through `M-17` as `TEST-00` | none | Every row has a baseline result and reproduction notes |
+| 0.2 | `UX-04`: visibly disable Line while it is a no-op | none | Line cannot be mistaken for a working tool |
+| 0.3 | Prepare regression tests for `A-01` through `A-04`, `A-08`, `A-10`, and `A-12` | `TEST-00` for expected behavior | Each reported issue has a test to land with its fix or an explicitly documented test gap |
+
+Do not “fix” the existing Line no-op test in this wave. Keep it as an accurate
+description of current runtime behavior until the Line implementation wave.
+
+### Wave 1: lock policy decisions
+
+These are short design decisions that unblock the shared API and prevent each
+tool from inventing different snapping semantics.
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 1.1 | `GRID-01`: choose the default gizmo snap anchor | baseline | Bounds anchor is accepted or replaced by a recorded alternative |
+| 1.2 | `GRID-03`: define selected, enabled, and visible grid responsibilities | baseline | One state table covers gizmo, paint, rendering, and raycasting |
+| 1.3 | `GRID-04`: define active-grid quantization plus scene-surface contact | `GRID-03` | Flat, rotated-planar, and non-planar behavior is specified |
+| 1.4 | `PAINT-00`: define stroke continuity across renderables and surfaces | baseline | Same surface, coplanar neighbor, preview hit, and invalid target have explicit outcomes |
+| 1.5 | `GRID-02`: decide whether incremental snapping is in the MVP | `GRID-01` | Recorded as MVP or explicitly deferred |
+
+`GRID-02` must not block bounds-anchor snapping if incremental snapping is
+deferred.
+
+### Wave 2: introduce the shared snapping foundation and observability
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 2.1 | `GRID-05`: expose active grid id, frame, spacing, snap mode/anchor, and last cell in debug output | `GRID-01`, `GRID-03` | Manual failures can be reported in grid-local coordinates |
+| 2.2 | `GRID-06`: introduce a shared snap request/result carrying grid frame, operation constraint, and anchor | `GRID-01`, `GRID-03`, `GRID-04` | Gizmo and paint can call the same policy layer without sharing interaction code |
+| 2.3 | Add pure math coverage `A-01` through `A-07` | `GRID-06` | Anchor, axis preservation, transform, and spacing cases pass |
+
+`GRID-06` should keep surface contact outside the low-level quantizer. The
+quantizer owns grid coordinates; paint placement owns scene contact and normals.
+
+### Wave 3A: make visible grid lines authoritative
+
+This lane can run in parallel with Wave 3B after Wave 2.
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 3A.1 | `GRID-10`: use grid-local shader coordinates | `GRID-06` frame convention | The grid origin and rotation affect the line pattern |
+| 3A.2 | `GRID-11`: pass `GridComponent.spacing` to the grid material | `GRID-06` spacing convention | Visual minor lines and snap steps share spacing |
+| 3A.3 | `GRID-12`, `GRID-13`: verify translated and rotated grid rendering | `GRID-10`, `GRID-11` | Debug snap markers land on rendered lines |
+| 3A.4 | `GRID-14`, `A-17`: retain visual regression coverage | `GRID-12`, `GRID-13` | Origin, translation, rotation, and non-unit spacing cases pass |
+
+### Wave 3B: stabilize Free Draw before adding grid snapping
+
+This lane deliberately fixes input lifecycle and continuity before changing
+placement coordinates. Otherwise a snap change can mask or complicate the
+intermittent-drag failures.
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 3B.1 | `PAINT-05` + `UX-05`: make focus and inactive reasons deterministic and visible | `GRID-03` state policy | The UI always explains why a gesture will not paint |
+| 3B.2 | `PAINT-01`: make click place once | baseline click characterization | `A-08` passes without producing a duplicate drag placement |
+| 3B.3 | `PAINT-03`: keep previews out of stroke raycasts | `PAINT-00` | `A-11` passes |
+| 3B.4 | `PAINT-02`: replace exact renderable identity with the continuity policy | `PAINT-00`, `PAINT-03` | `A-10` passes across adjacent voxel cubes |
+| 3B.5 | `PAINT-07`, `PAINT-08`: lock preview/commit equality and voxel regression coverage | `PAINT-01` through `PAINT-03` | `A-09` through `A-11` pass |
+| 3B.6 | `PAINT-06`: normalize desktop/XR gesture lifecycle | stable desktop lifecycle | Lifecycle parity is demonstrated before coordinate snapping is added |
+
+### Wave 4A: fix gizmo snapping
+
+This begins after the shared math exists. It may overlap late Free Draw work, but
+its manual verification waits for the visual-grid gate in Wave 3A.
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 4A.1 | `GIZMO-01` + `GIZMO-02`: apply the chosen anchor and preserve unmanipulated coordinates | Wave 2 | `A-01` through `A-04` pass through the gizmo path |
+| 4A.2 | `GIZMO-03`: define grid-normal translation | `GIZMO-02` | `M-04` passes |
+| 4A.3 | `GIZMO-06`: remove the first-move phase jump | `GIZMO-01`, `GIZMO-02` | `M-02`, `M-03`, and `M-05` pass |
+| 4A.4 | `GIZMO-04`, `GIZMO-05`: cover coordinate spaces and parent transforms | Wave 3A, prior gizmo tasks | Rotated-grid and parented-target cases pass |
+
+### Wave 4B: connect stable Free Draw to the selected grid
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 4B.1 | `PAINT-04`: quantize from the selected active grid while retaining scene contact | `GRID-03`, `GRID-04`, `GRID-06`, Wave 3B | `A-12` through `A-14` pass |
+| 4B.2 | Verify preview/commit after snapping | `PAINT-04`, `PAINT-07` | `M-13` and `M-14` pass |
+| 4B.3 | `UX-01`, `UX-02`, `UX-03`: expose grid, snap anchor/mode, and state distinctions | stable grid and paint contracts | UI state agrees with runtime state in every matrix row |
+
+### Wave 5: end-to-end gate before Line
+
+Run the complete automated matrix except Line rows, then run:
+
+- `M-01` through `M-16`
+- `M-18` desktop/XR parity
+- translated, rotated, hidden, disabled, and deselected grid variants
+
+Do not start Line until:
+
+- visible lines agree with snap coordinates
+- gizmo cell alignment is stable
+- Free Draw click, drag, continuity, snap, and commit behavior pass
+
+This keeps Line as a consumer of proven primitives instead of a third custom
+implementation.
+
+### Wave 6: implement Line using the shared primitives
+
+| Order | Tasks | Depends on | Exit gate |
+|---|---|---|---|
+| 6.1 | `LINE-01`, `LINE-02`, `LINE-05`: endpoint state, preview, cancel/invalid handling | Wave 5 | A line can preview and cancel without placement |
+| 6.2 | `LINE-03`: snap endpoints through the shared selected-grid policy | `LINE-01`, `PAINT-04` | Endpoint cells match Free Draw coordinates |
+| 6.3 | `LINE-04`: generate unique ordered cells | `LINE-03` | Pure line-cell tests cover horizontal, vertical, diagonal, reverse, and zero-length cases |
+| 6.4 | `LINE-06`: commit samples as one editor operation | `LINE-02`, `LINE-04`, `LINE-05` | Commit count/order is deterministic and undo is atomic |
+| 6.5 | `LINE-07`: replace the no-op test and enable the UI | all Line tasks | `A-15`, `A-16`, and `M-17` pass |
+
+### Critical path
+
+The shortest dependency chain to resolve the reported terrain-cube problem is:
+
+```text
+TEST-00
+  -> GRID-01
+  -> GRID-06
+  -> GIZMO-01 + GIZMO-02
+  -> GIZMO-06
+  -> M-02 + M-03 + M-05
+```
+
+The shortest dependency chain to make grid-snapped Free Draw reliable is:
+
+```text
+TEST-00
+  -> GRID-03 + GRID-04 + PAINT-00
+  -> GRID-06
+  -> PAINT-01 + PAINT-03 + PAINT-02
+  -> PAINT-04
+  -> M-10 through M-14
+```
+
 ## Implementation tracker
 
 ### P0: establish and test the coordinate contract
@@ -311,6 +474,11 @@ Recommended Line MVP:
 - [ ] `GRID-04` Define paint contact behavior away from the grid plane.
 - [ ] `GRID-05` Add a small debug readout for active grid id, spacing, frame,
   snap mode, snap anchor, and last snapped cell.
+- [ ] `GRID-06` Introduce a shared snap request/result carrying grid frame,
+  operation constraint, and anchor semantics.
+- [ ] `PAINT-00` Define continuity across same, adjacent, preview, and invalid
+  renderable hits.
+- [ ] `TEST-00` Record the initial manual-demo baseline.
 
 ### P0: fix visual/snap agreement
 
@@ -424,17 +592,6 @@ coordinates when a row fails.
 | M-16 | Free Draw no asset | Clear asset selection and paint | No placement; clear “no asset selected” feedback | Verify |
 | M-17 | Line | Select Line and drag A to B | Preview then one asset per unique grid cell | Known fail: tool is unimplemented |
 | M-18 | parity | Repeat M-02, M-10–M-14 in XR | Same coordinate and lifecycle results | Verify |
-
-## Suggested execution order
-
-1. Lock the snap-anchor and paint-contact decisions (`GRID-01` through
-   `GRID-04`).
-2. Fix visual/snap frame agreement (`GRID-10` through `GRID-14`).
-3. Fix gizmo anchor and axis preservation (`GIZMO-01` through `GIZMO-03`).
-4. Fix Free Draw lifecycle and continuity (`PAINT-01` through `PAINT-08`).
-5. Run the manual matrix before implementing Line.
-6. Implement Line on the now-shared grid/paint primitives.
-7. Run the full desktop/XR matrix and retain failing rows as regression tests.
 
 ## Definition of done
 
