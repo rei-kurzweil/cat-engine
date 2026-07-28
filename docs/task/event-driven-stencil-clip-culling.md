@@ -1,6 +1,6 @@
 # Event-driven CPU culling for flat stencil clips
 
-Status: deferred; GPU-cached deformation is the current renderer priority.
+Status: deferred; compute-deformation and XR validation are the current renderer priority.
 
 Epic: [Renderer optimisation](epic/renderer_optimisation.md)
 

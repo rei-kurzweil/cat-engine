@@ -36,7 +36,8 @@ Measured on 2026-07-27 with:
 - 4x MSAA
 - one mirror
 - corrected XR scheduling: two stereoscopic mirror captures and two headset-eye renders
-- five Vulkan submissions, four CPU fence waits, and one XR queue-idle wait per headset frame
+- historical pre-pipelining submission behavior: five Vulkan submissions, four CPU fence waits,
+  and one XR queue-idle wait per headset frame
 
 SteamVR selected different effective presentation intervals between runs, so delivered FPS and
 frame-submit time include compositor pacing. The scoped application CPU timings and renderer
@@ -152,8 +153,9 @@ redesign for the first fix.
 - The post-pose command flush remains below `2 ms` on the reference workload.
 - Deformation dispatches, jobs, workgroups, dirty vertices, and upload bytes remain equal between
   visualization-off and visualization-on runs.
-- XR still records two mirror captures, two eye renders, five Vulkan submissions, four CPU fence
-  waits, and one queue-idle wait per headset frame.
+- XR still records two mirror captures and two eye renders. Under the Phase 4 submission pipeline,
+  steady-state rendering performs no intermediate mirror/eye CPU waits, one final raw-copy fence
+  wait before OpenXR image release, and zero queue-idle waits.
 - Relevant visualization, transform, signal, BVH, and removal/reconciliation tests pass.
 - A before/after pair of release XR reports is linked here after implementation.
 

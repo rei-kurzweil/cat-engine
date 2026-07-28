@@ -1,6 +1,7 @@
 # Compute-cached deformation XR performance regression
 
-Status: open regression.
+Status: mitigation implemented in source; headset validation, residual allocation work, and
+before/after performance evidence remain open.
 
 Related:
 
@@ -23,17 +24,40 @@ Mittens scene flickers out and the SteamVR environment / aurora becomes visible 
 frames.
 
 Before the cutover, these VR-only examples, including mirror use, were approximately in the
-30–60 FPS range on the test system. The current result is materially lower.
+30–60 FPS range on the test system. The last recorded post-cutover result was materially lower;
+the Phase 4 submission pipeline has not yet been remeasured on the headset.
 
 Treat SteamVR-environment flicker as a missed-XR-deadline failure, not as an acceptable gradual
 performance reduction.
 
-## Current diagnosis
+## Current implementation status
 
-The leading cause is renderer submission serialization rather than the arithmetic cost of the
-compute shader itself.
+The original diagnosis below led to two source changes:
 
-`render_xr_eye_offscreen` currently:
+- commit `069c4a6` moved mirror scheduling out of the per-eye entry point, so a logical
+  stereoscopic mirror is captured twice per XR frame rather than being requested again for the
+  second headset eye;
+- commit `c036271` implemented
+  [OpenXR render submission pipelining](openxr-render-submission-pipelining.md) through Phase 4.
+  Mirrors and both eyes now extend one GPU ordering chain without intermediate CPU waits. The raw
+  XR copy signals one fence, and the CPU waits once before releasing the OpenXR swapchain image.
+
+This removes the known repeated-mirror and per-consumer-wait structure in source. It does not
+close the regression: the new pipeline still needs validation-layer headset runs and before/after
+reports, while persistent dirty-frame staging, descriptor reuse, and moving immutable validation
+out of the frame loop remain unfinished.
+
+Profiling also separated a different bottleneck:
+[spring-bone visualization command flushing](spring-bone-visualization-command-flush-performance.md)
+adds about `66 ms` on the measured visualization-on workload without changing deformation jobs or
+upload bytes. That issue is tracked independently.
+
+## Original diagnosis
+
+The leading diagnosis was renderer submission serialization rather than the arithmetic cost of
+the compute shader itself.
+
+Before commits `069c4a6` and `c036271`, `render_xr_eye_offscreen`:
 
 1. calls `render_mirror_captures`
 2. submits the eye command buffer through the renderer-wide future chain
@@ -55,10 +79,11 @@ prior window/shared-cache work
 ```
 
 The renderer-wide ordering chain is required to protect the shared deformation cache, but that
-does not require draining the queue on the CPU between every consumer. The current implementation
-turns cache lifetime safety into globally synchronous rendering.
+does not require draining the queue on the CPU between every consumer. The old implementation
+turned cache lifetime safety into globally synchronous rendering.
 
-Continuously changing bones expose additional per-frame costs in `record_dirty_deformations`:
+Continuously changing bones still expose additional per-frame costs in
+`record_dirty_deformations`:
 
 - allocate a host staging buffer for each dirty bone interval
 - allocate and upload device-local job and workgroup buffers
@@ -203,6 +228,9 @@ rendered multiple times for the same deformation generation and viewer family.
 
 ### 1. Remove per-consumer CPU queue drains
 
+Source status: implemented through OpenXR submission-pipelining Phase 4; headset verification
+pending.
+
 - Do not call `wait(None)` between mirror captures or between XR eyes.
 - Preserve cache hazards through GPU-side ordering in the renderer-wide submission chain.
 - Batch compatible command buffers into one submission where practical.
@@ -210,6 +238,9 @@ rendered multiple times for the same deformation generation and viewer family.
 - Do not restore unsafe independent `sync::now` submissions as a performance workaround.
 
 ### 2. Schedule deformation and mirrors once
+
+Source status: mirror scheduling is once per XR viewer family, and both eyes consume one ordered
+deformation generation; parity and performance verification pending.
 
 - Record dirty deformation once before the first consumer of the generation.
 - Reuse that output for mirrors, both XR eyes, extraction, and the window.
@@ -219,6 +250,8 @@ rendered multiple times for the same deformation generation and viewer family.
 
 ### 3. Make dirty-frame data persistent
 
+Status: open.
+
 - Use bounded, reusable frame-slot staging for bones, jobs, workgroups, and active morph weights.
 - Keep persistent dummy/empty morph resources for Phase 1 rather than allocating them per dispatch.
 - Reuse descriptor sets until one of their backing buffers is replaced.
@@ -226,6 +259,8 @@ rendered multiple times for the same deformation generation and viewer family.
   completed.
 
 ### 4. Move immutable validation out of the frame loop
+
+Status: open.
 
 - Validate joint indices and immutable mesh skin data during mesh upload.
 - Validate instance palette bounds when the mesh-to-rig binding changes.

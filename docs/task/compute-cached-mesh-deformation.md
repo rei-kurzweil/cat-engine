@@ -1,18 +1,20 @@
 # Compute-cached mesh deformation
 
-Status: next.
+Status: implemented in source; validation and performance acceptance remain open.
 
 Epic: [GPU-cached deformation and morph targets](epic/gpu-cached-deformation-and-morph-targets.md)
 
 ## Problem
 
-Skinned vertices are currently evaluated in graphics vertex shaders. The same bones and base mesh
-are therefore processed again for each graphics pass and view, including ordinary desktop,
-mirrors, emissive/bloom extraction, and both XR eyes.
+Before commit `ef592dc`, skinned vertices were evaluated in graphics vertex shaders. The same
+bones and base mesh were therefore processed again for each graphics pass and view, including
+ordinary desktop, mirrors, emissive/bloom extraction, and both XR eyes.
 
 Skin matrices are already maintained as a shared palette with stable per-instance ranges, and
 `SkinnedMeshSystem` updates bindings when joints, mesh transforms, mesh resources, or allocations
-change. The missing piece is a persistent deformed-vertex cache driven by those changes.
+change. The source now contains a persistent deformed-vertex cache driven by those changes. This
+task remains open because its full synchronization, consumer-parity, hardware, and before/after
+performance gates have not yet been completed.
 
 ## Goal
 
@@ -184,6 +186,36 @@ Completed on 2026-07-26:
 - Added clear failures for mismatched vertex-attribute counts and out-of-range joints.
 - `cargo test deformation_reference --lib`: 6 passed.
 
-The reference remains independent of the future compute implementation so GPU readback tests can
-use it as an oracle. The next slice is to settle the GPU input/output layouts and frames-in-flight
-ownership, then implement and test stable deformation-range allocation.
+The reference remains independent of the compute implementation so GPU readback tests can use it
+as an oracle.
+
+### Slice 2: compute-cache source cutover
+
+Implemented in commit `ef592dc` on 2026-07-26:
+
+- Added `mesh-deformation.comp` and a cached-deformation graphics vertex shader.
+- Added explicit CPU/GPU layouts for base vertices, skin attributes, jobs, workgroups, active
+  morph records, and packed 16-byte deformed vertices.
+- Added a stable, coalescing deformation-range allocator and stored `deformed_base` per visual
+  instance.
+- Added dirty-generation tracking, changed-palette uploads, compute dispatch construction, and
+  deformation counters.
+- Added renderer capability checks for compute workgroup and storage-buffer limits.
+- Replaced graphics-stage skinning with reads from the persistent deformation output; the old
+  graphics-stage skinning shader was removed.
+- Added CPU coverage for morph-before-skin ordering, range allocation/reuse, octahedral normal
+  packing, and dirty-state behavior.
+
+Focused validation on 2026-07-28:
+
+- `cargo test deformation --lib`: 17 passed.
+
+This is a source implementation milestone, not completion of the task. The remaining gate is:
+
+- add GPU readback/parity coverage against the CPU reference;
+- prove unchanged frames issue zero deformation uploads and dispatches;
+- validate one-generation reuse across window, mirror, extraction, and both XR eyes;
+- cover backing-buffer growth, range retirement, descriptor refresh, and frames-in-flight hazards;
+- remove or reuse per-dirty-frame job, workgroup, placeholder morph, and descriptor allocations;
+- record before/after GPU timings and visual results on the required GTX 1050 Ti Mobile and
+  GTX 1080 targets.

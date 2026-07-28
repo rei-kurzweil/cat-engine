@@ -1,6 +1,7 @@
 # Vulkano frame-future resource-use regression
 
-Status: open, reproducible validation panic.
+Status: partial mitigation in source; reproducer revalidation and per-image ownership fix remain
+open.
 
 Related:
 
@@ -40,8 +41,8 @@ an image attachment, not a deformation, bone, vertex, or storage buffer.
 The strongest current hypothesis is stale or incomplete future tracking around swapchain-image
 reuse, not skinning or intent dispatch.
 
-The dedicated reproducer's minimal case A fails on current `HEAD` (`a7ebf30`) with one built-in
-cube, bloom off, mirrors off, and MSAA off:
+The dedicated reproducer's minimal case A failed on `a7ebf30` with one built-in cube, bloom off,
+mirrors off, and MSAA off:
 
 ```text
 access to a resource has been denied
@@ -54,7 +55,7 @@ attachment role also shows that the problem is not limited to the previously rep
 target: the per-swapchain-image depth target can be retained or reused incorrectly by the same
 window submission path.
 
-`VulkanoRenderer::render_visual_world` currently:
+At the regression boundary, `VulkanoRenderer::render_visual_world`:
 
 1. calls `cleanup_finished()` only on entries in `images_in_flight`;
 2. acquires a swapchain image;
@@ -66,6 +67,11 @@ However, successful window submissions are no longer stored in `images_in_flight
 remain `None`, so the frame-start cleanup loop has nothing to clean. The code comment still says
 that `images_in_flight` prevents reuse of an image that is in flight, but the implementation no
 longer establishes that invariant.
+
+Commit `da1d02c` added non-blocking `cleanup_finished()` calls for the renderer-wide
+`submission_future` at the beginning of each window render cycle. This addresses stale global
+future nodes, but it does not restore the missing per-image completion ownership described above.
+The reproducer matrix must be rerun before claiming that the validation panic is fixed.
 
 The renderer-wide future is shared by window, mirror, XR-eye, and deformation-cache work. It is
 needed to order consumers of shared GPU resources, but it must also be retired correctly and must

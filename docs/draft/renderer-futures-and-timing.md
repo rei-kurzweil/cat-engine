@@ -273,19 +273,21 @@ This path is recovery, not normal timing.
 
 ## XR and mirror timing
 
-Current XR-eye and mirror-capture paths extend `submission_future`, flush, and then wait on the
-CPU. That keeps their resource use linear but serializes CPU and GPU work.
+Commit `c036271` replaced the old per-mirror and per-eye CPU waits. Mirror captures and XR eyes
+now extend `submission_future` and flush without waiting; the raw XR copy signals one reusable
+fence, and the CPU waits once before releasing the acquired OpenXR swapchain image.
 
-The window regression fix should preserve that behavior initially while making it explicit in
-traces. A later timing pass should assign independent completion slots to:
+That change implements OpenXR submission-pipelining Phases 1–4, but its headset validation and
+performance gates remain open. Deeper pipelining should assign explicit completion slots to:
 
 - each XR swapchain image acquired from OpenXR;
 - each reusable XR offscreen eye target;
 - each mirror target generation or capture slot;
 - each runtime-texture publication target.
 
-Removing those CPU waits is safe only after each resource domain has an ownership rule equivalent
-to the window image rule.
+Removing the remaining final copy-fence wait, or allowing more resource generations in flight, is
+safe only after each resource domain has an ownership rule equivalent to the window image rule
+and the OpenXR handoff mechanism has been verified.
 
 ## Instrumentation
 

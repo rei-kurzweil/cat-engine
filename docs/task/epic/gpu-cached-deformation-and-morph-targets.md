@@ -1,6 +1,6 @@
 # GPU-cached deformation and morph targets
 
-Status: active epic.
+Status: active epic; Phase 1 is implemented in source but has not passed its validation gate.
 
 ## Purpose
 
@@ -16,7 +16,8 @@ draw organization.
 
 ### Phase 1: cache skinned deformation
 
-Implement [compute-cached mesh deformation](../compute-cached-mesh-deformation.md):
+The source cutover in commit `ef592dc` implements the core of
+[compute-cached mesh deformation](../compute-cached-mesh-deformation.md):
 
 1. Keep base vertices, joint attributes, and the persistent bones palette as compute inputs.
 2. Allocate stable per-renderable output ranges containing mesh-local positions and normals.
@@ -26,6 +27,11 @@ Implement [compute-cached mesh deformation](../compute-cached-mesh-deformation.m
 6. Remove graphics-stage skinning after visual and numerical parity is established.
 
 Static meshes retain their current graphics path.
+
+The source now uses the compute cache and no longer contains the graphics-stage skinning
+compatibility path. Phase 1 remains open until GPU readback/consumer parity, unchanged-frame
+behavior, buffer lifetime and frames-in-flight safety, required-hardware validation, and
+before/after GPU measurements are recorded.
 
 ### Phase 2: add morph targets and editor controls
 
@@ -98,6 +104,21 @@ Phase 2 is complete only when:
 - A real model's expression targets can be changed live from the editor panel.
 - The required GTX 1050 Ti Mobile and GTX 1080 validation is recorded.
 
+## Implementation status
+
+As of 2026-07-28:
+
+- the Phase 1 compute shader, packed cache format, stable range allocation, dirty jobs,
+  lightweight graphics consumer, capability checks, and counters are present in source;
+- the focused CPU deformation/range/dirty-state suite passes (`17` tests);
+- graphics-stage skinning has been removed;
+- XR mirror scheduling has been corrected and OpenXR submission pipelining is implemented through
+  Phase 4, but headset validation and before/after performance reports are pending;
+- per-dirty-frame staging/descriptor allocation and immutable validation scans still need to be
+  removed or shown insignificant;
+- Phase 2 glTF morph import, runtime weights, and editor controls have not started. Morph-capable
+  compute record layouts and CPU-reference coverage are scaffolding, not completion of Phase 2.
+
 ## Deferred follow-ups
 
 The following are deliberately outside the two phases:
@@ -112,4 +133,3 @@ The following are deliberately outside the two phases:
 
 A future serializable `MorphPoseComponent` may represent named `(target key, value)` collections
 with a pose-like `apply(gltf)` API. It is distinct from a raw morph target and is not part of v1.
-

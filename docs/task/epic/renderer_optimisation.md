@@ -1,6 +1,7 @@
 # Renderer optimisation
 
-Status: active tracker; GPU-cached deformation is the current implementation priority.
+Status: active tracker; current work is validating the compute-deformation cutover and XR
+submission pipeline, then removing the measured spring-visualization command-flush bottleneck.
 
 ## Purpose
 
@@ -102,19 +103,29 @@ Create focused follow-up tasks, with measurements, for:
 - omitting a clip's stencil operations from phases that have no visible content requiring that
   clip.
 
-### Current direction: cache mesh deformation on the GPU
+### Current direction: validate compute-cached deformation and XR submission
 
-Execute
+The source cutover implements the first three parts of
 [GPU-cached deformation and morph targets](gpu-cached-deformation-and-morph-targets.md):
 
 1. Move repeated graphics-stage skinning to an event-driven compute pass.
 2. Cache mesh-local position and normal once per dirty deformation generation.
 3. Reuse that output across desktop, mirror, extraction, and XR-eye consumers.
-4. Extend the same pass with glTF morph targets and selected-instance editor controls.
+4. Later, extend the same pass with glTF morph targets and selected-instance editor controls.
 
-This work supersedes CPU clip culling as the next optimization effort. Completed render-stream
-work and its measurements remain the foundation and historical record; clipping tasks remain
-planned but deferred.
+Items 1–3 are implemented in source, and graphics-stage skinning has been removed. The Phase 1
+gate remains open for GPU readback/consumer parity, unchanged-frame proof, buffer lifetime and
+frames-in-flight safety, required-hardware validation, and before/after GPU timings.
+
+The XR path discovered during this cutover has also advanced: duplicate per-eye mirror scheduling
+was removed, and
+[OpenXR submission pipelining](../openxr-render-submission-pipelining.md) is implemented through
+Phase 4. Validation-layer headset runs, session restart coverage, and before/after performance
+reports remain.
+
+This work continues to supersede CPU clip culling. Completed render-stream work and its
+measurements remain the foundation and historical record; clipping tasks remain planned but
+deferred.
 
 ### Broader renderer work
 
@@ -134,7 +145,8 @@ secondary-motion solver.
 | Effort | Status | Target | Evidence / outcome |
 | --- | --- | --- | --- |
 | [Render streams as the single source for clip-capable phases](../render-stream-single-source.md) | Complete | Remove duplicate phase caches and common-path per-view stream copies | Validation gate passed; revision comparison records a 50.0% unclipped cache-build reduction, 41.4% fewer allocation calls, and zero common-path stream-copy bytes |
-| [GPU-cached deformation and morph targets](gpu-cached-deformation-and-morph-targets.md) | Active; Phase 1 next | Evaluate dirty deformation once and reuse it across passes/views, then add morph targets and editor controls | Capture the graphics-stage skinning baseline before Phase 1 implementation |
+| [GPU-cached deformation and morph targets](gpu-cached-deformation-and-morph-targets.md) | Active; Phase 1 source implemented, validation open | Evaluate dirty deformation once and reuse it across passes/views, then add morph targets and editor controls | Compute cutover and graphics-stage skinning removal landed in `ef592dc`; focused deformation tests pass; GPU parity, lifetime, hardware, and before/after evidence remain |
+| [OpenXR render submission pipelining](../openxr-render-submission-pipelining.md) | Implemented through Phase 4; verification open | Remove intermediate mirror/eye waits while preserving OpenXR image ownership | Source now GPU-orders mirrors, both eyes, and raw copy with one final fence wait; headset validation and performance reports remain |
 | [Spring-bone visualization command-flush performance](../spring-bone-visualization-command-flush-performance.md) | Open; measured | Batch retained debug-marker transform updates without repeating generic world dependency work per marker | Corrected XR baseline: visualization calculation `0.082 ms`, post-pose command flush `66.345 ms`, visualization-on FPS `8.389` |
 | [Event-driven CPU culling for flat stencil clips](../event-driven-stencil-clip-culling.md) | Deferred; baseline not captured | Keep clip membership indexed and omit fully outside content without per-frame scans | Resume with the pre-culling `scrolling` workload baseline |
 | [Opt-in system, MMS, Vulkano, and XR profiling](../opt-in-system-mms-vulkano-xr-profiling.md) | Planned | Establish selectable CPU/GPU measurements for optimization work | Pending |
@@ -165,8 +177,8 @@ synchronization, render ordering, or public interfaces.
 
 - Count submissions and explicit waits per window frame, XR frame, eye, mirror capture, and upload
   burst.
-- Investigate eliminating avoidable XR `.wait(None)` synchronization while preserving swapchain
-  and runtime ownership requirements.
+- Validate the implemented one-wait XR submission pipeline and quantify its effect on missed
+  frames and tail frame time.
 - Keep frames in flight bounded and measure Vulkano future cleanup separately from GPU waits.
 
 ### Parallelism
