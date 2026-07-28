@@ -85,7 +85,8 @@ Priority is roughly "what's likely to be live-edited and need round-trip":
 - [x] `UVComponent` — `UV {}` chained with `.uv(u, v)` per vertex
 - [x] `ScrollingComponent` — `Scrolling.new(viewport, content)` (runtime drag/track state intentionally not serialized)
 - [x] `ClockComponent` — `Clock.bpm(x)`
-- [ ] `ActionComponent` — has multiple shapes (print, update_transform); complex
+- [x] `ActionComponent` — removed in `mittens-engine` 0.7. Deferred keyframe
+      blocks serialize as executable MMS rather than component payloads.
 - [x] `RouterComponent` — `Router.target("name").ignore(["a","b"])`
 - [x] `TransitionComponent` — `Transition.enabled().duration_beats().<easing>().capture_from_current().<replace_policy>()`
 - [x] `TextShadowComponent` — `TextShadow.rgba([…]).scale(x).offset([x,y,z])`

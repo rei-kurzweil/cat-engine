@@ -3,6 +3,10 @@
 Date: 2026-04-18
 Status: Draft (Revised v2)
 
+Action-authoring note: the `ActionComponent` example below is historical. In
+`mittens-engine` 0.7, timed audio is authored inside executable
+`Keyframe.at(...) { ... }` blocks.
+
 ## Overview
 
 To support PCM audio playback (SFX, voice lines, and BGM) alongside synthesized audio, we introduce an **Audio Decoding Thread**, an **AudioAssets** registry, and a unified **Audio Source** model.

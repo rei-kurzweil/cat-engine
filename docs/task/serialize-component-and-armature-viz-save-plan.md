@@ -4,6 +4,9 @@ Date: 2026-05-16
 
 Status note: the authored `TransformPipeline` / `TransformPipelineOutput` wrapper/output topology has now been removed. Any references below to those names are historical; current authored transform shaping uses `TransformForkTRS` with downstream content attached directly under the fork root.
 
+Action note: `ActionComponent` reference serialization described below is historical; the
+component was removed in 0.7.
+
 This task captures the current serialization direction after the recent merge work.
 
 Current status update: 2026-05-29

@@ -1,5 +1,12 @@
 # Actions and L1/L2 intent execution
 
+Status: historical design record, superseded by `mittens-engine` 0.7.
+
+`ActionComponent` and `ActionSystem` were removed. The current intent model is documented in the
+[MMS signal guide](../how_to/guide/signals.md); deferred animation uses executable keyframe blocks.
+The Action-specific proposals below describe the pre-0.7 architecture and must not be treated as
+implementation guidance.
+
 This doc explores how to restructure the current intent/action layer.
 
 ## Motivation

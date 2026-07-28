@@ -1,5 +1,10 @@
 # Keyframe Blocks Instead of Action Components
 
+Status: implemented in `mittens-engine` 0.7. `ActionComponent`, `ActionSystem`, and the
+`Action.*` MMS surface have been removed. Statements describing the “current” Action stack below
+are retained as the proposal's historical baseline. See
+[MMS Keyframe Block Example Migration Status](../task/mms-keyframe-block-example-migration-status.md).
+
 ## Summary
 
 Retire the `ActionComponent` animation model and replace it with **timed keyframe

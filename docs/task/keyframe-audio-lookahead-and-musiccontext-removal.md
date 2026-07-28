@@ -6,10 +6,10 @@
 but the current imperative `MusicNote...` path appears to have reintroduced
 timing jitter / latency.
 
-The strongest current hypothesis is:
+The original comparison was:
 
-- legacy audio auth (`ActionComponent` audio intents and `MusicNoteComponent`
-  children under a keyframe) participates in the animation system's audio
+- legacy audio auth (`ActionComponent` audio intents, before their 0.7 removal,
+  and `MusicNoteComponent` children under a keyframe) participates in the animation system's audio
   lookahead scheduling
 - imperative `Keyframe.at(...) { MusicNote.e(...) }` callbacks currently emit
   `AudioSchedulePlay` only when the keyframe becomes visually due
@@ -39,8 +39,8 @@ treating `MusicNote` as a component-shaped MMS expression.
   visual-due execution
 - [ ] confirm imperative keyframe-authored audio enters the pending queue early
   instead of only firing at visual due time
-- [ ] remove legacy keyframe child scheduling paths
-  - `ActionComponent` children under keyframes
+- [ ] remove remaining legacy keyframe child scheduling paths
+  - [x] `ActionComponent` children under keyframes — removed globally in 0.7
   - `MusicNoteComponent` children under keyframes
 - [ ] replace authored `MusicContext` direct-voice lookup with direct live
   audio-source handle methods
@@ -150,8 +150,8 @@ is that `MusicNote` is a built-in host namespace, not a component.
      whether the intent entered the pending queue or the ready queue.
    - Pay special attention to loop wrap boundaries.
 
-2. Compare the three audio paths side by side.
-   - `ActionComponent` with `AudioSchedulePlay`
+2. Compare the available audio paths, using old reports for the removed Action baseline.
+   - historical pre-0.7 `ActionComponent` with `AudioSchedulePlay`
    - `MusicNoteComponent` keyframe children
    - imperative `Keyframe { MusicNote... }` callback emits
 

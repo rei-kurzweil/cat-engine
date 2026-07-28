@@ -18,9 +18,9 @@ The current runtime already stores a parsed `BlockStatement` inside
 `CapturedBlock` for `Keyframe` callbacks. That means parsing is not the
 problem. The missing piece is effect classification.
 
-Today, the animation system can do lookahead scheduling for:
+Before the 0.7 Action removal, the animation system could do lookahead scheduling for:
 
-- legacy `ActionComponent` audio
+- legacy `ActionComponent` audio (removed)
 - legacy `MusicNoteComponent` keyframe children
 
 but not for imperative callback-authored audio inside:

@@ -10,6 +10,10 @@
 > The CSS-flavored system should be treated as a later generalization, not the first
 > required integration step.
 
+> **0.7 authoring update:** The `Action.update_transform` snapshot below is historical.
+> `Action.*` and `ActionComponent` were removed; keyframe blocks now capture live component
+> handles and call their methods. The general MMQ design remains relevant.
+
 ## Current implementation snapshot
 
 This doc is still the right place to centralize query semantics, but the full MMS query

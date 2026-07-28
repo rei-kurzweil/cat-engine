@@ -4,6 +4,10 @@ Design record for capturing authored or edited armature poses from imported glTF
 
 The phase-1 capture, apply, panel, and standalone-library save workflow is implemented. Animation assembly remains future work. Where older exploratory alternatives remain below, the “Finalized phase-1 contract” section is authoritative.
 
+The later animation-assembly alternatives that materialize `ActionComponent` children are
+superseded. Any future pose animation assembly must generate executable
+`Keyframe.at(...) { ... }` blocks or captured live-handle calls.
+
 ## Finalized phase-1 contract
 
 - `PoseCaptureComponent` has optional `label` and `asset_name` fields. `asset_name` accepts only ASCII letters, digits, `_`, and `-`.

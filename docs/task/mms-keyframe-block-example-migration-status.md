@@ -7,6 +7,9 @@ MMS constructors, and `Animation.resolve_targets(...)` no longer exist.
 Executable `Keyframe.at(...) { ... }` blocks are the sole deferred-animation
 model and capture live MMS component handles.
 
+This removal is the breaking authoring/API change recorded by the
+`mittens-engine` 0.7.0 version bump.
+
 The final Rust-authored examples now have live MMS scenes and thin launchers:
 
 - `animation-example`

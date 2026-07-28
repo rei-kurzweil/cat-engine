@@ -36,6 +36,10 @@ Older docs may refer to an “action” layer or `ActionMethod` as if it were th
 authored only with executable `Keyframe.at(...) { ... }` blocks that capture
 live component handles.
 
+This is a breaking API and authoring change in `mittens-engine` 0.7. Existing
+Rust code must call component methods or emit intents directly; existing MMS
+must replace `Action.*` children with method calls inside keyframe blocks.
+
 ### Every intent has one recipient
 
 An intent dispatch addresses exactly one `ComponentId`. Recipient fields use

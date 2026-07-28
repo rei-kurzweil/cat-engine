@@ -1,5 +1,5 @@
 
-# mittens 0.6.0
+# mittens-engine 0.7.0
 <img width="1920" height="745" alt="Screenshot_20260303_015535" src="https://github.com/user-attachments/assets/16d9656c-9df3-4a96-89bd-658d222e78d0" />
 
 A hypermedia / web development inspired game engine specially made for social vr, vtubing, visual novels, css UI / spatial layout, and 3D character animation.
@@ -7,7 +7,7 @@ A hypermedia / web development inspired game engine specially made for social vr
 
 ### Workspace crates
 
-- `mittens-engine` 0.6.0 at the workspace root: Vulkan/OpenXR rendering, ECS,
+- `mittens-engine` 0.7.0 at the workspace root: Vulkan/OpenXR rendering, ECS,
   engine component materialization, and the Mittens-specific scripting host.
 - [`meow-meow-script`](crates/meow-meow-script/README.md) 0.6.0:
   host-neutral syntax, parser, runtime/session evaluator, configurable
@@ -17,6 +17,11 @@ A hypermedia / web development inspired game engine specially made for social vr
 
 The dependency graph is acyclic: `mittens-engine` depends on both standalone
 crates; neither standalone crate depends on the engine.
+
+`mittens-engine` 0.7 removes the deprecated `ActionComponent`, `ActionSystem`,
+and `Action.*` MMS constructors. Deferred animation now uses executable
+`Keyframe.at(...) { ... }` blocks that capture live component handles. The
+standalone `meow-meow-script` and `mittens-query` crates remain at 0.6.0.
 
 For scripting, see the [MMS language overview](docs/meow_meow/README.md), the
 [`meow-meow-script` crate and its Mittens integration](crates/meow-meow-script/README.md),

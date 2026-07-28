@@ -1,5 +1,9 @@
 # ComponentId references in MMS source
 
+Status: partially superseded in `mittens-engine` 0.7. The `ActionComponent` storage, resolution,
+and `Action.*` examples below are historical because that component and authoring surface were
+removed. The durable `ComponentRef` rules remain applicable to components such as `IKChain`.
+
 How components that hold pointers to other components (`ActionComponent`,
 `IKChainComponent`, …) author, serialize, and resolve those pointers.
 

@@ -1,5 +1,10 @@
 # Animation keyframe interpolation
 
+Status: Action-era design record; its deferred-command model is superseded by
+`mittens-engine` 0.7. `ActionComponent` and `ActionSystem` no longer exist. Transition work must
+integrate with executable `Keyframe.at(...) { ... }` blocks and direct live-component method
+dispatch. See the [MMS signal guide](../how_to/guide/signals.md).
+
 ## Goal
 
 Add a first-class way for animations — and later other systems — to produce **continuous transitions** between values rather than only firing discrete intents at mutation times.

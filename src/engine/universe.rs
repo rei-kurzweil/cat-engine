@@ -281,7 +281,7 @@ impl Universe {
     /// The cloned instance receives fresh `ComponentId`s and fresh GUIDs.
     ///
     /// Note: this is a structural/data clone via component `encode`/`decode`. If any components
-    /// contain references to other components (e.g. Action targets/params), those references are
+    /// contain references to other components (for example IK targets), those references are
     /// currently copied as-is and may require a future fixup pass.
     pub fn attach_clone(
         &mut self,

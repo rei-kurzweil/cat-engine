@@ -1,5 +1,10 @@
 # AnimationChangeScope And `Animation.scope(...)`
 
+Status: Action-specific design superseded by `mittens-engine` 0.7. Deferred blocks capture live
+component handles; `Animation.resolve_targets(...)` and child `ActionComponent` target resolution
+were removed. Reassess any remaining runtime retargeting requirement against closure capture
+rather than implementing the API proposed here.
+
 Task doc for making animation target resolution explicitly scoped and movable at runtime.
 
 This doc is about animation scoping generally, not pose capture specifically.

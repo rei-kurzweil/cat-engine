@@ -1,5 +1,10 @@
 # Action-target scoping + factory-function handler registration ʕ•ᴥ•ʔ
 
+Status: superseded by the `mittens-engine` 0.7 executable-keyframe migration. Live component
+handles are captured by `Keyframe.at(...) { ... }` blocks, so the proposed Action target storage
+and lazy-resolution changes are no longer applicable. Any factory-handler work should be tracked
+independently of this historical Action design.
+
 ## Why
 
 Two related papercuts block authoring **reusable, importable MMS components** like `assets/components/button.mms`. Both surface as the same symptom: "I imported a button factory and called it twice, and now neither instance behaves right."

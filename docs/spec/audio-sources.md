@@ -1,7 +1,12 @@
 # Audio Sources (｡♥‿♥｡)
 
-Status: Spec draft
+Status: Spec draft; Action-based triggering sections are superseded by the 0.7 executable
+keyframe model.
 Date: 2026-05-16
+
+Current timed authoring calls `MusicNote.*(..., source_handle)` or live source methods inside
+`Keyframe.at(...) { ... }`. Any `ActionComponent`, `Action { ... }`, or `Action.*` examples below
+are retained only as historical design context.
 
 Unified vocabulary for sound-producing nodes in the audio graph. Covers
 oscillators and PCM clips under one umbrella term so triggering, scheduling,

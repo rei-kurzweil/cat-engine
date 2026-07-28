@@ -1,5 +1,10 @@
 # TransitionSystem — phased checklist
 
+Status: requires revision for `mittens-engine` 0.7. The component-owned transition-policy work
+remains relevant, but Action-local override steps are superseded because `ActionComponent` and
+`ActionSystem` were removed. Future override metadata must flow through executable keyframe method
+dispatch or intents.
+
 Focused implementation checklist for transition/interpolation runtime work.
 See [docs/spec/animation-keyframe-interpolation.md](docs/spec/animation-keyframe-interpolation.md) for the design rationale and target semantics.
 

@@ -20,7 +20,7 @@
 //! Resolution is typically deferred — components carry both a
 //! `ComponentRef` (for dump) and a resolved `ComponentId` (for runtime).
 //! A system pass fills the resolved id when the referent is reachable;
-//! both `AnimationSystem` (for Action) and `IKSystem` (for IKChain) do
+//! systems such as `IKSystem` (for `IKChain`) do
 //! this just before consuming the resolved id.
 
 use crate::engine::ecs::{ComponentId, World};

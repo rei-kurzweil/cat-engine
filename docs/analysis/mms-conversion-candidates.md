@@ -2,6 +2,11 @@
 
 Date: 2026-03-24
 
+Status: historical assessment. The Action-related blockers and example inventory predate the
+completed executable-keyframe migration. See
+[MMS Keyframe Block Example Migration Status](../task/mms-keyframe-block-example-migration-status.md)
+for the current result.
+
 Assessment of all `examples/*.rs` files for conversion to `.mms` scene description format,
 following the pattern of `vr-input.mms` / `vr-input-mms.rs`.
 

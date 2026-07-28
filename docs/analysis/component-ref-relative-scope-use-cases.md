@@ -2,6 +2,10 @@
 
 Date: 2026-06-23
 
+Status: partially historical. `Action.*` and `ActionComponent` examples were superseded by the
+0.7 live-handle keyframe model. The remaining comparison of durable `ComponentRef` fields and
+query scopes still applies to components that retain authored references.
+
 ## Summary
 
 This note compares the different places where one authored thing refers to another by selector-like

@@ -682,7 +682,7 @@ fn subtree_to_ce_ast_inner_limited(
     }
 
     // Preserve `guid` whenever this component is referenced by some
-    // Action via `ComponentRef::Guid`. The dumped `@uuid:<g>` selector
+    // components via `ComponentRef::Guid`. The dumped `@uuid:<g>` selector
     // can only resolve on reload if `spawn_tree` restores the same GUID.
     // Whether `name` is also set is irrelevant — names don't help
     // `@uuid:` lookups.
@@ -1202,8 +1202,8 @@ fn apply_guid_named_prop(world: &mut World, id: ComponentId, val: &Value) -> Res
 /// Best-effort resolution of an `ComponentRef` to a ComponentId at
 /// registry-call time. Returns `None` when the referent doesn't exist
 /// yet — caller is expected to leave the resolved id as a null sentinel
-/// and have a later system pass fill it in (e.g. the AnimationSystem
-/// resolution path for Action; AvatarControlSystem for IKChain).
+/// and have a later system pass fill it in (for example,
+/// `AvatarControlSystem` handles `IKChain`).
 pub(crate) fn resolve_component_ref(
     world: &World,
     src: &crate::engine::ecs::component::ComponentRef,

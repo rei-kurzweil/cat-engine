@@ -2,6 +2,9 @@
 
 Historical note: any mentions below of `TransformPipelineComponent` / `TransformPipelineOutputComponent` refer to removed authored components. Current authored transform shaping starts at `TransformForkTRS`, with downstream content attached directly under that fork.
 
+Action note: `ActionComponent` and `Action.update_transform` references below are also historical;
+both were removed by the 0.7 executable-keyframe migration.
+
 ## Goal
 
 Delete `component_codec.rs` and the JSON `encode`/`decode` path. Replace with:
