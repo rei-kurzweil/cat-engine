@@ -7,6 +7,7 @@ Related:
 - [Compute-cached mesh deformation](compute-cached-mesh-deformation.md)
 - [Mesh deformation pipeline](../spec/mesh-deformation-pipeline.md)
 - [GPU-cached deformation and morph targets](epic/gpu-cached-deformation-and-morph-targets.md)
+- [OpenXR render submission pipelining](openxr-render-submission-pipelining.md)
 - [Opt-in System, MMS, Vulkano, and XR Profiling](opt-in-system-mms-vulkano-xr-profiling.md)
 
 ## Observed regression

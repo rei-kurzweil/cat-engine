@@ -8,6 +8,7 @@ Related:
 
 - [Vulkano frame-future resource-use regression](../task/vulkano-frame-future-resource-use-regression.md)
 - [Compute-cached deformation XR performance regression](../task/compute-cached-deformation-xr-performance-regression.md)
+- [OpenXR render submission pipelining](../task/openxr-render-submission-pipelining.md)
 - [Mirror viewer-family captures](../task/mirror-viewer-family-captures.md)
 
 ## Problem
