@@ -27,28 +27,30 @@ export fn voxel_terrain(config) {
     }
     let cube_size = 3.0
     let cube_half = cube_size * 0.5
-    let grid_half_x = grid_width * 0.5
-    let grid_half_z = grid_length * 0.5
+    // The terrain is centered approximately around its prefab origin, but its
+    // X/Z cell boundaries are authoritative: every cube's back-left corner
+    // must land on whole prefab-local units. Flooring the half extent keeps
+    // that invariant for odd as well as even terrain dimensions.
+    let terrain_origin_x = 0.0 - Math.floor((grid_width * cube_size) * 0.5)
+    let terrain_origin_z = 0.0 - Math.floor((grid_length * cube_size) * 0.5)
     let base_y = -3.15
-
-    
 
     return Raycastable.enabled() {
         T {
             for z in range(grid_length) {
                 for x in range(grid_width) {
                     let height_steps = terrain_height(x, z)
-                    let snapped_x = (x - grid_half_x) * cube_size
-                    let snapped_z = (z - grid_half_z) * cube_size
+                    let cell_min_x = terrain_origin_x + x * cube_size
+                    let cell_min_z = terrain_origin_z + z * cube_size
                     let level = height_steps - 1.0
 
                     let color = [1,1,1,1]
 
                     let snapped_y = base_y + level * cube_size
                     terrain_cube(
-                        snapped_x + cube_half,
+                        cell_min_x + cube_half,
                         snapped_y + cube_half,
-                        snapped_z + cube_half,
+                        cell_min_z + cube_half,
                         color,
                     )
                 }

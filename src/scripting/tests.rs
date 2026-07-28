@@ -3291,6 +3291,63 @@ fn primitives_module_spawns_wireframe_square_through_the_renderable_registry() {
 }
 
 #[test]
+fn voxel_terrain_cube_xz_boundaries_land_on_whole_local_units() {
+    use std::collections::HashMap;
+
+    let module_path = repo_path("assets/components/floors/voxel_terrain.mms");
+    let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
+        .expect("expected voxel terrain module to load");
+    let mut world = World::default();
+    let mut emit = CommandQueue::new();
+    let config = Value::Map(HashMap::from([
+        ("length".to_string(), Value::Number(1.0)),
+        ("width".to_string(), Value::Number(3.0)),
+    ]));
+
+    MeowMeowRunner::spawn_mms_module_component_uninitialized(
+        &module,
+        "voxel_terrain",
+        vec![config],
+        &mut world,
+        &mut emit,
+    )
+    .expect("voxel terrain should spawn");
+
+    let mut cube_centers: Vec<[f32; 3]> = world
+        .all_components()
+        .filter_map(|component_id| {
+            let transform = world.get_component_by_id_as::<TransformComponent>(component_id)?;
+            (transform.transform.scale == [3.0, 3.0, 3.0])
+                .then_some(transform.transform.translation)
+        })
+        .collect();
+    cube_centers.sort_by(|a, b| a[0].total_cmp(&b[0]));
+
+    assert_eq!(cube_centers.len(), 3);
+    assert_eq!(
+        cube_centers
+            .iter()
+            .map(|center| center[0])
+            .collect::<Vec<_>>(),
+        vec![-2.5, 0.5, 3.5]
+    );
+    for center in cube_centers {
+        for axis in [0, 2] {
+            let cell_min = center[axis] - 1.5;
+            let cell_max = center[axis] + 1.5;
+            assert!(
+                (cell_min - cell_min.round()).abs() < 1e-5,
+                "cube axis {axis} minimum {cell_min} should be a whole local unit"
+            );
+            assert!(
+                (cell_max - cell_max.round()).abs() < 1e-5,
+                "cube axis {axis} maximum {cell_max} should be a whole local unit"
+            );
+        }
+    }
+}
+
+#[test]
 fn call_mms_module_fn_invokes_exported_factory_function() {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let module_path = workspace_root.join("assets/components/panels.mms");

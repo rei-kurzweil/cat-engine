@@ -14,6 +14,7 @@ Related:
 - `docs/task/grid-panel-select-delete-hide-and-gizmo.md`
 - `docs/bugs/free-draw-paint-does-not-snap-to-grid-while-grid-tool-placement-does.md`
 - `docs/bugs/paint-panel-free-draw-special-case.md`
+- `docs/bugs/transform-gizmo-screen-size-varies-with-camera-distance.md`
 
 ## Outcome we want
 
@@ -71,6 +72,36 @@ Relevant code:
 - `assets/components/floors/voxel_terrain.mms`
 - `src/engine/ecs/system/grid_system.rs`
 - `src/engine/ecs/system/gizmo_system.rs`
+
+#### Terrain prefab alignment checkpoint
+
+Completed on 2026-07-28:
+
+- the prefab now computes an integer `terrain_origin_x/z`
+- each cube is placed from an explicit `cell_min_x/z + cube_half`
+- odd width/length configurations preserve whole-unit X/Z boundaries instead
+  of choosing exact half-unit symmetry around the prefab origin
+- `voxel_terrain_cube_xz_boundaries_land_on_whole_local_units` materializes an
+  odd-width terrain and asserts every cube's X/Z minimum and maximum are whole
+  prefab-local units
+
+The current examples use even terrain dimensions and zero parent X/Z
+translation, so this cleanup deliberately does not move their cubes. If
+`bisket-vr-demo` still shows a thick grid line through a cube center before any
+gizmo movement, the remaining mismatch is in the rendered grid frame/phase or
+runtime grid transform, not the terrain prefab positions.
+
+Manual follow-up confirms that untouched terrain cubes now appear correctly
+aligned, but moving one with the snapped translation gizmo changes it to a
+half-cell phase in X/Z. This confirms the failure boundary:
+
+```text
+authored terrain placement: aligned
+first snapped gizmo translation: X/Z edges offset by 0.5
+```
+
+The terrain prefab is no longer on the critical path for that observed failure.
+`GRID-01`, `GRID-06`, `GIZMO-01`, `GIZMO-02`, and `GIZMO-06` are.
 
 ### 2. Grid rendering and grid snapping do not yet use the same frame
 
@@ -336,6 +367,8 @@ These tasks have no implementation prerequisites.
 | 0.1 | Run and record `M-01` through `M-17` as `TEST-00` | none | Every row has a baseline result and reproduction notes |
 | 0.2 | `UX-04`: visibly disable Line while it is a no-op | none | Line cannot be mistaken for a working tool |
 | 0.3 | Prepare regression tests for `A-01` through `A-04`, `A-08`, `A-10`, and `A-12` | `TEST-00` for expected behavior | Each reported issue has a test to land with its fix or an explicitly documented test gap |
+| 0.4 | [x] `TERRAIN-01`: make whole-unit cell boundaries explicit in the prefab | none | Odd and even terrain dimensions retain whole-unit X/Z cell boundaries |
+| 0.5 | `GIZMO-SIZE-01`: trace the desktop constant-angular-size regression | none | Calculation, propagation, or renderer-cache failure is identified |
 
 Do not “fix” the existing Line no-op test in this wave. Keep it as an accurate
 description of current runtime behavior until the Line implementation wave.
@@ -479,6 +512,11 @@ TEST-00
 - [ ] `PAINT-00` Define continuity across same, adjacent, preview, and invalid
   renderable hits.
 - [ ] `TEST-00` Record the initial manual-demo baseline.
+- [x] `TERRAIN-01` Make each terrain cell's X/Z minimum corner an explicit
+  whole-unit prefab-local coordinate and cover odd dimensions.
+- [ ] `GIZMO-SIZE-01` Resolve
+  `docs/bugs/transform-gizmo-screen-size-varies-with-camera-distance.md` before
+  relying on manual gizmo hitbox/size verification.
 
 ### P0: fix visual/snap agreement
 
@@ -574,9 +612,9 @@ coordinates when a row fails.
 
 | ID | Workflow | Action | Expected result | Baseline on 2026-07-28 |
 |---|---|---|---|---|
-| M-01 | visual | Inspect untouched terrain cube edges | Edges coincide with visible grid lines | Expected to align at integer lines |
-| M-02 | gizmo X | Move one terrain cube along X | X edges stay on lines; Z does not change | Known fail: origin snaps to line, edges move between lines |
-| M-03 | gizmo Z | Move one terrain cube along Z | Z edges stay on lines; X does not change | Known fail by same origin rule |
+| M-01 | visual | Inspect untouched terrain cube edges | Edges coincide with visible grid lines | Pass: visually confirmed after prefab cleanup |
+| M-02 | gizmo X | Move one terrain cube along X | X edges stay on lines; Z does not change | Confirmed fail: first snapped move changes to half-cell X/Z phase |
+| M-03 | gizmo Z | Move one terrain cube along Z | Z edges stay on lines; X does not change | Confirmed fail: first snapped move changes to half-cell X/Z phase |
 | M-04 | gizmo Y | Move cube vertically | X/Z do not change | At risk: helper rounds both grid-plane axes |
 | M-05 | gizmo first move | Begin drag from an aligned cube | No half-cell jump at drag start | Known fail for cell-centered origin |
 | M-06 | no active grid | Clear active grid, repeat move | Smooth unsnapped translation | Verify |
