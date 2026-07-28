@@ -492,6 +492,7 @@ pub struct OpenXRSystem {
     vr_perf: Option<VrPerfCollector>,
     vr_perf_exit_requested: bool,
     vr_perf_pre_xr: VrPerfPreXrCpu,
+    next_xr_batch_generation: u64,
 
     input_xr_components: HashSet<ComponentId>,
     controller_components: HashSet<ComponentId>,
@@ -548,6 +549,8 @@ struct OpenXRSessionState {
     #[allow(dead_code)]
     vk_command_pool: ash::vk::CommandPool,
     vk_command_buffer: ash::vk::CommandBuffer,
+    vk_completion_fence: ash::vk::Fence,
+    vk_completion_fence_usable: bool,
 
     hand_tracking: Option<HandTrackingState>,
     hand_root_pose_cache: HandRootPoseCache,
@@ -556,6 +559,19 @@ struct OpenXRSessionState {
     head_pose_cache: Option<openxr::Posef>,
     controller_input: Option<ControllerInput>,
     controller_pose_cache: ControllerPoseCache,
+}
+
+impl Drop for OpenXRSessionState {
+    fn drop(&mut self) {
+        unsafe {
+            // Teardown is an exceptional synchronization boundary. Universe
+            // drops the XR system before the renderer/device owner.
+            let _ = self.vk_device.device_wait_idle();
+            self.vk_device.destroy_fence(self.vk_completion_fence, None);
+            self.vk_device
+                .destroy_command_pool(self.vk_command_pool, None);
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -1015,6 +1031,7 @@ impl Default for OpenXRSystem {
             vr_perf: None,
             vr_perf_exit_requested: false,
             vr_perf_pre_xr: VrPerfPreXrCpu::default(),
+            next_xr_batch_generation: 1,
 
             input_xr_components: HashSet::new(),
             controller_components: HashSet::new(),
@@ -2203,8 +2220,9 @@ If this fails with Vulkan extension errors, the Vulkan instance/device created b
 
         let vk_instance = unsafe { ash::Instance::load(entry.static_fn(), vk_instance) };
         let vk_device = unsafe { ash::Device::load(vk_instance.fp_v1_0(), vk_device_handle) };
-        let vk_queue =
-            unsafe { vk_device.get_device_queue(gfx.queue_family_index, gfx.queue_index) };
+        // Use the exact queue handle exported by Vulkano. The raw XR copy relies
+        // on same-queue submission order to follow all mirror and eye work.
+        let vk_queue = ash::vk::Queue::from_raw(gfx.vk_queue as usize as u64);
 
         let vk_command_pool = unsafe {
             vk_device
@@ -2231,6 +2249,12 @@ If this fails with Vulkan extension errors, the Vulkan instance/device created b
                 .ok_or("allocate_command_buffers returned 0 command buffers")?
         };
 
+        let vk_completion_fence = unsafe {
+            vk_device
+                .create_fence(&ash::vk::FenceCreateInfo::default(), None)
+                .map_err(|e| format!("create_fence: {e:?}"))?
+        };
+
         state.session = Some(OpenXRSessionState {
             session,
             frame_waiter,
@@ -2249,6 +2273,8 @@ If this fails with Vulkan extension errors, the Vulkan instance/device created b
             vk_queue,
             vk_command_pool,
             vk_command_buffer,
+            vk_completion_fence,
+            vk_completion_fence_usable: true,
 
             hand_tracking,
             hand_root_pose_cache: HandRootPoseCache::default(),
@@ -2727,7 +2753,8 @@ impl OpenXRSystem {
         let mut perf_eye_render = Duration::ZERO;
         let mut perf_copy = Duration::ZERO;
         let mut perf_raw_queue_submissions = 0;
-        let mut perf_raw_queue_waits = 0;
+        let mut perf_raw_fence_waits = 0;
+        let mut image_ready_for_projection = false;
         let Some(state) = self.state.as_mut() else {
             self.xr_input_state = XrInputState::default();
             self.xr_gamepad_state = XrGamepadState::default();
@@ -3270,6 +3297,8 @@ impl OpenXRSystem {
             let extent_u = [extent.width as u32, extent.height as u32];
 
             let image_index_usize = image_index as usize;
+            let batch_generation = self.next_xr_batch_generation;
+            self.next_xr_batch_generation = self.next_xr_batch_generation.wrapping_add(1).max(1);
             let dst_was_initialized = sess
                 .swapchain_image_initialized
                 .get(image_index_usize)
@@ -3295,19 +3324,36 @@ impl OpenXRSystem {
                     );
                 }
 
-                if let Err(e) = xr_renderer::clear_xr_swapchain_image(
-                    &sess.vk_device,
-                    sess.vk_queue,
-                    sess.vk_command_buffer,
-                    sess.xr_swapchain.view_count(),
-                    dst_image,
-                    visuals.clear_color(),
-                    dst_was_initialized,
-                ) {
+                if !sess.vk_completion_fence_usable {
+                    eprintln!("[OpenXR] clear skipped: XR completion fence is not reusable");
+                } else if let Err(e) = renderer
+                    .with_xr_graphics_queue_lock(|| {
+                        xr_renderer::submit_clear_xr_swapchain_image_and_wait(
+                            &sess.vk_device,
+                            sess.vk_queue,
+                            sess.vk_command_buffer,
+                            sess.vk_completion_fence,
+                            sess.xr_swapchain.view_count(),
+                            dst_image,
+                            visuals.clear_color(),
+                            dst_was_initialized,
+                        )
+                    })
+                    .unwrap_or(Err(ash::vk::Result::ERROR_DEVICE_LOST))
+                {
+                    sess.vk_completion_fence_usable = false;
                     eprintln!("[OpenXR] clear XR image failed: {e:?}");
                 } else {
                     perf_raw_queue_submissions += 1;
-                    perf_raw_queue_waits += 1;
+                    perf_raw_fence_waits += 1;
+                    image_ready_for_projection = true;
+                    if openxr_debug_enabled() {
+                        eprintln!(
+                            "[OpenXR][batch] generation={batch_generation} image={image_index} \
+                             mode=clear queue=0x{:x} raw_submissions=1 completion_waits=1",
+                            sess.vk_queue.as_raw()
+                        );
+                    }
                     if let Some(slot) = sess.swapchain_image_initialized.get_mut(image_index_usize)
                     {
                         *slot = true;
@@ -3315,12 +3361,23 @@ impl OpenXRSystem {
                 }
             } else {
                 let eye_render_started = (profile || perf_enabled).then(Instant::now);
-                if let Err(e) = renderer.render_xr_mirror_captures(visuals, extent_u) {
-                    eprintln!("[OpenXR] render_xr_mirror_captures failed: {e}");
+                let mut batch_error = None;
+                if !sess.vk_completion_fence_usable {
+                    batch_error = Some("XR completion fence is not reusable".to_string());
+                } else if views.len() < view_count {
+                    batch_error = Some(format!(
+                        "located {} views for {view_count} swapchain layers",
+                        views.len()
+                    ));
+                } else if let Err(e) = renderer.submit_xr_mirror_captures(visuals, extent_u) {
+                    batch_error = Some(format!("mirror capture submission failed: {e}"));
                 }
-                for eye in 0..view_count.min(views.len()) {
-                    if let Err(e) = renderer.render_xr_eye_offscreen(visuals, eye, extent_u) {
-                        eprintln!("[OpenXR] render_xr_eye_offscreen failed: {e}");
+                if batch_error.is_none() {
+                    for eye in 0..view_count {
+                        if let Err(e) = renderer.submit_xr_eye_offscreen(visuals, eye, extent_u) {
+                            batch_error = Some(format!("eye {eye} submission failed: {e}"));
+                            break;
+                        }
                     }
                 }
                 if let Some(started) = eye_render_started {
@@ -3331,31 +3388,78 @@ impl OpenXRSystem {
                     }
                 }
 
-                let copy_started = (profile || perf_enabled).then(Instant::now);
-                if let Err(e) = xr_renderer::copy_offscreen_to_xr_layers(
-                    &sess.vk_device,
-                    sess.vk_queue,
-                    sess.vk_command_buffer,
-                    &sess.xr_swapchain,
-                    renderer,
-                    dst_image,
-                    dst_was_initialized,
-                    view_count,
-                ) {
-                    eprintln!("[OpenXR] copy to XR image failed: {e:?}");
-                } else {
-                    perf_raw_queue_submissions += 1;
-                    perf_raw_queue_waits += 1;
-                    if let Some(slot) = sess.swapchain_image_initialized.get_mut(image_index_usize)
-                    {
-                        *slot = true;
+                if let Some(error) = batch_error {
+                    eprintln!("[OpenXR] XR batch {batch_generation} aborted: {error}");
+                    if let Err(wait_error) = renderer.wait_for_xr_batch_on_error() {
+                        eprintln!(
+                            "[OpenXR] XR batch {batch_generation} recovery wait failed: {wait_error}"
+                        );
                     }
-                }
-                if let Some(started) = copy_started {
-                    let elapsed = started.elapsed();
-                    perf_copy = elapsed;
-                    if profile {
-                        self.render_profile.copy += elapsed;
+                } else {
+                    let copy_started = (profile || perf_enabled).then(Instant::now);
+                    if let Err(e) = renderer
+                        .with_xr_graphics_queue_lock(|| {
+                            xr_renderer::submit_offscreen_copy_to_xr_and_wait(
+                                &sess.vk_device,
+                                sess.vk_queue,
+                                sess.vk_command_buffer,
+                                sess.vk_completion_fence,
+                                &sess.xr_swapchain,
+                                renderer,
+                                dst_image,
+                                dst_was_initialized,
+                                view_count,
+                            )
+                        })
+                        .unwrap_or(Err(ash::vk::Result::ERROR_DEVICE_LOST))
+                    {
+                        sess.vk_completion_fence_usable = false;
+                        eprintln!(
+                            "[OpenXR] XR batch {batch_generation} copy submission failed: {e:?}"
+                        );
+                        if let Err(wait_error) = renderer.wait_for_xr_batch_on_error() {
+                            eprintln!(
+                                "[OpenXR] XR batch {batch_generation} recovery wait failed: {wait_error}"
+                            );
+                        }
+                    } else {
+                        perf_raw_queue_submissions += 1;
+                        // The raw-copy fence also proves completion of every preceding
+                        // Vulkano submission on this queue. Only now may Vulkano release
+                        // the retained resource-use chain.
+                        unsafe {
+                            if let Err(e) = renderer.finish_xr_batch_after_external_wait() {
+                                eprintln!("[OpenXR] failed to finish XR render batch: {e}");
+                            }
+                        }
+                        perf_raw_fence_waits += 1;
+                        image_ready_for_projection = true;
+                        if openxr_debug_enabled() {
+                            let batch_counters = renderer
+                                .perf_counters()
+                                .saturating_delta(perf_renderer_before);
+                            eprintln!(
+                                "[OpenXR][batch] generation={batch_generation} image={image_index} \
+                                 eyes={} mirrors={} queue=0x{:x} vulkano_submissions={} \
+                                 raw_submissions=1 completion_waits=1",
+                                batch_counters.xr_eyes,
+                                batch_counters.mirror_captures,
+                                sess.vk_queue.as_raw(),
+                                batch_counters.queue_submissions,
+                            );
+                        }
+                        if let Some(slot) =
+                            sess.swapchain_image_initialized.get_mut(image_index_usize)
+                        {
+                            *slot = true;
+                        }
+                    }
+                    if let Some(started) = copy_started {
+                        let elapsed = started.elapsed();
+                        perf_copy = elapsed;
+                        if profile {
+                            self.render_profile.copy += elapsed;
+                        }
                     }
                 }
             }
@@ -3366,7 +3470,7 @@ impl OpenXRSystem {
         }
 
         // Submit a projection layer.
-        if views.len() >= 2 {
+        if image_ready_for_projection && views.len() >= 2 {
             let rect = openxr::Rect2Di {
                 offset: openxr::Offset2Di { x: 0, y: 0 },
                 extent: sess.xr_swapchain.extent(),
@@ -3442,7 +3546,7 @@ impl OpenXRSystem {
                             .perf_counters()
                             .saturating_delta(perf_renderer_before);
                         counters.queue_submissions += perf_raw_queue_submissions;
-                        counters.cpu_queue_waits += perf_raw_queue_waits;
+                        counters.cpu_fence_waits += perf_raw_fence_waits;
                         counters
                     },
                 },
@@ -3493,7 +3597,7 @@ impl OpenXRSystem {
                         .perf_counters()
                         .saturating_delta(perf_renderer_before);
                     counters.queue_submissions += perf_raw_queue_submissions;
-                    counters.cpu_queue_waits += perf_raw_queue_waits;
+                    counters.cpu_fence_waits += perf_raw_fence_waits;
                     counters
                 },
             },

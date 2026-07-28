@@ -3,10 +3,11 @@ use ash::vk;
 use crate::engine::graphics::VulkanoRenderer;
 use crate::engine::graphics::XRSwapchain;
 
-pub fn clear_xr_swapchain_image(
+pub fn submit_clear_xr_swapchain_image_and_wait(
     vk_device: &ash::Device,
     vk_queue: vk::Queue,
     vk_command_buffer: vk::CommandBuffer,
+    completion_fence: vk::Fence,
     view_count: u32,
     image: vk::Image,
     rgba: [f32; 4],
@@ -98,17 +99,19 @@ pub fn clear_xr_swapchain_image(
 
         let command_buffers = [vk_command_buffer];
         let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
-        vk_device.queue_submit(vk_queue, &[submit_info], vk::Fence::null())?;
-        vk_device.queue_wait_idle(vk_queue)?;
+        vk_device.queue_submit(vk_queue, &[submit_info], completion_fence)?;
+        vk_device.wait_for_fences(&[completion_fence], true, u64::MAX)?;
+        vk_device.reset_fences(&[completion_fence])?;
     }
 
     Ok(())
 }
 
-pub fn copy_offscreen_to_xr_layers(
+pub fn submit_offscreen_copy_to_xr_and_wait(
     vk_device: &ash::Device,
     vk_queue: vk::Queue,
     vk_command_buffer: vk::CommandBuffer,
+    completion_fence: vk::Fence,
     xr_swapchain: &XRSwapchain,
     renderer: &VulkanoRenderer,
     dst_image: vk::Image,
@@ -247,8 +250,12 @@ pub fn copy_offscreen_to_xr_layers(
 
         let command_buffers = [vk_command_buffer];
         let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
-        vk_device.queue_submit(vk_queue, &[submit_info], vk::Fence::null())?;
-        vk_device.queue_wait_idle(vk_queue)?;
+        // Vulkano submitted every mirror and eye to this same queue before this raw
+        // submission. Queue order therefore makes this fence a completion proof for
+        // the entire XR render batch, not just the copy command buffer.
+        vk_device.queue_submit(vk_queue, &[submit_info], completion_fence)?;
+        vk_device.wait_for_fences(&[completion_fence], true, u64::MAX)?;
+        vk_device.reset_fences(&[completion_fence])?;
     }
 
     Ok(())

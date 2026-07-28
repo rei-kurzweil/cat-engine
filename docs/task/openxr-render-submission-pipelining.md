@@ -1,6 +1,6 @@
 # OpenXR render submission pipelining
 
-Status: proposed, baseline implementation is serialized.
+Status: implemented through Phase 4 in source; headset/validation/performance verification pending.
 
 Related:
 
@@ -24,13 +24,36 @@ mirror submissions ─> eye 0 submission ─> eye 1 submission ─> raw XR copy 
                                                                           release XR image
 ```
 
+## Implementation status
+
+The source implementation now follows that target:
+
+- mirror captures and eyes extend the renderer-wide `submission_future` and flush without a CPU
+  wait;
+- runtime-texture cache publication no longer idles the device between mirror and eye submissions;
+- the raw copy uses the exact graphics-queue handle exported by Vulkano;
+- raw Ash submissions hold Vulkano's graphics-queue guard for external synchronization;
+- one reusable raw Vulkan fence is attached to the copy (or format-mismatch clear), waited before
+  `xrReleaseSwapchainImage`, and reset only after the wait succeeds;
+- after that fence signals, the retained Vulkano future is explicitly marked complete and cleaned;
+- failed mirror/eye batches do not proceed to the raw copy, and failed completion fences are not
+  reused;
+- `CAT_OPENXR_DEBUG=1` logs batch generation, acquired image index, queue handle, eye/mirror counts,
+  submission counts, and the single completion wait;
+- VR performance reports count the raw wait as a CPU fence wait and leave steady-state
+  queue-idle waits at zero.
+
+The remaining acceptance work requires an OpenXR runtime and headset: validation-layer runs,
+2,000-frame mirror-off/mirror-on captures, session stop/restart coverage, and before/after
+performance reports.
+
 This does not promise a zero-wait OpenXR frame loop. Core swapchain image release does not carry a
 Vulkan semaphore or fence in `XrSwapchainImageReleaseInfo`. The application must not let the
 runtime consume an image while application GPU work still references it. Unless a supported and
 verified runtime synchronization mechanism provides that handoff, retain one completion wait
 before `xrReleaseSwapchainImage`.
 
-## Current serialized path
+## Historical serialized baseline
 
 For a normal format-compatible OpenXR frame:
 
@@ -50,10 +73,10 @@ tracked with one fence.
 
 The involved code is:
 
-- `VulkanoState::render_xr_eye_offscreen` in `src/engine/graphics/vulkano_renderer.rs`;
-- `VulkanoState::render_xr_mirror_captures` in
+- `VulkanoState::submit_xr_eye_offscreen` in `src/engine/graphics/vulkano_renderer.rs`;
+- `VulkanoState::submit_xr_mirror_captures` in
   `src/engine/graphics/vulkano_renderer.rs`;
-- `copy_offscreen_to_xr_layers` in `src/engine/graphics/xr_renderer.rs`;
+- `submit_offscreen_copy_to_xr_and_wait` in `src/engine/graphics/xr_renderer.rs`;
 - the acquire/render/copy/release sequence in `src/engine/ecs/system/openxr_system.rs`.
 
 ## Performance hypothesis
@@ -178,7 +201,7 @@ Refactor without changing wait behavior:
 
 ## Phase 2: remove the wait between XR eyes
 
-Change eye submission so `render_xr_eye_offscreen` flushes and stores a descendant of
+Change eye submission so `submit_xr_eye_offscreen` flushes and stores a descendant of
 `submission_future` without calling `wait(None)` after each eye.
 
 Keep a temporary batch-completion operation after the final eye and before the raw copy. Waiting
@@ -310,4 +333,3 @@ Count and trace them so they cannot silently enter steady-state rendering.
 - Reports show queue submissions, CPU waits, queue-idle waits, and exceptional waits per frame.
 - The before/after report demonstrates improved tail frame time, missed-frame rate, delivered FPS,
   or clearly documents why submission waits were not the limiting factor.
-

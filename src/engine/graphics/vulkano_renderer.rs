@@ -455,6 +455,7 @@ mod vulkano_backend {
         pub msaa_samples: SampleCount,
         perf_queue_submissions: u64,
         perf_cpu_fence_waits: u64,
+        perf_cpu_queue_waits: u64,
         perf_mirror_captures: u64,
         perf_xr_eyes: u64,
 
@@ -1840,6 +1841,7 @@ mod vulkano_backend {
                 msaa_samples,
                 perf_queue_submissions: 0,
                 perf_cpu_fence_waits: 0,
+                perf_cpu_queue_waits: 0,
                 perf_mirror_captures: 0,
                 perf_xr_eyes: 0,
 
@@ -1914,7 +1916,7 @@ mod vulkano_backend {
             RendererPerfCounters {
                 queue_submissions: self.perf_queue_submissions,
                 cpu_fence_waits: self.perf_cpu_fence_waits,
-                cpu_queue_waits: 0,
+                cpu_queue_waits: self.perf_cpu_queue_waits,
                 mirror_captures: self.perf_mirror_captures,
                 xr_eyes: self.perf_xr_eyes,
                 deformation_dispatches: self.deformation_stats.dispatches,
@@ -2166,21 +2168,16 @@ mod vulkano_backend {
             Ok(self.mirror_offscreen.get(mirror_key).unwrap())
         }
 
-        pub fn render_xr_eye_offscreen(
+        pub fn submit_xr_eye_offscreen(
             &mut self,
             visual_world: &mut VisualWorld,
             eye: usize,
             extent: [u32; 2],
         ) -> Result<(), Box<dyn std::error::Error>> {
-            if !self.pending_runtime_texture_updates.is_empty() {
-                unsafe {
-                    self.context.device().wait_idle().map_err(
-                        |e| -> Box<dyn std::error::Error> {
-                            format!("wait_idle failed before runtime texture swap: {e}").into()
-                        },
-                    )?;
-                }
-            }
+            // Submitted command buffers retain their descriptor sets and image
+            // views. Replacing the cache entry is therefore safe without idling
+            // the device, while submission_future orders consumers of the new
+            // mirror texture after its publication copy.
             self.apply_pending_runtime_texture_updates();
 
             // MVP: assume PRIMARY_STEREO (2 eyes).
@@ -2306,28 +2303,17 @@ mod vulkano_backend {
                 .then_execute(queue, cb)?
                 .then_signal_fence_and_flush()?;
             self.perf_queue_submissions += 1;
-            future.wait(None)?;
-            self.perf_cpu_fence_waits += 1;
             self.perf_xr_eyes += 1;
             self.submission_future = Some(future.boxed());
 
             Ok(())
         }
 
-        pub fn render_xr_mirror_captures(
+        pub fn submit_xr_mirror_captures(
             &mut self,
             visual_world: &mut VisualWorld,
             extent: [u32; 2],
         ) -> Result<(), Box<dyn std::error::Error>> {
-            if !self.pending_runtime_texture_updates.is_empty() {
-                unsafe {
-                    self.context.device().wait_idle().map_err(
-                        |e| -> Box<dyn std::error::Error> {
-                            format!("wait_idle failed before runtime texture swap: {e}").into()
-                        },
-                    )?;
-                }
-            }
             self.apply_pending_runtime_texture_updates();
 
             self.ensure_xr_offscreen_targets(2, extent)?;
@@ -2459,8 +2445,6 @@ mod vulkano_backend {
                         .then_execute(queue.clone(), cb)?
                         .then_signal_fence_and_flush()?;
                     self.perf_queue_submissions += 1;
-                    future.wait(None)?;
-                    self.perf_cpu_fence_waits += 1;
                     self.perf_mirror_captures += 1;
                     self.submission_future = Some(future.boxed());
                 }
@@ -2473,6 +2457,48 @@ mod vulkano_backend {
             let targets = self.xr_offscreen.as_ref()?;
             let img = targets.color_images.get(eye)?;
             Some(img.handle())
+        }
+
+        /// Marks the renderer-wide submission chain complete after an external
+        /// same-queue fence has been observed.
+        ///
+        /// # Safety
+        ///
+        /// The caller must have established that all GPU work represented by
+        /// `submission_future` has completed. The OpenXR raw-copy fence is such
+        /// a proof because its submission follows the Vulkano work on the same
+        /// graphics queue.
+        pub unsafe fn finish_xr_batch_after_external_wait(&mut self) {
+            let device = self.context.device().clone();
+            if let Some(mut future) = self.submission_future.take() {
+                unsafe {
+                    future.signal_finished();
+                }
+                future.cleanup_finished();
+            }
+            self.submission_future = Some(sync::now(device).boxed());
+        }
+
+        /// Completes an interrupted XR batch without allowing a raw copy to
+        /// consume partially rendered offscreen targets.
+        pub fn wait_for_xr_batch_on_error(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+            let device = self.context.device().clone();
+            let Some(mut future) = self.submission_future.take() else {
+                self.submission_future = Some(sync::now(device).boxed());
+                return Ok(());
+            };
+
+            if let Err(error) = unsafe { device.wait_idle() } {
+                self.submission_future = Some(future);
+                return Err(Box::new(error));
+            }
+            self.perf_cpu_queue_waits += 1;
+            unsafe {
+                future.signal_finished();
+            }
+            future.cleanup_finished();
+            self.submission_future = Some(sync::now(device).boxed());
+            Ok(())
         }
 
         pub fn upload_texture_rgba8(
@@ -4536,15 +4562,6 @@ mod vulkano_backend {
             visual_world: &mut VisualWorld,
         ) -> Result<(), Box<dyn std::error::Error>> {
             self.recreate_swapchain_if_needed()?;
-            if !self.pending_runtime_texture_updates.is_empty() {
-                unsafe {
-                    self.context.device().wait_idle().map_err(
-                        |e| -> Box<dyn std::error::Error> {
-                            format!("wait_idle failed before runtime texture swap: {e}").into()
-                        },
-                    )?;
-                }
-            }
             self.apply_pending_runtime_texture_updates();
 
             // Let Vulkano release finished resource-use tracking from the renderer-wide
@@ -5225,7 +5242,7 @@ impl VulkanoRenderer {
             })
     }
 
-    pub fn render_xr_eye_offscreen(
+    pub fn submit_xr_eye_offscreen(
         &mut self,
         visual_world: &mut VisualWorld,
         eye: usize,
@@ -5235,10 +5252,10 @@ impl VulkanoRenderer {
             return Err("VulkanoRenderer not initialized (call init_for_window first)".into());
         };
 
-        vulkano.render_xr_eye_offscreen(visual_world, eye, extent)
+        vulkano.submit_xr_eye_offscreen(visual_world, eye, extent)
     }
 
-    pub fn render_xr_mirror_captures(
+    pub fn submit_xr_mirror_captures(
         &mut self,
         visual_world: &mut VisualWorld,
         extent: [u32; 2],
@@ -5247,11 +5264,51 @@ impl VulkanoRenderer {
             return Err("VulkanoRenderer not initialized (call init_for_window first)".into());
         };
 
-        vulkano.render_xr_mirror_captures(visual_world, extent)
+        vulkano.submit_xr_mirror_captures(visual_world, extent)
     }
 
     pub fn xr_offscreen_vk_image(&self, eye: usize) -> Option<ash::vk::Image> {
         self.vulkano.as_ref()?.xr_offscreen_vk_image(eye)
+    }
+
+    /// Runs a raw Vulkan operation while holding Vulkano's external-
+    /// synchronization guard for the shared graphics queue.
+    pub fn with_xr_graphics_queue_lock<R>(&self, operation: impl FnOnce() -> R) -> Option<R> {
+        let vulkano = self.vulkano.as_ref()?;
+        Some(
+            vulkano
+                .context
+                .graphics_queue()
+                .with(|_queue_guard| operation()),
+        )
+    }
+
+    /// Completes Vulkano tracking after a fence from a later raw submission on
+    /// the same graphics queue has signaled.
+    ///
+    /// # Safety
+    ///
+    /// The external fence must prove completion of the current renderer-wide
+    /// submission chain.
+    pub unsafe fn finish_xr_batch_after_external_wait(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(vulkano) = self.vulkano.as_mut() else {
+            return Err("VulkanoRenderer not initialized (call init_for_window first)".into());
+        };
+
+        unsafe {
+            vulkano.finish_xr_batch_after_external_wait();
+        }
+        Ok(())
+    }
+
+    pub fn wait_for_xr_batch_on_error(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(vulkano) = self.vulkano.as_mut() else {
+            return Err("VulkanoRenderer not initialized (call init_for_window first)".into());
+        };
+
+        vulkano.wait_for_xr_batch_on_error()
     }
 
     /// Returns raw Vulkan handles suitable for `openxr::Instance::create_session::<openxr::Vulkan>()`.
