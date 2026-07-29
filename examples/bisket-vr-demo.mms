@@ -3,6 +3,13 @@ import { voxel_terrain } from "../assets/components/floors/voxel_terrain.mms"
 import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 
+let bisket_terrain_palette = [
+    [0.56, 0.78, 0.84, 1.0],
+    [0.68, 0.56, 0.62, 1.0],
+    [0.82, 0.58, 0.42, 1.0],
+    [0.74, 0.84, 0.50, 1.0],
+]
+
 // bisket-vr-demo scene
 //
 // Shared VR room-scale demo using the canonical bisket avatar (bisket.glb).
@@ -72,7 +79,7 @@ T.position(0.15, -0.45, 1.0) {
 // --- Terrain + back wall so the room has visual reference ---
 // ED {
     T.position(0.0, -6.0, 0.0) {
-        voxel_terrain()
+        voxel_terrain({ palette = bisket_terrain_palette })
     }
 
     // back wall

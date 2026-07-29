@@ -3348,6 +3348,109 @@ fn voxel_terrain_cube_xz_boundaries_land_on_whole_local_units() {
 }
 
 #[test]
+fn voxel_terrain_custom_palette_tracks_cube_height_layers() {
+    use std::collections::HashMap;
+
+    use crate::engine::ecs::component::ColorComponent;
+
+    fn descendant_color(world: &World, root: ComponentId) -> Option<[f32; 4]> {
+        let mut pending = vec![root];
+        while let Some(component) = pending.pop() {
+            if let Some(color) = world.get_component_by_id_as::<ColorComponent>(component) {
+                return Some(color.rgba);
+            }
+            pending.extend(world.children_of(component).iter().copied());
+        }
+        None
+    }
+
+    let module_path = repo_path("assets/components/floors/voxel_terrain.mms");
+    let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
+        .expect("expected voxel terrain module to load");
+    let mut world = World::default();
+    let mut emit = CommandQueue::new();
+    let palette: [[f32; 4]; 4] = [
+        [0.11, 0.12, 0.13, 1.0],
+        [0.21, 0.22, 0.23, 1.0],
+        [0.31, 0.32, 0.33, 1.0],
+        [0.41, 0.42, 0.43, 1.0],
+    ];
+    let palette_value = Value::Array(
+        palette
+            .iter()
+            .map(|color| {
+                Value::Array(
+                    color
+                        .iter()
+                        .map(|channel| Value::Number((*channel).into()))
+                        .collect(),
+                )
+            })
+            .collect(),
+    );
+    let config = Value::Map(HashMap::from([
+        ("length".to_string(), Value::Number(24.0)),
+        ("width".to_string(), Value::Number(24.0)),
+        ("palette".to_string(), palette_value),
+    ]));
+
+    MeowMeowRunner::spawn_mms_module_component_uninitialized(
+        &module,
+        "voxel_terrain",
+        vec![config],
+        &mut world,
+        &mut emit,
+    )
+    .expect("voxel terrain should accept a custom palette");
+
+    let cubes: Vec<_> = world
+        .all_components()
+        .filter_map(|component_id| {
+            let transform = world.get_component_by_id_as::<TransformComponent>(component_id)?;
+            (transform.transform.scale == [3.0, 3.0, 3.0])
+                .then_some((component_id, transform.transform.translation[1]))
+        })
+        .collect();
+    assert_eq!(cubes.len(), 24 * 24);
+
+    let mut layer_counts = [0usize; 4];
+    let mut grass_has_surface_variation = false;
+    for (cube, center_y) in cubes {
+        let cube_min_y = center_y - 1.5;
+        let raw_level = (cube_min_y + 3.15) / 3.0;
+        let level = raw_level.round() as usize;
+        let layer = level.min(3);
+        let surface_offset = (raw_level - raw_level.round()) * 3.0;
+        layer_counts[layer] += 1;
+        if layer == 3 {
+            assert!(
+                surface_offset.abs() <= 0.0501,
+                "grass offset {surface_offset} should stay within ±0.05",
+            );
+            grass_has_surface_variation |= surface_offset.abs() > 0.0001;
+        } else {
+            assert!(
+                surface_offset.abs() < 0.0001,
+                "only grass should receive surface variation, got {surface_offset}",
+            );
+        }
+        assert_eq!(
+            descendant_color(&world, cube),
+            Some(palette[layer]),
+            "cube at y={center_y} should use palette layer {layer}",
+        );
+    }
+    assert!(
+        layer_counts.iter().all(|count| *count > 0),
+        "expected all four terrain layers, got {layer_counts:?}",
+    );
+    assert!(
+        grass_has_surface_variation,
+        "expected subtle vertical variation on the grass plateau",
+    );
+}
+
+#[test]
 fn call_mms_module_fn_invokes_exported_factory_function() {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let module_path = workspace_root.join("assets/components/panels.mms");
@@ -3768,6 +3871,39 @@ export let result = pick_text(app_state)
         module.named_exports.get("result"),
         Some(Value::String(text)) if text == "hello table fields"
     ));
+}
+
+#[test]
+fn live_eval_table_index_returns_null_for_missing_optional_field() {
+    use crate::engine::ecs::component::ColorComponent;
+
+    let source = r#"
+        let config = {
+            palette = [[0.2, 0.4, 0.6, 1.0]]
+        }
+        let palette = config["palette"]
+        let optional_width = config["width"]
+        if optional_width {
+            T {}
+        }
+        R.cube() {
+            C.rgba(palette[0][0], palette[0][1], palette[0][2], palette[0][3])
+        }
+    "#;
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_world(source, &mut world, &mut rx, &mut emit);
+    assert!(output.errors.is_empty(), "{:?}", output.errors);
+    let colors: Vec<_> = world
+        .all_components()
+        .filter_map(|id| {
+            world
+                .get_component_by_id_as::<ColorComponent>(id)
+                .map(|color| color.rgba)
+        })
+        .collect();
+    assert_eq!(colors, vec![[0.2, 0.4, 0.6, 1.0]]);
 }
 
 #[test]

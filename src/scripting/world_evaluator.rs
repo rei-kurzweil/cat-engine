@@ -1339,19 +1339,28 @@ fn eval_expr(expr: &Expression, ctx: &mut EvalContext<'_>) -> Result<Value, Stri
         Expression::Index { base, index } => {
             let base = eval_expr(base, ctx)?;
             let index = eval_expr(index, ctx)?;
-            let Value::Array(items) = base else {
-                return Err(format!("index: expected array, got {:?}", base));
-            };
-            let Value::Number(n) = index else {
-                return Err(format!("index: expected numeric index, got {:?}", index));
-            };
-            if n.fract() != 0.0 || n < 0.0 {
-                return Err(format!("index: expected non-negative integer, got {n}"));
+            match (base, index) {
+                (Value::Array(items), Value::Number(n)) => {
+                    if n.fract() != 0.0 || n < 0.0 {
+                        return Err(format!("index: expected non-negative integer, got {n}"));
+                    }
+                    items.get(n as usize).cloned().ok_or_else(|| {
+                        format!("index: {n} out of bounds for array of {}", items.len())
+                    })
+                }
+                (Value::Map(fields), Value::String(key))
+                | (Value::Map(fields), Value::Identifier(key)) => {
+                    Ok(fields.get(&key).cloned().unwrap_or(Value::Null))
+                }
+                (Value::Object(id), Value::String(key))
+                | (Value::Object(id), Value::Identifier(key)) => id
+                    .with_map(|fields| fields.get(&key).cloned().unwrap_or(Value::Null))
+                    .ok_or_else(|| "index: invalid object".to_string()),
+                (base, index) => Err(format!(
+                    "index: expected array + numeric index or table + string key, got {:?}[{:?}]",
+                    base, index
+                )),
             }
-            items
-                .get(n as usize)
-                .cloned()
-                .ok_or_else(|| format!("index: {n} out of bounds for array of {}", items.len()))
         }
         Expression::Identifier(id) => {
             if id.0 == "cwd" {

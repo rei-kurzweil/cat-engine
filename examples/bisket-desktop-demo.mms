@@ -1,6 +1,13 @@
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 import { voxel_terrain } from "../assets/components/floors/voxel_terrain.mms"
 
+let bisket_terrain_palette = [
+    [0.56, 0.78, 0.84, 1.0],
+    [0.68, 0.56, 0.62, 1.0],
+    [0.82, 0.58, 0.42, 1.0],
+    [0.74, 0.84, 0.50, 1.0],
+]
+
 // Desktop control for bisket-vr-demo. It retains the terrain, animation, render graph,
 // and two Bisket model instances without initializing any XR systems.
 //
@@ -38,7 +45,7 @@ T.position(0.15, -0.45, 1.0) {
 }
 
 T.position(0.0, -6.0, 0.0) {
-    voxel_terrain()
+    voxel_terrain({ palette = bisket_terrain_palette })
 }
 
 T.position(0.0, 2.15, -7.2).scale(8.8, 3.6, 0.24) {

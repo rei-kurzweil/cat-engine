@@ -857,19 +857,24 @@ fn expression_to_value(e: &Expression) -> Result<Value, String> {
         Expression::Index { base, index } => {
             let base = expression_to_value(base)?;
             let index = expression_to_value(index)?;
-            let Value::Array(items) = base else {
-                return Err(format!("index: expected array, got {:?}", base));
-            };
-            let Value::Number(n) = index else {
-                return Err(format!("index: expected numeric index, got {:?}", index));
-            };
-            if n.fract() != 0.0 || n < 0.0 {
-                return Err(format!("index: expected non-negative integer, got {n}"));
+            match (base, index) {
+                (Value::Array(items), Value::Number(n)) => {
+                    if n.fract() != 0.0 || n < 0.0 {
+                        return Err(format!("index: expected non-negative integer, got {n}"));
+                    }
+                    items.get(n as usize).cloned().ok_or_else(|| {
+                        format!("index: {n} out of bounds for array of {}", items.len())
+                    })
+                }
+                (Value::Map(fields), Value::String(key))
+                | (Value::Map(fields), Value::Identifier(key)) => {
+                    Ok(fields.get(&key).cloned().unwrap_or(Value::Null))
+                }
+                (base, index) => Err(format!(
+                    "index: expected array + numeric index or table + string key, got {:?}[{:?}]",
+                    base, index
+                )),
             }
-            items
-                .get(n as usize)
-                .cloned()
-                .ok_or_else(|| format!("index: {n} out of bounds for array of {}", items.len()))
         }
         Expression::UnaryOp {
             op: UnaryOpKind::Neg,
