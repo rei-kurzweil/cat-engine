@@ -8,7 +8,9 @@ Related:
 
 - `docs/task/editor-settings-panel.md`
 - `docs/task/transform-gizmo-planar-translation-handles.md`
+- `docs/task/unified-grid-snap-mode-mms-gizmo-and-paint.md`
 - `docs/spec/editor-gizmo-coord-spaces.md`
+- `docs/spec/grid-snapping.md`
 
 ## Goal
 
@@ -21,6 +23,9 @@ choices:
 Rotation rings remain present in both modes. Changing the setting updates every
 live transform gizmo in that editor without rebuilding the editor or the
 selected scene object.
+
+When an active grid is selected, scale-handle drags must snap through the grid
+policy while remaining constrained to the selected scale axis.
 
 For now, regenerate the complete arm subtree when the mode changes. Do not
 attempt to mutate cone heads into square heads in place. The arm subtree should
@@ -201,6 +206,61 @@ scale axis.
 Desktop and XR pointers use the same constrained scale calculation after their
 pointer movement reaches the gizmo.
 
+## Grid snapping for scale
+
+Scale handles must participate in snapping whenever the editor has a selected
+active grid. Do not run a scale candidate through the existing point-translation
+helper: scale snapping changes a dimension, not the target translation.
+
+Add scale as an operation constraint to the shared grid-snap request/result
+path. The request carries:
+
+- the selected active-grid frame and spacing
+- the target pose captured at drag start
+- the candidate scale derived from the current pointer
+- the selected local scale axis
+- aggregate rendered-subtree bounds when measurable
+
+Scale snapping remains a one-scalar operation. The snap result may change only
+the selected target scale component. It must preserve:
+
+- target translation
+- target rotation
+- the other two scale components
+- the selected handle's local-axis constraint
+
+Use the grid spacing as the dimensional step along all three grid-local axes.
+For scaling, grid-local Y uses the same spacing even though the visible grid
+lines lie in grid-local XZ. This allows height to snap to cell-sized increments
+when scaling along the grid normal.
+
+When usable aggregate bounds are available:
+
+1. transform the candidate bounds into selected-grid-local space
+2. determine which grid-local axis is most affected by the selected scale axis
+3. choose the positive, dragged-side bound extreme for that grid coordinate
+4. snap that extreme to its nearest grid-spacing line
+5. solve the required correction by changing only the selected scale scalar
+
+For an oblique relationship, snap only the single grid coordinate most affected
+by the scale handle. Do not alter another scale component or translate the
+object in an attempt to satisfy multiple grid coordinates.
+
+If the selected scale component has no meaningful effect on the chosen grid
+coordinate, leave the candidate unsnapped. If aggregate bounds cannot be
+measured, fall back to quantizing the captured handle-axis displacement in
+grid-spacing increments rather than inventing bounds or moving the target.
+
+The snapped scale must still respect the nonzero minimum. Ties between grid
+lines use the same deterministic rounding rule as other grid operations.
+Repeated evaluation of the same pointer position must return the same snapped
+scale.
+
+This requirement explicitly extends the unified grid-snap work, where rotation
+and scale snapping were originally out of scope. Rotation snapping remains out
+of scope; only the axis scale handles introduced by this task are added to the
+shared request path.
+
 ## Arm refresh lifecycle
 
 Provide one gizmo-system entry point such as:
@@ -268,6 +328,21 @@ later refactor.
 - Scale handles follow target-local axes under rotated targets and parents.
 - Translation behavior, planar translation behavior, and rotation behavior are
   unchanged after toggling back to translate mode.
+
+### Grid snapping
+
+- With no selected active grid, scale dragging remains continuous.
+- With a selected active grid, all X, Y, and Z scale arms use grid spacing.
+- A grid-aligned scale axis snaps the dragged-side aggregate bound to a grid
+  line without changing target translation.
+- Scaling along the grid normal uses grid spacing as a height increment.
+- An oblique scale axis snaps at most one, most-affected grid coordinate.
+- Snapping never changes either unselected scale component.
+- Missing bounds use quantized handle-axis displacement as the fallback.
+- Rotated grids, rotated targets, and parent transforms produce the same
+  grid-local snapped dimensions as their unrotated equivalents.
+- Repeated drag updates at the same pointer position do not accumulate scale or
+  alternate between snap results.
 
 ## Out of scope
 
