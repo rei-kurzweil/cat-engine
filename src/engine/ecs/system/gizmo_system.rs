@@ -2,7 +2,8 @@ use crate::engine::ecs::component::{
     GestureCoordType, GestureCoordTypeComponent, SignalRouteUpwardComponent,
     TransformCameraSpecificComponent, TransformCameraSpecificMode, TransformComponent,
     TransformDropComponent, TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
-    TransformGizmoRotateComponent, TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    TransformGizmoPlane, TransformGizmoRotateComponent, TransformGizmoScaleComponent,
+    TransformGizmoTranslateComponent, TransformGizmoTranslatePlaneComponent,
     TransformMapRotationComponent, TransformMapScaleComponent, TransformMapTranslationComponent,
 };
 use crate::engine::ecs::system::GridSystem;
@@ -18,6 +19,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone, Copy)]
 enum TransformGizmoOp {
     Translate(TransformGizmoAxis),
+    TranslatePlane(TransformGizmoPlane),
     Rotate(TransformGizmoAxis),
     Scale(TransformGizmoAxis),
 }
@@ -474,6 +476,86 @@ impl TransformGizmoSystem {
         add(drag_start_target_translation, delta_local)
     }
 
+    fn planar_translation_drag_next_local(
+        world: &World,
+        target_transform: ComponentId,
+        plane_axes_world: [[f32; 3]; 2],
+        drag_start_hit_point_world: [f32; 3],
+        drag_start_target_translation: [f32; 3],
+        current_hit_point_world: [f32; 3],
+    ) -> [f32; 3] {
+        fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        }
+        fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+            [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+        }
+        fn mul(v: [f32; 3], s: f32) -> [f32; 3] {
+            [v[0] * s, v[1] * s, v[2] * s]
+        }
+        fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+            [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+        }
+
+        let drag_world = sub(current_hit_point_world, drag_start_hit_point_world);
+        let delta_world = add(
+            mul(plane_axes_world[0], dot(drag_world, plane_axes_world[0])),
+            mul(plane_axes_world[1], dot(drag_world, plane_axes_world[1])),
+        );
+        let delta_local = Self::world_delta_to_target_local(world, target_transform, delta_world);
+        add(drag_start_target_translation, delta_local)
+    }
+
+    fn snap_planar_translation_world(
+        active_grid: &crate::engine::ecs::system::grid_system::ActiveGrid,
+        candidate_world: [f32; 3],
+        plane_axes_world: [[f32; 3]; 2],
+    ) -> [f32; 3] {
+        use crate::utils::math;
+
+        fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        }
+        fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        }
+
+        let snapped = GridSystem::snap_point_preserving_plane_offset(active_grid, candidate_world)
+            .point_world;
+        let correction = [
+            snapped[0] - candidate_world[0],
+            snapped[1] - candidate_world[1],
+            snapped[2] - candidate_world[2],
+        ];
+        let plane_normal = math::vec3_normalize(cross(plane_axes_world[0], plane_axes_world[1]));
+        let grid_x = math::vec3_normalize(Self::transform_direction(
+            active_grid.matrix_world,
+            [1.0, 0.0, 0.0],
+        ));
+        let grid_z = math::vec3_normalize(Self::transform_direction(
+            active_grid.matrix_world,
+            [0.0, 0.0, 1.0],
+        ));
+
+        // Quantize only grid coordinates whose correction direction lies in the captured
+        // gizmo plane. This keeps the locked gizmo coordinate exact, including for oblique
+        // relationships where neither grid coordinate can be satisfied.
+        let mut result = candidate_world;
+        for grid_axis in [grid_x, grid_z] {
+            if dot(grid_axis, plane_normal).abs() <= 1e-4 {
+                let amount = dot(correction, grid_axis);
+                result[0] += grid_axis[0] * amount;
+                result[1] += grid_axis[1] * amount;
+                result[2] += grid_axis[2] * amount;
+            }
+        }
+        result
+    }
+
     fn resolve_translation_space(
         world: &World,
         gizmo_cid: ComponentId,
@@ -521,6 +603,30 @@ impl TransformGizmoSystem {
                 math::vec3_normalize(Self::transform_direction(target_world, axis_local))
             }
         }
+    }
+
+    fn translation_plane_axes_world(
+        world: &World,
+        target_transform: ComponentId,
+        space: crate::engine::ecs::component::TransformGizmoCoordSpace,
+        plane: TransformGizmoPlane,
+    ) -> [[f32; 3]; 2] {
+        use crate::utils::math;
+
+        fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        }
+
+        let (a, b) = plane.axes();
+        let u = Self::translation_axis_world(world, target_transform, space, a);
+        let raw_v = Self::translation_axis_world(world, target_transform, space, b);
+        let along_u = dot(raw_v, u);
+        let v = math::vec3_normalize([
+            raw_v[0] - u[0] * along_u,
+            raw_v[1] - u[1] * along_u,
+            raw_v[2] - u[2] * along_u,
+        ]);
+        [u, v]
     }
 
     fn quat_from_z_to_dir(dir: [f32; 3]) -> [f32; 4] {
@@ -718,16 +824,26 @@ impl TransformGizmoSystem {
             return;
         };
 
-        let Some((gizmo_cid, _op)) = Self::resolve_gizmo_op_for_renderable(world, *renderable)
+        let Some((gizmo_cid, op)) = Self::resolve_gizmo_op_for_renderable(world, *renderable)
         else {
             return;
         };
 
-        let drag_start_target_translation = world
+        let target_transform = world
             .get_component_by_id_as::<TransformGizmoComponent>(gizmo_cid)
-            .and_then(|g| g.target_transform)
+            .and_then(|g| g.target_transform);
+        let drag_start_target_translation = target_transform
             .and_then(|target| world.get_component_by_id_as::<TransformComponent>(target))
             .map(|t| t.transform.translation);
+        let active_drag_plane_axes_world = match (op, target_transform) {
+            (TransformGizmoOp::TranslatePlane(plane), Some(target)) => {
+                let space = Self::resolve_translation_space(world, gizmo_cid);
+                Some(Self::translation_plane_axes_world(
+                    world, target, space, plane,
+                ))
+            }
+            _ => None,
+        };
 
         let mut old_debug_root: Option<ComponentId> = None;
         if let Some(g) = world.get_component_by_id_as_mut::<TransformGizmoComponent>(gizmo_cid) {
@@ -735,6 +851,7 @@ impl TransformGizmoSystem {
             g.active_drag_slider_last_angle = 0.0;
             g.active_drag_start_hit_point_world = Some(*hit_point);
             g.active_drag_start_target_translation = drag_start_target_translation;
+            g.active_drag_plane_axes_world = active_drag_plane_axes_world;
             if Self::debug_drag_plane_enabled() {
                 old_debug_root = g.debug_drag_plane_root.take();
             }
@@ -745,7 +862,16 @@ impl TransformGizmoSystem {
         }
 
         if Self::debug_drag_plane_enabled() {
-            let plane_root = Self::spawn_debug_drag_plane(world, emit, *hit_point, *ray_dir_world);
+            let plane_normal = active_drag_plane_axes_world
+                .map(|axes| {
+                    [
+                        axes[0][1] * axes[1][2] - axes[0][2] * axes[1][1],
+                        axes[0][2] * axes[1][0] - axes[0][0] * axes[1][2],
+                        axes[0][0] * axes[1][1] - axes[0][1] * axes[1][0],
+                    ]
+                })
+                .unwrap_or(*ray_dir_world);
+            let plane_root = Self::spawn_debug_drag_plane(world, emit, *hit_point, plane_normal);
             if let Some(g) = world.get_component_by_id_as_mut::<TransformGizmoComponent>(gizmo_cid)
             {
                 g.debug_drag_plane_root = Some(plane_root);
@@ -807,6 +933,7 @@ impl TransformGizmoSystem {
             slider_last_angle,
             drag_start_hit_point_world,
             drag_start_target_translation,
+            active_drag_plane_axes_world,
         )) = world
             .get_component_by_id_as::<TransformGizmoComponent>(gizmo_cid)
             .map(|g| {
@@ -816,6 +943,7 @@ impl TransformGizmoSystem {
                     g.active_drag_slider_last_angle,
                     g.active_drag_start_hit_point_world,
                     g.active_drag_start_target_translation,
+                    g.active_drag_plane_axes_world,
                 )
             })
         else {
@@ -903,6 +1031,83 @@ impl TransformGizmoSystem {
                     );
                 }
 
+                let Some(t) =
+                    world.get_component_by_id_as_mut::<TransformComponent>(target_transform)
+                else {
+                    return;
+                };
+                t.set_position(emit, next[0], next[1], next[2]);
+            }
+            TransformGizmoOp::TranslatePlane(plane) => {
+                let Some(drag_start_hit_point_world) = drag_start_hit_point_world else {
+                    return;
+                };
+                let Some(drag_start_target_translation) = drag_start_target_translation else {
+                    return;
+                };
+                let Some(plane_axes_world) = active_drag_plane_axes_world else {
+                    return;
+                };
+                let unsnapped_next = Self::planar_translation_drag_next_local(
+                    world,
+                    target_transform,
+                    plane_axes_world,
+                    drag_start_hit_point_world,
+                    drag_start_target_translation,
+                    *hit_point,
+                );
+                let next = if let Some(active_grid) =
+                    Self::active_snap_grid_for_translate(world, editor_context_state.clone())
+                {
+                    let candidate_world = Self::target_translation_local_to_world(
+                        world,
+                        target_transform,
+                        unsnapped_next,
+                    );
+                    let snapped_world = Self::snap_planar_translation_world(
+                        &active_grid,
+                        candidate_world,
+                        plane_axes_world,
+                    );
+                    Self::world_point_to_target_translation_local(
+                        world,
+                        target_transform,
+                        snapped_world,
+                    )
+                } else {
+                    unsnapped_next
+                };
+
+                if Self::debug_apply_enabled() {
+                    Self::log_apply(
+                        world,
+                        "translate_plane",
+                        target_transform,
+                        &format!(
+                            "plane={plane:?} hit_point={:?} drag_start_hit_point={:?} axes_world={:?} drag_start_t={:?} next_t={:?}",
+                            *hit_point,
+                            drag_start_hit_point_world,
+                            plane_axes_world,
+                            drag_start_target_translation,
+                            next,
+                        ),
+                    );
+                }
+
+                let Some(t_ro) =
+                    world.get_component_by_id_as::<TransformComponent>(target_transform)
+                else {
+                    return;
+                };
+                if Self::debug_sanity_enabled() {
+                    Self::sanity_check_transform_values(
+                        world,
+                        target_transform,
+                        next,
+                        t_ro.transform.rotation,
+                        t_ro.transform.scale,
+                    );
+                }
                 let Some(t) =
                     world.get_component_by_id_as_mut::<TransformComponent>(target_transform)
                 else {
@@ -1132,6 +1337,7 @@ impl TransformGizmoSystem {
             g.active_drag_slider_last_angle = 0.0;
             g.active_drag_start_hit_point_world = None;
             g.active_drag_start_target_translation = None;
+            g.active_drag_plane_axes_world = None;
 
             if Self::debug_drag_plane_enabled() {
                 if let Some(root) = g.debug_drag_plane_root.take() {
@@ -1152,8 +1358,9 @@ impl TransformGizmoSystem {
     ) {
         use crate::engine::ecs::component::{
             EditorComponent, OverlayComponent, TransformComponent, TransformGizmoAxis,
-            TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoRotateComponent,
-            TransformGizmoTranslateComponent,
+            TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
+            TransformGizmoRotateComponent, TransformGizmoTranslateComponent,
+            TransformGizmoTranslatePlaneComponent,
         };
         use crate::engine::graphics::primitives::CpuMeshHandle;
 
@@ -1537,6 +1744,20 @@ impl TransformGizmoSystem {
             h
         }
 
+        fn spawn_translate_plane_handle_root(
+            world: &mut World,
+            parent: ComponentId,
+            plane: TransformGizmoPlane,
+            name: &str,
+        ) -> ComponentId {
+            let h = world.add_component_boxed_named(
+                name,
+                Box::new(TransformGizmoTranslatePlaneComponent::new(plane)),
+            );
+            let _ = world.add_child(parent, h);
+            h
+        }
+
         fn spawn_rotate_handle_root(
             world: &mut World,
             parent: ComponentId,
@@ -1555,6 +1776,9 @@ impl TransformGizmoSystem {
         let red = [1.0, 0.15, 0.15, 1.0];
         let green = [0.15, 1.0, 0.15, 1.0];
         let blue = [0.15, 0.35, 1.0, 1.0];
+        let yellow = [1.0, 1.0, 0.15, 1.0];
+        let cyan = [0.15, 1.0, 1.0, 1.0];
+        let magenta = [1.0, 0.15, 1.0, 1.0];
 
         // Rotation rings (thin annulus) for X/Y/Z axes.
         let ring_mesh = CpuMeshHandle::CIRCLE_2D;
@@ -1719,6 +1943,67 @@ impl TransformGizmoSystem {
             blue,
         );
 
+        // Planar translation handles are compact filled squares in each positive quadrant.
+        // Their inner edge remains clear of the origin and their thin locked-axis dimension
+        // keeps them visually distinct from the axis stems.
+        let plane_center = 0.32_f32;
+        let plane_size = 0.28_f32;
+        let plane_thickness = 0.025_f32;
+
+        let move_xy_root = spawn_translate_plane_handle_root(
+            world,
+            translate_parent,
+            TransformGizmoPlane::XY,
+            "gizmo_move_xy",
+        );
+        let move_xy_pick = spawn_raycastable_root(world, move_xy_root, "gizmo_move_xy_pick");
+        spawn_part(
+            world,
+            move_xy_pick,
+            "gizmo_move_xy_square",
+            CpuMeshHandle::CUBE,
+            [plane_center, plane_center, 0.0],
+            [0.0, 0.0, 0.0],
+            [plane_size, plane_size, plane_thickness],
+            yellow,
+        );
+
+        let move_yz_root = spawn_translate_plane_handle_root(
+            world,
+            translate_parent,
+            TransformGizmoPlane::YZ,
+            "gizmo_move_yz",
+        );
+        let move_yz_pick = spawn_raycastable_root(world, move_yz_root, "gizmo_move_yz_pick");
+        spawn_part(
+            world,
+            move_yz_pick,
+            "gizmo_move_yz_square",
+            CpuMeshHandle::CUBE,
+            [0.0, plane_center, plane_center],
+            [0.0, 0.0, 0.0],
+            [plane_thickness, plane_size, plane_size],
+            cyan,
+        );
+
+        let move_xz_root = spawn_translate_plane_handle_root(
+            world,
+            translate_parent,
+            TransformGizmoPlane::XZ,
+            "gizmo_move_xz",
+        );
+        let move_xz_pick = spawn_raycastable_root(world, move_xz_root, "gizmo_move_xz_pick");
+        spawn_part(
+            world,
+            move_xz_pick,
+            "gizmo_move_xz_square",
+            CpuMeshHandle::CUBE,
+            [plane_center, 0.0, plane_center],
+            [0.0, 0.0, 0.0],
+            [plane_size, plane_thickness, plane_size],
+            magenta,
+        );
+
         // Init the subtree (queues renderable/transform/color registrations).
         world.init_component_tree(gizmo_root, emit);
     }
@@ -1740,6 +2025,10 @@ impl TransformGizmoSystem {
                     world.get_component_by_id_as::<TransformGizmoTranslateComponent>(node)
                 {
                     op = Some(TransformGizmoOp::Translate(h.axis));
+                } else if let Some(h) =
+                    world.get_component_by_id_as::<TransformGizmoTranslatePlaneComponent>(node)
+                {
+                    op = Some(TransformGizmoOp::TranslatePlane(h.plane));
                 } else if let Some(h) =
                     world.get_component_by_id_as::<TransformGizmoRotateComponent>(node)
                 {
@@ -1873,10 +2162,12 @@ impl TransformGizmoSystem {
 #[cfg(test)]
 mod tests {
     use super::TransformGizmoSystem;
-    use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
-        TransformComponent, TransformGizmoAxis, TransformGizmoCoordSpace,
+        ColorComponent, RaycastableComponent, TransformComponent, TransformGizmoAxis,
+        TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
+        TransformGizmoTranslatePlaneComponent,
     };
+    use crate::engine::ecs::{CommandQueue, World};
 
     fn approx3(a: [f32; 3], b: [f32; 3]) {
         for i in 0..3 {
@@ -1886,6 +2177,57 @@ mod tests {
                 a,
                 b
             );
+        }
+    }
+
+    #[test]
+    fn planar_handles_render_with_expected_colors_and_independent_hit_roots() {
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new());
+        let gizmo = world.add_component(TransformGizmoComponent::new());
+        world.add_child(target, gizmo).expect("attach gizmo");
+        let mut emit = CommandQueue::new();
+
+        TransformGizmoSystem::new().register_transform_gizmo(&mut world, gizmo, &mut emit);
+
+        for (name, expected_plane, expected_color) in [
+            (
+                "gizmo_move_xy",
+                TransformGizmoPlane::XY,
+                [1.0, 1.0, 0.15, 1.0],
+            ),
+            (
+                "gizmo_move_yz",
+                TransformGizmoPlane::YZ,
+                [0.15, 1.0, 1.0, 1.0],
+            ),
+            (
+                "gizmo_move_xz",
+                TransformGizmoPlane::XZ,
+                [1.0, 0.15, 1.0, 1.0],
+            ),
+        ] {
+            let handle = world
+                .find_component(gizmo, &format!("[name='{name}']"))
+                .expect("planar handle root");
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<TransformGizmoTranslatePlaneComponent>(handle)
+                    .expect("planar handle marker")
+                    .plane,
+                expected_plane
+            );
+            assert!(
+                world
+                    .find_component(handle, "Raycastable")
+                    .and_then(|id| world.get_component_by_id_as::<RaycastableComponent>(id))
+                    .is_some_and(|raycastable| raycastable.enable)
+            );
+            let color = world
+                .find_component(handle, "Color")
+                .and_then(|id| world.get_component_by_id_as::<ColorComponent>(id))
+                .expect("planar handle color");
+            assert_eq!(color.rgba, expected_color);
         }
     }
 
@@ -1944,6 +2286,44 @@ mod tests {
     }
 
     #[test]
+    fn planar_translation_basis_follows_world_and_local_modes() {
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new().with_rotation_euler(
+            0.0,
+            0.0,
+            std::f32::consts::FRAC_PI_2,
+        ));
+        let target_world = world
+            .get_component_by_id_as::<TransformComponent>(target)
+            .expect("target transform")
+            .transform
+            .model;
+        world
+            .get_component_by_id_as_mut::<TransformComponent>(target)
+            .expect("target transform")
+            .transform
+            .matrix_world = target_world;
+
+        let world_axes = TransformGizmoSystem::translation_plane_axes_world(
+            &world,
+            target,
+            TransformGizmoCoordSpace::World,
+            TransformGizmoPlane::XY,
+        );
+        approx3(world_axes[0], [1.0, 0.0, 0.0]);
+        approx3(world_axes[1], [0.0, 1.0, 0.0]);
+
+        let local_axes = TransformGizmoSystem::translation_plane_axes_world(
+            &world,
+            target,
+            TransformGizmoCoordSpace::Local,
+            TransformGizmoPlane::XY,
+        );
+        approx3(local_axes[0], [0.0, 1.0, 0.0]);
+        approx3(local_axes[1], [-1.0, 0.0, 0.0]);
+    }
+
+    #[test]
     fn translation_drag_uses_drag_start_anchor_instead_of_frame_delta() {
         let mut world = World::default();
         let target = world.add_component(TransformComponent::new().with_position(10.0, 0.0, 0.0));
@@ -1958,6 +2338,76 @@ mod tests {
         );
 
         approx3(next, [10.25, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn planar_translation_drag_changes_two_axes_and_preserves_locked_axis() {
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new().with_position(10.0, 20.0, 30.0));
+
+        let next = TransformGizmoSystem::planar_translation_drag_next_local(
+            &world,
+            target,
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [0.0, 0.0, 0.0],
+            [10.0, 20.0, 30.0],
+            [0.25, 0.5, 9.0],
+        );
+
+        approx3(next, [10.25, 20.5, 30.0]);
+    }
+
+    #[test]
+    fn planar_translation_drag_repeated_update_does_not_accumulate() {
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new());
+        let args = (
+            [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            [1.0, 2.0, 3.0],
+            [4.0, 5.0, 6.0],
+            [1.75, 99.0, 2.25],
+        );
+
+        let first = TransformGizmoSystem::planar_translation_drag_next_local(
+            &world, target, args.0, args.1, args.2, args.3,
+        );
+        let repeated = TransformGizmoSystem::planar_translation_drag_next_local(
+            &world, target, args.0, args.1, args.2, args.3,
+        );
+
+        approx3(first, [4.75, 5.0, 5.25]);
+        approx3(repeated, first);
+    }
+
+    #[test]
+    fn planar_grid_snap_quantizes_only_grid_axes_contained_by_plane() {
+        use crate::engine::ecs::system::grid_system::ActiveGrid;
+
+        let mut world = World::default();
+        let component = world.add_component(TransformComponent::new());
+        let identity = TransformGizmoSystem::mat4_identity();
+        let grid = ActiveGrid {
+            component,
+            spacing: 1.0,
+            origin_world: [0.0; 3],
+            normal_world: [0.0, 1.0, 0.0],
+            matrix_world: identity,
+            inverse_world: identity,
+        };
+
+        let xz = TransformGizmoSystem::snap_planar_translation_world(
+            &grid,
+            [0.24, 0.7, 0.76],
+            [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+        );
+        approx3(xz, [0.0, 0.7, 1.0]);
+
+        let xy = TransformGizmoSystem::snap_planar_translation_world(
+            &grid,
+            [0.24, 0.7, 0.76],
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        );
+        approx3(xy, [0.0, 0.7, 0.76]);
     }
 
     #[test]

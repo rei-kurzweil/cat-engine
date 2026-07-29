@@ -5911,6 +5911,20 @@ fn roundtrip_transform_gizmo_translate() {
 }
 
 #[test]
+fn roundtrip_transform_gizmo_translate_plane() {
+    use crate::engine::ecs::component::{
+        TransformGizmoPlane, TransformGizmoTranslatePlaneComponent,
+    };
+    let (world, id) = roundtrip_component(TransformGizmoTranslatePlaneComponent::new(
+        TransformGizmoPlane::XZ,
+    ));
+    let got = world
+        .get_component_by_id_as::<TransformGizmoTranslatePlaneComponent>(id)
+        .expect("TransformGizmoTranslatePlane component");
+    assert_eq!(got.plane, TransformGizmoPlane::XZ);
+}
+
+#[test]
 fn roundtrip_transform_gizmo() {
     use crate::engine::ecs::component::TransformGizmoComponent;
     let (world, id) = roundtrip_component(TransformGizmoComponent::new().with_scale(0.5));

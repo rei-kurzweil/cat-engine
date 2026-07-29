@@ -8,6 +8,31 @@ pub enum TransformGizmoAxis {
     Z,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformGizmoPlane {
+    XY,
+    YZ,
+    XZ,
+}
+
+impl TransformGizmoPlane {
+    pub fn axes(self) -> (TransformGizmoAxis, TransformGizmoAxis) {
+        match self {
+            Self::XY => (TransformGizmoAxis::X, TransformGizmoAxis::Y),
+            Self::YZ => (TransformGizmoAxis::Y, TransformGizmoAxis::Z),
+            Self::XZ => (TransformGizmoAxis::X, TransformGizmoAxis::Z),
+        }
+    }
+
+    pub fn locked_axis(self) -> TransformGizmoAxis {
+        match self {
+            Self::XY => TransformGizmoAxis::Z,
+            Self::YZ => TransformGizmoAxis::X,
+            Self::XZ => TransformGizmoAxis::Y,
+        }
+    }
+}
+
 impl TransformGizmoAxis {
     pub fn unit_vec3(self) -> [f32; 3] {
         match self {
@@ -59,6 +84,47 @@ fn axis_ctor(axis: TransformGizmoAxis) -> &'static str {
         TransformGizmoAxis::X => "x",
         TransformGizmoAxis::Y => "y",
         TransformGizmoAxis::Z => "z",
+    }
+}
+
+/// Handle marker: translate within a plane while preserving its locked axis.
+///
+/// This component is intended to be an ancestor of the entire clickable handle subtree.
+#[derive(Debug, Clone, Copy)]
+pub struct TransformGizmoTranslatePlaneComponent {
+    pub plane: TransformGizmoPlane,
+}
+
+impl TransformGizmoTranslatePlaneComponent {
+    pub fn new(plane: TransformGizmoPlane) -> Self {
+        Self { plane }
+    }
+}
+
+impl Component for TransformGizmoTranslatePlaneComponent {
+    fn name(&self) -> &'static str {
+        "transform_gizmo_translate_plane"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn to_mms_ast(
+        &self,
+        _world: &crate::engine::ecs::World,
+    ) -> crate::scripting::ast::ComponentExpression {
+        use crate::engine::ecs::component::ce_helpers::*;
+        let ctor = match self.plane {
+            TransformGizmoPlane::XY => "xy",
+            TransformGizmoPlane::YZ => "yz",
+            TransformGizmoPlane::XZ => "xz",
+        };
+        ce_call("TransformGizmoTranslatePlane", ctor, vec![])
     }
 }
 
@@ -137,7 +203,8 @@ impl Component for TransformGizmoScaleComponent {
 /// A simple transform gizmo.
 ///
 /// Attach this as a child of a TransformComponent you want to manipulate.
-/// On init, a 9-part visual subtree is spawned under the gizmo component.
+/// On init, an axis, plane, and rotation-handle visual subtree is spawned under the gizmo
+/// component.
 /// When a drag gesture is active on a gizmo renderable, TransformGizmoSystem applies the drag delta
 /// to the TransformComponent it is attached under.
 #[derive(Debug, Clone, Copy)]
@@ -165,6 +232,9 @@ pub struct TransformGizmoComponent {
     /// Runtime: target local translation captured at drag start.
     pub active_drag_start_target_translation: Option<[f32; 3]>,
 
+    /// Runtime: stable world-space basis captured for a planar translation drag.
+    pub active_drag_plane_axes_world: Option<[[f32; 3]; 2]>,
+
     /// Root TransformComponent id of the gizmo visual subtree (spawned on init).
     pub visual_root: Option<ComponentId>,
 
@@ -189,6 +259,7 @@ impl TransformGizmoComponent {
             active_drag_slider_last_angle: 0.0,
             active_drag_start_hit_point_world: None,
             active_drag_start_target_translation: None,
+            active_drag_plane_axes_world: None,
             visual_root: None,
             debug_drag_plane_root: None,
             component: None,

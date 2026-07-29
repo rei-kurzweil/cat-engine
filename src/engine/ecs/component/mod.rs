@@ -154,8 +154,9 @@ pub use emissive_pass::EmissivePassComponent;
 pub use fit_bounds::{FitBoundsComponent, FitBoundsMode, FitBoundsTarget};
 pub use gesture_coord_type::{GestureCoordType, GestureCoordTypeComponent};
 pub use gizmo::{
-    TransformGizmoAxis, TransformGizmoComponent, TransformGizmoRotateComponent,
-    TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    TransformGizmoAxis, TransformGizmoComponent, TransformGizmoPlane,
+    TransformGizmoRotateComponent, TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    TransformGizmoTranslatePlaneComponent,
 };
 pub use grabbable::GrabbableComponent;
 pub use gravity::GravityComponent;

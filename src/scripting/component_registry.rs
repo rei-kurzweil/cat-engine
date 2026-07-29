@@ -40,11 +40,12 @@ use crate::engine::ecs::component::{
     TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
     ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
     TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
-    TransformGizmoCoordSpace, TransformGizmoRotateComponent, TransformGizmoScaleComponent,
-    TransformGizmoTranslateComponent, TransformMapRotationComponent, TransformMapScaleComponent,
-    TransformMapTranslationComponent, TransformMergeTRSComponent, TransformParentComponent,
-    TransformSampleAncestorComponent, TransitionComponent, TransitionEasing,
-    TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
+    TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoRotateComponent,
+    TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    TransformGizmoTranslatePlaneComponent, TransformMapRotationComponent,
+    TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
+    TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
+    TransitionEasing, TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
     Vector3TemporalFilterComponent, WordWrapMode, XRHandComponent, XrComponent, XrHandPreference,
 };
 use crate::engine::ecs::{ComponentId, World};
@@ -173,6 +174,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "TransformGizmoRotate",
     "TransformGizmoScale",
     "TransformGizmoTranslate",
+    "TransformGizmoTranslatePlane",
     "TransformMapRotation",
     "TransformMapScale",
     "TransformMapTranslation",
@@ -1260,6 +1262,14 @@ fn parse_gizmo_axis(ctor: Option<&str>) -> TransformGizmoAxis {
     }
 }
 
+fn parse_gizmo_plane(ctor: Option<&str>) -> TransformGizmoPlane {
+    match ctor {
+        Some("yz") | Some("YZ") => TransformGizmoPlane::YZ,
+        Some("xz") | Some("XZ") => TransformGizmoPlane::XZ,
+        _ => TransformGizmoPlane::XY,
+    }
+}
+
 /// Accept either a unit-literal (`50%`, `20gu`, `0.08wu`) or a bare number
 /// (interpreted as glyph units) and produce a `SizeDimension`. Used by Style
 /// sizing setters.
@@ -2187,6 +2197,9 @@ fn create_component(
         "TransformGizmoTranslate" => add!(TransformGizmoTranslateComponent::new(parse_gizmo_axis(
             ctor
         ))),
+        "TransformGizmoTranslatePlane" => add!(TransformGizmoTranslatePlaneComponent::new(
+            parse_gizmo_plane(ctor)
+        )),
         "TransformGizmoRotate" => add!(TransformGizmoRotateComponent::new(parse_gizmo_axis(ctor))),
         "TransformGizmoScale" => add!(TransformGizmoScaleComponent::new(parse_gizmo_axis(ctor))),
         "CollisionResponse" => {
