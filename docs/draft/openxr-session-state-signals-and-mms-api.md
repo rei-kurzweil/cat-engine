@@ -2,6 +2,8 @@
 
 Status: draft; not implemented.
 
+Epic: [OpenXR presence, runtime-state signals, and active viewer arbitration](../task/epic/openxr-presence-and-active-viewer-arbitration.md)
+
 ## Purpose
 
 Expose OpenXR lifecycle and active interaction-profile state to ordinary engine event consumers
@@ -20,6 +22,10 @@ This draft adds:
   runtime for the left and right hands;
 - read-only MMS methods on the live `XR` component for the current session state, runtime/system
   information, and current interaction profiles.
+
+The epic extends this boundary with `XR_EXT_user_presence`, an `XrUserPresenceChanged` event, and
+cached presence capability/state. Keep presence distinct from session focus: a streaming runtime
+may remain `FOCUSED` or continue presenting while nobody is wearing the headset.
 
 ## Current behavior
 
