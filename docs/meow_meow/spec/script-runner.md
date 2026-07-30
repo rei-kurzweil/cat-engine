@@ -49,6 +49,14 @@ The engine may temporarily re-export crate-owned `Value`, `MaterializedCE`,
 component tree, handle, and error DTOs from legacy module paths. It must not
 maintain equivalent engine-local types.
 
+The compatibility target primarily covers established runner methods and MMS
+behavior. It does not automatically make every currently public engine struct
+field compatible. `LoadedMmsModule`, for example, presently exposes legacy
+exports and heap state through public fields; the persistent session design
+must either preserve those callers through a valid facade or treat the engine
+change as breaking. The versioning rule is defined in
+[Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md#compatibility-and-versioning).
+
 ## Ordinary source evaluation
 
 Representative entry points are:

@@ -21,6 +21,8 @@ defined by the normative specification and must not be redefined here.
 - [ ] Preserve current engine-facing `MeowMeowRunner` entry points where
       practical.
 - [ ] Use temporary legacy-path re-exports only for crate-owned DTOs.
+- [ ] Do not describe the Mittens migration as non-breaking until a public
+      Rust API and observable-behavior compatibility audit passes.
 - [ ] Record every newly found parity defect as a regression fixture.
 
 ## Baseline and inventory
@@ -34,6 +36,18 @@ defined by the normative specification and must not be redefined here.
   - `eval_module_source`
   - engine-local `Value`, `MaterializedCE`, and `RuntimeClosure`
   - engine-local evaluator request/response and host-call types
+- [ ] Inventory the published/supported Mittens Rust surface, especially:
+  - `MeowMeowRunner` method signatures
+  - `LoadedMmsModule` and its public fields
+  - legacy scripting-module type paths
+  - callback/keyframe types exposed through ECS components
+- [ ] Classify every compatibility hazard listed in the normative spec as:
+  - preserved exactly
+  - preserved through a deprecated boundary-safe facade
+  - explicitly unstable/internal
+  - deliberately breaking
+- [ ] Add compile fixtures representing existing external Mittens runner and
+      module consumers.
 - [ ] Inventory every independent engine component/API vocabulary source that
       must be folded into the one `RuntimeSpec` builder:
   - canonical component names and aliases
@@ -260,6 +274,32 @@ host/REPL adapters.
 Exit gate: the legacy evaluator and runtime object model no longer exist and
 the full workspace suite passes.
 
+## Release and versioning
+
+- [ ] Treat the direct `meow-meow-script` API migration as breaking.
+- [ ] Bump `meow-meow-script` from `0.6.0` to `0.7.0` when the new API lands;
+      do not publish it as `0.6.x`.
+- [ ] Update the `mittens-engine` dependency requirement and lockfile to the
+      new `meow-meow-script` version in the same release change.
+- [ ] Publish a direct-embedder migration guide covering:
+  - construction through the one `RuntimeSpec` builder
+  - removal of separate `HostCapabilities`
+  - the persistent host-independent session
+  - worker request/response correlation
+  - callback and component handle changes
+- [ ] Run the Mittens public API/source-compatibility fixtures.
+- [ ] Verify observable compatibility for runner outputs, errors, modules,
+      template/live factories, handlers, and keyframes.
+- [ ] If supported Mittens APIs cannot be preserved with a boundary-safe
+      facade, classify the engine change as breaking and bump
+      `mittens-engine` from `0.7.0` to `0.8.0`.
+- [ ] If those APIs and behaviors are preserved, record explicitly that the
+      engine release is non-breaking even though its `meow-meow-script`
+      dependency made a breaking release.
+
+Exit gate: crate versions communicate the actual compatibility impact and
+both direct embedders and Mittens users have an explicit migration story.
+
 ## Final acceptance
 
 - [ ] `meow-meow-script` is the sole owner of parsing, evaluation, runtime
@@ -279,6 +319,10 @@ the full workspace suite passes.
 - [ ] Template/live factory behavior is explicit and tested.
 - [ ] Delayed callbacks retain their originating heap/session identity.
 - [ ] Typed errors and recovery behavior are covered.
+- [ ] `meow-meow-script` has a pre-1.0 breaking version bump and migration
+      guide.
+- [ ] Mittens public API compatibility is proven, or Mittens receives its own
+      documented breaking version bump.
 - [ ] The full workspace test suite passes.
 
 ## Required test matrix

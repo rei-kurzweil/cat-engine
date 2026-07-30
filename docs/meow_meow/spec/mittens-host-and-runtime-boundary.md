@@ -437,6 +437,78 @@ The engine-facing `MeowMeowRunner` entry points should remain source-compatible
 while their internals move to the crate worker. This compatibility does not
 permit a legacy evaluator fallback.
 
+### Compatibility and versioning
+
+For ordinary Mittens applications and MMS authors, this migration is intended
+to be non-breaking:
+
+- existing MMS source continues through the canonical evaluator
+- established `MeowMeowRunner` method names, parameters, and return types stay
+  available
+- legacy engine module paths may re-export crate-owned DTOs
+- template versus live behavior remains an explicit caller choice
+
+This is not inherently non-breaking for every direct Rust consumer.
+`meow-meow-script` embedders must migrate from the old runtime/session, host
+capability, callback, and worker APIs to `RuntimeSpec` and the persistent
+host-independent session protocol. That is a breaking public API release.
+
+The crate is currently `0.6.0`. Under Cargo's pre-1.0 compatibility convention,
+the appropriate breaking release is `0.7.0`, not a `0.6.x` release. A jump to
+`1.0.0` is warranted only if the project is also ready to promise a stable
+1.x API; it is not required merely to signal this break.
+
+`mittens-engine` is currently `0.7.0`. Keeping it non-breaking requires more
+than preserving runner method signatures: all supported public Rust types and
+fields must remain source-compatible or gain a compatibility facade. In
+particular, the current public fields of `LoadedMmsModule` expose legacy
+export/heap representation that the target session architecture cannot expose
+unchanged without violating the runtime boundary.
+
+Before release, Mittens must choose one of these outcomes:
+
+1. preserve supported engine APIs with compatibility wrappers and release the
+   migration without a Mittens breaking-version bump; or
+2. deliberately change those APIs, document the migration, and make the
+   corresponding pre-1.0 breaking bump from `0.7` to `0.8`.
+
+Changing observable error ordering, callback lifetime, module identity, or
+template/live behavior can also be breaking even when Rust signatures compile.
+Compatibility tests must cover behavior as well as source compilation.
+
+#### Known Mittens compatibility hazards
+
+The ordinary source runners are straightforward to preserve. The uncertain
+surface is the public Rust representation around them:
+
+| Current public Mittens surface | Conflict with the target boundary | Compatibility choices |
+|---|---|---|
+| `scripting::object::Value` | Public variants expose engine `ComponentId`, raw function/module bodies, heap IDs, and legacy maps | Preserve a deprecated facade with honest semantics, or change the type and treat it as breaking |
+| `MaterializedCE` and `CeChild` public fields | They contain legacy `Value`, `RuntimeClosure`, and `CeChild::Attach(ComponentId)`; callback-bearing trees instead need opaque handles and a retained session | Keep a callback-free legacy template adapter, or change callback-capable APIs |
+| `RuntimeClosure`, `HeapHandle`, `ObjectWorld`, `ObjectId`, and `Object` | Keeping these as functional engine-owned runtime state would violate the single MMS heap/session rule | A thin alias is possible only where the crate type has equivalent API; otherwise removal is breaking |
+| `LoadedMmsModule` public fields and `named_export() -> &Value` | Named function exports and heap identity must remain inside a persistent crate session | Introduce an opaque/session-backed module facade; exact public-field compatibility may be impossible |
+| `call_mms_module_fn(..., Option<&mut EvalChannels>, ...)` | Its signature directly exposes the protocol scheduled for deletion | Retain a deprecated adapter protocol, add a new API while keeping the old one, or make a breaking signature change |
+| Public `world_evaluator` exports (`EvalRequest`, `EvalResponse`, `HostCallKind`, `HostValue`, `EvalChannels`, `MeowMeowEvaluator*`) | Their ring-buffer and engine-value representations are precisely the legacy architecture being removed | A full adapter is possible but costly and may preserve semantics the migration intends to forbid; otherwise removal is breaking |
+| `KeyframeComponent::callback: Option<RuntimeClosure>` and `new_with_callback` | ECS must retain `(SessionHandle, CallbackHandle)`, not an AST closure and heap | Preserve a deprecated constructor through a conversion/registration facade, or change the field and constructor |
+| Public `MittensHost` fields and raw `component_handle`/`component_id` conversions | The new host needs operation/session context, and raw conversion bypasses ownership validation | Keep safe constructors while deprecating raw conversions; public struct-literal and conversion compatibility may not be preservable |
+| `IntentValue::SpawnComponentTree { root: Box<MaterializedCE>, ... }` | The public intent transitively exposes the legacy tree and callback representation | Preserve a legacy callback-free intent adapter or change the variant payload |
+| `AssetModule`, `PaintAssetTemplate`, `PanelShellSpec`, `PanelLayoutMountSpec`, and asset accessors | These public engine types transitively expose `LoadedMmsModule`, `Value`, or `MaterializedCE` | Wrap the new session/tree types behind compatible containers where possible; field-level callers may still break |
+
+Public enum variants and public struct fields matter even when most in-tree
+callers do not use them: external crates may construct them, destructure them,
+or exhaustively match them. Merely keeping the type name is not source
+compatibility.
+
+This audit should classify each item as one of:
+
+- supported and preserved exactly
+- supported through a deprecated, boundary-safe compatibility facade
+- previously public but explicitly unstable/internal
+- deliberately breaking
+
+The engine can avoid `0.8.0` only if every supported item is in one of the
+first two categories and its observable behavior remains compatible.
+
 ### Ordinary evaluation
 
 - Hostless evaluation uses the same `Runtime` and crate evaluator without an
