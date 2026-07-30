@@ -20,8 +20,8 @@ The runner exposes two related decisions:
 2. a component-producing module export is evaluated as a template or as a
    live factory.
 
-These choices affect host capabilities and result shape. They do not select
-different evaluators.
+These choices affect available host context and result shape. They do not
+select different specifications or evaluators.
 
 ## Compatibility surface
 
@@ -81,8 +81,8 @@ identity to the main-thread host context.
 
 ### Hostless mode
 
-`eval` uses the configured crate `Runtime` and a crate session without engine
-capabilities.
+`eval` uses the configured crate `Runtime` and a crate session without an
+effectful engine host.
 
 - Pure MMS semantics are fully available.
 - Component expressions may become evaluated component-tree DTOs.
@@ -248,7 +248,7 @@ persistent crate session
     └─ correlated HostRequest ──► short-lived MittensHost
                                       │
                                       ▼
-                             catalog dispatch + ECS
+                       RuntimeSpec-bound dispatch + ECS
 ```
 
 Mittens' component registry receives already evaluated crate DTOs. It performs

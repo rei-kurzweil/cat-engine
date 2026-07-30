@@ -108,8 +108,9 @@ Foreign and stale handles are typed errors, not `null` results.
 ## Main-thread host servicing
 
 Only `MittensHost` touches `World`, `RxWorld`, render assets, engine
-registries, or intent sinks. It is built from the authoritative engine
-registration catalog and performs one requested operation at a time.
+registries, or intent sinks. It dispatches through the engine bindings
+attached while Mittens built the one `RuntimeSpec`, and performs one requested
+operation at a time.
 
 The worker owns parsing and all evaluation. The host receives evaluated DTOs;
 it never evaluates an AST or arbitrary MMS expression.

@@ -13,7 +13,8 @@ The central invariant is:
 
 > `meow-meow-script` is the sole implementation of MMS parsing, evaluation,
 > runtime values, heap/session state, modules, and callbacks. Mittens supplies
-> an engine catalog and services typed host operations on the main thread.
+> one `RuntimeSpec` and services the host operations declared by that
+> specification on the main thread.
 
 Requirements in this document use **must**, **must not**, **should**, and
 **may** in their normative sense. The migration checklist is
@@ -33,7 +34,7 @@ The language crate owns:
 - callback registration and invocation state
 - template and live evaluation modes
 - typed evaluation, protocol, and host errors
-- runtime catalog types and catalog validation
+- `RuntimeSpec`, its nested builder API, and specification validation
 - persistent evaluator sessions and the transport-neutral worker protocol
 
 There must be no second implementation of these responsibilities in Mittens.
@@ -42,7 +43,8 @@ There must be no second implementation of these responsibilities in Mittens.
 
 Mittens owns:
 
-- the authoritative registration catalog for its MMS components and APIs
+- the one builder expression that assembles the `RuntimeSpec` given to MMS
+- the engine implementations bound to host operations in that expression
 - `MittensHost`, which translates host requests into engine operations
 - opaque component-handle translation and ECS lifetime validation
 - component construction, registration, attachment, and initialization
@@ -60,10 +62,16 @@ arbitrary MMS expression.
 The architecture has three distinct objects. Their lifetimes and ownership
 must not be conflated.
 
-### 1. `meow_meow_script::Runtime`
+### 1. `meow_meow_script::RuntimeSpec` and `Runtime`
 
-`Runtime` is immutable configured MMS vocabulary. It is built from pure
-language definitions plus the Mittens registration catalog.
+`RuntimeSpec` is the one immutable description of the MMS vocabulary exposed
+by a Mittens build. Mittens assembles it with the crate-owned nested builder
+API and gives the completed specification to `meow_meow_script::Runtime`.
+
+Standard value types and pure builtins are seeded into the same builder before
+Mittens adds engine vocabulary. Grammar remains unconditionally crate-owned.
+This produces one completed runtime specification, not a core runtime
+specification plus a host catalog.
 
 It describes and validates:
 
@@ -71,11 +79,17 @@ It describes and validates:
 - constructors and builder calls
 - named and positional properties
 - component methods and signatures
-- signals
+- signals and their payload types
+- pure and host-dispatched builtins
 - global and namespaced engine APIs
 
-`Runtime` does not contain a script heap, a `World`, or per-evaluation
-bindings. A configured runtime may be shared by multiple sessions.
+`Runtime` is the crate's validated, executable language configuration compiled
+from exactly one `RuntimeSpec`. It does not merge that specification with a
+second host capability description.
+
+Neither `RuntimeSpec` nor `Runtime` contains a script heap, a `World`, or
+per-evaluation bindings. A configured runtime may be shared by multiple
+sessions.
 
 ### 2. Persistent crate-owned worker/session
 
@@ -109,7 +123,7 @@ an operation. It may temporarily borrow:
 - a signal or intent sink
 - render assets
 - component and method registries
-- other engine services explicitly represented by the catalog
+- other engine services required by operations in the specification
 
 It services host requests and is then released. It is not stored in the MMS
 session, and none of its engine borrows cross to the worker thread.
@@ -117,7 +131,7 @@ session, and none of its engine borrows cross to the worker thread.
 ```text
 main thread                                      crate worker
 ───────────                                      ────────────
-Runtime + engine catalog ── create session ────► scopes / heap / modules
+one RuntimeSpec ─────── compile Runtime ────────► scopes / heap / modules
 
 runner operation ──────────────────────────────► evaluate or invoke
                       HostRequest { id, ... } ◄── pause operation
@@ -191,9 +205,10 @@ asset, or URI APIs directly.
 
 ### Errors and recovery
 
-Unsupported catalog operations, invalid requests, foreign or stale handles,
-conversion failures, source-loading failures, evaluation failures, timeouts,
-and protocol violations are distinct typed errors.
+Hostless operation attempts, unavailable host context, invalid requests,
+foreign or stale handles, conversion failures, source-loading failures,
+evaluation failures, timeouts, and protocol violations are distinct typed
+errors.
 
 An error completes the affected operation without discarding the session
 unless the error is explicitly fatal. A runner timeout must not leave an
@@ -260,46 +275,144 @@ Failure of the first check is a typed foreign-handle error. Failure of the
 second is a typed stale-handle error. Raw ECS identifiers and their generation
 bits must not be truncated or exposed to scripts.
 
-## Authoritative Mittens catalog
+## One specification, assembled with nested builders
 
-Mittens must have one engine-side registration catalog that supplies both
-description and behavior for every exposed component or API.
+There is only one vocabulary specification: the crate-owned `RuntimeSpec`
+that Mittens builds and gives to MMS. There is not a second Mittens catalog,
+capability schema, parser-name list, or method-support specification.
 
-Each component registration contains, as applicable:
+The crate exposes a typed nested Rust builder. The intended shape is
+illustrative here; exact type names may change:
 
-- canonical MMS name and short aliases
-- constructors and builder calls
-- named and positional properties
-- component methods and signatures
-- supported signals
-- concrete construction and method-dispatch functions
+```rust
+let built = RuntimeSpec::builder()
+    .with_standard_builtins()
+    .component("Transform", |component| {
+        component
+            .alias("T")
+            .constructor("identity", |constructor| {
+                constructor
+                    .signature(sig!(() -> component))
+                    .construct_with(mittens_components::transform_identity)
+            })
+            .constructor("position", |constructor| {
+                constructor
+                    .signature(sig!(
+                        (x: Number, y: Number, z: Number) -> component
+                    ))
+                    .construct_with(mittens_components::transform_position)
+            })
+            .positional(0, "x", Type::Number)
+            .property("position", |property| {
+                property
+                    .value_type(Type::Vec3)
+                    .materialize_with(mittens_components::set_transform_position)
+            })
+            .method("set_position", |method| {
+                method
+                    .signature(sig!(
+                        (x: Number, y: Number, z: Number) -> Unit
+                    ))
+                    .dispatch_with(mittens_dispatch::transform_set_position)
+            })
+            .signal("Changed", |signal| {
+                signal
+                    .field("position", Type::Vec3)
+                    .dispatch_with(mittens_signals::transform_changed)
+            })
+    })
+    .component("Color", |component| {
+        component
+            .alias("C")
+            .constructor("rgba", |constructor| {
+                constructor
+                    .signature(sig!(
+                        (r: Number, g: Number, b: Number, a: Number) -> component
+                    ))
+                    .construct_with(mittens_components::color_rgba)
+            })
+            .property("rgba", |property| {
+                property
+                    .value_type(Type::Vec4)
+                    .materialize_with(mittens_components::set_color_rgba)
+            })
+            .method("set_color", |method| {
+                method
+                    .signature(sig!(
+                        (r: Number, g: Number, b: Number, a: Number) -> Unit
+                    ))
+                    .dispatch_with(mittens_dispatch::color_set)
+            })
+    })
+    .host_builtin("query", |builtin| {
+        builtin
+            .signature(sig!((selector: String) -> Component))
+            .dispatch_with(mittens_dispatch::query)
+    })
+    .namespace("Audio", |namespace| {
+        namespace.function("play", |function| {
+            function
+                .signature(sig!((source: Component) -> Unit))
+                .dispatch_with(mittens_dispatch::audio_play)
+        })
+    })
+    .build()?;
+```
 
-Each engine API registration contains:
+The nesting makes ownership visible:
 
-- canonical global or namespaced API ID and aliases
-- its signature
-- its concrete host-dispatch function
+- a component owns its aliases, constructors, component-expression builder
+  calls, positionals, properties, methods, and signals
+- a signal owns its payload fields and engine-to-MMS payload adapter
+- a namespace owns its functions and nested namespaces
+- each constructor, property, method, builtin, signal, or API declaration owns
+  its signature/schema and its pure implementation or host-operation binding
 
-From these registrations Mittens builds:
+`with_standard_builtins()` contributes crate-provided pure builtins and their
+types to this same builder. A finished build produces:
 
-1. the component/API specifications used to configure
-   `meow_meow_script::Runtime`; and
-2. the dispatch tables used by `MittensHost`.
+- one `RuntimeSpec`, consumed by `meow_meow_script::Runtime`; and
+- host implementation bindings indexed by opaque operation IDs, consumed by
+  `MittensHost`.
 
-Manually independent lists or matches are forbidden once their consumers are
-migrated. This includes `SUPPORTED_COMPONENT_NAMES`, parser-only component
-name lists, method-support matches, and separately maintained capability
-lists.
+```text
+one nested Mittens builder expression
+                    │
+                    ▼
+              build + validate
+                ┌───┴──────────────────┐
+                ▼                      ▼
+        one RuntimeSpec       opaque implementation bindings
+                │                      │
+                ▼                      ▼
+        MMS Runtime/worker          MittensHost
+```
 
-The crate validates duplicate names, aliases, signatures, and inconsistent
-specifications. Generated consistency tests must prove that each registration
-is parseable, advertised, and dispatchable, and that no dispatch branch is
-orphaned.
+The implementation bindings are not a second specification. They contain no
+names, aliases, signatures, signal shapes, or parser metadata. They are the
+engine functions attached while building the one specification. The builder
+must fail if a declared host operation lacks an implementation or if an
+implementation is not reachable from a declaration.
 
-`CallApi` must use the registered dispatch function. Known-but-unavailable and
-unknown APIs return typed unsupported or invalid-request errors; they must not
-silently succeed. REPL requests likewise return real catalog/host results or
-typed errors rather than no-op responses.
+Mittens must not hand-write either output after `build()`. In particular,
+`SUPPORTED_COMPONENT_NAMES`, parser-only component lists, method-support
+matches, separate `HostCapabilities`, and independently maintained API or
+signal lists must be removed once their consumers migrate.
+
+The crate validates duplicate names and aliases, invalid nesting, conflicting
+signatures, missing host bindings, and unreachable bindings. Consistency tests
+must prove that every item in the completed `RuntimeSpec` is parseable and
+that every effectful item resolves to exactly one host implementation.
+
+`CallApi` and component-method requests carry the opaque operation ID assigned
+by this build, not a string looked up in an independent match. If the current
+host context lacks a required service such as render assets, dispatch returns
+a typed unavailable-context error. An operation absent from `RuntimeSpec` is a
+validation error and must never reach `MittensHost`.
+
+REPL operations that are part of MMS vocabulary follow the same rule. They
+must be declared and bound in the one builder or remain unavailable; they
+must not silently return no-op responses.
 
 ## Registry and construction boundary
 
@@ -307,8 +420,8 @@ The component registry consumes an evaluated, validated crate-owned component
 tree. It may:
 
 - construct concrete engine components
-- resolve constructors, builders, properties, and positionals through the
-  authoritative registration
+- invoke the opaque construction/property bindings produced by the completed
+  `RuntimeSpec` builder
 - create child topology
 - register, attach, and initialize live subtrees
 - use render assets required by construction
@@ -326,8 +439,8 @@ permit a legacy evaluator fallback.
 
 ### Ordinary evaluation
 
-- Hostless evaluation uses the same `Runtime` and crate evaluator with no
-  engine capabilities.
+- Hostless evaluation uses the same `Runtime` and crate evaluator without an
+  effectful engine host.
 - Live evaluation creates or selects a persistent session and services its host
   requests with short-lived `MittensHost` instances.
 - Source-path entry points pass a source identity so host-provided relative
@@ -370,10 +483,10 @@ The main-thread runner drives an operation by repeatedly servicing correlated
 host requests until completion, error, or timeout. It must not hold an engine
 borrow in persistent session state.
 
-Host dispatch is not an evaluator callback: it performs one cataloged engine
-operation and returns a DTO. A host implementation must not re-enter the same
-session synchronously. Work caused by signals during dispatch is queued as a
-later callback operation.
+Host dispatch is not an evaluator callback: it performs one
+specification-bound engine operation and returns a DTO. A host implementation
+must not re-enter the same session synchronously. Work caused by signals
+during dispatch is queued as a later callback operation.
 
 The transport should block or wake efficiently. The legacy ring-buffer
 spin/yield protocol is not part of the public or target architecture.
@@ -390,7 +503,7 @@ During migration:
 - each caller category must pass through the crate worker before its legacy
   implementation is deleted
 
-The gated order is: pure parity, catalog and host completion, ordinary
+The gated order is: pure parity, single-spec builder and host completion, ordinary
 runners, modules/factories, callbacks/keyframes, REPL/worker, then legacy
 deletion.
 
@@ -401,13 +514,14 @@ The boundary is complete only when:
 - `src/scripting/world_evaluator.rs` and its ring-buffer protocol are deleted
 - the crate owns the only evaluator, runtime `Value`, heap, module state, and
   closure model
-- all engine operations are registered and dispatched through the catalog
+- one `RuntimeSpec` contains all configured vocabulary and every effectful
+  item has exactly one builder-bound engine implementation
 - all component operations reject foreign and stale handles
 - no engine helper evaluates an arbitrary MMS expression
 - handlers, keyframes, and callback-bearing templates preserve session heap
   identity after initial evaluation returns
 - all examples and engine-facing runners use the crate worker/session path
-- the parity, catalog, integration, lifetime, worker, factory-mode, and
+- the parity, specification, integration, lifetime, worker, factory-mode, and
   workspace test suites pass
 
 ## Related specifications

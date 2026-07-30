@@ -21,8 +21,6 @@ A direct embedding may implement the synchronous host trait:
 
 ```rust
 pub trait Host {
-    fn capabilities(&self) -> HostCapabilities;
-
     fn dispatch_with_context(
         &mut self,
         context: &mut HostContext,
@@ -30,6 +28,10 @@ pub trait Host {
     ) -> Result<HostResponse, HostError>;
 }
 ```
+
+The host does not advertise a second `HostCapabilities` schema. Its operation
+bindings are attached while Mittens builds the one `RuntimeSpec`; construction
+fails unless every effectful declaration has exactly one binding.
 
 Mittens uses the worker form because its evaluator state persists off the main
 thread while `World` and related services must remain on it:
@@ -97,11 +99,11 @@ these operations without engine types.
 | Registration | evaluated tree | detached root handle |
 | Attachment | optional parent and child handles | unit |
 | Query | selector, optional scope, cardinality | component handle(s) |
-| Component method | handle, registered method ID, arguments | value or unit |
-| Handler registration | scope, signal ID, optional name, callback reference | unit |
-| Engine API | registered API ID, arguments | transport value or unit |
-| Audio | registered operation and typed arguments | value or unit |
-| Engine mutation | registered operation, targets, arguments | value or unit |
+| Component method | handle, specification operation ID, arguments | value or unit |
+| Handler registration | scope, specification signal ID, optional name, callback reference | unit |
+| Engine API | specification operation ID, arguments | transport value or unit |
+| Audio | specification operation ID and typed arguments | value or unit |
+| Engine mutation | specification operation ID, targets, arguments | value or unit |
 | REPL host service | navigation/inspection request | transport-safe display/navigation result |
 
 Pure evaluation uses `Hostless`, which returns a typed
@@ -136,7 +138,8 @@ engine policy.
 Registration constructs a detached, uninitialized component subtree and
 returns its root handle. The host:
 
-- uses the authoritative registration catalog
+- uses the construction/property bindings produced by the one `RuntimeSpec`
+  builder
 - applies already evaluated constructors, properties, and positionals
 - constructs children without exposing ECS identifiers
 - does not attach the root to a parent
@@ -170,30 +173,38 @@ Before every operation using a component, `MittensHost` checks:
 The first failure is `ForeignHandle`; the second is `StaleHandle`. Handle
 conversion must preserve all generation bits.
 
-## Catalog-backed dispatch
+## Specification-bound dispatch
 
-Capabilities and dispatch behavior are built from the same authoritative
-Mittens component/API registrations used to configure
-`meow_meow_script::Runtime`.
+Mittens constructs one crate-owned `RuntimeSpec` with the nested builder
+described in
+[Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md).
+The same builder calls attach opaque host implementation bindings to every
+effectful declaration. `Runtime` consumes the specification, while
+`MittensHost` consumes those implementation bindings.
+
+The binding table is not another specification: it contains no names,
+signatures, aliases, signal schemas, or parser metadata.
 
 The host must not:
 
-- maintain an independent capability list
+- maintain an independent capability or vocabulary list
 - use a blanket unsupported `CallApi` branch for registered APIs
 - silently return success for unsupported REPL requests
 - interpret AST expressions in the component registry
 
-A request unknown to the configured runtime is invalid. A known operation
-unavailable from the current short-lived host context is unsupported. A
-registered dispatch function that fails returns a host failure with the
-operation and engine cause preserved.
+A request uses the opaque operation ID assigned when the single specification
+was built. A name unknown to the configured runtime fails during validation
+and must not become a host request. An operation whose current short-lived
+host lacks a required service is unavailable in that context. A bound
+dispatch function that fails returns a host failure with the operation and
+engine cause preserved.
 
 ## Host lifetime
 
 `MittensHost` borrows main-thread engine state only while servicing requests
 for one runner operation. The MMS session does not own the host.
 
-Host dispatch performs one cataloged operation. It must not synchronously
+Host dispatch performs one specification-bound operation. It must not synchronously
 re-enter the same session. Signals produced during dispatch enqueue callback
 operations for later processing.
 
@@ -202,6 +213,7 @@ operations for later processing.
 At minimum, callers can distinguish:
 
 - unsupported host operation
+- unavailable host context
 - invalid request
 - foreign component handle
 - stale component handle

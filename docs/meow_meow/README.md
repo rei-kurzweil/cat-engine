@@ -9,6 +9,9 @@ For status, roadmap, and active task docs see [`task/status.md`](task/status.md)
 For language goals see [`objectives.md`](objectives.md).
 The normative engine boundary is
 [`spec/mittens-host-and-runtime-boundary.md`](spec/mittens-host-and-runtime-boundary.md).
+Mittens assembles one crate-owned `RuntimeSpec` with a nested Rust builder;
+MMS uses that single specification for components, properties, methods,
+builtins, signals, and engine APIs.
 
 ---
 

@@ -8,8 +8,8 @@ Normative architecture:
 [Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md).
 
 This document tracks implementation only. Ownership, protocol invariants,
-callback lifetime, catalog rules, and completion semantics are defined by the
-normative specification and must not be redefined here.
+callback lifetime, `RuntimeSpec` builder rules, and completion semantics are
+defined by the normative specification and must not be redefined here.
 
 ## Scope guardrails
 
@@ -34,12 +34,14 @@ normative specification and must not be redefined here.
   - `eval_module_source`
   - engine-local `Value`, `MaterializedCE`, and `RuntimeClosure`
   - engine-local evaluator request/response and host-call types
-- [ ] Inventory all engine component/API vocabulary sources:
+- [ ] Inventory every independent engine component/API vocabulary source that
+      must be folded into the one `RuntimeSpec` builder:
   - canonical component names and aliases
   - parser-supported component names
   - constructors, builders, named properties, and positionals
   - component methods and signatures
-  - signals
+  - signals and payload types
+  - pure and host-dispatched builtins
   - global and namespaced APIs
   - capability lists and dispatch matches
 - [ ] Inventory all live host behavior:
@@ -71,28 +73,44 @@ normative specification and must not be redefined here.
 Exit gate: pure language results and typed errors agree, and known differences
 are explicit regression tests.
 
-## Phase 1 — authoritative catalog and complete host
+## Phase 1 — one `RuntimeSpec` builder and complete host
 
-- [ ] Introduce one Mittens registration type for component vocabulary,
-      signatures, and concrete construction/method dispatch.
-- [ ] Introduce one Mittens registration type for global/namespaced API
-      signatures and concrete dispatch.
-- [ ] Generate the `meow_meow_script::Runtime` specifications from those
-      registrations.
-- [ ] Generate `MittensHost` capability advertisement and dispatch tables from
-      the same registrations.
-- [ ] Add crate validation for duplicate or inconsistent names, aliases, and
-      signatures.
-- [ ] Add generated consistency tests proving every registration is:
+- [ ] Add crate-owned `RuntimeSpec` and nested builder types.
+- [ ] Make `with_standard_builtins()` seed crate-provided pure builtins and
+      value types into that same builder; keep grammar unconditionally
+      crate-owned.
+- [ ] Support nested component declarations for:
+  - canonical names and aliases
+  - constructors and component-expression builder calls
+  - named and positional properties
+  - component methods and signatures
+  - signals and payload fields
+- [ ] Support nested global/namespaced declarations for pure builtins,
+      host-dispatched builtins, and engine APIs.
+- [ ] Let the same builder calls attach concrete Mittens construction,
+      property, method, signal, builtin, and API implementations.
+- [ ] Make `build()` produce one crate-owned `RuntimeSpec` for
+      `meow_meow_script::Runtime` plus opaque implementation bindings for
+      `MittensHost`.
+- [ ] Ensure the implementation bindings contain no duplicate names,
+      signatures, aliases, signal schemas, or parser metadata and therefore
+      cannot act as a second specification.
+- [ ] Remove `HostCapabilities` negotiation; host availability comes from the
+      one specification, while missing per-call engine services produce typed
+      unavailable-context errors.
+- [ ] Make `build()` reject duplicate/inconsistent names, aliases, nesting, and
+      signatures, missing implementations, and unreachable implementations.
+- [ ] Add generated consistency tests proving every specification item is:
   - parseable
-  - advertised
-  - dispatchable
-  - backed by no orphan registry branch
+  - visible to validation and completion
+  - bound to exactly one implementation when effectful
+  - backed by no orphan implementation branch
 - [ ] Migrate and remove independent vocabulary sources, including
       `SUPPORTED_COMPONENT_NAMES`, parser-only name lists, method-support
       matches, and manually maintained capability lists.
-- [ ] Implement catalog-backed `CallApi`; remove the blanket unsupported
-      response.
+- [ ] Make component method and `CallApi` requests use opaque operation IDs
+      assigned by `RuntimeSpec::build()`; remove string-based support matches
+      and the blanket unsupported response.
 - [ ] Implement real REPL host responses or typed unsupported errors; remove
       no-op responses.
 - [ ] Add source loading as a host request with importer identity, import
@@ -102,8 +120,9 @@ are explicit regression tests.
       already-ground AST, or replace it with crate materialization.
 - [ ] Validate session ownership and live ECS generation for every component
       handle operation.
-- [ ] Distinguish foreign, stale, unsupported, invalid, conversion, source, and
-      host-failure errors.
+- [ ] Distinguish foreign, stale, hostless-unsupported,
+      unavailable-host-context, invalid, conversion, source, and host-failure
+      errors.
 - [ ] Add host integration tests for:
   - spawn, register, attach, and initialization
   - query results and component methods
@@ -113,8 +132,9 @@ are explicit regression tests.
   - render-asset-dependent construction
   - errors without deadlock
 
-Exit gate: the live parity corpus reaches no unimplemented operation through
-the crate evaluator and `MittensHost`.
+Exit gate: Mittens gives MMS exactly one `RuntimeSpec`; every effectful item in
+it has exactly one host implementation, and the live parity corpus reaches no
+unimplemented operation.
 
 ## Phase 2 — ordinary runners
 
@@ -228,8 +248,8 @@ host/REPL adapters.
 - [ ] Remove legacy/external DTO conversion from `MittensHost`.
 - [ ] Remove alternate MMS expression evaluation from
       `component_registry.rs`.
-- [ ] Remove dead capability, vocabulary, and dispatch lists superseded by the
-      catalog.
+- [ ] Remove dead capability, vocabulary, signal, and dispatch lists
+      superseded by the one builder expression.
 - [ ] Update all documentation that names the legacy evaluator or protocol as
       current architecture.
 - [ ] Search outside `crates/meow-meow-script` for remaining MMS
@@ -244,10 +264,13 @@ the full workspace suite passes.
 
 - [ ] `meow-meow-script` is the sole owner of parsing, evaluation, runtime
       values, heap/session state, modules, and callbacks.
-- [ ] Mittens owns only its runtime catalog, ECS integration, and main-thread
-      host operations.
-- [ ] One registration source makes every engine component/API parseable,
-      advertised, and dispatchable.
+- [ ] Mittens assembles exactly one crate-owned `RuntimeSpec`, plus ECS
+      integration and main-thread implementations bound from the same builder
+      calls.
+- [ ] The nested builder covers every component, property, positional,
+      constructor, method, builtin, signal type, and global/namespaced API.
+- [ ] No second Mittens specification, capability schema, parser-name list, or
+      method-support list exists.
 - [ ] Every component operation validates session ownership and ECS
       generation.
 - [ ] No engine helper evaluates arbitrary MMS expressions.
@@ -263,7 +286,7 @@ the full workspace suite passes.
 | Suite | Required coverage |
 |---|---|
 | Pure parity | values, errors, tables, closures, control flow, component expressions, missing keys |
-| Catalog consistency | every registration parseable, advertised, dispatchable; no orphan branches |
+| Specification consistency | every item parseable and visible; every effectful item has one binding; no orphan bindings |
 | Host integration | spawn/register/attach, queries, methods, handles, assets, handlers, audio, mutations |
 | Modules | imports, export forms, repeated calls, shared heap |
 | Factory modes | template, live, uninitialized live, callback-bearing template |
