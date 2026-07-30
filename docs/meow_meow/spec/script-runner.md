@@ -2,11 +2,15 @@
 
 Status: target architecture with source-compatible migration
 
-`MeowMeowRunner` is the high-level Mittens entry point for evaluating MMS
-source and calling MMS module exports from Rust. Existing engine-facing entry
-points should remain source-compatible, but their canonical implementation is
-the persistent `meow-meow-script` worker/session and short-lived
-`MittensHost`.
+`meow-meow-script::Runner` is the host-generic entry point for evaluating MMS
+source and calling MMS module exports. It consumes an already-created
+`SessionClient`, services requests through any caller-provided host, and does
+not construct or require a runtime specification.
+
+`mittens_engine::scripting::MeowMeowRunner` remains the high-level Mittens
+compatibility entry point. Existing engine-facing methods should remain
+source-compatible, but delegate to the crate runner with short-lived
+`MittensHost` servicing.
 
 The ownership and lifetime rules are normative in
 [Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md).
@@ -14,7 +18,7 @@ The former engine-local evaluator and ring-buffer runner are superseded.
 
 ## Scope
 
-The runner exposes two related decisions:
+The generic and Mittens runner layers expose two related decisions:
 
 1. ordinary source evaluation is hostless or live;
 2. a component-producing module export is evaluated as a template or as a
@@ -22,6 +26,42 @@ The runner exposes two related decisions:
 
 These choices affect available host context and result shape. They do not
 select different specifications or evaluators.
+
+The generic runner/REPL dependency inventory is
+[Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md).
+
+## Generic crate runner
+
+The core crate API is downstream of configuration:
+
+```rust
+let session = configured_runtime.spawn_session()?;
+let mut runner = meow_meow_script::Runner::new(session);
+
+let result = runner.run(
+    RunRequest::EvaluateSource {
+        source,
+        source_id,
+        mode: EvaluationMode::Live,
+    },
+    &mut host,
+    &mut output,
+)?;
+```
+
+The exact names may evolve, but these invariants do not:
+
+- `Runner::new` accepts an already-created session, not `RuntimeSpec` or its
+  builder
+- all requests, responses, results, errors, and output events are crate-owned
+- any host can service `HostRequest`
+- emitted components use crate-owned emit/register/attach commands
+- collecting and rejecting component sinks are available without Mittens
+- blocking, polling, and async adapters drive the same worker protocol
+
+Mittens' runner methods are wrappers that select a configured session,
+construct short-lived host contexts, and translate only the outer
+engine-facing compatibility result.
 
 ## Compatibility surface
 
@@ -134,6 +174,11 @@ All runner operations target a crate-owned session. A session owns:
 
 The session does not own `MittensHost`. The main-thread runner services host
 requests only for the duration of the current operation.
+
+The generic `Runner` owns or leases a `SessionClient`; it does not know how the
+session's `Runtime` was configured. This is what permits the runner and REPL to
+work with Mittens, tests, tools, or another host without taking a configuration
+builder.
 
 A short-lived hostless call may release its session after returning. Any
 module, handler, keyframe, or callback-bearing artifact that needs delayed
@@ -329,3 +374,4 @@ tree. Runtime previews should use the live path.
 - [Host API](host-call-api.md)
 - [`eval_with_world`](eval-with-world.md)
 - [Module imports and exports](module-import-export.md)
+- [Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md)

@@ -36,6 +36,9 @@ The language crate owns:
 - typed evaluation, protocol, and host errors
 - `RuntimeSpec`, its nested builder API, and specification validation
 - persistent evaluator sessions and the transport-neutral worker protocol
+- the host-generic `Runner`, operation/result events, and component sink DTOs
+- the host-generic REPL, session-value navigation, and inspection DTOs
+- optional blocking, polling, async, filesystem, and terminal adapters
 
 There must be no second implementation of these responsibilities in Mittens.
 
@@ -51,7 +54,10 @@ Mittens owns:
 - queries, component-method dispatch, and engine API dispatch
 - `World`, `RxWorld`, render assets, intents, audio, and engine mutations
 - main-thread orchestration of the crate worker
-- engine-facing runner conveniences and temporary compatibility re-exports
+- live world/component inspection for the generic REPL
+- signal payload adaptation
+- frame-loop and terminal-ownership integration
+- engine-facing runner/REPL compatibility wrappers and temporary re-exports
 
 The host may convert an already evaluated crate DTO into engine data. It must
 not inspect an AST in order to decide language semantics or evaluate an
@@ -414,6 +420,13 @@ REPL operations that are part of MMS vocabulary follow the same rule. They
 must be declared and bound in the one builder or remain unavailable; they
 must not silently return no-op responses.
 
+REPL shell commands such as `ls`, `pwd`, and `cd` are not MMS vocabulary.
+They belong to the crate's generic REPL and generic inspection protocol, so
+they require no `RuntimeSpec` declaration. A call-shaped operation such as
+`tree(value)` must be classified explicitly as either a standard crate builtin
+or a REPL command; it must not drift between a hidden Mittens builtin and a
+REPL special case.
+
 ## Registry and construction boundary
 
 The component registry consumes an evaluated, validated crate-owned component
@@ -430,6 +443,75 @@ tree. It may:
 ground AST without evaluation or be replaced by crate materialization. It must
 not remain an alternate evaluator for names, calls, fields, indexes, or other
 MMS expressions.
+
+## Generic runner and REPL
+
+`meow-meow-script` owns a runner and REPL that work with any host. They are
+downstream of runtime configuration:
+
+```text
+RuntimeSpec ──► Runtime ──► SessionClient
+                                  │
+                         ┌────────┴────────┐
+                         ▼                 ▼
+                    generic Runner    generic REPL
+                         │                 │
+                         └──── HostService ┘
+```
+
+Their core constructors accept an already-created `SessionClient`. They must
+not accept, construct, inspect, or modify a `RuntimeSpec` or
+`RuntimeSpecBuilder`. Convenience constructors may create the crate's standard
+hostless runtime, but that is an adapter rather than the core interface.
+
+### Runner boundary
+
+The generic runner owns:
+
+- source, module, export, callback, reset, and shutdown operations
+- operation/host-call correlation
+- timeout, cancellation, completion, and typed error handling
+- blocking, polling, and async driving over the same session protocol
+- crate-owned output events and result DTOs
+
+For each host request, it calls a supplied `HostService` and returns the
+correlated response to the session. It never mentions `World`, `RxWorld`,
+render assets, `ComponentId`, `IntentValue`, or another engine type.
+
+Component output is represented by crate-owned commands for emit, register,
+and attach. A `ComponentSink` may be exposed as a convenience sub-interface or
+adapter over those `HostRequest` variants. The crate should provide collecting
+and rejecting sinks. `MittensHost` provides the ECS-backed implementation.
+This sink is behavior, not a second runtime specification.
+
+### REPL boundary
+
+The generic REPL wraps the same `Runner`/`SessionClient`. It owns:
+
+- input classification and multiline completion
+- persistent snippet evaluation
+- cursor and breadcrumb semantics
+- navigation over session-owned tables, arrays, and component artifacts
+- pure value/component-artifact formatting
+- reset and structured output events
+
+The REPL is programmatic: callers submit input and receive `ReplEvent` values.
+Stdin, stdout, ANSI clearing, GUI consoles, sockets, and engine frame loops are
+adapters.
+
+Live navigation uses a generic inspection protocol. Session-owned values stay
+behind session `ValueRef`s and are inspected by the worker. World and
+component targets use typed host requests for validation, listing, child
+resolution, parent lookup, description, and optional MMS-source rendering.
+The inspection protocol contains no component names, method signatures,
+builtins, signals, or parser metadata and therefore is not a runtime
+specification.
+
+Unsupported live inspection must not prevent pure table, array, or component
+artifact navigation.
+
+The detailed dependency inventory and proposed interface shapes are in
+[Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md).
 
 ## Runner compatibility and evaluation modes
 
@@ -542,8 +624,10 @@ are operations on the same session abstraction. REPL bindings, heap objects,
 module cache, and current source/navigation context persist until reset or
 shutdown.
 
-Engine-specific tree traversal and formatting may live in `MittensHost` or a
-REPL adapter. MMS expression evaluation does not.
+The generic REPL and session-value navigation live in `meow-meow-script`.
+Engine-specific tree traversal, source snapshots, frame polling, and terminal
+ownership live in `MittensHost` or a Mittens REPL adapter. MMS expression
+evaluation does not.
 
 ## Threading and reentrancy
 
@@ -593,6 +677,7 @@ The boundary is complete only when:
 - handlers, keyframes, and callback-bearing templates preserve session heap
   identity after initial evaluation returns
 - all examples and engine-facing runners use the crate worker/session path
+- the generic crate runner and REPL work with fake hosts and no Mittens types
 - the parity, specification, integration, lifetime, worker, factory-mode, and
   workspace test suites pass
 
@@ -603,3 +688,4 @@ The boundary is complete only when:
 - [`eval_with_world`](eval-with-world.md)
 - [Environment, heap, and object world](env-heap-object-world.md)
 - [Module imports and exports](module-import-export.md)
+- [Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md)

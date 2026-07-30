@@ -104,10 +104,41 @@ these operations without engine types.
 | Engine API | specification operation ID, arguments | transport value or unit |
 | Audio | specification operation ID and typed arguments | value or unit |
 | Engine mutation | specification operation ID, targets, arguments | value or unit |
-| REPL host service | navigation/inspection request | transport-safe display/navigation result |
+| REPL inspection | world/component target and inspection operation | structured entries, target, description, or rendered source |
 
 Pure evaluation uses `Hostless`, which returns a typed
 `UnsupportedHostOperation` error for every effectful request.
+
+### Component sink adapter
+
+Component construction requests form a useful generic sub-boundary. The crate
+may expose a `ComponentSink` adapter for hosts that only need to accept emit,
+register, and attach commands.
+
+The adapter consumes crate-owned component trees and returns opaque component
+handles or unit. A collecting sink stores emitted artifacts; a rejecting sink
+provides pure evaluation; `MittensHost` constructs ECS trees. This adapter is
+not a capability schema or runtime specification.
+
+### REPL inspection
+
+The crate's generic REPL navigates session-owned values inside the worker.
+Live world/component navigation uses host inspection requests for:
+
+- validation
+- listing
+- child resolution
+- parent lookup
+- descriptions/labels
+- optional rendering or snapshotting as MMS source
+
+Targets are `World`, an opaque session `ValueRef`, or an opaque
+`ComponentHandle`; session-value requests do not cross to the host. Inspection
+responses are structured DTOs rather than terminal-formatted lines.
+
+This protocol does not declare MMS vocabulary and requires no
+`RuntimeSpecBuilder`. A host may reject live inspection while the REPL
+continues to support pure table, array, and component-artifact navigation.
 
 ## Source loading
 
@@ -232,3 +263,4 @@ encoded as `Null`, logged-only side effects, or no-op success.
 - [`eval_with_world`](eval-with-world.md)
 - [Environment, heap, and object world](env-heap-object-world.md)
 - [Module imports and exports](module-import-export.md)
+- [Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md)

@@ -156,7 +156,22 @@ unimplemented operation.
       correlation, source identity, completion, typed errors, and shutdown.
 - [ ] Replace permanently host-owned session state with a persistent,
       host-independent crate session.
+- [ ] Add a crate-owned `SessionClient` created from a configured runtime
+      before runner/REPL construction.
+- [ ] Add a host-generic crate `Runner` whose core constructor accepts
+      `SessionClient`, not `RuntimeSpec` or a configuration builder.
+- [ ] Define crate-owned run request, result, diagnostic, and output-event
+      DTOs.
+- [ ] Define the generic host-service callback/trait used to service
+      `HostRequest` during a runner operation.
+- [ ] Define component emit/register/attach command/reply DTOs.
+- [ ] Provide collecting and rejecting component sink adapters.
+- [ ] Provide blocking and polling runners over the same session protocol;
+      decide whether the async adapter lands in this phase or immediately
+      afterward.
 - [ ] Service each operation with a short-lived main-thread `MittensHost`.
+- [ ] Make `MeowMeowRunner` a Mittens compatibility wrapper over the generic
+      crate runner.
 - [ ] Reimplement these engine-facing entry points on the crate worker:
   - `eval`
   - `eval_with_timeout`
@@ -177,9 +192,12 @@ unimplemented operation.
       `world_evaluator.rs`.
 - [ ] Add live parity assertions for world topology, values, emitted intents,
       and failures.
+- [ ] Add fake-host tests proving the crate runner has no Mittens dependency.
+- [ ] Add tests for collecting emitted component trees without a live engine.
 
-Exit gate: every ordinary runner and executable MMS example evaluates through
-the crate worker/session.
+Exit gate: the crate runner works with arbitrary/fake hosts without a
+configuration builder, and every Mittens runner and executable MMS example
+delegates through it.
 
 ## Phase 3 — modules and factories
 
@@ -234,10 +252,27 @@ no ECS component stores an MMS closure body or runtime function value.
 
 - [ ] Extend worker operations for REPL snippets, navigation, inspection,
       reset, and orderly shutdown.
+- [ ] Move REPL input classification and multiline completion into
+      `meow-meow-script`.
+- [ ] Add a programmatic crate `Repl` that accepts submitted input and emits
+      structured `ReplEvent`s without requiring stdin/stdout.
+- [ ] Construct the crate REPL from `Runner`/`SessionClient`, never from
+      `RuntimeSpec` or its builder.
 - [ ] Preserve bindings, heap identity, loaded modules, and current
       source/navigation context across snippets.
-- [ ] Keep ECS traversal and engine-specific formatting in `MittensHost` or a
-      REPL adapter.
+- [ ] Keep navigation over tables, arrays, and component artifacts inside the
+      crate session using opaque `ValueRef`s.
+- [ ] Add generic inspection request/response DTOs for world roots and live
+      components.
+- [ ] Keep ECS traversal, component liveness, short-ID/GUID resolution,
+      subtree source rendering, and listing labels in `MittensHost` or a
+      Mittens REPL adapter.
+- [ ] Separate terminal I/O from REPL semantics:
+  - optional standard terminal adapter in the crate
+  - Mittens stdin ownership coordination in the engine adapter
+  - no direct printing required by the core REPL
+- [ ] Decide which of `tree`, `dump`, `help`, `clear`, and `reset` are
+      REPL-only commands versus standard crate builtins.
 - [ ] Replace engine-local `EvalRequest`, `EvalResponse`, `HostCallKind`, and
       `HostValue` use in the REPL/backend.
 - [ ] Replace spin/yield polling with an efficient queue/channel wake-up.
@@ -249,9 +284,16 @@ no ECS component stores an MMS closure body or runtime function value.
   - reset invalidation
   - timeout and recoverable-error continuation
   - orderly shutdown and join
+- [ ] Add REPL tests for:
+  - pure table/array navigation without a host
+  - component-artifact navigation without a host
+  - fake-host world/component inspection
+  - unsupported live inspection with pure navigation still working
+  - programmatic input/output without terminal access
 
-Exit gate: `src/scripting/repl` uses only the crate worker/session protocol and
-host/REPL adapters.
+Exit gate: the crate REPL works with arbitrary/fake hosts and no configuration
+builder; `src/scripting/repl` contains only Mittens host, frame-loop, terminal,
+and compatibility adapters.
 
 ## Phase 6 — legacy deletion
 
@@ -285,6 +327,8 @@ the full workspace suite passes.
   - construction through the one `RuntimeSpec` builder
   - removal of separate `HostCapabilities`
   - the persistent host-independent session
+  - constructing the generic runner/REPL from `SessionClient`
+  - component sinks and optional REPL inspection
   - worker request/response correlation
   - callback and component handle changes
 - [ ] Run the Mittens public API/source-compatibility fixtures.
@@ -316,6 +360,10 @@ both direct embedders and Mittens users have an explicit migration story.
 - [ ] No engine helper evaluates arbitrary MMS expressions.
 - [ ] All runner, module, callback, keyframe, REPL, and example paths use the
       crate worker/session.
+- [ ] The crate owns a host-generic runner and programmatic REPL constructed
+      from `SessionClient`, with no configuration-builder dependency.
+- [ ] Component collecting/rejecting sinks and generic inspection work without
+      Mittens.
 - [ ] Template/live factory behavior is explicit and tested.
 - [ ] Delayed callbacks retain their originating heap/session identity.
 - [ ] Typed errors and recovery behavior are covered.
@@ -336,7 +384,8 @@ both direct embedders and Mittens users have an explicit migration story.
 | Factory modes | template, live, uninitialized live, callback-bearing template |
 | Lifetime | handlers, keyframes, module exports, shared captured identity |
 | Worker | correlation, callback invocation, reset, timeout/error recovery, shutdown |
-| REPL | persistent values, navigation, inspection, reset |
+| Generic runner | fake host, component collection/rejection, blocking/polling parity |
+| REPL | persistent values, pure navigation, fake-host inspection, terminal-free I/O, reset |
 | Workspace | all examples and tests on the canonical evaluator path |
 
 ## Related documents
@@ -346,3 +395,4 @@ both direct embedders and Mittens users have an explicit migration story.
 - [`eval_with_world`](../meow_meow/spec/eval-with-world.md)
 - [Module component materialization versus instantiation](mms-module-component-materialization-vs-instantiation.md)
 - [Live module previews versus panel materialization](live-mms-module-preview-components-vs-panel-materialization.md)
+- [Generic runner and REPL boundary](../meow_meow/analysis/generic-runner-and-repl-boundary.md)

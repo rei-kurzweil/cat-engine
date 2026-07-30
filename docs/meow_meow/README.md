@@ -12,6 +12,9 @@ The normative engine boundary is
 Mittens assembles one crate-owned `RuntimeSpec` with a nested Rust builder;
 MMS uses that single specification for components, properties, methods,
 builtins, signals, and engine APIs.
+The crate's generic runner and REPL consume an already-created session rather
+than that builder; see
+[`analysis/generic-runner-and-repl-boundary.md`](analysis/generic-runner-and-repl-boundary.md).
 
 ---
 
