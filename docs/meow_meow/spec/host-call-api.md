@@ -1,186 +1,222 @@
 # ૮ ˙Ⱉ˙ ა Host API
 
-The public FFI boundary is the synchronous, host-neutral contract owned by
-`meow-meow-script`:
+Status: target architecture
+
+The host API is the typed, host-neutral effect boundary owned by
+`meow-meow-script`. Its ownership and lifetime rules are normative in
+[Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md).
+
+No `World`, `RxWorld`, `ComponentId`, render-asset handle, intent, or other
+engine type crosses this boundary.
+
+## Two layers
+
+The API has two related layers:
+
+1. `HostRequest` and `HostResponse` describe one engine operation.
+2. The worker protocol correlates that operation with the persistent MMS
+   session operation that requested it.
+
+A direct embedding may implement the synchronous host trait:
 
 ```rust
 pub trait Host {
-    fn dispatch(&mut self, request: HostRequest)
-        -> Result<HostResponse, HostError>;
+    fn capabilities(&self) -> HostCapabilities;
+
+    fn dispatch_with_context(
+        &mut self,
+        context: &mut HostContext,
+        request: HostRequest,
+    ) -> Result<HostResponse, HostError>;
 }
 ```
 
-`HostRequest`, `HostResponse`, `HostError`, runtime `Value`, materialized
-component DTOs, and the opaque `ComponentHandle(u64)` are all script-owned.
-No `World`, slotmap key, engine intent, layout, animation, or signal type
-crosses this API. `Hostless` returns
-`HostErrorKind::UnsupportedHostOperation` for capabilities a pure run does not
-provide.
+Mittens uses the worker form because its evaluator state persists off the main
+thread while `World` and related services must remain on it:
 
-Implementation: `crates/meow-meow-script/src/host.rs`. The engine adapter is
-`mittens_engine::scripting::MittensHost` in `src/scripting/host.rs`; it converts
-the full generational slotmap key losslessly between `ComponentHandle` and
-`ComponentId`.
+```text
+worker                                      main thread
+──────                                      ───────────
+HostRequest {
+  operation_id,
+  request_id,
+  request,
+} ────────────────────────────────────────► short-lived MittensHost::dispatch
 
-Related specs:
-- [eval-with-world.md](eval-with-world.md) — when the channel is open and the threading model
-- [env-heap-object-world.md](env-heap-object-world.md) — where ComponentObject handles live after Spawn returns
-- [draft/reply-channel-and-session.md](../draft/reply-channel-and-session.md) — broader design notes (sessions, wait, query)
-
----
-
-## Engine worker compatibility
-
-The existing engine-aware worker runner continues to use a correlated channel
-internally. That is an implementation detail inside `mittens-engine`; custom
-hosts implement only the synchronous public contract above.
-
-## Legacy protocol shape
-
-```
-evaluator thread                              host thread
-─────────────────                             ───────────
-emit EvalResponse::HostCall { id, kind } ───► receive
-spin (yield_now) waiting on id           ◄─── push EvalRequest::HostCallResult { id, value }
-resume with HostValue
+HostResponse {
+  operation_id,
+  request_id,
+  result,
+} ◄──────────────────────────────────────── same session operation resumes
 ```
 
-`id` is a per-call correlation number. The evaluator discards results with non-matching
-ids (stale replies). Other request kinds (e.g. `Shutdown`) are processed during the wait.
+Queue/channel selection is an embedding detail. The correlation fields and
+validation behavior are not.
 
----
+## Correlation rules
 
-## Message types
+- Operation IDs identify source evaluations, export calls, callback calls, or
+  REPL operations.
+- Request IDs identify host calls within an operation.
+- A response must echo both IDs.
+- The worker rejects stale, duplicate, unknown, or mismatched responses.
+- A completed, timed-out, reset, or cancelled operation cannot later consume a
+  response.
+- Every accepted host request produces exactly one response, including
+  failures, so evaluation cannot deadlock waiting for an error path.
+
+The legacy engine-local `EvalRequest`/`EvalResponse` ring buffer is superseded
+by this crate-owned protocol and is not a compatibility surface.
+
+## Values and identities
+
+Requests and responses contain only crate-owned DTOs.
+
+- Scalar transport values are owned.
+- Tables or arrays crossing as transport values are snapshots unless the
+  operation explicitly returns a session-owned value.
+- `ComponentHandle` is an opaque identity for a host-owned ECS object.
+- `CallbackHandle` is an opaque identity for a closure retained by the MMS
+  session.
+- `MaterializedCE` is an evaluated component-tree DTO, not an AST evaluation
+  request.
+
+A raw closure/function `Value` must not be sent to or stored by the engine.
+Handler registration carries an opaque callback reference associated with its
+originating session.
+
+## Required request families
+
+Exact Rust variant names may evolve, but the public protocol must represent
+these operations without engine types.
+
+| Family | Request data | Response |
+|---|---|---|
+| Source loading | importer identity, import specifier | resolved identity and source text |
+| Component construction | evaluated tree, mode | root component handle |
+| Registration | evaluated tree | detached root handle |
+| Attachment | optional parent and child handles | unit |
+| Query | selector, optional scope, cardinality | component handle(s) |
+| Component method | handle, registered method ID, arguments | value or unit |
+| Handler registration | scope, signal ID, optional name, callback reference | unit |
+| Engine API | registered API ID, arguments | transport value or unit |
+| Audio | registered operation and typed arguments | value or unit |
+| Engine mutation | registered operation, targets, arguments | value or unit |
+| REPL host service | navigation/inspection request | transport-safe display/navigation result |
+
+Pure evaluation uses `Hostless`, which returns a typed
+`UnsupportedHostOperation` error for every effectful request.
+
+## Source loading
+
+Import syntax and module evaluation belong to the crate. Access to
+engine-relative files, assets, or URIs belongs to the host.
 
 ```rust
-pub enum EvalResponse {
-    HostCall { id: u32, kind: HostCallKind },
-    Intent(IntentValue),
-    Error { message: String },
-    ParsedOk { debug_ast: String },
-    ShutdownAck,
+LoadSource {
+    importer: Option<SourceId>,
+    specifier: String,
 }
 
-pub enum EvalRequest {
-    HostCallResult { id: u32, value: HostValue },
-    EvalScript { source: String, source_path: Option<String> },
-    ParseScript { source: String },
-    Shutdown,
-}
-
-pub enum HostValue {
-    ComponentId(ComponentId),
-    Null,
-    // future: ComponentIds(Vec<ComponentId>), Vec3, F64, ...
+SourceLoaded {
+    resolved: SourceId,
+    source: String,
 }
 ```
 
----
+`SourceId` is stable and host-neutral. The crate uses the resolved identity for
+diagnostics, relative resolution of nested imports, and module caching.
+Mittens may resolve that identity using a filesystem, asset database, or other
+engine policy.
 
-## HostCallKind variants
+## Component lifecycle
 
-| Kind | Sent when | Reply | Servicer |
-|---|---|---|---|
-| `Spawn(MaterializedCE)` | top-level emit of a fresh CE in live mode | `ComponentId(root)` | `spawn_tree(ce, None, world, emit)` |
-| `Register(MaterializedCE)` | `let x = CE` in live mode | `ComponentId(root)` | `spawn_tree_uninitialized(ce, world, emit)` |
-| `Attach { parent, child }` | bound `Value::ComponentObject` placed at top level or as a bare statement | `Null` | `world.add_child(parent, child)` (if parent set) + `init_component_tree` walk |
-| `RegisterHandler { scope, signal_kind, handler }` | `on(target, event, fn)` | `Null` | `rx.add_handler_closure(...)` |
+### Register
 
-### Register + Attach split
+Registration constructs a detached, uninitialized component subtree and
+returns its root handle. The host:
 
-To support the `let x = CE; ...; T { x }` authoring pattern, the spawn path is split
-into two HostCalls.
+- uses the authoritative registration catalog
+- applies already evaluated constructors, properties, and positionals
+- constructs children without exposing ECS identifiers
+- does not attach the root to a parent
+- does not perform the final initialization walk
 
-#### `Register(MaterializedCE)`
+This gives MMS a live handle for method calls and queries before the subtree is
+emitted.
 
-The host calls a new `spawn_tree_uninitialized(ce, world)` that:
-- creates components via the registry
-- applies ctor calls, named props, positionals
-- recurses into children (also uninitialized)
-- **does not** call `world.add_child` (no parent yet)
-- **does not** call `init_component_tree`
+### Attach
 
-Returns the root `ComponentId`. The component subtree exists in the `World`'s
-`SlotMap<ComponentId, ComponentNode>` but is detached and uninitialised — no init
-intents have been emitted, no system has seen it yet.
+Attachment validates the parent and child handles, optionally adds the child
+to the parent, and initializes the newly rooted subtree. A missing parent means
+top-level attachment.
 
-The evaluator stores `Value::ComponentObject { id, component_type }` in env. No
-evaluator-side tracking — the engine `World` is the source of truth for whether the
-subtree has a parent yet (`world.parent_of(id)`).
+### Spawn/emit
 
-#### `Attach { parent: Option<ComponentId>, child: ComponentId }`
+A combined spawn/emit operation may construct and initialize a fresh tree in
+one request. Existing component references embedded as children are opaque
+handles and must be validated before splicing.
 
-The host:
-1. If `parent` is `Some`, calls `world.add_child(parent, child)` to splice the subtree in.
-   `None` indicates a top-level (root) attach.
-2. Calls `world.init_component_tree(child, emit)` to run the deferred init walk on the
-   newly-rooted subtree.
+Re-emitting an already attached component remains governed by the component
+emission policy; it is not permission to skip handle validation.
 
-Returns `Null`.
+## Handle validation
 
----
+Before every operation using a component, `MittensHost` checks:
 
-## Statement-position dispatch
+1. ownership by the requesting session; and
+2. that the complete generational ECS key still identifies a live component.
 
-`eval_expr_stmt` handles `Value::ComponentObject` based on context:
+The first failure is `ForeignHandle`; the second is `StaleHandle`. Handle
+conversion must preserve all generation bits.
 
-| Position | Action |
-|---|---|
-| Top-level statement | `HostCall::Attach { parent: None, child: id }` |
-| Inside CE body (collected by `CeBuilder`) | record as `CeChild::Attach(id)` on the current builder; `spawn_tree` splices via `add_child` during the parent's child recursion |
-| Anywhere else (e.g. RHS of binding) | no-op (re-binding the handle is fine) |
+## Catalog-backed dispatch
 
-CE-body handling does **not** issue an `Attach` HostCall directly. The `MaterializedCE`
-carries `Vec<CeChild>` where each child is either `Spawn(MaterializedCE)` (recurse) or
-`Attach(ComponentId)` (splice an already-Registered subtree). `spawn_tree` walks both
-cases.
+Capabilities and dispatch behavior are built from the same authoritative
+Mittens component/API registrations used to configure
+`meow_meow_script::Runtime`.
 
-Re-emitting an already-attached `ComponentObject` is currently undefined behaviour;
-see [../analysis/component-emit-lifecycle-and-cloning.md](../analysis/component-emit-lifecycle-and-cloning.md)
-for the v1 one-shot rule and the v2 implicit-clone direction (engine already supports
-`IntentValue::AttachClone`).
+The host must not:
 
----
+- maintain an independent capability list
+- use a blanket unsupported `CallApi` branch for registered APIs
+- silently return success for unsupported REPL requests
+- interpret AST expressions in the component registry
 
-## Why not just defer Spawn entirely?
+A request unknown to the configured runtime is invalid. A known operation
+unavailable from the current short-lived host context is unsupported. A
+registered dispatch function that fails returns a host failure with the
+operation and engine cause preserved.
 
-An alternative is: never spawn until something forces it (top-level emit or CE-body use).
-`let x = CE` would store the unspawned `MaterializedCE` and the `ComponentId` would be
-issued at first attach.
+## Host lifetime
 
-Rejected because:
-- Method dispatch (`x.pause()`) needs a `ComponentId` immediately to emit
-  `SetAnimationState { component_ids: vec![id], .. }`. If `x` has no id yet, `x.pause()`
-  has nothing to target.
-- Query/inspection (`x.world_position()`, future `x.children()`) likewise needs an id.
-- Deferring spawn pushes the "spawn happens here" point into the call site of the
-  reference, which is harder to reason about than "spawn happens at let, attach happens
-  at use".
+`MittensHost` borrows main-thread engine state only while servicing requests
+for one runner operation. The MMS session does not own the host.
 
-Register-without-init keeps the id available eagerly while leaving the init-side-effects
-to attach time.
+Host dispatch performs one cataloged operation. It must not synchronously
+re-enter the same session. Signals produced during dispatch enqueue callback
+operations for later processing.
 
----
+## Errors
 
-## Servicer responsibilities
+At minimum, callers can distinguish:
 
-The host's HostCall servicer (currently in `runner.rs::eval_with_world`) is the only
-code that touches `World` during evaluation. It must:
+- unsupported host operation
+- invalid request
+- foreign component handle
+- stale component handle
+- value/DTO conversion failure
+- source resolution/loading failure
+- host/engine failure
+- protocol/correlation failure
 
-1. Match on `kind` and call the corresponding world API.
-2. Convert errors to `HostValue::Null` plus an `EvalResponse::Error` push (so the script
-   sees the failure but does not deadlock).
-3. Push `EvalRequest::HostCallResult { id, value }` with the same `id`.
+Errors are returned as the correlated response and complete or fail the
+originating MMS operation according to the worker protocol. They are not
+encoded as `Null`, logged-only side effects, or no-op success.
 
-Long-term this servicer migrates into the session model (see
-[draft/reply-channel-and-session.md](../draft/reply-channel-and-session.md)) and is shared
-across init scripts, event handlers, and background tasks.
+## Related specifications
 
----
-
-## Open questions
-
-| Question | Stakes |
-|---|---|
-| Multi-emit semantics (re-attach error vs implicit clone) | See [../analysis/component-emit-lifecycle-and-cloning.md](../analysis/component-emit-lifecycle-and-cloning.md) |
-| `Register` failure mid-tree (e.g. unknown component type after partial creation) — leak detached children or rollback | Initially: leak + emit Error. Rollback needs reverse spawn order |
+- [Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md)
+- [`eval_with_world`](eval-with-world.md)
+- [Environment, heap, and object world](env-heap-object-world.md)
+- [Module imports and exports](module-import-export.md)

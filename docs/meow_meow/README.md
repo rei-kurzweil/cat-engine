@@ -7,6 +7,8 @@ runs through the host contract and emits requests to the engine adapter.
 
 For status, roadmap, and active task docs see [`task/status.md`](task/status.md).
 For language goals see [`objectives.md`](objectives.md).
+The normative engine boundary is
+[`spec/mittens-host-and-runtime-boundary.md`](spec/mittens-host-and-runtime-boundary.md).
 
 ---
 

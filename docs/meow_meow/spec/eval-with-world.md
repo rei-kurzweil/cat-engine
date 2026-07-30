@@ -1,203 +1,168 @@
-# ₊˚ʚ eval_with_world — Live Reply Channel
+# ₊˚ʚ `eval_with_world` — live session evaluation
 
-`MeowMeowRunner::eval_with_world` is the **live evaluation path**: it gives the MMS
-evaluator access to a running `World` during script execution, so that component
-expressions bound to variables produce live `ComponentObject(id)` handles instead of
-dead `ComponentExpr` AST snapshots.
+Status: target architecture
 
-Implementation: `src/meow_meow/runner.rs`, `src/meow_meow/evaluator.rs`
+`MeowMeowRunner::eval_with_world` is the live engine-facing evaluation path.
+Its public purpose remains unchanged: MMS may construct, navigate, and mutate
+components in a running world. Its implementation uses the persistent
+crate-owned worker/session defined by
+[Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md).
 
-The HostCall message types and per-variant servicer behaviour are documented separately
-in [host-call-api.md](host-call-api.md). This doc covers the live-eval *lifecycle* —
-when the channel opens, what threads are involved, how blocking works.
+The legacy engine evaluator, one-shot evaluator thread, and spin/yield
+ring-buffer diagrams previously documented here are superseded.
 
----
+## Why live evaluation exists
 
-## Why it exists
-
-The basic `eval` path is fire-and-forget: the evaluator collects all intents, returns
-them, and the caller feeds them into the world afterward. Component bindings like
-`let box = T { }` produce `Value::ComponentExpr` — the AST node, not a live ID.
-
-That is sufficient for simple scene setup. It breaks down as soon as a script needs
-to **navigate or mutate** a spawned component:
+Hostless `eval` can evaluate pure MMS and materialize component trees, but it
+cannot manufacture an ECS identity. Live evaluation is required when authored
+code needs a component handle:
 
 ```mms
-let box = T.position(0, 0, -1) { R { CUBE; C.rgba(1,1,1,1) } }
+let box = T.position(0, 0, -1) {
+    R { CUBE; C.rgba(1, 1, 1, 1) }
+}
 
 fn handle_press() {
-    box."C".set_color(0, 1, 0, 1)   // needs box to be a real ComponentId
+    box."C".set_color(0, 1, 0, 1)
 }
 ```
 
-`box."C"` requires a live `ComponentId` to issue a HostCall query. Without
-`eval_with_world`, `box` is just an AST node and the method call has nothing to target.
+The `box` binding and later query/method call must refer to the same live,
+generational ECS object.
 
----
+## Public runner behavior
 
-## What changes with eval_with_world
-
-When a `let` binding evaluates to a `ComponentExpr` and a reply channel is open, the
-evaluator performs a **HostCall round-trip** instead of storing the AST:
-
-```
-evaluator thread                         main thread (caller)
-─────────────────────────────────────    ──────────────────────────────────
-eval: let box = T { ... }
-  → evaluates CE to ComponentExpr
-  → emits HostCall::Spawn(ce)  ─────►   receives EvalResponse::HostCall
-  → spin-yield, waiting                 calls spawn_tree(ce, world, emit)
-                                        gets back root ComponentId
-                               ◄─────   pushes HostCallResult::ComponentId(id)
-  → receives id
-  → binds Value::ComponentObject(id)
-  evaluation continues
-```
-
-After the round-trip, `box` holds `Value::ComponentObject(id)` — a handle to the
-live, spawned component. Later calls to `box."C"` or `box.method(...)` have a real
-`ComponentId` to work with.
-
----
-
-## API
+The engine-facing signature may retain its existing convenience form:
 
 ```rust
 pub fn eval_with_world(
     source: &str,
     world: &mut World,
+    rx: &mut RxWorld,
     emit: &mut dyn SignalEmitter,
 ) -> EvalOutput
 ```
 
-The caller provides mutable world access. The call blocks until the script finishes
-(including all HostCall round-trips). `EvalOutput` is the same as `eval` — any
-remaining intents (bare CE statements not bound to variables) are returned for the
-caller to dispatch.
+Path/assets variants also provide a source identity and render assets to the
+host-servicing context. Engine types above belong to the Mittens runner only;
+they do not enter `meow-meow-script`.
 
-```rust
-// Before — fire-and-forget, no live ids
-let output = MeowMeowRunner::eval(source);
-for iv in output.intents {
-    universe.command_queue.push_intent_now(scope, iv);
-}
+`EvalOutput` preserves the runner's public compatibility behavior. Internally,
+typed crate evaluation and host errors are retained until the compatibility
+layer maps them into the existing output.
 
-// After — live reply channel, ComponentObject bindings work
-let output = MeowMeowRunner::eval_with_world(
-    source,
-    &mut universe.world,
-    &mut universe.command_queue,
-);
-// output.intents contains any bare CE emits that weren't bound to variables
+## Lifecycle
+
+```text
+main thread                                      crate worker/session
+───────────                                      ────────────────────
+select/create session
+send EvaluateSource(operation_id, source, mode)
+                                                parse, validate, evaluate
+HostRequest(register tree) ◄──────────────────── pause
+MittensHost { world, rx, emit, assets }.dispatch
+HostResponse(component handle) ────────────────► bind live ComponentObject
+HostRequest(register callback) ◄──────────────── pause
+MittensHost stores opaque callback reference
+HostResponse(unit) ─────────────────────────────► continue
+EvaluationComplete ◄──────────────────────────── return output; session stays alive
 ```
 
----
+The runner drives the operation until completion, typed error, or timeout.
+`MittensHost` is short-lived and borrows engine services only while dispatching
+a request. The crate session outlives the call when modules, handlers,
+keyframes, or other delayed behavior retain it.
 
-## Threading model
+## Session selection and lifetime
 
-The evaluator runs on a **dedicated thread** spawned by `MeowMeowEvaluator::spawn`.
-The thread is sequential: one script at a time, statement by statement. It does not
-evaluate other work while blocked on a HostCall — the thread is waiting for the main
-thread to service the reply.
+An ordinary fire-and-forget call may create a session scoped to that
+evaluation. A call that publishes callbacks or module exports must return or
+store a session lease so the originating heap remains alive.
 
-```
-Main thread          Evaluator thread
-    │                     │
-    ├─ spawn eval ────────►├
-    │                      ├─ parse + transform
-    │                      ├─ eval stmt 1 (let box = T {})
-    │  ◄─ HostCall ────────┤  (emits HostCall, blocks)
-    ├─ spawn_tree ─────────►│
-    ├─ push HostCallResult ─►│
-    │                      ├─ continues (box = ComponentObject(id))
-    │                      ├─ eval stmt 2, 3, ...
-    │  ◄─ Intent ──────────┤  (bare CE emits)
-    │  ◄─ ShutdownAck ─────┤
-    ├─ join thread         │
-```
+Every delayed callback is addressed by `(SessionHandle, CallbackHandle)`.
+Invoking it submits a later worker operation to the same session. The engine
+does not retain a closure body or raw function `Value`.
 
-The evaluator thread holds the world **indirectly** — the main thread does the actual
-world mutation (via `spawn_tree`), then sends back the resulting ID. The world is never
-accessed from the evaluator thread directly.
+Reset invalidates session bindings, heap objects, modules, callbacks, and
+component ownership records. Releasing the final lease permits orderly worker
+shutdown.
 
----
+## Live bindings
 
-## Spin-yield: CPU usage during blocking
+When a component expression is bound in live mode, the crate sends an
+evaluated component-tree DTO to the host for registration. The response
+contains an opaque component handle, and the session binds a crate-owned
+`Value::ComponentObject` containing that handle.
 
-The evaluator thread waits for `HostCallResult` using `std::thread::yield_now()` in a
-loop:
+The host validates session ownership and live ECS generation whenever that
+handle is used for:
 
-```rust
-Err(rtrb::PopError::Empty) => {
-    std::thread::yield_now();
-}
-```
+- attachment
+- scoped query
+- component-method dispatch
+- handler registration
+- audio or engine mutation
 
-`yield_now()` calls `sched_yield` (Linux) / `SwitchToThread` (Windows). This is **not
-a tight spin** — the thread yields its CPU timeslice and re-enters the scheduler's run
-queue. Other threads (including the main thread servicing the HostCall) can run before
-the evaluator is rescheduled.
+Foreign and stale handles are typed errors, not `null` results.
 
-It is also not a sleep: the thread stays *runnable* and will be rescheduled within the
-next scheduling quantum (typically ≤1ms on a loaded system). For a HostCall that
-completes in ~100µs (spawning a small component tree), this means a handful of yields
-before the reply arrives.
+## Main-thread host servicing
 
-**Is this a problem?** For occasional script loads or REPL commands: no. The evaluator
-thread is not hot in steady state — it only runs when there's a script to evaluate.
-For a tight loop emitting hundreds of HostCalls per frame: worth profiling, but the
-bottleneck is likely spawn_tree itself rather than scheduling overhead.
+Only `MittensHost` touches `World`, `RxWorld`, render assets, engine
+registries, or intent sinks. It is built from the authoritative engine
+registration catalog and performs one requested operation at a time.
 
-If sub-yield latency ever matters (e.g. a script spawns thousands of individual
-components), a `std::hint::spin_loop()` hint inside the inner loop would reduce
-latency at the cost of higher CPU burn while waiting. `yield_now()` is the right
-default.
+The worker owns parsing and all evaluation. The host receives evaluated DTOs;
+it never evaluates an AST or arbitrary MMS expression.
 
----
+Signals raised while servicing a host call enqueue callback work. They do not
+synchronously re-enter the worker operation that caused them.
 
-## Multiple concurrent scripts: is a scheduler needed?
+## Relative imports
 
-Currently: **no scheduler**. Each `MeowMeowEvaluator::spawn()` creates one thread that
-evaluates one script at a time. If you need to evaluate two scripts concurrently, spawn
-two evaluators.
+Path-aware live evaluation supplies a source identity. If evaluation imports
+another module, the worker sends a source-load host request containing the
+importer identity and import specifier. The host returns source text and a
+stable resolved identity.
 
-The main thread's drain loop in `eval_with_world` handles one evaluator at a time —
-HostCalls from one evaluator are serviced synchronously before the drain loop moves on.
+The crate then evaluates and caches the module in the same session. It does
+not perform engine-specific filesystem or asset loading itself.
 
-A scheduler would be warranted if:
-1. You have many scripts evaluating concurrently and want to bound thread count.
-2. You want to interleave HostCall servicing across multiple blocked evaluators
-   (one big drain loop handling all of them).
-3. Scripts are long-running and the main thread shouldn't block on a single one.
+## Completion, timeout, and recovery
 
-None of these apply to the current use case (scene load at startup, REPL one-shot
-eval). A `MeowMeowSession` wrapper (persistent evaluator thread, not shut down between
-evals) and a multi-evaluator drain loop are the natural next steps when needed.
+Each evaluation and each nested host call is correlated. The runner accepts
+responses only for the active session operation and request.
 
----
+On timeout or recoverable failure:
 
-## Fallback behaviour
+- the affected operation completes with a typed error
+- late responses cannot be applied to another operation
+- the session is either left in a defined recoverable state or explicitly
+  reset
+- subsequent operations can continue when the error is non-fatal
 
-If channels are not available (the `channels: None` path — `eval` without world, module
-evaluation, or inside a function body), the `HostCall` is never emitted. The binding
-falls back to `Value::ComponentExpr`. This means:
+Shutdown stops accepting operations, resolves or cancels pending work,
+acknowledges completion, and joins the worker. Busy polling is not part of the
+target transport.
 
-- `eval` continues to work unchanged for scene setup that doesn't need live IDs.
-- Module evaluation is always no-world (CEs are collected statically, not spawned).
-- Function bodies called during eval also use the `channels: None` context — closures
-  that spawn components must be called at the top level where channels are live, not
-  from inside an imported function.
+## Hostless versus live
 
-The third restriction may be revisited when closures gain access to the reply channel
-explicitly.
+Both paths use the same crate `Runtime`, parser, evaluator, runtime `Value`,
+and heap implementation.
 
----
+| Behavior | `eval` | `eval_with_world` |
+|---|---|---|
+| Pure language | supported | supported |
+| Materialize component DTO | supported | supported |
+| Allocate live component | unsupported | host request |
+| Query/method on live handle | unsupported | host request |
+| Register delayed engine callback | unsupported | opaque callback reference |
+| Engine-relative source loading | only with source host | source host |
 
-## Open questions
+There is no fallback to `world_evaluator.rs` when live evaluation encounters
+an unsupported request.
 
-| Question | Stakes |
-|----------|--------|
-| Should function bodies inherit the reply channel from their call site? | Closures capturing spawned components need this |
-| `eval_with_path` + world: add `eval_file_with_world`? | Convenience for loading from disk |
-| Timeout for HostCall spin-wait: currently 5s (eval_with_world). Right value? | Hung spawn should not hang the main thread forever |
-| Multi-evaluator drain loop | Required for concurrent script loading (e.g. streaming level load) |
+## Related specifications
+
+- [Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md)
+- [Host API](host-call-api.md)
+- [MeowMeowRunner](script-runner.md)
