@@ -25,7 +25,12 @@ standalone `meow-meow-script` and `mittens-query` crates remain at 0.6.0.
 
 For scripting, see the [MMS language overview](docs/meow_meow/README.md), the
 [`meow-meow-script` crate and its Mittens integration](crates/meow-meow-script/README.md),
-and the [host API boundary](docs/meow_meow/spec/host-call-api.md).
+the [normative host/runtime boundary](docs/meow_meow/spec/mittens-host-and-runtime-boundary.md),
+and the [standalone roadmap](docs/meow_meow/standalone-roadmap.md). The focused
+implementation tasks cover the
+[standalone runner](docs/task/mms-standalone-runner-and-source-loading.md),
+[component reflection/table dot access](docs/task/mms-component-reflection-and-table-dot-access.md),
+and [generic REPL migration](docs/task/mms-repl-navigation-and-cat-unification.md).
 
 ## Running examples
 
@@ -119,7 +124,7 @@ Current phase order (high level):
 5. **Transparent single-layer** (instanced)
 6. **Transparent multi-layer** (sorted back-to-front, drawn one-by-one for correct blending)
 
-See [docs/render-phases.md](docs/render-phases.md) for details and the relevant code entry points.
+See [render phases](docs/spec/render-phases.md) for details and the relevant code entry points.
 
 # Components
 

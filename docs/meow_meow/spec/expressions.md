@@ -148,8 +148,13 @@ So `obj.method(a, b)` is represented as a regular `CallExpression`, not as a sep
 `Value::Function` and called with the Pratt-evaluated args. Built-in functions (`range`)
 are also dispatched here.
 
-**Method-style call on a value** 🔧 P7 — `x.method(args)` where `x` is a
-`Value::ComponentObject`.
+**Method-style call on a value** — `x.method(args)` dispatches according to the
+runtime receiver:
+
+- component receivers reserve `type()` and `children()` universally; other
+  methods use the configured component method surface
+- table receivers read the function-valued `"method"` field and pass the same
+  table as the first `self` argument
 
 This is distinct from:
 
@@ -162,8 +167,19 @@ But it does **not** need a separate AST node anymore. The parser already disting
 - lowercase/value-leading `obj.method(args)` → `Expression::Call(...)` whose callee is a
   dot-expression
 
-What is still deferred is the evaluator/runtime dispatch for dot-callee calls on live
-values, not the surface syntax representation.
+The parser representation is shared; evaluator dispatch preserves the
+receiver's heap or component identity.
+
+For table values, `table.name` is identical to `table["name"]`, including the
+existing missing-key result. `table.method(args)` is equivalent to calling the
+function stored at `table["method"]` with `table` followed by the explicit
+arguments. Calling a missing or non-function field is a typed call error.
+
+For `ComponentExpr` and `ComponentObject`, `node.field` reads an authored named
+field and a missing field returns `null`. Live reads use host inspection and
+retain distinct unsupported-inspection, stale-handle, and foreign-handle
+errors. `type()` and `children()` are special only as calls on component
+receivers; fields with those names remain legal.
 
 ### 2.4 Component expression
 
@@ -173,6 +189,10 @@ values, not the surface syntax representation.
 
 `ComponentExpression` fields: `component_type: Ident`, `constructor: Option<ConstructorCall>`,
 `body: Vec<ComponentBodyItem>`.
+
+Functions may return this ordinary component value with its label, fields, and
+ordered children intact. No additional function-component value variant is
+required.
 
 See [component-expression-format.md](component-expression-format.md) for full grammar.
 

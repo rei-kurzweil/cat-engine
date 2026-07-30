@@ -210,6 +210,18 @@ fn translate(pos: Vec3, delta: Vec3): Vec3 {
 - `ComponentType.constructor(args)` — CE constructor call in type position
 - `expr.method(args)` — Phase 7 method call on `ComponentObject`
 
+The runtime dot behavior that structs must extend is now fixed:
+
+- `table.field` equals `table["field"]`
+- `table.method(args)` invokes a function-valued field with the table passed as
+  the first `self` argument
+- `component.field` reads an authored named field
+- `component.type()` and `component.children()` are universal component calls
+
+Tables retain heap identity across dot reads, implicit-`self` calls, mutation,
+aliases, and closure captures. Structs should layer type metadata and field
+rules over that model rather than introduce a second dot-dispatch mechanism.
+
 Field access `expr.field` is a third use. Disambiguation:
 - `Ident . Ident (` → constructor call (CE) or method call
 - `Ident . Ident` (no paren) → field access or method reference

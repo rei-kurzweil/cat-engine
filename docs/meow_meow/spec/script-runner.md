@@ -51,13 +51,40 @@ let result = runner.run(
 
 The exact names may evolve, but these invariants do not:
 
-- `Runner::new` accepts an already-created session, not `RuntimeSpec` or its
-  builder
+- `Runner::new(SessionClient)` accepts an already-created session, not
+  `RuntimeSpec` or its builder
 - all requests, responses, results, errors, and output events are crate-owned
 - any host can service `HostRequest`
 - emitted components use crate-owned emit/register/attach commands
 - collecting and rejecting component sinks are available without Mittens
 - blocking, polling, and async adapters drive the same worker protocol
+
+The crate also owns these convenience paths:
+
+```rust
+let runtime = Runtime::standard()?;
+let mut runner = Runner::standard()?;
+let mut repl = Repl::standard()?;
+```
+
+`Runtime::standard()` uses the standard `OpenUppercase` specification.
+`Runner::standard()` supplies a crate-owned `StandardHost`, and
+`Repl::standard()` wraps that runner. The corresponding core REPL constructor
+is `Repl::new(Runner)`. Custom hosts can be paired with
+`Runtime::standard()` without a builder.
+
+### Standard host
+
+`StandardHost` makes the crate independently useful. It provides:
+
+- a collecting component forest for emitted roots
+- opaque local handles for registered components
+- ordered local attachment and reflection
+- filesystem source loading with canonical `SourceId`s
+
+Its run result exposes the collected forest through crate-owned DTOs. Queries,
+Mittens component methods, engine APIs, audio, and other engine-only
+operations return typed `UnsupportedHostOperation` errors.
 
 Mittens' runner methods are wrappers that select a configured session,
 construct short-lived host contexts, and translate only the outer
@@ -127,16 +154,20 @@ impl MeowMeowRunner {
 Asset/path variants additionally supply render assets and a stable source
 identity to the main-thread host context.
 
-### Hostless mode
+### Standard standalone mode
 
-`eval` uses the configured crate `Runtime` and a crate session without an
-effectful engine host.
+The standard crate path uses `Runtime::standard()` and `StandardHost`.
 
 - Pure MMS semantics are fully available.
-- Component expressions may become evaluated component-tree DTOs.
+- Arbitrary uppercase component expressions are accepted as open structural
+  data and may become evaluated component-tree DTOs.
+- Emitted roots are collected into an ordered component forest.
 - Live component allocation, queries, methods, and engine APIs return typed
   unsupported-host errors.
 - No call falls back to the engine evaluator.
+
+Mittens' compatibility `eval` behavior may continue to adapt collected trees
+into `EvalOutput`; it does not define the standard crate API.
 
 ### Live mode
 
@@ -161,6 +192,12 @@ evaluator to read engine-relative files directly.
 For an import, the worker requests source loading from the host using the
 importer identity and specifier. The returned resolved identity controls
 nested relative imports, diagnostics, and the per-session module cache.
+
+`Runner::run_file` and module-file entry points canonicalize the initial path,
+so the root and every nested import have stable cache identities. Raw source
+may supply an explicit `SourceId`; raw source without one rejects relative
+imports deterministically with a typed source-resolution error. It must not
+implicitly use the process working directory.
 
 ## Sessions
 
@@ -206,6 +243,11 @@ impl MeowMeowRunner {
 Loading a module creates or uses persistent module state in a crate session.
 Named exports, sequence exports, and repeated exported calls from that module
 observe the same heap and table identities.
+
+An exported or ordinary MMS function may return a normal component expression.
+The returned value keeps its component label, authored fields, and ordered
+children and supports the universal component reflection API. No separate
+function-component runtime type is introduced.
 
 The public compatibility layer maps the crate's typed errors to `String` for
 these existing signatures. The worker protocol and session API retain typed

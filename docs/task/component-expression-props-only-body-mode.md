@@ -103,21 +103,27 @@ Conceptually:
 
 ## Where the flag should live
 
-The key idea is:
+The body mode belongs to the registered component declaration in the one
+crate-owned `RuntimeSpec`. Mittens sets it in the same nested builder expression
+that declares the component's constructors, properties, methods, and host
+bindings.
 
-- once we know which component AST node we are constructing, we also know which
-  body mode it needs
-
-So the component-expression materialization path should carry a CE body-mode
-flag derived from the component type.
+There must be no engine-local helper that maps a component-name string to a
+body mode. Such a helper would become the second component vocabulary forbidden
+by the normative
+[host/runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md).
 
 High-level flow:
 
 1. parse a `ComponentExpression`
-2. identify the component type being constructed
-3. determine whether that component uses `props_only`
+2. resolve the component through the configured `RuntimeSpec`
+3. read its registered body behavior
 4. evaluate its body with that mode available in the CE builder / eval context
 5. interpret `Statement::Reassign` according to that mode
+
+For an unregistered component accepted by `OpenUppercase`, direct assignments
+are structural named fields by definition. That open-component rule is not an
+implicit `props_only` registration and does not create a name map.
 
 ## Candidate component classes
 
@@ -187,40 +193,35 @@ property assignment.
 
 ### Evaluator / CE execution path
 
-- [src/meow_meow/evaluator.rs](/home/rei/_/cat-engine/src/meow_meow/evaluator.rs)
-  - `eval_ce()`
-  - `EvalContext`
-  - `CeBuilder`
-  - `Statement::Reassign` handling inside component-expression evaluation
+- [`crates/meow-meow-script/src/evaluator.rs`](../../crates/meow-meow-script/src/evaluator.rs)
+  - canonical CE execution and reassignment behavior
+- [`crates/meow-meow-script/src/runtime.rs`](../../crates/meow-meow-script/src/runtime.rs)
+  - crate-owned runtime specification and resolved component behavior
 
 ### CE materialization / spawn path
 
-- [src/meow_meow/component_registry.rs](/home/rei/_/cat-engine/src/meow_meow/component_registry.rs)
-  - component-type creation logic
-  - likely home for a helper mapping component type -> CE body mode
-  - `apply_named_assignment()` remains relevant because `props_only` bodies are
-    still expected to land in named component properties
+- [`src/scripting/component_registry.rs`](../../src/scripting/component_registry.rs)
+  - consumes already evaluated component DTOs
+  - must not classify names or decide MMS body semantics
 
 ### CE data shape
 
-- [src/meow_meow/object.rs](/home/rei/_/cat-engine/src/meow_meow/object.rs)
-  - `MaterializedCE`
-  - if the body mode needs to survive beyond immediate evaluation, this is the
-    likely structure that would carry it
+- [`crates/meow-meow-script/src/object.rs`](../../crates/meow-meow-script/src/object.rs)
+  - crate-owned component value and materialized DTO shapes
 
 ### Existing authored repro / consumer path
 
-- [assets/components/panels.mms](/home/rei/_/cat-engine/assets/components/panels.mms)
+- [`assets/components/panels.mms`](../../assets/components/panels.mms)
   - current repro shape:
     - `row_name = row_name`
     - `label = label`
     - `mode_value = mode_value`
 
-- [src/engine/ecs/system/editor/context.rs](/home/rei/_/cat-engine/src/engine/ecs/system/editor/context.rs)
+- [`src/engine/ecs/system/editor/context.rs`](../../src/engine/ecs/system/editor/context.rs)
   - downstream consumer that depends on the authored settings payload surviving
     as `DataComponent`
 
-- [src/engine/ecs/system/editor/settings_panel.rs](/home/rei/_/cat-engine/src/engine/ecs/system/editor/settings_panel.rs)
+- [`src/engine/ecs/system/editor/settings_panel.rs`](../../src/engine/ecs/system/editor/settings_panel.rs)
   - semantic keys currently read from settings payloads
 
 ## Suggested implementation shape
@@ -238,19 +239,12 @@ enum ComponentBodyMode {
 
 Attach it to the CE evaluation path rather than using a global rule.
 
-### 2. Add component-type classification
+### 2. Declare body behavior in `RuntimeSpec`
 
-Create a helper keyed by component type:
-
-```rust
-fn component_body_mode(component_type: &str) -> ComponentBodyMode
-```
-
-Initial recommended mapping:
-
-- `Data` -> `PropsOnly`
-- `Style` -> `PropsOnly`
-- everything else -> `Normal`
+Extend the crate-owned component declaration with its body behavior. Mittens'
+one builder marks `Data` and `Style` as `PropsOnly`; other registered
+components use their declared/default normal behavior. Specification
+validation and generated consistency tests cover the declaration.
 
 ### 3. Restrict `Statement::Reassign` capture
 
@@ -277,17 +271,14 @@ This task is complete when:
    presence of a CE builder alone
 6. the paint panel options once again show distinct authored icons rather than
    repeating the first `Free Draw` icon for every row
+7. no component-name/body-mode map exists in the evaluator, registry, or other
+   engine code
+8. open unknown components follow the structural field rule without being
+   registered as `props_only`
 
 ## Open question
 
-Should the body mode live:
-
-- only in evaluator-time context derived from `component_type`, or
-- directly on `MaterializedCE` / component AST-derived structures?
-
-Recommendation:
-
-- start with evaluator-time derivation from component type
-- only persist it onto `MaterializedCE` if a later phase genuinely needs it
-
-That keeps the first cleanup smaller while preserving the intended semantics.
+Whether the resolved body mode must be copied onto an intermediate
+component-tree DTO is an implementation detail. `RuntimeSpec` remains its sole
+declaration/source of truth; the DTO must not become a second independently
+maintained policy.

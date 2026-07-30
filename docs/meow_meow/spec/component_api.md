@@ -1,26 +1,65 @@
 # Component Runtime API
 
-This document lists the **current MMS runtime component methods** that can be called on
-live `ComponentObject` values.
+This document lists the component receiver API. Engine-specific methods below
+describe the current live `ComponentObject` surface; universal reflection
+describes the normative target for both `ComponentExpr` and
+`ComponentObject`.
 
 Scope:
 
 - methods callable from MMS at runtime, for example `text.set_text("hi")`
-- methods handled in `src/meow_meow/evaluator.rs`
-- methods handled in `src/meow_meow/component_method_registry.rs`
+- methods handled in `crates/meow-meow-script/src/evaluator.rs`
+- methods handled in `src/scripting/component_method_registry.rs`
 
-Non-scope:
+For the engine-specific method inventory, non-scope:
 
 - component constructors such as `HttpServer.bind(...)`
 - body-builder calls inside component expressions
 - draft or planned APIs that are not implemented yet
 
+## Current reflection gap
+
+Rust can inspect `MaterializedCE` labels and ordered children today. MMS cannot
+yet reliably call `type()`, enumerate component children, read component
+fields uniformly, or use table dot methods. The universal behavior below is
+the target that closes that gap. Functions already return ordinary component
+expressions; they do not need a separate component runtime type.
+
+## Universal component reflection
+
+These operations apply to static, collected, attached, and live component
+values:
+
+### `component.type()`
+
+- Returns: the authored or canonical component type as a string.
+
+### `component.children()`
+
+- Returns: a new ordered array of immediate component children only.
+- Named fields, string positionals, and unrelated expression results are not
+  children.
+
+### `component.field`
+
+- Returns: the authored named field value.
+- A missing local/static field returns `null`.
+
+Static `ComponentExpr` reads are served from the crate-owned artifact. Live
+`ComponentObject` reads use generic host inspection: a confirmed missing field
+returns `null`, unsupported inspection is a typed error, and foreign/stale
+handles keep their distinct typed errors.
+
+`type()` and `children()` are reserved only when called on a component
+receiver. `component.type` may still read an authored field, and table fields
+with either name remain legal.
+
 ## Source of truth
 
 Today, the runtime-callable method surface is split across two codepaths:
 
-- `src/meow_meow/evaluator.rs`
-- `src/meow_meow/component_method_registry.rs`
+- `crates/meow-meow-script/src/evaluator.rs`
+- `src/scripting/component_method_registry.rs`
 
 The evaluator handles the broader `ComponentObject.method(...)` surface. The component
 method registry handles a smaller set of live component methods used by the runner path.
@@ -348,3 +387,7 @@ If a method is not implemented for the receiver type, MMS currently errors with 
 
 That means this document should stay tightly aligned with the current code, not with
 draft API ideas.
+
+The universal reflection target additionally distinguishes unsupported
+inspection, foreign handles, and stale handles as specified by
+[Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md#component-values-and-reflection).

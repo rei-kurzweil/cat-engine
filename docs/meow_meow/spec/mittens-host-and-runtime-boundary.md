@@ -1,6 +1,6 @@
 # Mittens host and MMS runtime boundary
 
-Date: 2026-07-29
+Date: 2026-07-30
 
 Status: normative
 
@@ -35,9 +35,12 @@ The language crate owns:
 - template and live evaluation modes
 - typed evaluation, protocol, and host errors
 - `RuntimeSpec`, its nested builder API, and specification validation
+- `ComponentNamePolicy` and the standard open-name runtime
 - persistent evaluator sessions and the transport-neutral worker protocol
 - the host-generic `Runner`, operation/result events, and component sink DTOs
 - the host-generic REPL, session-value navigation, and inspection DTOs
+- `StandardHost`, including a collecting component forest, local handles,
+  local reflection, and filesystem source loading
 - optional blocking, polling, async, filesystem, and terminal adapters
 
 There must be no second implementation of these responsibilities in Mittens.
@@ -71,8 +74,9 @@ must not be conflated.
 ### 1. `meow_meow_script::RuntimeSpec` and `Runtime`
 
 `RuntimeSpec` is the one immutable description of the MMS vocabulary exposed
-by a Mittens build. Mittens assembles it with the crate-owned nested builder
-API and gives the completed specification to `meow_meow_script::Runtime`.
+by a runtime. Mittens assembles it with the crate-owned nested builder API and
+gives the completed specification to `meow_meow_script::Runtime`. The crate
+also owns the standard specification; using it does not require a builder.
 
 Standard value types and pure builtins are seeded into the same builder before
 Mittens adds engine vocabulary. Grammar remains unconditionally crate-owned.
@@ -81,6 +85,7 @@ specification plus a host catalog.
 
 It describes and validates:
 
+- the component-name policy
 - canonical component names and aliases
 - constructors and builder calls
 - named and positional properties
@@ -96,6 +101,34 @@ second host capability description.
 Neither `RuntimeSpec` nor `Runtime` contains a script heap, a `World`, or
 per-evaluation bindings. A configured runtime may be shared by multiple
 sessions.
+
+#### Component-name policy
+
+Every `RuntimeSpec` contains exactly one `ComponentNamePolicy`:
+
+- `OpenUppercase` accepts registered names and aliases plus unregistered names
+  matching ASCII `[A-Z][A-Za-z0-9_]*`.
+- `StrictRegistered` accepts only registered canonical names and aliases.
+
+`Runtime::standard()` uses a crate-owned standard `RuntimeSpec` with
+`OpenUppercase`; callers do not need to construct or invoke a builder.
+Mittens' one assembled specification uses `StrictRegistered`, so an unknown
+component name remains a validation error in engine scripts.
+
+An unregistered component accepted by `OpenUppercase` is unvalidated
+structural data. It has no inferred constructor, property schema, method
+surface, signal surface, or host implementation. Its body follows these
+rules:
+
+- a direct assignment becomes an authored named field
+- a component-expression item becomes an ordered child
+- a string positional remains an authored positional
+- any unrelated expression is evaluated for its ordinary effects and result,
+  but its result does not become a field or child
+
+Registered components keep the component-body behavior declared by the same
+`RuntimeSpec`. This policy must not be reimplemented as an engine-local
+component-name map.
 
 ### 2. Persistent crate-owned worker/session
 
@@ -281,6 +314,52 @@ Failure of the first check is a typed foreign-handle error. Failure of the
 second is a typed stale-handle error. Raw ECS identifiers and their generation
 bits must not be truncated or exposed to scripts.
 
+## Component values and reflection
+
+Rust can already inspect a materialized component's type and ordered children.
+The target MMS surface makes the same structural information available without
+inventing another runtime value kind. Functions already return ordinary
+component expressions, so there is no separate “function component” type.
+
+The following behavior is universal for both a static `ComponentExpr` and a
+live `ComponentObject`:
+
+- `node.type()` returns the component's authored or canonical type name as a
+  string.
+- `node.children()` returns a new ordered array containing only immediate
+  component children. Positionals, named fields, and unrelated expression
+  results are excluded.
+- `node.field` reads an authored named field.
+- a missing local field returns `null`.
+
+For a static or collected component expression, these operations inspect the
+crate-owned artifact locally and never issue a host request. For a live
+component object, they use generic host inspection. A successful live field
+miss returns `null`; a host that cannot inspect the requested information
+returns a typed `UnsupportedHostOperation`. Foreign and stale handles retain
+their distinct typed errors and must not be converted to `null` or
+“unsupported.”
+
+`type()` and `children()` are reserved only while dispatching a call on a
+component receiver. An authored component field named `type` remains legal
+and readable as `node.type`; table fields named `type` or `children` remain
+ordinary table fields.
+
+## Table dot access and methods
+
+For a heap-backed table:
+
+- `table.name` is exactly the same lookup as `table["name"]`
+- `table.method(args)` first reads `table["method"]`, requires it to be a
+  function, and calls it with the same table as the first `self` argument,
+  followed by the explicit arguments
+
+Dot reads and method calls retain the table's heap identity. Mutation through
+`self`, aliases, or captured closures is therefore visible through every
+reference to that table. Missing dot reads have the same result as existing
+missing-key indexing; calls through a missing or non-function field produce
+the corresponding typed call error.
+
 ## One specification, assembled with nested builders
 
 There is only one vocabulary specification: the crate-owned `RuntimeSpec`
@@ -293,6 +372,7 @@ illustrative here; exact type names may change:
 ```rust
 let built = RuntimeSpec::builder()
     .with_standard_builtins()
+    .component_name_policy(ComponentNamePolicy::StrictRegistered)
     .component("Transform", |component| {
         component
             .alias("T")
@@ -459,10 +539,21 @@ RuntimeSpec ──► Runtime ──► SessionClient
                          └──── HostService ┘
 ```
 
-Their core constructors accept an already-created `SessionClient`. They must
+Their core constructors are `Runner::new(SessionClient)` and
+`Repl::new(Runner)`. They accept an already-created session or runner and must
 not accept, construct, inspect, or modify a `RuntimeSpec` or
-`RuntimeSpecBuilder`. Convenience constructors may create the crate's standard
-hostless runtime, but that is an adapter rather than the core interface.
+`RuntimeSpecBuilder`.
+
+The crate also provides configuration-independent convenience paths:
+
+- `Runtime::standard()` creates the standard open-name runtime.
+- `Runner::standard()` creates a standard runtime/session driven by
+  `StandardHost`.
+- `Repl::standard()` wraps that runner.
+
+Custom hosts remain usable with `Runtime::standard()` and do not need a
+builder. These convenience constructors do not change the core constructor
+boundary.
 
 ### Runner boundary
 
@@ -483,6 +574,25 @@ and attach. A `ComponentSink` may be exposed as a convenience sub-interface or
 adapter over those `HostRequest` variants. The crate should provide collecting
 and rejecting sinks. `MittensHost` provides the ECS-backed implementation.
 This sink is behavior, not a second runtime specification.
+
+`StandardHost` is the crate-owned default implementation. It:
+
+- collects emitted roots into a component forest
+- allocates opaque local handles for registered nodes
+- records local attachment while preserving child order
+- reflects locally collected or registered components
+- loads filesystem sources and returns canonical source identities
+
+Operations that inherently require an engine, including ECS queries and
+registered engine methods/APIs, return typed unsupported errors. `StandardHost`
+does not silently emulate Mittens.
+
+`run_file` and module-file entry points canonicalize the root file before
+evaluation. That identity is used for nested relative imports, diagnostics,
+and the module cache. Raw-source entry points may accept an explicit
+`SourceId`; without one, a relative import fails deterministically with a typed
+source-resolution error rather than resolving against the process working
+directory.
 
 ### REPL boundary
 
@@ -508,7 +618,8 @@ builtins, signals, or parser metadata and therefore is not a runtime
 specification.
 
 Unsupported live inspection must not prevent pure table, array, or component
-artifact navigation.
+artifact navigation. `StandardHost` supports inspection of its local component
+forest; a custom host may optionally support inspection of its live handles.
 
 The detailed dependency inventory and proposed interface shapes are in
 [Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md).
@@ -540,7 +651,8 @@ the appropriate breaking release is `0.7.0`, not a `0.6.x` release. A jump to
 `1.0.0` is warranted only if the project is also ready to promise a stable
 1.x API; it is not required merely to signal this break.
 
-`mittens-engine` is currently `0.7.0`. Keeping it non-breaking requires more
+`mittens-engine` is currently `0.7.0`. It stays on `0.7.x` only if the
+compatibility audit succeeds. Keeping it non-breaking requires more
 than preserving runner method signatures: all supported public Rust types and
 fields must remain source-compatible or gain a compatibility facade. In
 particular, the current public fields of `LoadedMmsModule` expose legacy
@@ -549,8 +661,8 @@ unchanged without violating the runtime boundary.
 
 Before release, Mittens must choose one of these outcomes:
 
-1. preserve supported engine APIs with compatibility wrappers and release the
-   migration without a Mittens breaking-version bump; or
+1. preserve supported engine APIs with compatibility wrappers and release on
+   Mittens `0.7.x`; or
 2. deliberately change those APIs, document the migration, and make the
    corresponding pre-1.0 breaking bump from `0.7` to `0.8`.
 
@@ -593,12 +705,14 @@ first two categories and its observable behavior remains compatible.
 
 ### Ordinary evaluation
 
-- Hostless evaluation uses the same `Runtime` and crate evaluator without an
-  effectful engine host.
+- Standard standalone evaluation uses the same `Runtime` and crate evaluator
+  with `StandardHost`; it collects component output while rejecting
+  engine-only operations with typed unsupported errors.
 - Live evaluation creates or selects a persistent session and services its host
   requests with short-lived `MittensHost` instances.
-- Source-path entry points pass a source identity so host-provided relative
-  imports behave consistently.
+- Source-path entry points establish a canonical source identity so
+  host-provided relative imports and module caching behave consistently. Raw
+  source without an identity rejects relative imports.
 
 ### Modules and factories
 
@@ -677,7 +791,13 @@ The boundary is complete only when:
 - handlers, keyframes, and callback-bearing templates preserve session heap
   identity after initial evaluation returns
 - all examples and engine-facing runners use the crate worker/session path
-- the generic crate runner and REPL work with fake hosts and no Mittens types
+- the generic crate runner and REPL work with `StandardHost` and fake/custom
+  hosts, without Mittens types or a configuration builder
+- open runtimes accept arbitrary uppercase component trees, while Mittens'
+  strict runtime rejects unknown names
+- static, collected, attached, live, stale, and foreign component values have
+  the reflection behavior defined above
+- table dot access and implicit-`self` methods preserve heap identity
 - the parity, specification, integration, lifetime, worker, factory-mode, and
   workspace test suites pass
 
@@ -689,3 +809,6 @@ The boundary is complete only when:
 - [Environment, heap, and object world](env-heap-object-world.md)
 - [Module imports and exports](module-import-export.md)
 - [Generic runner and REPL boundary](../analysis/generic-runner-and-repl-boundary.md)
+- [Standalone runner and source loading](../../task/mms-standalone-runner-and-source-loading.md)
+- [Component reflection and table dot access](../../task/mms-component-reflection-and-table-dot-access.md)
+- [Generic MMS REPL migration and navigation](../../task/mms-repl-navigation-and-cat-unification.md)

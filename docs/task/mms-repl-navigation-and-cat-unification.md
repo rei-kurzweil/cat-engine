@@ -1,92 +1,118 @@
-# MMS REPL navigation and cat unification
+# Generic MMS REPL migration and navigation
 
-## Status
+Date: 2026-07-30
 
-Design task.
+Status: planned
 
-No implementation yet.
+Normative architecture:
+[Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md).
 
 ## Goal
 
-Make the MMS REPL navigation model coherent and filesystem-like.
+Move the programmatic, navigation-aware REPL into `meow-meow-script` so it
+works with `StandardHost`, fake/custom hosts, or Mittens. The core constructor
+is `Repl::new(Runner)`; `Repl::standard()` is the builder-free convenience
+path.
 
-The REPL should expose a small set of navigation-aware commands that behave
-predictably when inspecting component trees and values:
+The REPL owns persistent input/evaluation and filesystem-like navigation.
+Terminal ownership, engine frame integration, and live ECS inspection remain
+adapters.
 
-- `ls` lists navigable children
-- `cd 0` moves to child index `0` from the current listing
-- `cd name` moves to a named child from the current listing
-- `cd /path` moves to an absolute component path
-- `pwd` prints the current location
-- `cat` dumps the current component or value by default
-- `cat 0` resolves index `0` from the current listing and dumps it
-- `cat component_variable_name` evaluates and dumps that variable
-- `cat query("#some_component > Text")` evaluates and dumps the query result
+## Command model
 
-## Current confusion
+The common navigation commands are:
 
-The integrated MMS REPL currently mixes navigation and expression evaluation in
-ways that make similar commands behave differently.
+- `ls` lists navigable children.
+- `cd 0` or `cd name` moves through the current listing.
+- `cd /path` resolves an absolute host-defined component path.
+- `pwd` reports the current structured location.
+- `cat` renders the current component or value.
+- `cat 0` resolves listing index `0`, not the numeric literal.
+- `cat name` first resolves a navigable child and then falls back to MMS
+  expression evaluation.
+- `cat query("...")` evaluates and renders the resulting value.
 
-Known confusing behavior:
+`ls`, `cd`, `pwd`, and `cat` are REPL commands, not hidden MMS builtins or
+entries in `RuntimeSpec`. Call-shaped language forms remain ordinary MMS.
+Decide explicitly whether `tree`, `dump`, `help`, `clear`, and `reset` are
+REPL-only commands or standard crate builtins.
 
-- `cd 0` resolves listing index `0`
-- `cat 0` evaluates the numeric literal `0` and prints `0.0`
-- `dump(cwd)` works as a short-term inspection workaround, but overlaps
-  conceptually with `cat`
+## Crate-owned REPL
 
-The user-facing expectation is that `cat` should inspect the thing named by the
-operand in the current navigation context, while still allowing expression
-evaluation where the operand is clearly not a navigation target.
+- [ ] Add a programmatic `Repl` that accepts submitted input and emits
+      structured `ReplEvent`s without stdin/stdout.
+- [ ] Construct it with `Repl::new(Runner)`; never take a `RuntimeSpec` or
+      builder.
+- [ ] Add `Repl::standard()` over `Runner::standard()` and `StandardHost`.
+- [ ] Keep bindings, modules, heap/table identity, current source identity,
+      cursor, and breadcrumbs across snippets.
+- [ ] Own input classification, multiline completion, navigation resolution,
+      reset, error recovery, and shutdown in the crate.
+- [ ] Keep pure formatting/rendering of tables, arrays, and component artifacts
+      in the crate.
+- [ ] Put terminal stdin/stdout/ANSI behavior behind an optional adapter.
 
-## Proposed direction
+## Pure and local navigation
 
-Make the MMS REPL own navigation-aware commands instead of treating every command
-operand as a raw MMS expression.
+- [ ] Navigate session-owned tables and arrays behind `ValueRef`s without
+      copying identity-bearing values across the worker boundary.
+- [ ] Navigate static component expressions through their type, authored
+      fields, and ordered immediate component children.
+- [ ] Navigate component values returned by functions without introducing a
+      function-component type.
+- [ ] Navigate the collected/local component forest supplied by
+      `StandardHost`, including registered and attached local handles.
+- [ ] Keep table dot reads and function-valued implicit-`self` methods
+      consistent between normal evaluation and REPL snippets.
 
-Commands that should become navigation-aware:
+Pure component/table navigation must work even when the host rejects live
+inspection.
 
-- `cat`
-- `tree`
-- maybe `type`
+## Optional live-host inspection
 
-Suggested resolution order for `cat <operand>`:
+- [ ] Use crate-owned inspection request/response DTOs for live world and
+      component navigation.
+- [ ] Support validation, listing, child resolution, parent lookup,
+      description/labels, and optional source rendering.
+- [ ] Let custom hosts return typed unsupported errors without disabling pure
+      navigation.
+- [ ] Keep Mittens `World`, liveness checks, GUID/short-ID resolution, ECS
+      labels, and subtree snapshots in `MittensHost` or its REPL adapter.
+- [ ] Preserve distinct unsupported-inspection, foreign-handle, and
+      stale-handle errors.
 
-1. Resolve an index from the current `ls` listing, such as `cat 0`.
-2. Resolve a named child or component path from the current navigation context.
-3. Fall back to MMS expression evaluation for variables, calls, and queries.
+## Mittens migration
 
-This keeps expression evaluation available for operands like:
+- [ ] Make the existing engine REPL a thin host, frame-loop, terminal, and
+      compatibility adapter over the crate REPL.
+- [ ] Remove copied evaluator/host dispatch from the engine backend.
+- [ ] Keep existing user-visible navigation behavior where it agrees with this
+      command model.
+- [ ] Preserve supported Mittens REPL and runner compile fixtures as release
+      gates.
 
-```mms
-component_variable_name
-query("#some_component > Text")
-```
+## Verification
 
-while making navigation operands behave consistently with `ls` and `cd`.
+- [ ] `Repl::standard()` evaluates snippets and navigates arbitrary uppercase
+      component trees without Mittens or a builder.
+- [ ] `cat 0`, `cd 0`, named children, and expression fallbacks resolve in the
+      documented order.
+- [ ] Tables preserve mutation and closure aliasing across submissions and
+      implicit-`self` calls.
+- [ ] Functions return component trees whose type, fields, and ordered
+      children can be listed and rendered.
+- [ ] Static, collected, locally attached, and live component values navigate
+      correctly.
+- [ ] A fake inspection host supplies roots, children, parents, labels, and
+      rendered source.
+- [ ] Unsupported live inspection leaves pure table/component navigation
+      usable; stale and foreign handles retain distinct errors.
+- [ ] Programmatic input/output tests require no terminal.
+- [ ] The Mittens adapter runs the same tests against `MittensHost`.
 
-## Dump relationship
+## Related
 
-Decide whether `dump()` remains as a lower-level function or becomes an alias for
-`cat`.
-
-Short-term, `dump(cwd)` is a valid workaround. Long-term, `cat` should be the
-user-facing inspection command because it matches the navigation model and avoids
-requiring users to know the internal `cwd` value shape.
-
-## Crate-level goal
-
-`crates/meow-meow-script` should eventually have its own REPL with the same
-navigation semantics.
-
-The current engine-integrated MMS REPL should not be the only place where
-filesystem-like component navigation exists. The standalone crate REPL should
-share the command model so `ls`, `cd`, `pwd`, `cat`, and related inspection
-commands behave the same way across host contexts.
-
-## Assumptions
-
-- `dump(cwd)` is acceptable as a short-term workaround
-- `cat` should become the user-facing inspection command
-- implementation should happen separately after the desired REPL semantics are
-  agreed
+- [Standalone runner and source loading](mms-standalone-runner-and-source-loading.md)
+- [Component reflection and table dot access](mms-component-reflection-and-table-dot-access.md)
+- [Generic runner and REPL boundary](../meow_meow/analysis/generic-runner-and-repl-boundary.md)
+- [MMS evaluator deduplication checklist](mms-evaluator-deduplication.md)

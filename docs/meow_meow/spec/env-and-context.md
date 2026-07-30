@@ -108,6 +108,12 @@ The filesystem path of the file currently being evaluated. Used solely to resolv
 - When source was passed as a raw string (e.g. `MeowMeowRunner::eval`)
 - Inside function call bodies — closures don't carry a path, so relative imports inside user-defined functions would fail
 
+This describes the legacy context shape. The target runner/session protocol
+replaces `source_path` with a stable `SourceId` carried by module/source
+context. File entrypoints establish a canonical identity; closures retain the
+relevant defining/module context. Raw source without an identity rejects a
+relative import deterministically instead of consulting the working directory.
+
 ### Where contexts are created
 
 | Site | variable storage | source_path |

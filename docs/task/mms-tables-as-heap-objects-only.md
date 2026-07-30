@@ -48,7 +48,7 @@ Those want stable identity and mutation semantics.
 
 The current reassignment work in:
 
-- [`src/meow_meow/evaluator.rs`](/home/rei/_/cat-engine/src/meow_meow/evaluator.rs:812)
+- [`crates/meow-meow-script/src/evaluator.rs`](../../crates/meow-meow-script/src/evaluator.rs)
 
 needed:
 
@@ -81,7 +81,7 @@ Heap-object tables make the model clearer:
 - closures can capture object references naturally
 
 This is not just theoretical. The original
-[`examples/table-field-reassign.mms`](/home/rei/_/cat-engine/examples/table-field-reassign.mms:1)
+[`examples/table-field-reassign.mms`](../../examples/table-field-reassign.mms)
 demonstrated the failure mode:
 
 - the `TextInputChanged` handler updates `app_state.draft_text`
@@ -117,6 +117,9 @@ For authored MMS evaluation:
 5. passing a table to functions passes the object reference
 6. returning a table returns the object reference
 7. closures and runtime blocks must keep the referenced heap alive
+8. `table.name` is the same read as `table["name"]`
+9. `table.method(args)` calls the function-valued field with that same table as
+   the first `self` argument
 
 This is now the normal rule for user-authored code.
 
@@ -134,6 +137,8 @@ Still mixed / follow-up:
 - some internal Rust helper paths still construct `Value::Map`
 - host event payload shaping should be normalized onto the same object model
 - reassignment code still has transitional `Value::Map` support for non-authored inputs
+- table dot reads and implicit-`self` calls need the coverage tracked by
+  [MMS component reflection and table dot access](mms-component-reflection-and-table-dot-access.md)
 
 ## What can still stay non-object
 
@@ -189,7 +194,7 @@ Status:
 
 Retest:
 
-- [`examples/table-field-reassign.mms`](/home/rei/_/cat-engine/examples/table-field-reassign.mms:1)
+- [`examples/table-field-reassign.mms`](../../examples/table-field-reassign.mms)
 
 Expected behavior after the migration:
 
@@ -238,6 +243,6 @@ representations.
 
 ## Related
 
-- [docs/meow_meow/draft/mms-types-phases-and-language-server.md](/home/rei/_/cat-engine/docs/meow_meow/draft/mms-types-phases-and-language-server.md:1)
-- [docs/draft/mms-records-and-rust-interop.md](/home/rei/_/cat-engine/docs/draft/mms-records-and-rust-interop.md:1)
-- [docs/task/mms-structs-for-event-payloads-and-data-modeling.md](/home/rei/_/cat-engine/docs/task/mms-structs-for-event-payloads-and-data-modeling.md:1)
+- [MMS types, phases, and language server](../meow_meow/draft/mms-types-phases-and-language-server.md)
+- [MMS records and Rust interop](../draft/mms-records-and-rust-interop.md)
+- [MMS structs for event payloads and data modeling](mms-structs-for-event-payloads-and-data-modeling.md)

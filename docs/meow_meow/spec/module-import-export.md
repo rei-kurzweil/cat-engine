@@ -38,6 +38,10 @@ import { pi, lerp, tau as τ } from "math.mms"
 ```
 
 Paths are resolved relative to the importing file's directory.
+In the target runner architecture, that directory comes from the importing
+module's canonical `SourceId`, not ambient process state. Raw source without a
+source identity cannot resolve a relative import and returns a typed
+source-resolution error.
 
 ---
 
@@ -84,6 +88,12 @@ Named exports (functions, numbers, etc.) are available immediately after import 
 
 Absolute paths are also accepted (pass through unchanged). There is no stdlib prefix (`@std/`) in v1 — stdlib files are loaded by relative path or prelude.
 
+`run_file` and module-file entrypoints canonicalize the root identity.
+Successful loads return canonical identities that drive diagnostics, nested
+relative resolution, and per-session module-cache identity. Different path
+spellings of the same canonical file must not produce duplicate module
+instances.
+
 ---
 
 ## What is / isn't supported in v1
@@ -96,10 +106,10 @@ Absolute paths are also accepted (pass through unchanged). There is no stdlib pr
 | `import { 0 as alias }` positional | ✅ |
 | Mixed `{ name, 0 as alias }` list | ✅ |
 | Relative path resolution | ✅ |
-| Imports inside function bodies | ⚠️ relative path resolution unavailable (source_path = None) |
+| Imports inside function bodies | target: use the defining/importing module `SourceId`; fail only when no identity exists |
 | `import parts from "..."` namespace import | ❌ not yet |
 | Circular import detection | ❌ not yet (will stack overflow) |
-| Module caching (eval once) | ❌ not yet (re-evaluated per import) |
+| Module caching (eval once) | target: cache by canonical resolved `SourceId` |
 | `@std/` stdlib prefix | ❌ not yet |
 | Re-export (`export { x } from "..."`) | ❌ not yet |
 | `import "file.mms" as ns` namespace import | ❌ not yet — required for `ns.query(...)` |

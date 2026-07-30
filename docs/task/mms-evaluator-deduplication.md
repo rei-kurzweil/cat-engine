@@ -11,6 +11,24 @@ This document tracks implementation only. Ownership, protocol invariants,
 callback lifetime, `RuntimeSpec` builder rules, and completion semantics are
 defined by the normative specification and must not be redefined here.
 
+## Focused prerequisite and phase-gate tasks
+
+Language/API decisions and their detailed verification live in these focused
+tasks:
+
+- [Standalone runner and source loading](mms-standalone-runner-and-source-loading.md)
+  gates Phase 2 and the module/import portion of Phase 3.
+- [Component reflection and table dot access](mms-component-reflection-and-table-dot-access.md)
+  gates Phase 1's open-name/inspection protocol and Phase 2's collected
+  component results.
+- [Generic MMS REPL migration and navigation](mms-repl-navigation-and-cat-unification.md)
+  gates Phase 5.
+- [Component expression `props_only` body mode](component-expression-props-only-body-mode.md)
+  gates registered component-body migration in Phase 1.
+
+This checklist links those gates instead of restating their syntax, method
+dispatch, standard-host, and navigation decisions.
+
 ## Scope guardrails
 
 - [ ] Keep `src/scripting/world_evaluator.rs` migration-only; add no language
@@ -90,6 +108,11 @@ are explicit regression tests.
 ## Phase 1 — one `RuntimeSpec` builder and complete host
 
 - [ ] Add crate-owned `RuntimeSpec` and nested builder types.
+- [ ] Complete the open/strict name-policy, component reflection, table dot,
+      and live inspection work in
+      [Component reflection and table dot access](mms-component-reflection-and-table-dot-access.md).
+- [ ] Complete registered component body behavior in
+      [Component expression `props_only` body mode](component-expression-props-only-body-mode.md).
 - [ ] Make `with_standard_builtins()` seed crate-provided pure builtins and
       value types into that same builder; keep grammar unconditionally
       crate-owned.
@@ -148,10 +171,12 @@ are explicit regression tests.
 
 Exit gate: Mittens gives MMS exactly one `RuntimeSpec`; every effectful item in
 it has exactly one host implementation, and the live parity corpus reaches no
-unimplemented operation.
+unimplemented operation. Both focused component tasks above have passed.
 
 ## Phase 2 — ordinary runners
 
+- [ ] Complete
+      [Standalone runner and source loading](mms-standalone-runner-and-source-loading.md).
 - [ ] Extend the crate worker protocol with operation and host-call
       correlation, source identity, completion, typed errors, and shutdown.
 - [ ] Replace permanently host-owned session state with a persistent,
@@ -197,7 +222,7 @@ unimplemented operation.
 
 Exit gate: the crate runner works with arbitrary/fake hosts without a
 configuration builder, and every Mittens runner and executable MMS example
-delegates through it.
+delegates through it. The standalone runner/source-loading task has passed.
 
 ## Phase 3 — modules and factories
 
@@ -250,6 +275,8 @@ no ECS component stores an MMS closure body or runtime function value.
 
 ## Phase 5 — REPL and worker completion
 
+- [ ] Complete
+      [Generic MMS REPL migration and navigation](mms-repl-navigation-and-cat-unification.md).
 - [ ] Extend worker operations for REPL snippets, navigation, inspection,
       reset, and orderly shutdown.
 - [ ] Move REPL input classification and multiline completion into
@@ -293,7 +320,7 @@ no ECS component stores an MMS closure body or runtime function value.
 
 Exit gate: the crate REPL works with arbitrary/fake hosts and no configuration
 builder; `src/scripting/repl` contains only Mittens host, frame-loop, terminal,
-and compatibility adapters.
+and compatibility adapters. The focused REPL task has passed.
 
 ## Phase 6 — legacy deletion
 
@@ -338,8 +365,8 @@ the full workspace suite passes.
       facade, classify the engine change as breaking and bump
       `mittens-engine` from `0.7.0` to `0.8.0`.
 - [ ] If those APIs and behaviors are preserved, record explicitly that the
-      engine release is non-breaking even though its `meow-meow-script`
-      dependency made a breaking release.
+      engine stays on `0.7.x` and that its release is non-breaking even though
+      its `meow-meow-script` dependency made a breaking release.
 
 Exit gate: crate versions communicate the actual compatibility impact and
 both direct embedders and Mittens users have an explicit migration story.
@@ -396,3 +423,6 @@ both direct embedders and Mittens users have an explicit migration story.
 - [Module component materialization versus instantiation](mms-module-component-materialization-vs-instantiation.md)
 - [Live module previews versus panel materialization](live-mms-module-preview-components-vs-panel-materialization.md)
 - [Generic runner and REPL boundary](../meow_meow/analysis/generic-runner-and-repl-boundary.md)
+- [Standalone runner and source loading](mms-standalone-runner-and-source-loading.md)
+- [Component reflection and table dot access](mms-component-reflection-and-table-dot-access.md)
+- [Generic MMS REPL migration and navigation](mms-repl-navigation-and-cat-unification.md)

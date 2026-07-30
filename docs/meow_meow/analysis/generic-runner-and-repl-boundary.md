@@ -20,6 +20,10 @@ The conclusion is:
 > consume an already-created crate-owned `SessionClient`, service its generic
 > host requests, and emit crate-owned output events.
 
+Their core APIs are `Runner::new(SessionClient)` and `Repl::new(Runner)`.
+`Runtime::standard()`, `Runner::standard()`, and `Repl::standard()` provide a
+builder-free crate default. Custom hosts can still use `Runtime::standard()`.
+
 The Mittens wrappers provide `MittensHost`, component/world inspection, source
 loading, signal payload adaptation, terminal ownership, and frame-loop
 integration. They do not implement runner state or REPL semantics.
@@ -126,6 +130,11 @@ Useful generic implementations include:
 - a callback/closure adapter for lightweight embedders
 - `MittensHost`, which constructs and attaches ECS components
 
+The crate-owned `StandardHost` combines the generic pieces needed by the
+builder-free path: a collecting component forest, opaque local handles,
+ordered local attachment and reflection, and canonical filesystem source
+loading. It returns typed unsupported errors for engine-only operations.
+
 The main `HostRequest` protocol may embed these component commands rather than
 adding a second dispatch mechanism. `ComponentSink` is a convenience boundary
 for hosts that only need component output; it is not another runtime
@@ -215,8 +224,14 @@ received it. This makes the same runner usable with:
 - another engine
 - a tooling host
 
-Convenience constructors may create a standard hostless runtime, but the core
+Convenience constructors may create the standard runtime and `StandardHost`,
+but the core
 `Runner::new(SessionClient)` API remains configuration-free.
+
+The standard runtime uses `ComponentNamePolicy::OpenUppercase`, accepting
+registered names plus unregistered ASCII `[A-Z][A-Za-z0-9_]*` structural
+labels. Mittens uses `StrictRegistered`. This decision belongs to the one
+`RuntimeSpec`, not the runner or host.
 
 ## Current REPL inventory
 
@@ -274,7 +289,7 @@ The crate REPL must not:
 
 ## Proposed generic REPL API
 
-Like the runner, the REPL receives an already configured session:
+Like the runner, the REPL receives an already configured runner:
 
 ```rust
 let session = configured_runtime.spawn_session()?;
@@ -318,6 +333,9 @@ An embedding may:
 
 No part of this API mentions `RuntimeSpec` or `RuntimeBuilder`.
 
+`Repl::standard()` is the convenience form over `Runner::standard()`;
+`Repl::new(Runner)` remains the configuration-independent core.
+
 ## Generic inspection boundary
 
 REPL navigation spans two ownership domains:
@@ -355,6 +373,11 @@ pub struct InspectionEntry {
 Session-value inspection is handled inside the worker because the heap lives
 there. Component/world inspection becomes a typed host request. The REPL
 combines both response forms into one navigation model.
+
+Pure component navigation uses the same universal MMS reflection model:
+`type()`, ordered immediate `children()`, and authored named fields are read
+locally for component artifacts. `StandardHost` can inspect its collected or
+locally attached component forest. Live custom-host inspection is optional.
 
 This inspection protocol is not a runtime vocabulary specification:
 
@@ -410,6 +433,11 @@ host. `TerminalRepl` reads and writes standard I/O but does not claim ownership
 through Mittens globals. Mittens wraps it or supplies its own frontend when it
 must coordinate stdin with another engine console.
 
+`run_file` and module-file entrypoints canonicalize the root `SourceId`, which
+also keys nested relative imports and the module cache. Raw source without a
+source identity rejects relative imports deterministically; it never inherits
+the process working directory implicitly.
+
 ## Proposed ownership after migration
 
 ### `meow-meow-script`
@@ -418,6 +446,8 @@ must coordinate stdin with another engine console.
 - generic `Runner`
 - `RunRequest`, `RunResult`, `RunEvent`, and output sink traits
 - component command/reply DTOs and collecting/rejecting sinks
+- `StandardHost` with a collecting forest, local handles/reflection, and
+  filesystem loading
 - generic `Repl`
 - REPL input classification and multiline completion
 - navigation over session-owned values
@@ -461,12 +491,19 @@ The following require prototypes but do not change the ownership decision:
 - The crate runner evaluates pure source with `RejectingComponentSink`.
 - The crate runner collects emitted component trees with
   `CollectingComponentSink`.
+- `Runner::standard()` evaluates an arbitrary uppercase component tree,
+  returns its collected forest, and resolves nested relative file imports.
+- Raw source without a `SourceId` rejects a relative import deterministically.
 - A fake host registers, attaches, queries, and invokes methods without
   Mittens types.
 - The same session runs through blocking and polling runner adapters.
 - The crate REPL preserves bindings and table identity across submissions.
 - The crate REPL navigates tables, arrays, and component artifacts without a
   host.
+- Component artifacts returned by functions expose their type, fields, and
+  ordered immediate children without a special function-component type.
+- Table dot reads and implicit-`self` methods preserve mutation and closure
+  aliasing.
 - A fake inspection host supplies world roots, component children, parents,
   labels, and rendered source.
 - Unsupported live inspection does not prevent pure-value navigation.
@@ -474,7 +511,8 @@ The following require prototypes but do not change the ownership decision:
   submission and `ReplEvent`.
 - The Mittens wrapper runs the same runner/REPL using `MittensHost`.
 - No crate runner or REPL module imports engine types or requires a
-  `RuntimeSpec` builder at construction.
+  `RuntimeSpec` builder at construction; fake/custom hosts work with the
+  standard runtime.
 
 ## Related
 

@@ -15,6 +15,12 @@ builtins, signals, and engine APIs.
 The crate's generic runner and REPL consume an already-created session rather
 than that builder; see
 [`analysis/generic-runner-and-repl-boundary.md`](analysis/generic-runner-and-repl-boundary.md).
+For the standalone constructor/source-loading work and component reflection
+work, see
+[`standalone-roadmap.md`](standalone-roadmap.md),
+[`Standalone runner and source loading`](../task/mms-standalone-runner-and-source-loading.md),
+and
+[`Component reflection and table dot access`](../task/mms-component-reflection-and-table-dot-access.md).
 
 ---
 
@@ -52,6 +58,13 @@ There are two distinct runtime modes for component expressions:
 - `ComponentExpr`: a declarative component tree value that has not been given a
   live ECS id yet.
 - `ComponentObject`: a live ECS component handle with a real `ComponentId`.
+
+The target universal API for either form is `node.type()`,
+`node.children()`, and `node.field`. Children are immediate component children
+in authored order; missing fields return `null`. Rust can already inspect
+materialized labels and ordered children, but this MMS reflection surface is
+not implemented consistently yet. Functions already return normal component
+expressions, so no separate function-component type is planned.
 
 In live-world evaluation (`MeowMeowRunner::eval_with_world...`), `let x = SomeComponent...`
 eagerly registers the component subtree immediately. That means `x` becomes a

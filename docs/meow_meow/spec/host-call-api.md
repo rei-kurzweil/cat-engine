@@ -104,10 +104,16 @@ these operations without engine types.
 | Engine API | specification operation ID, arguments | transport value or unit |
 | Audio | specification operation ID and typed arguments | value or unit |
 | Engine mutation | specification operation ID, targets, arguments | value or unit |
-| REPL inspection | world/component target and inspection operation | structured entries, target, description, or rendered source |
+| Component inspection | handle and type/children/field operation | string, ordered handles, value, or missing-field marker |
+| REPL inspection | world/component target and navigation operation | structured entries, target, description, or rendered source |
 
 Pure evaluation uses `Hostless`, which returns a typed
 `UnsupportedHostOperation` error for every effectful request.
+
+The crate-owned `StandardHost` is distinct from a rejecting `Hostless`
+implementation. It services component collection, opaque local handles, local
+component inspection, attachment, and filesystem source loading. It returns
+typed unsupported errors for operations that require an engine.
 
 ### Component sink adapter
 
@@ -140,6 +146,27 @@ This protocol does not declare MMS vocabulary and requires no
 `RuntimeSpecBuilder`. A host may reject live inspection while the REPL
 continues to support pure table, array, and component-artifact navigation.
 
+### Universal component inspection
+
+Language-level `node.type()`, `node.children()`, and `node.field` require no
+host request for a static `ComponentExpr`: the session reads its own artifact.
+For a live `ComponentObject`, the session issues generic inspection requests:
+
+- read the component type name
+- list immediate component children in host order
+- read one authored named field
+
+A confirmed missing field returns the protocol's missing-field result, which
+the evaluator maps to `null`. Lack of inspection support is
+`UnsupportedHostOperation`. Handle ownership and generation are checked first,
+so `ForeignHandle` and `StaleHandle` remain distinguishable and are never
+collapsed into missing or unsupported.
+
+These inspection request shapes are universal protocol operations, not
+registered component methods. `type()` and `children()` are reserved only for
+component receivers; namesakes in authored component fields or tables do not
+create host calls.
+
 ## Source loading
 
 Import syntax and module evaluation belong to the crate. Access to
@@ -161,6 +188,12 @@ SourceLoaded {
 diagnostics, relative resolution of nested imports, and module caching.
 Mittens may resolve that identity using a filesystem, asset database, or other
 engine policy.
+
+`StandardHost` canonicalizes filesystem paths before returning `SourceId`.
+File entrypoints establish the initial canonical identity. A relative
+specifier with no importer identity is a typed source-resolution failure; it
+is never resolved against an ambient working directory. Canonical identities,
+not spelling variants of paths, key the per-session module cache.
 
 ## Component lifecycle
 

@@ -34,10 +34,23 @@ audio operations, and mutations.
 
 ## 2. Standard standalone host
 
-Add an opt-in standard host with explicit capabilities for filesystem imports,
-stdout/stderr, process arguments, and time. Networking remains optional and is
-disabled by default. Filesystem access should be rooted and capability-checked;
-time should offer a deterministic test clock.
+Add a crate-owned `Runtime::standard()` using
+`ComponentNamePolicy::OpenUppercase`, plus `Runner::standard()` and
+`Repl::standard()` convenience paths. The core APIs remain
+`Runner::new(SessionClient)` and `Repl::new(Runner)`, so custom hosts require
+neither Mittens nor a builder.
+
+`StandardHost` collects emitted component roots into a forest, allocates opaque
+local handles, supports local attachment and reflection, and loads filesystem
+sources with canonical identities. Engine-only operations return typed
+unsupported errors.
+
+`run_file` and module-file entrypoints establish canonical identity for nested
+relative imports and the module cache. Raw source without an explicit identity
+rejects relative imports deterministically.
+
+Implementation is tracked by
+[Standalone runner and source loading](../task/mms-standalone-runner-and-source-loading.md).
 
 ## 3. `meow-meow` CLI
 
@@ -47,6 +60,8 @@ failures. Mittens-only component expressions and methods must produce clear
 capability errors that name the unavailable operation.
 
 The CLI and standard host are follow-up work and are not shipped by this split.
+The programmatic REPL work is tracked by
+[MMS REPL navigation and cat unification](../task/mms-repl-navigation-and-cat-unification.md).
 
 ## 4. Stable extension APIs and compatibility
 
