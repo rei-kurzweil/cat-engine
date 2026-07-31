@@ -1,5 +1,11 @@
 # ᓚᘏᗢ MMS Type Coercion — Design Draft
 
+> **Superseded direction:** The implicit `Int < Float < Double` widening model
+> in this document is an older proposal. See
+> [type-registry-and-method-dispatch.md](type-registry-and-method-dispatch.md)
+> for the current contextual-literal and explicit-conversion rules. This file
+> remains as design history.
+>
 > **Status: draft.** Not yet implemented.
 > One table per operator showing result types for all LHS × RHS combinations.
 > Numeric types only in this version. String coercion covered in a later section.

@@ -1,5 +1,10 @@
 # ᓚᘏᗢ MMS Type System — Design Draft
 
+> **Superseded direction:** The declaration syntax, primitive names, numeric
+> defaults, and strict-mode rules in this document are an older proposal. See
+> [type-registry-and-method-dispatch.md](type-registry-and-method-dispatch.md)
+> for the current design direction. This file remains as design history.
+>
 > **Status: draft.** No type-checking is implemented yet.
 > The evaluator is fully dynamic today. This doc designs the static layer that
 > may sit above the runtime later. Tables/structs should land before optional

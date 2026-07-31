@@ -1,5 +1,11 @@
 # ᓚᘏᗢ MMS Numeric Types — Design Draft
 
+> **Superseded direction:** The `Int`/`Float`/`Double` names, default-`Double`
+> rules, and widening model in this document are an older proposal. See
+> [type-registry-and-method-dispatch.md](type-registry-and-method-dispatch.md)
+> for the current fixed-width numeric design. This file remains as design
+> history.
+>
 > **Status: draft.** Not yet implemented.
 > Covers `Int`, `Float`, and `Double`.
 > Coercion rules and operator result tables are in [coercion.md](coercion.md).
