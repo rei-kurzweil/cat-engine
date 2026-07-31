@@ -24,6 +24,12 @@ Meow Meow Script ("MMS") is the scripting + authoring language for cat-engine.
 | `while` loops (Phase 8 partial) | ✅ done |
 | Array indexing `arr[i]` (Phase 8) | ⏳ planned |
 
+## Active planning epic
+
+- [Runtime configuration, generic frontends, types, and method dispatch](epic/runtime-configuration-frontends-types-and-method-dispatch.md)
+  — dependency order for the runtime builder, `StandardHost`, runner/REPL
+  migration, runtime/static types, and receiver method dispatch.
+
 ## Docs
 
 - [Objectives](../objectives.md) — what MMS is trying to be and why (start here)
