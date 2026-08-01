@@ -69,7 +69,7 @@ surface. Networking, process control, and engine assets remain out of scope.
 
 ## Verification
 
-- [ ] `Runner::standard()` accepts and collects an arbitrary uppercase
+- [x] `Runner::standard()` accepts and collects an arbitrary uppercase
       component tree, including nested unknown labels.
 - [ ] Collected roots, registered local handles, and later attachments retain
       authored field and child order.
@@ -78,7 +78,7 @@ surface. Networking, process control, and engine assets remain out of scope.
 - [ ] Equivalent canonical paths share one module-cache entry.
 - [ ] Raw-source relative imports fail deterministically when no `SourceId` is
       supplied.
-- [ ] Engine-only operations under `StandardHost` return their typed
+- [x] Engine-only operations under `StandardHost` return their typed
       unsupported errors.
 - [ ] A fake/custom host works with `Runtime::standard()` and
       `Runner::new(SessionClient)` without Mittens or a builder.

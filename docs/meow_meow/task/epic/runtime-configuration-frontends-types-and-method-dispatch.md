@@ -182,13 +182,13 @@ strings.
 
 ### Phase 2a: crate-owned standard runtime and `StandardHost`
 
-- [ ] Add `Runtime::standard()` using `OpenUppercase`.
+- [x] Add `Runtime::standard()` using `OpenUppercase`.
 - [ ] Add `StandardHost` with an ordered component forest, opaque local
       handles, register/attach behavior, local component reflection, and
       canonical filesystem source loading.
 - [ ] Return typed unsupported errors for engine-only queries, methods, APIs,
       audio, and mutations.
-- [ ] Keep custom hosts usable with `Runtime::standard()`; replacing
+- [x] Keep custom hosts usable with `Runtime::standard()`; replacing
       `StandardHost` must not require a builder.
 - [ ] Add collecting and rejecting component-sink adapters where they improve
       embedding ergonomics without creating another specification.
@@ -225,7 +225,7 @@ modify a configuration builder.
 - [ ] Add crate-owned operation and host-call correlation, completion,
       cancellation/timeout, reset, shutdown, diagnostics, and typed errors.
 - [ ] Add `Runner::new(SessionClient)` as the core constructor.
-- [ ] Add `Runner::standard()` as the convenience path over
+- [x] Add `Runner::standard()` as the convenience path over
       `Runtime::standard()` and `StandardHost`.
 - [ ] Add blocking and polling adapters over the same operation semantics.
 - [ ] Add file/source entrypoints with canonical `SourceId` handling and

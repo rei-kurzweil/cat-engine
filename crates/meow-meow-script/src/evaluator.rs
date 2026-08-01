@@ -7,7 +7,7 @@ use crate::ast::{
 };
 use crate::host::{CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest, HostResponse, TransportValue};
 use crate::object::{CeChild, HeapHandle, MaterializedCE, Object, ObjectId, RuntimeClosure, Value};
-use crate::runtime::{api_key, Catalog, ValueSignature};
+use crate::runtime::{api_key, Catalog, ComponentNamePolicy, ValueSignature};
 use crate::{MeowMeowParser, MeowMeowTokenizer};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,7 +97,16 @@ impl<'a, H: Host> Evaluator<'a, H> {
             .tokenize()
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
         let parser = if let Some(catalog) = &self.catalog {
-            MeowMeowParser::with_component_names(tokens, catalog.components.keys().cloned())
+            match catalog.component_name_policy {
+                ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names(
+                    tokens,
+                    catalog.components.keys().cloned(),
+                ),
+                ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names(
+                    tokens,
+                    catalog.components.keys().cloned(),
+                ),
+            }
         } else { MeowMeowParser::new(tokens) };
         let statements = parser
             .parse_program()
@@ -556,8 +565,17 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
         }
         if let Some(catalog) = &self.catalog {
-            let spec = catalog.components.get(&component.component_type.0.to_lowercase())
-                .ok_or_else(|| unknown("component", &component.component_type.0, catalog.components.keys().map(String::as_str)))?.clone();
+            let spec = catalog.components.get(&component.component_type.0.to_lowercase()).cloned();
+            let Some(spec) = spec else {
+                if catalog.component_name_policy == ComponentNamePolicy::OpenUppercase {
+                    return Ok(tree);
+                }
+                return Err(unknown(
+                    "component",
+                    &component.component_type.0,
+                    catalog.components.keys().map(String::as_str),
+                ));
+            };
             if let Some(method) = &tree.ctor_method {
                 let signature = spec.constructors.get(method).ok_or_else(|| unknown("constructor", method, spec.constructors.keys().map(String::as_str)))?;
                 validate_args(&format!("{}.{}", spec.name, method), signature, &tree.ctor_args)?;

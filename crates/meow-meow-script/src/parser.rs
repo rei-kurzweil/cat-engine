@@ -17,11 +17,17 @@ pub struct MeowMeowParser {
     tokens: Vec<Token>,
     pos: usize,
     component_names: Option<HashSet<String>>,
+    open_uppercase_components: bool,
 }
 
 impl MeowMeowParser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, component_names: None }
+        Self {
+            tokens,
+            pos: 0,
+            component_names: None,
+            open_uppercase_components: true,
+        }
     }
 
     /// Construct a parser whose component-expression disambiguation is driven
@@ -39,14 +45,37 @@ impl MeowMeowParser {
                     .map(|name| name.into().to_lowercase())
                     .collect(),
             ),
+            // Strict runtimes still parse uppercase component-shaped syntax;
+            // the runtime catalog then reports an unknown component instead
+            // of silently interpreting it as unrelated expressions.
+            open_uppercase_components: true,
+        }
+    }
+
+    /// Construct a parser that recognizes registered names and arbitrary
+    /// structural component names matching ASCII `[A-Z][A-Za-z0-9_]*`.
+    pub fn with_open_component_names(
+        tokens: Vec<Token>,
+        names: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            tokens,
+            pos: 0,
+            component_names: Some(
+                names
+                    .into_iter()
+                    .map(|name| name.into().to_lowercase())
+                    .collect(),
+            ),
+            open_uppercase_components: true,
         }
     }
 
     fn is_component_name(&self, name: &str) -> bool {
-        self.component_names.as_ref().map_or_else(
-            || name.chars().next().is_some_and(char::is_uppercase),
-            |names| names.contains(&name.to_lowercase()),
-        )
+        self.component_names
+            .as_ref()
+            .is_some_and(|names| names.contains(&name.to_lowercase()))
+            || self.open_uppercase_components && is_open_component_name(name)
     }
 
     pub fn parse_program(mut self) -> Result<Vec<Statement>, ParseError> {
@@ -627,6 +656,12 @@ impl MeowMeowParser {
             span,
         }
     }
+}
+
+fn is_open_component_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes.next().is_some_and(|byte| byte.is_ascii_uppercase())
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn is_assignable_target(expr: &Expression) -> bool {

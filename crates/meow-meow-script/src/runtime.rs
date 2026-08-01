@@ -11,6 +11,12 @@ use crate::{CallbackHandle, EvalError, Evaluation, Evaluator, Expression, HeapHa
 
 static NEXT_SESSION_TAG: AtomicU32 = AtomicU32::new(1);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComponentNamePolicy {
+    OpenUppercase,
+    StrictRegistered,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueType {
     Any, Null, Bool, Number, String, Array, Table, Component, Callback,
@@ -114,6 +120,7 @@ impl std::error::Error for CatalogError {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Catalog {
+    pub component_name_policy: ComponentNamePolicy,
     pub components: HashMap<String, Arc<ComponentSpec>>,
     pub canonical_components: Vec<Arc<ComponentSpec>>,
     pub apis: HashMap<String, Arc<HostApiSpec>>,
@@ -132,13 +139,17 @@ pub struct RuntimeBuilder { catalog: Catalog }
 
 impl Default for RuntimeBuilder {
     fn default() -> Self {
-        Self { catalog: Catalog { components: HashMap::new(), canonical_components: vec![], apis: HashMap::new(),
+        Self { catalog: Catalog { component_name_policy: ComponentNamePolicy::StrictRegistered,
+            components: HashMap::new(), canonical_components: vec![], apis: HashMap::new(),
             namespaces: HashSet::new(), builtins: ["null", "range", "len", "query", "query_all", "Math", "MusicNote"].into_iter().map(str::to_owned).collect() } }
     }
 }
 
 impl RuntimeBuilder {
     pub fn new() -> Self { Self::default() }
+    pub fn component_name_policy(&mut self, policy: ComponentNamePolicy) -> &mut Self {
+        self.catalog.component_name_policy = policy; self
+    }
     pub fn register_builtin(&mut self, name: impl Into<String>) -> Result<&mut Self, CatalogError> {
         let name = name.into(); self.ensure_free(&name)?; self.catalog.builtins.insert(name); Ok(self)
     }
@@ -177,12 +188,27 @@ pub(crate) fn api_key(namespace: Option<&str>, name: &str) -> String { namespace
 pub struct Runtime { pub(crate) catalog: Arc<Catalog> }
 impl Runtime {
     pub fn builder() -> RuntimeBuilder { RuntimeBuilder::new() }
+    pub fn standard() -> Self {
+        let mut builder = Self::builder();
+        builder.component_name_policy(ComponentNamePolicy::OpenUppercase);
+        builder.build()
+    }
     pub fn component_names(&self) -> impl Iterator<Item = &str> { self.catalog.components.keys().map(String::as_str) }
     pub fn materialize_component(&self, source: &str) -> Result<MaterializedCE, EvalError> {
         let tokens = MeowMeowTokenizer::new(source)
             .tokenize()
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
-        let statements = MeowMeowParser::with_component_names(tokens, self.catalog.components.keys().cloned())
+        let parser = match self.catalog.component_name_policy {
+            ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names(
+                tokens,
+                self.catalog.components.keys().cloned(),
+            ),
+            ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names(
+                tokens,
+                self.catalog.components.keys().cloned(),
+            ),
+        };
+        let statements = parser
             .parse_program()
             .map_err(|e| EvalError::Parse(e.message))?;
         let [Statement::Expression(Expression::Component(component))] = statements.as_slice() else {

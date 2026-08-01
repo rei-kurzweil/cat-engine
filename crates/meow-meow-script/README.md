@@ -88,10 +88,13 @@ The crate includes two generic hosts:
 Run them with:
 
 ```sh
+cargo run -p meow-meow-script --example standard_runtime
 cargo run -p meow-meow-script --example event_stream_host
 cargo run -p meow-meow-script --example json_lines_host
 ```
 
-These examples intentionally do not provide a socket implementation or
-standalone CLI. The planned programmatic REPL and standard host are tracked in
+`standard_runtime` smoke-tests the builder-free open-name runtime and
+crate-owned collecting host. The event-stream examples demonstrate custom
+runtime specifications and hosts. They intentionally do not provide a socket
+implementation or standalone CLI; the planned programmatic REPL is tracked in
 the [standalone roadmap](../../docs/meow_meow/standalone-roadmap.md).

@@ -1,4 +1,29 @@
-use crate::{EvalError, Evaluation, Evaluator, Host, Hostless};
+use crate::{
+    CatalogError, EvalError, Evaluation, Evaluator, Host, Hostless, Runtime, Session, StandardHost,
+};
+
+/// Generic runner façade. Its private synchronous session is an initial
+/// standalone implementation; the persistent worker can replace it without
+/// changing the builder-free `Runner::standard()` entry point.
+pub struct Runner {
+    session: Session<StandardHost>,
+}
+
+impl Runner {
+    pub fn standard() -> Result<Self, CatalogError> {
+        Ok(Self {
+            session: Runtime::standard().session(StandardHost::new())?,
+        })
+    }
+
+    pub fn eval(&mut self, source: &str) -> Result<Evaluation, EvalError> {
+        self.session.eval(source)
+    }
+
+    pub fn host(&self) -> &StandardHost { self.session.host() }
+
+    pub fn host_mut(&mut self) -> &mut StandardHost { self.session.host_mut() }
+}
 
 /// Convenience entry point for ordinary scripts that require no host powers.
 pub struct HostlessRunner;
@@ -54,6 +79,15 @@ mod tests {
     fn evaluates_pure_arithmetic() {
         let result = HostlessRunner::eval("1 + 2 * 3").unwrap();
         assert_eq!(result.value, Some(Value::Number(7.0)));
+    }
+
+    #[test]
+    fn standard_runner_collects_open_component_output() {
+        let mut runner = Runner::standard().unwrap();
+        runner.eval("SmokeRoot { SmokeChild {} }").unwrap();
+
+        assert_eq!(runner.host().roots().len(), 1);
+        assert_eq!(runner.host().roots()[0].tree.component_type, "SmokeRoot");
     }
 
     #[test]
