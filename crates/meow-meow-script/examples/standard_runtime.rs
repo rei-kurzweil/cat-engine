@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "#,
     )?;
 
-    let roots = runner.host().roots();
+    let roots = runner.host().resolved_roots()?;
     let root = roots
         .first()
         .ok_or("the example emitted no component root")?;
