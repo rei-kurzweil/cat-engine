@@ -4,6 +4,11 @@ The host-neutral Meow Meow Script language crate. It owns syntax, parsing,
 runtime values, evaluation, and the synchronous host protocol. Engine-specific
 component construction is provided by `mittens-engine`.
 
+## Documentation
+
+- [Configure a script host](docs/how_to/configuring_a_script_host.md)
+- [Use the standard host](docs/how_to/use_the_standard_host.md)
+
 ## Mittens integration
 
 `meow-meow-script` does not know about Mittens components. It provides the
@@ -58,15 +63,13 @@ Component expressions can also be parsed and materialized without attaching a
 host by using `Runtime::materialize_component(...)`. A host is only required for
 effects such as emit/register, query, component methods, and host APIs.
 
-`Runner::standard()` and `Repl::standard()` use the crate-owned `StandardHost`.
-It collects emitted roots into a component forest, allocates opaque local
-handles, supports local reflection/attachment, and loads filesystem sources
-with canonical identities. Engine-only operations return typed unsupported
+`Runner::standard()` uses the crate-owned `StandardHost`. It collects emitted
+roots into a component forest, allocates opaque local handles, and resolves
+local attachment topology. Engine-only operations return typed unsupported
 errors. Custom hosts can use `Runtime::standard()` without a builder.
 
-File entrypoints establish canonical source identity for nested relative
-imports and module caching. Raw source without an explicit identity rejects
-relative imports.
+The programmatic REPL, component reflection methods, and filesystem source
+loading remain planned work.
 
 Tables are heap-backed inside MMS, so aliases observe mutation across
 evaluations. When a table crosses into a host API, it is converted into an owned
@@ -96,5 +99,6 @@ cargo run -p meow-meow-script --example json_lines_host
 `standard_runtime` smoke-tests the builder-free open-name runtime and
 crate-owned collecting host. The event-stream examples demonstrate custom
 runtime specifications and hosts. They intentionally do not provide a socket
-implementation or standalone CLI; the planned programmatic REPL is tracked in
-the [standalone roadmap](../../docs/meow_meow/standalone-roadmap.md).
+implementation or standalone CLI. See the crate-local
+[standard-host guide](docs/how_to/use_the_standard_host.md) for current
+capabilities and limitations.

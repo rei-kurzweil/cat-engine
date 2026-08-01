@@ -25,6 +25,8 @@ standalone `meow-meow-script` and `mittens-query` crates remain at 0.6.0.
 
 For scripting, see the [MMS language overview](docs/meow_meow/README.md), the
 [`meow-meow-script` crate and its Mittens integration](crates/meow-meow-script/README.md),
+the [script-host configuration guide](crates/meow-meow-script/docs/how_to/configuring_a_script_host.md),
+the [standard-host guide](crates/meow-meow-script/docs/how_to/use_the_standard_host.md),
 the [normative host/runtime boundary](docs/meow_meow/spec/mittens-host-and-runtime-boundary.md),
 and the [standalone roadmap](docs/meow_meow/standalone-roadmap.md). The focused
 implementation tasks cover the

@@ -12,6 +12,15 @@ The normative engine boundary is
 Mittens assembles one crate-owned `RuntimeSpec` with a nested Rust builder;
 MMS uses that single specification for components, properties, methods,
 builtins, signals, and engine APIs.
+Current crate-owned how-to documentation lives with the crate:
+
+- [Configuring a script host](../../crates/meow-meow-script/docs/how_to/configuring_a_script_host.md)
+- [Using the standard host](../../crates/meow-meow-script/docs/how_to/use_the_standard_host.md)
+
+The remaining host-neutral material under this directory will move into the
+crate incrementally; the
+[documentation-move tracker](../task/move-meow-meow-documentation-into-crate.md)
+records that work.
 The crate's generic runner and REPL consume an already-created session rather
 than that builder; see
 [`analysis/generic-runner-and-repl-boundary.md`](analysis/generic-runner-and-repl-boundary.md).
