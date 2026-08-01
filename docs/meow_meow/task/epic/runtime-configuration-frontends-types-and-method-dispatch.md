@@ -33,6 +33,9 @@ The normative ownership rules remain in
 This epic decides execution order and does not replace that specification or
 the focused task documents it links.
 
+The complementary engine-facing cutover and release gate is
+[Mittens MMS ownership cutover and 0.8 release](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md).
+
 ## Decision summary
 
 The first substantive implementation phase is the configuration/catalog
@@ -451,6 +454,7 @@ they are not prerequisites for the examples motivating this epic.
 
 ## Related documents
 
+- [Mittens MMS ownership cutover and 0.8 release](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md)
 - [Mittens host and MMS runtime boundary](../../spec/mittens-host-and-runtime-boundary.md)
 - [Host API](../../spec/host-call-api.md)
 - [Generic runner and REPL boundary](../../analysis/generic-runner-and-repl-boundary.md)
