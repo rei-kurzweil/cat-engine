@@ -23,7 +23,7 @@ and `Action.*` MMS constructors. Deferred animation now uses executable
 `Keyframe.at(...) { ... }` blocks that capture live component handles. The
 standalone `meow-meow-script` and `mittens-query` crates remain at 0.6.0.
 
-For scripting, see the [MMS language overview](docs/meow_meow/README.md), the
+For scripting, see the [MMS language guide](crates/meow-meow-script/docs/guide/language.md), the
 [`meow-meow-script` crate and its Mittens integration](crates/meow-meow-script/README.md),
 the [script-host configuration guide](crates/meow-meow-script/docs/how_to/configuring_a_script_host.md),
 the [standard-host guide](crates/meow-meow-script/docs/how_to/use_the_standard_host.md),

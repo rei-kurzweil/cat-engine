@@ -10,7 +10,7 @@ MMS status means:
 
 Every `mms parse-only` fence is syntax-checked by documentation tests. Fences marked `mms runnable` are also evaluated in an isolated world with render assets.
 
-For common composition patterns, see the [MMS language guide](../../meow_meow/README.md). For signal semantics and the exhaustive signal catalog, see the [MMS signal guide](signals.md).
+For common composition patterns, see the [MMS language guide](../../../crates/meow-meow-script/docs/guide/language.md). For signal semantics and the exhaustive signal catalog, see the [MMS signal guide](signals.md).
 
 ## Transforms and scene graph
 

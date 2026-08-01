@@ -6,6 +6,8 @@ component construction is provided by `mittens-engine`.
 
 ## Documentation
 
+- [Documentation index](docs/README.md)
+- [MMS language guide](docs/guide/language.md)
 - [Configure a script host](docs/how_to/configuring_a_script_host.md)
 - [Use the standard host](docs/how_to/use_the_standard_host.md)
 

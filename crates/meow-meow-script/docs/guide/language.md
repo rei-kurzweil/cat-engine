@@ -5,31 +5,33 @@ authoring capabilities supplied by `mittens-engine`. A script
 describes a component tree and wires up reactive behaviour; the evaluator
 runs through the host contract and emits requests to the engine adapter.
 
-For status, roadmap, and active task docs see [`task/status.md`](task/status.md).
-For language goals see [`objectives.md`](objectives.md).
+For status, roadmap, and active task docs see
+[`task/status.md`](../../../../docs/meow_meow/task/status.md).
+For language goals see
+[`objectives.md`](../../../../docs/meow_meow/objectives.md).
 The normative engine boundary is
-[`spec/mittens-host-and-runtime-boundary.md`](spec/mittens-host-and-runtime-boundary.md).
+[`spec/mittens-host-and-runtime-boundary.md`](../../../../docs/meow_meow/spec/mittens-host-and-runtime-boundary.md).
 Mittens assembles one crate-owned `RuntimeSpec` with a nested Rust builder;
 MMS uses that single specification for components, properties, methods,
 builtins, signals, and engine APIs.
 Current crate-owned how-to documentation lives with the crate:
 
-- [Configuring a script host](../../crates/meow-meow-script/docs/how_to/configuring_a_script_host.md)
-- [Using the standard host](../../crates/meow-meow-script/docs/how_to/use_the_standard_host.md)
+- [Configuring a script host](../how_to/configuring_a_script_host.md)
+- [Using the standard host](../how_to/use_the_standard_host.md)
 
-The remaining host-neutral material under this directory will move into the
-crate incrementally; the
-[documentation-move tracker](../task/move-meow-meow-documentation-into-crate.md)
+The remaining host-neutral material under the workspace's `docs/meow_meow`
+directory will move into the crate incrementally; the
+[documentation-move tracker](../../../../docs/task/move-meow-meow-documentation-into-crate.md)
 records that work.
-The crate's generic runner and REPL consume an already-created session rather
-than that builder; see
-[`analysis/generic-runner-and-repl-boundary.md`](analysis/generic-runner-and-repl-boundary.md).
+The crate's generic runner consumes an already-created session rather than
+that builder. The generic REPL will follow the same boundary; see
+[`analysis/generic-runner-and-repl-boundary.md`](../../../../docs/meow_meow/analysis/generic-runner-and-repl-boundary.md).
 For the standalone constructor/source-loading work and component reflection
 work, see
-[`standalone-roadmap.md`](standalone-roadmap.md),
-[`Standalone runner and source loading`](../task/mms-standalone-runner-and-source-loading.md),
+[`standalone-roadmap.md`](../../../../docs/meow_meow/standalone-roadmap.md),
+[`Standalone runner and source loading`](../../../../docs/task/mms-standalone-runner-and-source-loading.md),
 and
-[`Component reflection and table dot access`](../task/mms-component-reflection-and-table-dot-access.md).
+[`Component reflection and table dot access`](../../../../docs/task/mms-component-reflection-and-table-dot-access.md).
 
 ---
 
@@ -117,8 +119,9 @@ run when the keyframe becomes due, so direct receiver calls like
 `glow.set_intensity(2.5)` or `cube_t.update_transform([...], [...], [...])`
 dispatch intents at that due frame.
 
-See [`spec/component-expression-format.md`](spec/component-expression-format.md)
-and [`assets/components/`](../../assets/components) for component definitions.
+See
+[`spec/component-expression-format.md`](../../../../docs/meow_meow/spec/component-expression-format.md)
+and [`assets/components/`](../../../../assets/components) for component definitions.
 
 ---
 
@@ -136,7 +139,7 @@ x = x + y
 Scope is a frame stack: blocks, loop bodies, if-bodies, and CE bodies push
 transparent frames; function calls push a hard barrier. Closures capture the
 visible env at definition time. See
-[`spec/env-heap-object-world.md`](spec/env-heap-object-world.md).
+[`spec/env-heap-object-world.md`](../../../../docs/meow_meow/spec/env-heap-object-world.md).
 
 ---
 
@@ -166,8 +169,8 @@ for i in range(10) {
 }
 ```
 
-Examples: [`mms-loops.mms`](../../examples/mms-loops.mms),
-[`mms-functions.mms`](../../examples/mms-functions.mms).
+Examples: [`mms-loops.mms`](../../../../examples/mms-loops.mms),
+[`mms-functions.mms`](../../../../examples/mms-functions.mms).
 
 ---
 
@@ -186,7 +189,7 @@ hero.set_color(0, 0, 1, 1)
 query_all("enemy") -> set_color(0, 1, 0, 1)
 ```
 
-Example: [`query-demo.mms`](../../examples/query-demo.mms).
+Example: [`query-demo.mms`](../../../../examples/query-demo.mms).
 
 ---
 
@@ -210,19 +213,19 @@ on(cube, "Click", fn(event) {
 
 > TODO: in-body handler sugar (`on(Click) { ... }` inside a CE body) and the
 > `selector -> handler` form are designed but not yet implemented. See
-> [`analysis/event-handlers.md`](analysis/event-handlers.md).
+> [`analysis/event-handlers.md`](../../../../docs/meow_meow/analysis/event-handlers.md).
 
-Examples: [`signal-handler.mms`](../../examples/signal-handler.mms),
-[`pipe-demo.mms`](../../examples/pipe-demo.mms).
+Examples: [`signal-handler.mms`](../../../../examples/signal-handler.mms),
+[`pipe-demo.mms`](../../../../examples/pipe-demo.mms).
 
 ---
 
 ## More examples
 
 `examples/` contains end-to-end scripts: scene setup
-([`vr-input.mms`](../../examples/vr-input.mms)), UI
-([`ui-layout.mms`](../../examples/ui-layout.mms),
-[`html-layout.mms`](../../examples/html-layout.mms)), composition
-([`component-method-call.mms`](../../examples/component-method-call.mms),
-[`mms-module-example.mms`](../../examples/mms-module-example.mms)),
+([`vr-input.mms`](../../../../examples/vr-input.mms)), UI
+([`ui-layout.mms`](../../../../examples/ui-layout.mms),
+[`html-layout.mms`](../../../../examples/html-layout.mms)), composition
+([`component-method-call.mms`](../../../../examples/component-method-call.mms),
+[`mms-module-example.mms`](../../../../examples/mms-module-example.mms)),
 and more.
