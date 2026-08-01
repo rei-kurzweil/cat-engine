@@ -45,8 +45,9 @@ dispatch, standard-host, and navigation decisions.
 
 ## Baseline and inventory
 
-- [ ] Record the current workspace test baseline, including the 37 passing
-      `meow-meow-script` library tests.
+- [ ] Record the current workspace test baseline.
+  - 2026-07-31: `cargo test -p meow-meow-script` passes all 37 library tests
+    and its doc tests; the full workspace baseline remains to be recorded.
 - [ ] Inventory every public and crate-private caller of:
   - `MeowMeowEvaluator`
   - `eval_mms_fn`
@@ -87,7 +88,7 @@ dispatch, standard-host, and navigation decisions.
 
 ## Phase 0 — pure parity and freeze
 
-- [ ] Add a freeze comment to `src/scripting/world_evaluator.rs` directing new
+- [x] Add a freeze comment to `src/scripting/world_evaluator.rs` directing new
       semantics to `crates/meow-meow-script`.
 - [ ] Create one shared corpus runnable by the legacy and crate evaluators.
 - [ ] Cover pure language behavior:
@@ -346,10 +347,13 @@ the full workspace suite passes.
 ## Release and versioning
 
 - [ ] Treat the direct `meow-meow-script` API migration as breaking.
-- [ ] Bump `meow-meow-script` from `0.6.0` to `0.7.0` when the new API lands;
-      do not publish it as `0.6.x`.
-- [ ] Update the `mittens-engine` dependency requirement and lockfile to the
-      new `meow-meow-script` version in the same release change.
+- [ ] Target `0.8.0` as the next release of both `meow-meow-script` and
+      `mittens-engine`; do not publish an intermediate MMS `0.7.0` or Mittens
+      `0.7.1` release.
+- [ ] Leave the manifests unchanged until the later MMS work is ready unless
+      this cutover requires the version change. When a bump is required, set
+      both crates to `0.8.0` and update the dependency requirement and
+      lockfile in the same change.
 - [ ] Publish a direct-embedder migration guide covering:
   - construction through the one `RuntimeSpec` builder
   - removal of separate `HostCapabilities`
@@ -361,12 +365,9 @@ the full workspace suite passes.
 - [ ] Run the Mittens public API/source-compatibility fixtures.
 - [ ] Verify observable compatibility for runner outputs, errors, modules,
       template/live factories, handlers, and keyframes.
-- [ ] If supported Mittens APIs cannot be preserved with a boundary-safe
-      facade, classify the engine change as breaking and bump
-      `mittens-engine` from `0.7.0` to `0.8.0`.
-- [ ] If those APIs and behaviors are preserved, record explicitly that the
-      engine stays on `0.7.x` and that its release is non-breaking even though
-      its `meow-meow-script` dependency made a breaking release.
+- [ ] Classify the supported Mittens API changes precisely for the migration
+      guide; compatibility evidence no longer changes the shared `0.8.0`
+      release target.
 
 Exit gate: crate versions communicate the actual compatibility impact and
 both direct embedders and Mittens users have an explicit migration story.
@@ -396,8 +397,8 @@ both direct embedders and Mittens users have an explicit migration story.
 - [ ] Typed errors and recovery behavior are covered.
 - [ ] `meow-meow-script` has a pre-1.0 breaking version bump and migration
       guide.
-- [ ] Mittens public API compatibility is proven, or Mittens receives its own
-      documented breaking version bump.
+- [ ] Mittens public API compatibility and deliberate breaks are documented
+      for the synchronized `0.8.0` release.
 - [ ] The full workspace test suite passes.
 
 ## Required test matrix

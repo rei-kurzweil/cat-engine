@@ -23,19 +23,24 @@ than duplicating every evaluator checklist item.
 
 ## Recommendation
 
-Plan the cutover as:
+Plan the next release of both crates as `0.8.0`:
 
-- `meow-meow-script` `0.6.0` -> `0.7.0`; and
+- `meow-meow-script` `0.6.0` -> `0.8.0`; and
 - `mittens-engine` `0.7.0` -> `0.8.0`.
 
-Commit to or reject the Mittens `0.8.0` target immediately after the Phase 0
-public-API audit. Do not defer that decision until all migration work is
-finished.
+This is a release target, not an instruction to bump either manifest at the
+start of the cutover. By default, leave both manifests at their current
+versions through this task and the later MMS runtime-type, receiver-method,
+and static-checking work, then bump and release both crates together as
+`0.8.0` after that work is ready.
 
-`mittens-engine 0.7.1` is appropriate only if the audit and compatibility
-fixtures demonstrate that every supported public Rust surface and observable
-behavior can be preserved through a boundary-safe facade. A patch version is
-not appropriate merely because the common runner methods still compile.
+If the ownership cutover itself requires a version change before the later MMS
+work can land or be consumed, synchronize the manifests and dependency
+requirement in that change: use `0.8.0` for both crates. Do not publish an
+intermediate `meow-meow-script 0.7.0` or a `mittens-engine 0.7.1` release.
+
+Commit to the shared `0.8.0` target immediately after the Phase 0 public-API
+audit. Do not defer that decision until all migration work is finished.
 
 The current known hazards make `0.8.0` the expected outcome. Public types such
 as engine-local MMS `Value`, `MaterializedCE`, `RuntimeClosure`, worker
@@ -44,9 +49,10 @@ architecture being removed. Preserving their old semantics would retain a
 second heap, evaluator, or closure model and violate the target boundary.
 
 The speed of the previous `0.5` -> `0.6` -> `0.7` releases does not change the
-compatibility meaning of the next release. Before `1.0`, a `0.7` -> `0.8`
-change is the normal way to communicate an incompatible public API. Avoiding
-that bump is less valuable than reaching one coherent scripting boundary.
+compatibility meaning of the next release. Before `1.0`, these minor-version
+changes are the normal way to communicate an incompatible public API. Keeping
+the crate releases aligned is more valuable than preserving an unused
+intermediate version number.
 
 ## The point where Mittens stops caring
 
@@ -128,14 +134,15 @@ This phase happens before the builder migration grows compatibility shims.
 - [ ] Reject any proposed facade that requires a second evaluator, heap,
       closure representation, or mutable module state outside the crate
       session.
-- [ ] Record the release commitment:
-  - choose `0.8.0` if any supported surface is deliberately breaking; or
-  - choose `0.7.1` only if all supported surfaces and behaviors have passing
-    compatibility fixtures.
+- [ ] Record the release commitment: both `meow-meow-script` and
+      `mittens-engine` target `0.8.0`.
+- [ ] Record whether the manifest changes can wait for the later MMS phases or
+      are required by this cutover. If required here, make the two bumps and
+      the dependency update atomically.
 
-Recommended gate outcome: commit to `mittens-engine 0.8.0` and use the audit
-to write a focused migration guide rather than to preserve architecture that
-is being removed.
+Gate outcome: commit to the shared `0.8.0` release and use the audit to write
+a focused migration guide rather than to preserve architecture that is being
+removed.
 
 Exit gate: the version target is decided and recorded before implementation
 choices are distorted by an unresolved compatibility promise.
@@ -210,7 +217,7 @@ runtime value.
 Exit gate: the engine REPL contains no parser, evaluator, heap, module, or
 navigation semantics owned by MMS.
 
-## Phase 5: deletion and release
+## Phase 5: deletion and release handoff
 
 - [ ] Delete `src/scripting/world_evaluator.rs`.
 - [ ] Delete engine-local MMS `Value`, `ObjectWorld`, `MaterializedCE`, and
@@ -220,27 +227,28 @@ navigation semantics owned by MMS.
 - [ ] Remove dead vocabulary, capability, signal, and method-support lists.
 - [ ] Search outside `crates/meow-meow-script` for remaining MMS evaluator
       logic and remove it.
-- [ ] Bump `meow-meow-script` to `0.7.0` and update the Mittens dependency.
-- [ ] Apply the Phase 0 Mittens decision:
-  - normally bump `mittens-engine` to `0.8.0`; or
-  - use `0.7.1` only with the complete compatibility evidence required above.
+- [ ] Decide whether this cutover requires the version changes immediately.
+      If not, leave the manifests unchanged for the later MMS phases.
+- [ ] When the release gate is reached, bump `meow-meow-script` and
+      `mittens-engine` to `0.8.0`, update the Mittens dependency requirement,
+      and update the lockfile in the same change.
 - [ ] Publish migration notes covering runtime construction, runner/module
       changes, callback handles, errors, and removed public runtime types.
 - [ ] Run crate, integration, example, compile-fixture, and full workspace
       test suites.
 
-Exit gate: the manifests communicate the actual compatibility change,
-Mittens depends on the new crate boundary, and no legacy language
-implementation remains in the engine.
+Exit gate: no legacy language implementation remains in the engine, Mittens
+depends on the new crate boundary, and the manifests are either still at
+their current unpublished versions or have been synchronized at `0.8.0`.
 
-## Release policy after this cutover
+## Release policy after the cutover
 
-Do not reserve another immediate Mittens breaking bump merely because MMS
-later gains numeric types, receiver intrinsics, or static checking. Those are
-language-crate changes and should be opaque to the engine.
+The remaining MMS runtime-type, receiver-intrinsic, and static-checking phases
+normally land before the shared `0.8.0` release. They do not require a second
+Mittens version bump because they should remain opaque to the engine.
 
-Reconsider the Mittens version only if later work changes one of its actual
-surfaces:
+Reconsider the synchronized version plan only if that work changes one of
+Mittens' actual surfaces:
 
 - the `RuntimeSpec` builder calls Mittens must make;
 - host operation binding or `HostRequest`/`HostResponse` DTOs;
@@ -262,11 +270,10 @@ number in a rapid sequence.
   semantics.
 - Pure/runtime typing and intrinsic method implementation can evolve without
   Mittens changes.
-- `meow-meow-script` is released as `0.7.0`.
-- `mittens-engine` is released as `0.8.0`, unless full compatibility evidence
-  justifies `0.7.1`.
-- The release contains migration guidance appropriate to the selected
-  version.
+- `meow-meow-script` and `mittens-engine` are released together as `0.8.0`,
+  after the later MMS changes unless this cutover requires the synchronized
+  version change earlier.
+- The release contains migration guidance for the shared `0.8.0` target.
 
 ## Related documents
 
@@ -275,4 +282,3 @@ number in a rapid sequence.
 - [MMS evaluator deduplication](mms-evaluator-deduplication.md)
 - [Standalone runner and source loading](mms-standalone-runner-and-source-loading.md)
 - [Generic MMS REPL migration and navigation](mms-repl-navigation-and-cat-unification.md)
-

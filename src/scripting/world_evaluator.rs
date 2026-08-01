@@ -1,3 +1,8 @@
+// Migration freeze: this is the legacy Mittens-owned MMS evaluator.
+// Do not add language semantics here. Implement them in `meow-meow-script`
+// and keep this file limited to behavior-preserving cutover work until it is
+// deleted by the MMS ownership migration.
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
