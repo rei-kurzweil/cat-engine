@@ -108,6 +108,21 @@ Component method bindings are in scope because they cross into Mittens.
 Collection, string, and numeric methods implemented as crate intrinsics are
 not.
 
+## Additional 0.8 release gates
+
+The MMS ownership cutover is paused at the state captured in
+[Mittens/MMS cutover resume checkpoint](mittens-mms-cutover-resume-checkpoint.md)
+while two user-facing issues are addressed:
+
+- [ ] implement and measure
+      [editor panel minimize and render suspension](editor-panel-minimize-and-render-suspension.md);
+      and
+- [ ] diagnose and correct
+      [XR controller/hand pose basis and laser alignment](xr-controller-hand-pose-basis-and-laser-alignment.md).
+
+Both are pre-`0.8.0` gates. They do not expand the MMS ownership boundary, and
+finishing them does not imply that the cutover phases below are complete.
+
 ## Phase 0: compatibility audit and version commitment
 
 This phase happens before the builder migration grows compatibility shims.
@@ -277,6 +292,9 @@ number in a rapid sequence.
 
 ## Related documents
 
+- [Mittens/MMS cutover resume checkpoint](mittens-mms-cutover-resume-checkpoint.md)
+- [Editor panel minimize and render suspension](editor-panel-minimize-and-render-suspension.md)
+- [XR controller/hand pose basis and laser alignment](xr-controller-hand-pose-basis-and-laser-alignment.md)
 - [MMS runtime configuration, generic frontends, types, and method dispatch](../meow_meow/task/epic/runtime-configuration-frontends-types-and-method-dispatch.md)
 - [Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md)
 - [MMS evaluator deduplication](mms-evaluator-deduplication.md)

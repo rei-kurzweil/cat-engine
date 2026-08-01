@@ -46,7 +46,7 @@ dispatch, standard-host, and navigation decisions.
 ## Baseline and inventory
 
 - [ ] Record the current workspace test baseline.
-  - 2026-07-31: `cargo test -p meow-meow-script` passes all 37 library tests
+  - 2026-08-01: `cargo test -p meow-meow-script` passes all 44 library tests
     and its doc tests; the full workspace baseline remains to be recorded.
 - [ ] Inventory every public and crate-private caller of:
   - `MeowMeowEvaluator`
