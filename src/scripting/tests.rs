@@ -1683,6 +1683,45 @@ fn handler_registered_inside_function_body_fires() {
 }
 
 #[test]
+fn accordion_example_gives_responder_text_distinct_line_boxes() {
+    let source_path = repo_path("examples/accordion.mms");
+    let source = fs::read_to_string(&source_path).expect("accordion example source");
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let mut assets = RenderAssets::new();
+    let out = MeowMeowRunner::eval_with_world_and_assets_at_path(
+        &source,
+        Some(source_path.to_str().unwrap()),
+        &mut world,
+        &mut rx,
+        Some(&mut assets),
+        &mut emit,
+    );
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+
+    for (name, expected_height) in [
+        ("accordion_demo_card_heading", 1.5),
+        ("accordion_demo_card_detail", 2.8),
+    ] {
+        let line_box = world
+            .all_components()
+            .find(|&id| world.component_label(id) == Some(name))
+            .unwrap_or_else(|| panic!("missing #{name}"));
+        let style = world
+            .children_of(line_box)
+            .iter()
+            .find_map(|id| world.get_component_by_id_as::<StyleComponent>(*id))
+            .unwrap_or_else(|| panic!("missing style below #{name}"));
+        assert_eq!(
+            style.height,
+            SizeDimension::GlyphUnits(expected_height),
+            "#{name} must reserve vertical layout space"
+        );
+    }
+}
+
+#[test]
 fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     let src = r##"
         import { accordion, accordion_body } from "../assets/components/ui/accordion.mms"

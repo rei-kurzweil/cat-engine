@@ -78,11 +78,23 @@ fn body_card(heading, detail, accent) {
             background_z(-0.01)
         }
         T.position(0.0, 0.0, 0.02) {
-            Style { display("block") width(100%) }
+            name = "accordion_demo_card_heading"
+            Style {
+                display("block")
+                width(100%)
+                height(1.5)
+                padding_xy(0.4, 0.2)
+            }
             Text { heading }
         }
         T.position(0.0, 0.0, 0.02) {
-            Style { display("block") width(100%) }
+            name = "accordion_demo_card_detail"
+            Style {
+                display("block")
+                width(100%)
+                height(2.8)
+                padding_xy(0.4, 0.2)
+            }
             Text { detail C.rgba(accent[0], accent[1], accent[2], 1.0) }
         }
         T {

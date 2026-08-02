@@ -265,6 +265,11 @@ fn handle_intent_signal(
                     world.init_component_tree(*child, emit);
                 }
 
+                // A detached subtree may already be initialized, so its Style components
+                // cannot be relied on to dirty the newly acquired layout ancestor here.
+                // Always recompute flow after a live topology attachment.
+                mark_nearest_layout_dirty(world, parent);
+
                 emit_topology_transform_refresh(world, emit, *child);
                 emit_topology_transform_refresh(world, emit, parent);
 
@@ -1043,5 +1048,62 @@ fn collect_oscillator_targets(world: &World, target: ComponentId, out: &mut Vec<
             }
             cur = p;
         }
+    }
+}
+
+fn mark_nearest_layout_dirty(world: &mut World, start: ComponentId) {
+    let mut current = Some(start);
+    while let Some(component_id) = current {
+        if let Some(layout) = world
+            .get_component_by_id_as_mut::<crate::engine::ecs::component::LayoutComponent>(
+                component_id,
+            )
+        {
+            layout.mark_dirty();
+            return;
+        }
+        current = world.parent_of(component_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RxIntentExecutor;
+    use crate::engine::ecs::component::{LayoutComponent, TransformComponent};
+    use crate::engine::ecs::{CommandQueue, IntentSignal, IntentValue, Signal, World};
+    use crate::engine::graphics::RenderAssets;
+
+    #[test]
+    fn attaching_an_initialized_subtree_dirties_its_new_layout_root() {
+        let mut world = World::default();
+        let layout_root = world.add_component(LayoutComponent::new(40.0));
+        let mount = world.add_component(TransformComponent::new());
+        let detached = world.add_component(TransformComponent::new());
+        world.add_child(layout_root, mount).unwrap();
+
+        let mut queue = CommandQueue::new();
+        world.init_component_tree(layout_root, &mut queue);
+        world.init_component_tree(detached, &mut queue);
+        world
+            .get_component_by_id_as_mut::<LayoutComponent>(layout_root)
+            .unwrap()
+            .dirty = false;
+
+        let signal = Signal::intent(
+            mount,
+            IntentSignal::now(IntentValue::Attach {
+                parent: mount,
+                child: detached,
+            }),
+        );
+        RxIntentExecutor::new().execute(&mut world, &mut RenderAssets::new(), &mut queue, &signal);
+
+        assert_eq!(world.parent_of(detached), Some(mount));
+        assert!(
+            world
+                .get_component_by_id_as::<LayoutComponent>(layout_root)
+                .unwrap()
+                .dirty
+        );
     }
 }
