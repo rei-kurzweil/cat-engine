@@ -24,9 +24,8 @@ as a new engine component primitive.
   title-bar layout, minimize control, per-instance state, and click handler.
 - Let `accordion.mms` own the expanded/minimized state machine and physical
   removal of its current body.
-- Use callbacks in the accordion options table as the integration seam. Pure
-  MMS callers can repopulate directly; editor-panel adapters notify the editor
-  runtime to project current model data into the new body.
+- Use an `AccordionRestoreRequested` `DataEvent` as the integration seam. MMS
+  and native owners can both respond by repopulating the stable body mount.
 - Keep model state, dirty-refresh coalescing, and dynamic body projection in
   the existing panel runtime/controllers.
 - Use subtree removal, not detach or visibility styling, as the suspension
@@ -69,15 +68,6 @@ export fn world_panel(title, items, title_color, panel_color, item_color, path) 
         panel_button("load_button", "Load")
     }
 
-    // These are ordinary MMS closures. They adapt the generic accordion
-    // callbacks to editor-runtime signals; they do not own world-panel data.
-    let on_minimized = fn(panel_root) {
-        emit_data(panel_root, "AccordionMinimized")
-    }
-    let restore_body = fn(panel_root, body_mount) {
-        emit_data(panel_root, "AccordionRestoreRequested", body_mount)
-    }
-
     return accordion({
         root_name = "world_panel_root"
         width_gu = WORLD_PANEL_WIDTH_GU
@@ -85,9 +75,8 @@ export fn world_panel(title, items, title_color, panel_color, item_color, path) 
         title_color = title_color
         background_color = panel_color
         title_controls = title_controls
+        title_controls_width_gu = 12.0
         body = world_panel_body(path)
-        on_minimized = on_minimized
-        restore_body = restore_body
     })
 }
 ```
@@ -119,41 +108,28 @@ wrapper, not `title_bar`, so removing the body also removes the gap. Width and
 the panel root transform remain stable across both states.
 
 The accordion factory registers `on(accordion_toggle, "Click", ...)` inside
-the factory. Its handler captures a heap-backed state table containing
-`minimized` and `restore_pending`, so state changes persist across handler
-invocations. It resolves the current standardized body under its private mount
-rather than retaining a removed `ComponentId`. It updates
-`accordion_toggle_label` itself.
+the factory. It derives state from topology by querying for its standardized
+body under the private mount rather than retaining a second state machine or a
+removed `ComponentId`.
 
-The options-table callbacks are command-style callbacks:
+- If the body exists, the handler calls `remove_subtree()`, changes the label
+  to `+`, and emits `AccordionMinimized` for renderer bookkeeping.
+- If the body is absent, the handler only emits `AccordionRestoreRequested`
+  with the stable body mount as the optional component payload. It does not
+  optimistically change visual state or otherwise assume restoration succeeds.
 
-- `on_minimized(panel_root)` runs after the body removal is requested. It is
-  optional and is used by editor integration to forget renderer slots and mark
-  the panel minimized.
-- `restore_body(panel_root, body_mount)` is responsible for repopulating the
-  stable mount. A pure MMS caller can synchronously create and attach a new
-  body. An editor-panel adapter emits `AccordionRestoreRequested`; the editor
-  runtime materializes the body and projects the newest domain model.
-
-The callback does not return data to the accordion. This keeps asynchronous
-host-backed restoration possible and makes ownership clear: the callback must
-attach exactly one new body beneath the supplied mount. The accordion rejects
-or ignores another restore click while restoration is pending.
+The accordion does not listen for `DataEvent`, wait for an acknowledgement, or
+interpret restoration failures. The MMS or Rust owner of the content responds
+to the request, attaches exactly one new `#accordion_body` beneath the mount,
+and updates any restored-state affordance only after that succeeds. Until then,
+the accordion remains visibly minimized with an empty body mount.
 
 ### Small MMS/runtime capability needed
 
-MMS already supports the important parts of this design:
-
-- functions can receive an options table containing `Value::Function` values;
-- a factory can install `on(...)` handlers scoped to its per-instance toggle;
-- closures can capture heap-backed objects for persistent mutable state; and
-- live component handles can attach newly materialized children.
-
-With the current call evaluator, the factory should first bind callback fields
-to local identifiers (`let restore_body = options.restore_body`) and then call
-`restore_body(...)`; direct invocation syntax such as
-`options.restore_body(...)` is currently interpreted as a component/object
-method call rather than a function-valued table field.
+MMS already supports the important parts of this design: a factory can install
+an `on(...)` handler scoped to its per-instance toggle, query beneath its own
+live component handles, emit arbitrary named `DataEvent`s, and let an MMS
+consumer attach newly materialized children.
 
 One topology operation is missing. Add a component method such as
 `body_root.remove_subtree()` that emits `IntentValue::RemoveSubtree` for that
@@ -162,14 +138,10 @@ exact live component. Do not implement collapse with the existing
 This is a small general MMS lifecycle method, not an accordion engine
 primitive.
 
-Rust functions cannot currently be represented directly as MMS `Value`s.
-Therefore the editor bootstrap cannot literally construct a native Rust
-closure and put it in the options table without adding a new callback ABI.
-The smaller design is for `panels.mms` to pass MMS closures that adapt callback
-invocation to `DataEvent`s, as sketched above. Existing Rust panel handlers can
-consume those signals. If native host callbacks become a general scripting
-feature later, they can replace the adapters without changing the accordion
-options contract.
+No native-callback ABI is required. Rust registers a normal `DataEvent` handler
+at the panel/editor scope and reads the event's optional component payload to
+obtain `accordion_body_mount`. An MMS consumer receives the event name and can
+capture or query its accordion's body mount directly.
 
 ### Body factory contract
 
@@ -218,18 +190,15 @@ struct PanelInstance {
     body_mount: ComponentId,
     body_root: Option<ComponentId>,
     body_spec: PanelBodySpec,
-    restore_pending: bool,
     dirty_while_minimized: bool,
 }
 ```
 
 `body_root == None` is the runtime's projection of the accordion's minimized
 state; do not maintain a second independently toggled `minimized` boolean in
-Rust. `restore_pending` covers the interval after the MMS callback requests a
-restore and before the editor has attached the replacement body. The
-illustrative dirty bit is sufficient for the first slice. If a panel later
-needs independently refreshable regions, replace it with flags or a model
-generation number without changing the accordion API.
+Rust. The illustrative dirty bit is sufficient for the first slice. If a panel
+later needs independently refreshable regions, replace it with flags or a
+model generation number without changing the accordion API.
 
 Panel controllers need a narrow lifecycle seam:
 
@@ -260,7 +229,7 @@ The current bootstrap path is already close to the required callback target:
 - `editor::inspector_panel::rerender_inspector_panels` separately creates and
   refreshes inspector instances.
 
-Install the accordion `DataEvent` adapters at this existing seam. Static panels
+Install the accordion `DataEvent` responders at this existing seam. Static panels
 route restore requests through their cached `PanelInstance`; inspector restore
 requests route through the same body-lifecycle helper used by its dynamic
 instances. The stopgap adapter may still dispatch to those functions during
@@ -270,18 +239,17 @@ the refactor, but it should not contain accordion-specific behavior.
 
 Expanded to minimized:
 
-1. The MMS toggle handler ignores the click if a transition is pending.
-2. It resolves the current standardized `#accordion_body` below its own body
+1. The MMS toggle handler resolves the current standardized `#accordion_body` below its own body
    mount and calls `remove_subtree()` on that exact handle.
-3. It updates its heap-backed state and toggle label, then calls
-   `options.on_minimized(panel_root)` if supplied.
-4. The editor adapter emits `AccordionMinimized`. The panel runtime receives
+2. It updates its toggle label and emits `AccordionMinimized` with the body
+   mount as its component payload.
+3. The panel runtime receives
    that event, sets `body_root = None`, forgets `DataRendererSystem` tracking
    for the old dynamic slots, and dirties the containing layout once. Add a
    renderer `forget_slot`/`forget_subtree_slots` API for this: calling today's
    `clear_slot` after removing the ancestor could queue an overlapping subtree
    removal.
-5. Focus remains on the stable panel root/title shell.
+4. Focus remains on the stable panel root/title shell.
 
 Minimized invalidation:
 
@@ -293,28 +261,23 @@ Minimized invalidation:
 
 Minimized to expanded:
 
-1. The MMS toggle handler marks restoration pending and calls
-   `options.restore_body(panel_root, body_mount)`.
-2. For editor panels, that closure emits `AccordionRestoreRequested`. The
-   runtime asks the controller for body arguments from its current model,
+1. The MMS toggle handler finds no `#accordion_body` and only emits
+   `AccordionRestoreRequested` with the stable mount as its component payload.
+   It performs no optimistic visual or restoration work.
+2. The runtime asks the controller for body arguments from its current model,
    materializes the standardized `#accordion_body`, and attaches it beneath
    the supplied mount.
 3. The runtime resolves all body-owned slots and controls again; it never
    reuses removed `ComponentId`s. It calls `refresh_body` exactly once from the
    newest controller/model state, even if the dirty bit is false because the
    body itself is new.
-4. The runtime stores the new body/slot ids, clears the dirty bit, dirties
-   layout once, and emits `AccordionBodyRestored` on the stable panel root.
-5. A second handler installed by `accordion.mms` consumes that acknowledgement,
-   clears its pending state, verifies `#accordion_body` now exists beneath its
-   own mount, and changes the toggle label to the expanded form. A restore
-   failure emits `AccordionRestoreFailed` so the widget can clear pending state
-   and remain minimized.
+4. The runtime stores the new body/slot ids, updates the expanded-state
+   affordance, clears the dirty bit, and dirties layout once. It sends no
+   acknowledgement back to the accordion.
 
-A pure MMS caller follows the same callback contract: its `restore_body`
-closure creates and attaches `#accordion_body`, then emits
-`AccordionBodyRestored`. Thus the state machine remains wholly inside the
-component even though the editor's body producer happens to live in Rust.
+A pure MMS owner listens for `AccordionRestoreRequested`, captures or queries
+the appropriate mount, creates `#accordion_body`, and attaches it. The same
+one-way event contract therefore covers MMS and native responders.
 
 Panel removal:
 

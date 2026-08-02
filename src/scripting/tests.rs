@@ -1683,6 +1683,95 @@ fn handler_registered_inside_function_body_fires() {
 }
 
 #[test]
+fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
+    let src = r##"
+        import { accordion, accordion_body } from "../assets/components/ui/accordion.mms"
+
+        let panel = accordion({
+            root_name = "test_accordion"
+            width_gu = 24.0
+            title = "test"
+            title_color = [1.0, 1.0, 1.0, 1.0]
+            background_color = [0.0, 0.1, 0.3, 1.0]
+            title_controls = T {}
+            title_controls_width_gu = 0.0
+            body = accordion_body(T { Text { "body" } })
+        })
+        panel
+    "##;
+
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let source_path = repo_path("examples/accordion-test.mms");
+    let out = MeowMeowRunner::eval_with_world_at_path(
+        src,
+        source_path.to_str(),
+        &mut world,
+        &mut rx,
+        &mut emit,
+    );
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+
+    let panel = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("test_accordion"))
+        .expect("test accordion root");
+    let toggle = world
+        .find_component(panel, "#accordion_toggle")
+        .expect("accordion toggle");
+    let mount = world
+        .find_component(panel, "#accordion_body_mount")
+        .expect("accordion body mount");
+    let body = world
+        .find_component(panel, "#accordion_body")
+        .expect("initial accordion body");
+    let click = || EventSignal::Click {
+        raycaster: ComponentId::default(),
+        renderable: toggle,
+        hit_point: [0.0, 0.0, 0.0],
+        screen_pos_px: None,
+    };
+
+    rx.dispatch_event_handlers(&mut world, &Signal::event(toggle, click()));
+    let close_intents = rx.drain_ready_intents();
+    assert!(close_intents.iter().any(|signal| matches!(
+        signal.intent.as_ref().map(|intent| &intent.value),
+        Some(IntentValue::RemoveSubtree { component_id }) if *component_id == body
+    )));
+    world
+        .remove_component_subtree(body)
+        .expect("apply body removal for restore half of test");
+
+    rx.begin_frame();
+    let close_events = rx.drain_ready_events();
+    assert!(close_events.iter().any(|signal| matches!(
+        signal.event.as_ref(),
+        Some(EventSignal::DataEvent { name, payload })
+            if name == "AccordionMinimized" && *payload == Some(mount)
+    )));
+
+    rx.dispatch_event_handlers(&mut world, &Signal::event(toggle, click()));
+    let open_intents = rx.drain_ready_intents();
+    assert!(
+        open_intents.is_empty(),
+        "opening must only emit the restore request, not mutate UI or recreate the body: {open_intents:?}"
+    );
+
+    rx.begin_frame();
+    let open_events = rx.drain_ready_events();
+    assert!(open_events.iter().any(|signal| matches!(
+        signal.event.as_ref(),
+        Some(EventSignal::DataEvent { name, payload })
+            if name == "AccordionRestoreRequested" && *payload == Some(mount)
+    )));
+    assert!(
+        world.find_component(panel, "#accordion_body").is_none(),
+        "accordion must not listen for or perform restoration itself"
+    );
+}
+
+#[test]
 fn global_frame_tick_handler_reads_translation_and_dt() {
     let src = r##"
         let driven = T.position(2.0, 3.0, 4.0) { name = "driven" }

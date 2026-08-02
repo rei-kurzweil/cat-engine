@@ -8,7 +8,12 @@ use crate::scripting::object::Value;
 pub(crate) fn supports_component_method(component_type: &str, method: &str) -> bool {
     matches!(
         method,
-        "attach" | "attach_clone" | "detach" | "remove_child" | "set_color"
+        "attach"
+            | "attach_clone"
+            | "detach"
+            | "remove_child"
+            | "remove_subtree"
+            | "set_color"
     ) || (matches!(
         component_type,
         "T" | "Transform" | "TransformComponent" | "transform"
@@ -109,6 +114,16 @@ pub(crate) fn invoke_component_method(
             };
             require_live_component(world, id, "remove_child(): parent")?;
             emit_intent(IntentValue::RemoveChild { parent: id, index });
+            Ok(Value::Null)
+        }
+        (_, "remove_subtree") => {
+            if !args.is_empty() {
+                return Err(format!(
+                    "remove_subtree(): expected no arguments, got {args:?}"
+                ));
+            }
+            require_live_component(world, id, "remove_subtree()")?;
+            emit_intent(IntentValue::RemoveSubtree { component_id: id });
             Ok(Value::Null)
         }
         (_, "set_color") => {
@@ -508,6 +523,15 @@ mod tests {
         .unwrap();
         invoke_component_method(
             &mut world,
+            prefab,
+            "Transform",
+            "remove_subtree",
+            &[],
+            |intent| emitted.push(intent),
+        )
+        .unwrap();
+        invoke_component_method(
+            &mut world,
             raycaster,
             "Raycast",
             "request_raycast",
@@ -544,10 +568,14 @@ mod tests {
         ));
         assert!(matches!(
             emitted[4],
-            IntentValue::RequestRaycast { component_id } if component_id == raycaster
+            IntentValue::RemoveSubtree { component_id } if component_id == prefab
         ));
         assert!(matches!(
             emitted[5],
+            IntentValue::RequestRaycast { component_id } if component_id == raycaster
+        ));
+        assert!(matches!(
+            emitted[6],
             IntentValue::AudioBandPassSetCenterHz { component_id, center_hz }
                 if component_id == band_pass && center_hz == 880.0
         ));
