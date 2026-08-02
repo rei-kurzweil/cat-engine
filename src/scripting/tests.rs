@@ -1720,6 +1720,9 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     let toggle = world
         .find_component(panel, "#accordion_toggle")
         .expect("accordion toggle");
+    let toggle_icon = world
+        .find_component(panel, "#accordion_toggle_icon")
+        .expect("accordion toggle icon");
     let mount = world
         .find_component(panel, "#accordion_body_mount")
         .expect("accordion body mount");
@@ -1754,8 +1757,18 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     rx.dispatch_event_handlers(&mut world, &Signal::event(toggle, click()));
     let open_intents = rx.drain_ready_intents();
     assert!(
-        open_intents.is_empty(),
-        "opening must only emit the restore request, not mutate UI or recreate the body: {open_intents:?}"
+        open_intents.iter().any(|signal| matches!(
+            signal.intent.as_ref().map(|intent| &intent.value),
+            Some(IntentValue::UpdateTransform { component_id, .. }) if *component_id == toggle_icon
+        )),
+        "opening must update its own disclosure affordance: {open_intents:?}"
+    );
+    assert!(
+        open_intents.iter().all(|signal| !matches!(
+            signal.intent.as_ref().map(|intent| &intent.value),
+            Some(IntentValue::RemoveSubtree { .. } | IntentValue::Attach { .. })
+        )),
+        "opening must not mutate or recreate the body: {open_intents:?}"
     );
 
     rx.begin_frame();

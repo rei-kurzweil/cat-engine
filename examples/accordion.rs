@@ -26,6 +26,7 @@ fn spawn_native_accordion_body(world: &mut World, generation: usize) -> Componen
             style.display = Some(Display::Block);
             style.width = SizeDimension::Percent(100.0);
             style.margin = EdgeInsets::axes(0.0, 0.3);
+            style.padding = EdgeInsets::axes(1.0, 1.0);
             style
         }),
     );
@@ -39,7 +40,6 @@ fn spawn_native_accordion_body(world: &mut World, generation: usize) -> Componen
             style.display = Some(Display::Block);
             style.width = SizeDimension::Percent(100.0);
             style.height = SizeDimension::GlyphUnits(9.0);
-            style.padding = EdgeInsets::axes(1.2, 1.2);
             style.background_color = Some([0.055, 0.035, 0.20, 0.97]);
             style.background_z = Some(-0.01);
             style.color = Some([0.94, 0.90, 1.0, 1.0]);
@@ -98,10 +98,6 @@ fn main() {
         .expect("accordion.mms must create #native_accordion");
     let native_status = find_named(&universe.world, "native_accordion_status")
         .expect("accordion.mms must create #native_accordion_status");
-    let native_toggle_label = universe
-        .world
-        .find_component(native_panel, "#accordion_toggle_label")
-        .expect("native accordion must create #accordion_toggle_label");
     let generation = Arc::new(AtomicUsize::new(0));
     let handler_generation = Arc::clone(&generation);
 
@@ -138,13 +134,6 @@ fn main() {
                         IntentValue::Attach {
                             parent: body_mount,
                             child: body,
-                        },
-                    );
-                    emit.push_intent_now(
-                        native_toggle_label,
-                        IntentValue::SetText {
-                            component_id: native_toggle_label,
-                            text: "−".to_string(),
                         },
                     );
                     emit.push_intent_now(

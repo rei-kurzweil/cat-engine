@@ -22,14 +22,14 @@ RenderGraph {
         }
     }
     Bloom {
-        intensity(0.90)
-        radius_ndc(0.06)
+        intensity(0.95)
+        radius_ndc(0.16)
         emissive_scale(1.2)
         half_res(true)
     }
 }
 
-star_kawaii_background([0.48, 0.68, 1.0, 0.90])
+star_kawaii_background([1.0, 0.9, 0.8, 1.0])
 
 T.position(3.5, 5.5, 4.0) {
     DL { intensity(1.0) color(0.72, 0.84, 1.0) }
@@ -73,7 +73,6 @@ fn body_card(heading, detail, accent) {
             flex_direction("column")
             width(100%)
             row_gap(0.8)
-            padding(1.2)
             color([0.91, 0.96, 1.0, 1.0])
             background_color([0.025, 0.075, 0.18, 0.97])
             background_z(-0.01)
@@ -105,7 +104,6 @@ fn native_body_shell() {
             display("block")
             width(100%)
             height(9.0)
-            padding(1.2)
             color([0.91, 0.96, 1.0, 1.0])
             background_color([0.025, 0.075, 0.18, 0.97])
             background_z(-0.01)
@@ -209,8 +207,6 @@ T.position(-2.25, 2.3, 0.0).scale(0.065, 0.065, 1.0) {
 }
 
 let mms_body_mount = mms_panel.query("#accordion_body_mount")
-let mms_toggle_label = mms_panel.query("#accordion_toggle_label")
-
 on(mms_panel, "DataEvent", fn(event) {
     if event == "AccordionMinimized" {
         mms_status.set_text("MMS panel: body removed")
@@ -223,7 +219,6 @@ on(mms_panel, "DataEvent", fn(event) {
             [0.22, 0.78, 1.0, 1.0],
         )
         mms_body_mount.attach(restored)
-        mms_toggle_label.set_text("−")
         mms_status.set_text("MMS panel: restored " + generation_text)
     }
 })

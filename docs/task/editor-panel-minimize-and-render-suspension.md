@@ -91,38 +91,41 @@ export fn world_panel(title, items, title_color, panel_color, item_color, path) 
 │   ├── caller title controls                  retained
 │   └── accordion_toggle                       retained
 │       ├── Data(action = "ToggleMinimized")
-│       └── accordion_toggle_label ("−" / "+")
+│       └── accordion_toggle_icon (down / opposite-facing disclosure chevron)
 └── accordion_body_mount                       retained, no visual/style work
     └── accordion_body                          removed while minimized
         └── <panel-specific body root/content>
 ```
 
 The factory owns the toggle so every caller gets the same hit target, spacing,
-label, and payload. Callers supply their existing title controls: Save/Load,
+animated disclosure icon, and payload. The icon uses a 0.6-beat ease-out
+transform transition (300 ms at the default 120 BPM). Callers supply their existing title controls: Save/Load,
 Pin, grid visibility, and any future Close button. The factory must reserve a
 fixed-width control cell so title text cannot wrap over controls.
 
 The root must derive its expanded height from its children rather than retain
 the current fixed total height. The expanded title/body gap belongs to the body
-wrapper, not `title_bar`, so removing the body also removes the gap. Width and
-the panel root transform remain stable across both states.
+wrapper, not `title_bar`, so removing the body also removes the gap. The title
+text slot and standardized body wrapper each provide `1gu` padding on all
+sides. Width and the panel root transform remain stable across both states.
 
 The accordion factory registers `on(accordion_toggle, "Click", ...)` inside
 the factory. It derives state from topology by querying for its standardized
 body under the private mount rather than retaining a second state machine or a
 removed `ComponentId`.
 
-- If the body exists, the handler calls `remove_subtree()`, changes the label
-  to `+`, and emits `AccordionMinimized` for renderer bookkeeping.
-- If the body is absent, the handler only emits `AccordionRestoreRequested`
-  with the stable body mount as the optional component payload. It does not
-  optimistically change visual state or otherwise assume restoration succeeds.
+- If the body exists, the handler calls `remove_subtree()`, rotates its
+  disclosure icon to the collapsed/opposite-facing state, and emits
+  `AccordionMinimized` for renderer bookkeeping.
+- If the body is absent, the handler rotates its own disclosure icon to the
+  expanded/down-pointing state and emits `AccordionRestoreRequested` with the
+  stable body mount as the optional component payload. The event is its only
+  external side effect; the icon change is private widget presentation.
 
 The accordion does not listen for `DataEvent`, wait for an acknowledgement, or
 interpret restoration failures. The MMS or Rust owner of the content responds
-to the request, attaches exactly one new `#accordion_body` beneath the mount,
-and updates any restored-state affordance only after that succeeds. Until then,
-the accordion remains visibly minimized with an empty body mount.
+to the request and attaches exactly one new `#accordion_body` beneath the
+mount. The owner never reaches into the accordion's private icon state.
 
 ### Small MMS/runtime capability needed
 
@@ -241,8 +244,8 @@ Expanded to minimized:
 
 1. The MMS toggle handler resolves the current standardized `#accordion_body` below its own body
    mount and calls `remove_subtree()` on that exact handle.
-2. It updates its toggle label and emits `AccordionMinimized` with the body
-   mount as its component payload.
+2. It rotates its disclosure icon to the collapsed state and emits
+   `AccordionMinimized` with the body mount as its component payload.
 3. The panel runtime receives
    that event, sets `body_root = None`, forgets `DataRendererSystem` tracking
    for the old dynamic slots, and dirties the containing layout once. Add a
@@ -261,9 +264,10 @@ Minimized invalidation:
 
 Minimized to expanded:
 
-1. The MMS toggle handler finds no `#accordion_body` and only emits
+1. The MMS toggle handler finds no `#accordion_body`, rotates its private
+   disclosure icon to the expanded state, and emits
    `AccordionRestoreRequested` with the stable mount as its component payload.
-   It performs no optimistic visual or restoration work.
+   It performs no restoration work.
 2. The runtime asks the controller for body arguments from its current model,
    materializes the standardized `#accordion_body`, and attaches it beneath
    the supplied mount.
@@ -271,8 +275,8 @@ Minimized to expanded:
    reuses removed `ComponentId`s. It calls `refresh_body` exactly once from the
    newest controller/model state, even if the dirty bit is false because the
    body itself is new.
-4. The runtime stores the new body/slot ids, updates the expanded-state
-   affordance, clears the dirty bit, and dirties layout once. It sends no
+4. The runtime stores the new body/slot ids, clears the dirty bit, and dirties
+   layout once. It neither updates the accordion icon nor sends an
    acknowledgement back to the accordion.
 
 A pure MMS owner listens for `AccordionRestoreRequested`, captures or queries

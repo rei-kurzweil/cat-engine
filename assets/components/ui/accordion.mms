@@ -1,4 +1,6 @@
 // accordion.mms — single-section collapsible UI molecule (=^･ω･^=)
+
+import { accordion_down_arrow_icon } from "../icons.mms"
 //
 // The accordion owns its title bar, toggle handler, and body teardown.
 // Its body must have one outer root named `accordion_body`.
@@ -21,6 +23,9 @@
 let ACCORDION_TITLE_HEIGHT_GU = 3.5
 let ACCORDION_TOGGLE_WIDTH_GU = 4.0
 let ACCORDION_BODY_GAP_GU = 0.6
+// Transition timing is currently beat-based. At the default 120 BPM,
+// 0.6 beats is 300 ms.
+let ACCORDION_TOGGLE_TRANSITION_BEATS = 0.6
 
 export fn accordion_body(content) {
     return T {
@@ -30,6 +35,7 @@ export fn accordion_body(content) {
             flex_direction("column")
             width(100%)
             margin_xy(0.0, ACCORDION_BODY_GAP_GU / 2.0)
+            padding(1.0)
         }
         content
     }
@@ -44,9 +50,19 @@ export fn accordion(options) {
     let title_controls = options.title_controls
     let title_controls_width_gu = options.title_controls_width_gu
 
-    let toggle_label = Text {
-        name = "accordion_toggle_label"
-        "−"
+    let toggle_icon = T.position(
+        ACCORDION_TOGGLE_WIDTH_GU / 2.0,
+        -ACCORDION_TITLE_HEIGHT_GU / 2.0,
+        0.02,
+    ).scale(0.62, 0.62, 1.0).rotation(0.0, 0.0, 3.141593) {
+        name = "accordion_toggle_icon"
+        Transition {
+            duration_beats(ACCORDION_TOGGLE_TRANSITION_BEATS)
+            ease_out_cubic()
+            capture_from_current(true)
+            replace_same_target()
+        }
+        accordion_down_arrow_icon([0.72, 0.90, 1.0, 1.0], 1.8)
     }
 
     let toggle = T {
@@ -64,9 +80,7 @@ export fn accordion(options) {
             background_z(-0.015)
             color([0.97, 0.99, 1.0, 1.0])
         }
-        T.position(0.0, 0.0, 0.02) {
-            toggle_label
-        }
+        toggle_icon
     }
 
     let body_mount = T {
@@ -109,7 +123,7 @@ export fn accordion(options) {
                     flex_grow(1.0)
                     height(ACCORDION_TITLE_HEIGHT_GU)
                     align_items("center")
-                    padding_xy(0.7, 0.35)
+                    padding(1.0)
                     color(title_rgba)
                 }
                 T.position(0.0, 0.0, 0.02) {
@@ -141,9 +155,18 @@ export fn accordion(options) {
         let current_body = body_mount.query("#accordion_body")
         if current_body {
             current_body.remove_subtree()
-            toggle_label.set_text("+")
+            toggle_icon.update_transform(
+                [ACCORDION_TOGGLE_WIDTH_GU / 2.0, -ACCORDION_TITLE_HEIGHT_GU / 2.0, 0.02],
+                [0.0, 0.0, 1.570796],
+                [0.62, 0.62, 1.0],
+            )
             emit_data(panel_root, "AccordionMinimized", body_mount)
         } else {
+            toggle_icon.update_transform(
+                [ACCORDION_TOGGLE_WIDTH_GU / 2.0, -ACCORDION_TITLE_HEIGHT_GU / 2.0, 0.02],
+                [0.0, 0.0, 3.141593],
+                [0.62, 0.62, 1.0],
+            )
             emit_data(panel_root, "AccordionRestoreRequested", body_mount)
         }
     })

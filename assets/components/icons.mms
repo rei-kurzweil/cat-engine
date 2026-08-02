@@ -188,3 +188,53 @@ export fn checkmark_icon() {
         }
     }
 }
+
+// A font-independent disclosure chevron. Its authored orientation points
+// down after a 180-degree rotation; the accordion uses +90 degrees for its
+// collapsed horizontal state so opening travels counter-clockwise to down.
+export fn accordion_down_arrow_icon(icon_color, glow_intensity) {
+    if icon_color == null { icon_color = [0.72, 0.90, 1.0, 1.0] }
+    if glow_intensity == null { glow_intensity = 1.6 }
+
+    return T {
+        name = "accordion_down_arrow_icon"
+        T.position(-0.28, 0.10, 0.0).rotation(0.0, 0.0, -0.72) {
+            // UI roots commonly scale X/Y for glyph units while leaving Z at
+            // 1.0, so keep geometry depth intrinsically thin.
+            T.scale(0.11, 0.48, 0.004) {
+                R.cube() {
+                    C.rgba(icon_color[0], icon_color[1], icon_color[2], icon_color[3])
+                    EM.on() { intensity(glow_intensity) }
+                }
+            }
+        }
+        T.position(0.28, 0.10, 0.0).rotation(0.0, 0.0, 0.72) {
+            T.scale(0.11, 0.48, 0.004) {
+                R.cube() {
+                    C.rgba(icon_color[0], icon_color[1], icon_color[2], icon_color[3])
+                    EM.on() { intensity(glow_intensity) }
+                }
+            }
+        }
+    }
+}
+
+// Three emissive bars for compact overflow/navigation menu buttons.
+export fn menu_icon(icon_color, glow_intensity) {
+    if icon_color == null { icon_color = [0.72, 0.90, 1.0, 1.0] }
+    if glow_intensity == null { glow_intensity = 1.6 }
+
+    let bar = T.scale(0.72, 0.10, 0.004) {
+        R.cube() {
+            C.rgba(icon_color[0], icon_color[1], icon_color[2], icon_color[3])
+            EM.on() { intensity(glow_intensity) }
+        }
+    }
+
+    return T {
+        name = "menu_icon"
+        T.position(0.0, 0.42, 0.0) { bar }
+        T { bar }
+        T.position(0.0, -0.42, 0.0) { bar }
+    }
+}
