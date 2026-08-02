@@ -990,6 +990,47 @@ fn val_as_f32_array<const N: usize>(v: &Value) -> Result<[f32; N], String> {
     }
 }
 
+fn polygon_args(args: &[Value]) -> Result<(&str, Vec<[f32; 2]>), String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "Renderable.polygon expects (mesh_key: str, points: [[f32; 2]]); got {} argument(s)",
+            args.len()
+        ));
+    }
+    let Value::String(mesh_key) = &args[0] else {
+        return Err(format!(
+            "Renderable.polygon mesh_key must be a string; got {:?}",
+            args[0]
+        ));
+    };
+    let Value::Array(values) = &args[1] else {
+        return Err(format!(
+            "Renderable.polygon points must be an array of [x, y] arrays; got {:?}",
+            args[1]
+        ));
+    };
+    let mut points = Vec::with_capacity(values.len());
+    for (index, value) in values.iter().enumerate() {
+        let Value::Array(coordinates) = value else {
+            return Err(format!(
+                "Renderable.polygon point {index} must be a [x, y] array; got {value:?}"
+            ));
+        };
+        if coordinates.len() != 2 {
+            return Err(format!(
+                "Renderable.polygon point {index} must contain exactly two numbers; got {}",
+                coordinates.len()
+            ));
+        }
+        let x = val_as_f32(&coordinates[0])
+            .map_err(|error| format!("Renderable.polygon point {index} x coordinate: {error}"))?;
+        let y = val_as_f32(&coordinates[1])
+            .map_err(|error| format!("Renderable.polygon point {index} y coordinate: {error}"))?;
+        points.push([x, y]);
+    }
+    Ok((mesh_key, points))
+}
+
 fn parse_draggable_plane(args: &[Value]) -> Result<DraggablePlane, String> {
     let value = arg(args, 0)?;
     if let Ok(name) = val_as_str(value) {
@@ -1367,6 +1408,11 @@ fn create_component(
         },
         "Renderable" => match ctor {
             Some("cube") => add!(RenderableComponent::cube()),
+            Some("polygon") => with_render_assets_mut(|render_assets| {
+                let (mesh_key, points) = polygon_args(args)?;
+                let component = RenderableComponent::polygon(render_assets, mesh_key, points)?;
+                Ok(world.add_component(component))
+            }),
             Some("wireframe_box") => with_render_assets_mut(|render_assets| {
                 let thickness = arg_f32(args, 0).unwrap_or(0.02);
                 Ok(world

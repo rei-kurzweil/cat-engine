@@ -72,28 +72,22 @@ let enabled = true            // bool
 let samples = [1.0, 2.0]      // [f64]
 ```
 
-An explicit type appears before the binding name and replaces `let`:
+An explicit type is a postfix annotation on a `let` binding:
 
 ```mms
-f32 shader_distance = 1.0
-f64 precise_distance = 1.0
-u64 count = 1
-[f32] samples = [1.0, 2.0]
+let shader_distance: f32 = 1.0
+let precise_distance: f64 = 1.0
+let count: u64 = 1
+let samples: [f32] = [1.0, 2.0]
 ```
 
-`let value: f32 = ...` is not an alternate spelling. Keeping one explicit
-declaration form avoids two equivalent styles.
-
-At statement position, `Type name = expression` is a typed binding. The parser
-can recognize primitive type tokens directly. Named types are resolved after
-parsing, in the type namespace. Array declarations are distinguishable from
-array-literal expression statements by the identifier and `=` following the
-closing bracket.
+`let value: Type = expression` is the single typed-binding form. Named types
+are resolved after parsing in the type namespace.
 
 Reassignment keeps the existing form:
 
 ```mms
-f32 opacity = 1.0
+let opacity: f32 = 1.0
 opacity = 0.5
 ```
 
@@ -102,11 +96,10 @@ established type.
 
 ### Functions
 
-Typed parameters use the same type-before-name order as typed bindings. Return
-types use `->`:
+Typed parameters and returns use the same postfix `name: Type` form:
 
 ```mms
-fn lerp(f32 a, f32 b, f32 t) -> f32 {
+let lerp = fn(a: f32, b: f32, t: f32): f32 {
     return a + (b - a) * t
 }
 ```
@@ -146,10 +139,10 @@ A literal is initially an exact compile-time value. An explicit destination
 may give it any numeric type in which it is valid:
 
 ```mms
-i8 channel = 7
-u64 count = 100
-f32 opacity = 1.0
-f64 distance = 1
+let channel: i8 = 7
+let count: u64 = 100
+let opacity: f32 = 1.0
+let distance: f64 = 1
 ```
 
 This is contextual literal typing, not an implicit conversion from an already
@@ -160,8 +153,8 @@ literal is rounded once to the destination IEEE-754 representation.
 Invalid constant conversions are compile-time errors:
 
 ```mms
-u8 too_large = 256             // error: outside u8
-u64 negative = -1              // error: outside u64
+let too_large: u8 = 256             // error: outside u8
+let negative: u64 = -1              // error: outside u64
 ```
 
 ### Established values
@@ -170,14 +163,14 @@ Once an expression has a concrete numeric type, changing that representation
 is explicit—even when the conversion would be lossless:
 
 ```mms
-f32 shader_value = 1.0
+let shader_value: f32 = 1.0
 let same = shader_value        // f32
 
-f64 precise = f64(shader_value)
-u64 count = u64(1)             // valid, though `u64 count = 1` is simpler
+let precise: f64 = f64(shader_value)
+let count: u64 = u64(1)
 
 let cpu_value = 1.0            // f64
-f32 gpu_value = f32(cpu_value)
+let gpu_value: f32 = f32(cpu_value)
 ```
 
 This rule keeps APIs and generated shader/host boundaries visible. It also
@@ -199,15 +192,15 @@ Arithmetic requires equal established operand types. Authors convert one side
 explicitly when types differ:
 
 ```mms
-f32 x = 1.0
-f64 y = 2.0
+let x: f32 = 1.0
+let y: f64 = 2.0
 let z = f64(x) + y              // f64
 ```
 
 Contextual typing may still give literals the other operand's type:
 
 ```mms
-f32 x = 1.0
+let x: f32 = 1.0
 let y = x + 2.0                 // f32; 2.0 is context-typed as f32
 ```
 
@@ -241,7 +234,7 @@ Numeric methods do not accept a differently typed numeric receiver through
 implicit conversion:
 
 ```mms
-f32 angle = 1.0
+let angle: f32 = 1.0
 let a = angle.sin()             // f32
 
 let precise = 1.0

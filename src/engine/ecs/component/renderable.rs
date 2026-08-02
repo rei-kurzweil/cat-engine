@@ -1,6 +1,6 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::component::Component;
-use crate::engine::ecs::component::ce_helpers::{ce, ce_call, num};
+use crate::engine::ecs::component::ce_helpers::{array, ce, ce_call, num, s};
 use crate::engine::graphics::mesh::MeshFactory;
 use crate::engine::graphics::primitives::{
     CpuMeshHandle, InstanceHandle, MaterialHandle, Renderable,
@@ -10,6 +10,10 @@ use crate::engine::graphics::render_assets::RenderAssets;
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthoredRenderableShape {
     Builtin(&'static str),
+    Polygon {
+        mesh_key: String,
+        points: Vec<[f32; 2]>,
+    },
     Cone {
         segments: u32,
     },
@@ -75,6 +79,23 @@ impl RenderableComponent {
 
     pub fn from_cpu_mesh_handle(h: CpuMeshHandle, material: MaterialHandle) -> Self {
         Self::new(Renderable::new(h, material))
+    }
+
+    /// Named authored, filled polygon in the XY plane.
+    pub fn polygon(
+        render_assets: &mut RenderAssets,
+        mesh_key: impl Into<String>,
+        points: Vec<[f32; 2]>,
+    ) -> Result<Self, String> {
+        let mesh_key = mesh_key.into();
+        let handle = render_assets.polygon_mesh(&mesh_key, &points)?;
+        let points = render_assets
+            .polygon_mesh_points(&mesh_key)
+            .expect("polygon_mesh registered the key")
+            .to_vec();
+        let mut component = Self::new(Renderable::new(handle, MaterialHandle::TOON_MESH));
+        component.authored_shape = Some(AuthoredRenderableShape::Polygon { mesh_key, points });
+        Ok(component)
     }
 
     pub fn get_handle(&self) -> Option<InstanceHandle> {
@@ -371,6 +392,19 @@ impl Component for RenderableComponent {
     ) -> crate::scripting::ast::ComponentExpression {
         match &self.authored_shape {
             Some(AuthoredRenderableShape::Builtin(name)) => ce_call("Renderable", name, vec![]),
+            Some(AuthoredRenderableShape::Polygon { mesh_key, points }) => ce_call(
+                "Renderable",
+                "polygon",
+                vec![
+                    s(mesh_key),
+                    array(
+                        points
+                            .iter()
+                            .map(|point| array(vec![num(point[0] as f64), num(point[1] as f64)]))
+                            .collect(),
+                    ),
+                ],
+            ),
             Some(AuthoredRenderableShape::Cone { segments }) => {
                 ce_call("Renderable", "cone", vec![num(*segments as f64)])
             }

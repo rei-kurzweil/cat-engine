@@ -30,6 +30,7 @@ Currently implemented:
 - `partial_annulus_2d`
 - `star`
 - `heart`
+- `polygon`
 
 ## Rust component constructors
 
@@ -144,6 +145,26 @@ Implementation:
 
 - [MeshFactory::heart](../../src/engine/graphics/mesh.rs:710)
 
+### `RenderableComponent::polygon(...)`
+
+```rust
+RenderableComponent::polygon(render_assets, mesh_key, points)
+```
+
+Future typed MMS signature:
+
+```mms
+polygon(mesh_key: str, points: [[f32; 2]]): Renderable
+```
+
+This is a filled, simple 2D polygon without holes, strokes, or bevels. It is
+triangulated by ear clipping, accepts either boundary winding, emits XY-plane
+positions, `+Z` normals, and bounding-box UVs, and rejects malformed or
+self-intersecting boundaries. `mesh_key` is a global identity within one
+`RenderAssets`. The first registration defines that key's canonical geometry;
+later uses immediately share its CPU handle without rechecking points. Different
+geometry therefore requires a new namespaced, versioned key.
+
 ## MMS-facing constructor names
 
 These Rust constructors are exposed to MMS as:
@@ -152,6 +173,7 @@ These Rust constructors are exposed to MMS as:
 - `R.partial_annulus_2d(...)`
 - `R.star(...)`
 - `R.heart(...)`
+- `R.polygon(mesh_key, points)`
 
 The MMS materialization path lives in:
 
@@ -178,6 +200,7 @@ Current emitted MMS forms:
 - `Renderable.partial_annulus_2d(...)`
 - `Renderable.star(...)`
 - `Renderable.heart(...)`
+- `Renderable.polygon(mesh_key, points)`
 
 ## Example files
 

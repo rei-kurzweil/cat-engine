@@ -1,7 +1,8 @@
 # ᓚᘏᗢ MMS Structs — Design Draft
 
-> **Status: draft.** Nothing here is implemented.
-> This doc explores syntax options and disambiguation before committing to an approach.
+> **Superseded syntax exploration.** The canonical syntax and nominal-type
+> roadmap now live in the [crate-local type-system epic](../../../crates/meow-meow-script/docs/draft/type-system-epic.md).
+> Value fields use `=`, while declaration fields use `:`.
 
 ---
 
@@ -60,7 +61,7 @@ T { position(0, 1, 0) }        // component expression — T is a component type
 A struct literal would naturally look like:
 
 ```mms
-Vec3 { x: 1.0, y: 0.0, z: 0.0 }   // struct literal — Vec3 is a struct type
+Vec3 { x = 1.0 y = 0.0 z = 0.0 }   // struct literal — Vec3 is a struct type
 ```
 
 Both are `Ident { ... }`. The parser must distinguish them.
@@ -83,11 +84,11 @@ fields (structs must have at least one field set, rest default).
 
 ## Instantiation options
 
-### Option A — Rust-style struct literal `{ field: value }`
+### Selected value syntax — `{ field = value }`
 
 ```mms
-let v = Vec3 { x: 1.0, y: 2.0, z: 0.0 }
-let c = Color { r: 1.0, g: 0.0, b: 0.5, a: 1.0 }
+let v = Vec3 { x = 1.0 y = 2.0 z = 0.0 }
+let c = Color { r = 1.0 g = 0.0 b = 0.5 a = 1.0 }
 ```
 
 **Parser:** `Ident { Ident : ...` triggers struct literal parse path.
@@ -131,14 +132,14 @@ evaluator looks up `Vec3` in env; if it resolves to `Value::StructDef`, construc
 
 **Verdict:** Viable as a convenience shorthand alongside option A, not as the primary form.
 Could auto-generate both: `struct Vec3 { x, y, z }` gives both
-`Vec3 { x: 1, y: 2, z: 3 }` (named literal) and `Vec3(1, 2, 3)` (positional constructor).
+`Vec3 { x = 1 y = 2 z = 3 }` (named literal) and `Vec3(1, 2, 3)` (positional constructor).
 
 ---
 
 ### Option C — `new` keyword
 
 ```mms
-let v = new Vec3 { x: 1.0, y: 2.0, z: 0.0 }
+let v = new Vec3 { x = 1.0 y = 2.0 z = 0.0 }
 let v = new Vec3(1.0, 2.0, 0.0)           // positional form
 ```
 
@@ -159,7 +160,7 @@ let v = new Vec3(1.0, 2.0, 0.0)           // positional form
 ### Option D — Sigil prefix `#TypeName { }`
 
 ```mms
-let v = #Vec3 { x: 1.0, y: 2.0, z: 0.0 }
+let v = #Vec3 { x = 1.0 y = 2.0 z = 0.0 }
 ```
 
 **Pros:** Unambiguous, no new keyword.
@@ -177,7 +178,7 @@ struct Vec3 { x: Double, y: Double, z: Double }
 
 **Instantiation (primary — named fields):**
 ```mms
-let pos = Vec3 { x: 0.0, y: 1.0, z: 0.0 }
+let pos = Vec3 { x = 0.0 y = 1.0 z = 0.0 }
 ```
 
 **Instantiation (shorthand — positional constructor, auto-generated):**
@@ -253,7 +254,7 @@ MMS structs should be **value types** (copy/clone semantics), matching Rust's `#
 structs and MMS's existing `Value::Array` (which is also cloned on assignment).
 
 ```mms
-let a = Vec3 { x: 1.0, y: 0.0, z: 0.0 }
+let a = Vec3 { x = 1.0 y = 0.0 z = 0.0 }
 let b = a          // b is a copy; modifying b doesn't change a
 ```
 
@@ -278,7 +279,7 @@ Value::Struct {
 A nice-to-have from Rust — create a new struct from an existing one with some fields overridden:
 
 ```mms
-let v2 = Vec3 { ..v, y: 5.0 }   // copy x and z from v, override y
+let v2 = Vec3 { ..v y = 5.0 }   // copy x and z from v, override y
 ```
 
 The `..expr` spread syntax. Low priority for v1 but worth reserving `..` for this use rather
@@ -299,7 +300,7 @@ impl Vec3 {
     }
 
     fn add(self, other: Vec3): Vec3 {
-        return Vec3 { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z }
+        return Vec3 { x = self.x + other.x y = self.y + other.y z = self.z + other.z }
     }
 }
 
@@ -389,7 +390,7 @@ export struct AppState {
     private high_score: Int   // internal tracking, not exposed to other modules
 }
 
-let state = AppState { score: 0, lives: 3, high_score: 0 }
+let state = AppState { score = 0 lives = 3 high_score = 0 }
 
 on("enemy_killed", fn(e) {
     state.score = state.score + e.points    // mutates shared state
@@ -437,7 +438,7 @@ export struct Counter { value: Int, private step: Int }
    is a key use case — so some form of mutation is practically necessary for shared state.
    Either: (a) allow field mutation on session-level bindings specifically, (b) allow
    mutation everywhere (simpler rule), or (c) require the whole binding to be rebound
-   (`state = AppState { ..state, score: state.score + 1 }`). Option (b) is probably right.
+   (`state = AppState { ..state score = state.score + 1 }`). Option (b) is probably right.
 
 7. **`private` on methods** — when `impl` blocks are added, should `private fn` work on methods
    the same way it works on fields? Probably yes — same visibility model throughout.
@@ -450,7 +451,7 @@ export struct Counter { value: Int, private step: Int }
 
 4. **Struct as component body argument** — can a struct literal appear directly in a CE body?
    ```mms
-   T { position(Vec3 { x: 0, y: 1, z: 0 }) }
+   T { position(Vec3 { x = 0 y = 1 z = 0 }) }
    ```
    This should just work if `position(args)` accepts a `Vec3`. No special casing needed.
 

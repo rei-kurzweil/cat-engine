@@ -310,7 +310,7 @@ on("player_died",  fn(e) { lives = lives - 1 })
 For structured state, a struct with public fields works the same way:
 
 ```mms
-let state = AppState { score: 0, lives: 3 }
+let state = AppState { score = 0 lives = 3 }
 
 on("enemy_killed", fn(e) { state.score = state.score + e.points })
 ```
@@ -354,7 +354,7 @@ different surface syntax.
 When the host fires an event into a session:
 
 ```
-host: session.fire("clicked", { target: component_id })
+host: session.fire("clicked", { target = component_id })
 
 session:
   1. look up registered handlers for "clicked" in env

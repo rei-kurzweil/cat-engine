@@ -43,6 +43,10 @@ pub struct RenderAssets {
     wireframe_sphere_meshes: HashMap<(u32, u32, u32), CpuMeshHandle>,
     wireframe_icosahedron_meshes: HashMap<(u32, u32, u32), CpuMeshHandle>,
     capsule_y_meshes: HashMap<(u32, u32), CpuMeshHandle>,
+
+    /// Authored polygons have globally unique keys within this asset registry.
+    /// Keep keys namespaced and versioned (for example `ui/accordion/chevron/v1`).
+    polygon_meshes: HashMap<String, (Vec<[f32; 2]>, CpuMeshHandle)>,
 }
 
 impl RenderAssets {
@@ -100,6 +104,35 @@ impl RenderAssets {
         let h = CpuMeshHandle(self.cpu_meshes.len() as u32);
         self.cpu_meshes.push(mesh);
         h
+    }
+
+    /// Return the mesh registered under `mesh_key`, defining it from `points` on first use.
+    ///
+    /// The key is authoritative: after first registration, callers must use a new key to
+    /// define different geometry. Existing keys return without inspecting `points`.
+    pub fn polygon_mesh(
+        &mut self,
+        mesh_key: &str,
+        points: &[[f32; 2]],
+    ) -> Result<CpuMeshHandle, String> {
+        if mesh_key.trim().is_empty() {
+            return Err("polygon mesh_key must not be empty".to_string());
+        }
+        if let Some((_, handle)) = self.polygon_meshes.get(mesh_key) {
+            return Ok(*handle);
+        }
+        let canonical = MeshFactory::canonical_polygon_2d(points)?;
+        let mesh = MeshFactory::polygon_2d(&canonical)?;
+        let handle = self.register_mesh(mesh);
+        self.polygon_meshes
+            .insert(mesh_key.to_string(), (canonical, handle));
+        Ok(handle)
+    }
+
+    pub(crate) fn polygon_mesh_points(&self, mesh_key: &str) -> Option<&[[f32; 2]]> {
+        self.polygon_meshes
+            .get(mesh_key)
+            .map(|(points, _)| points.as_slice())
     }
 
     /// Return a shared unit wireframe-box mesh for the requested relative edge thickness.
@@ -227,5 +260,46 @@ impl RenderAssets {
         let h = uploader.upload_mesh(mesh)?;
         self.gpu_meshes.insert(cpu_mesh, h);
         Ok(h)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RenderAssets;
+
+    const CHEVRON: &[[f32; 2]] = &[
+        [-0.5, 0.25],
+        [0.0, -0.25],
+        [0.5, 0.25],
+        [0.35, 0.4],
+        [0.0, 0.05],
+        [-0.35, 0.4],
+    ];
+
+    #[test]
+    fn named_polygons_use_first_registration_as_authoritative_identity() {
+        let mut assets = RenderAssets::new();
+        let initial_count = assets.cpu_mesh_count();
+        let first = assets.polygon_mesh("ui/chevron/v1", CHEVRON).unwrap();
+        let reused = assets.polygon_mesh("ui/chevron/v1", &[]).unwrap();
+        assert_eq!(first, reused);
+        assert_eq!(assets.cpu_mesh_count(), initial_count + 1);
+
+        let mut changed = CHEVRON.to_vec();
+        changed[0][0] = -0.45;
+        let still_reused = assets.polygon_mesh("ui/chevron/v1", &changed).unwrap();
+        assert_eq!(first, still_reused);
+        assert_eq!(assets.cpu_mesh_count(), initial_count + 1);
+
+        let second = assets.polygon_mesh("ui/chevron/v2", CHEVRON).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(assets.cpu_mesh_count(), initial_count + 2);
+        assert_eq!(assets.polygon_mesh_points("ui/chevron/v1"), Some(CHEVRON));
+    }
+
+    #[test]
+    fn named_polygon_rejects_empty_keys() {
+        let error = RenderAssets::new().polygon_mesh("  ", CHEVRON).unwrap_err();
+        assert!(error.contains("must not be empty"), "{error}");
     }
 }

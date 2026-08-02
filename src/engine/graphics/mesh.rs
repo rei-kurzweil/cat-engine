@@ -56,6 +56,37 @@ fn signed_area_2d(points: &[[f32; 2]]) -> f32 {
     area * 0.5
 }
 
+fn cross_2d(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f64 {
+    let ab = [b[0] as f64 - a[0] as f64, b[1] as f64 - a[1] as f64];
+    let ac = [c[0] as f64 - a[0] as f64, c[1] as f64 - a[1] as f64];
+    ab[0] * ac[1] - ab[1] * ac[0]
+}
+
+fn point_on_segment_2d(point: [f32; 2], a: [f32; 2], b: [f32; 2]) -> bool {
+    cross_2d(a, b, point).abs() <= f64::EPSILON
+        && (point[0] as f64) >= (a[0].min(b[0]) as f64)
+        && (point[0] as f64) <= (a[0].max(b[0]) as f64)
+        && (point[1] as f64) >= (a[1].min(b[1]) as f64)
+        && (point[1] as f64) <= (a[1].max(b[1]) as f64)
+}
+
+fn segments_intersect_2d(a: [f32; 2], b: [f32; 2], c: [f32; 2], d: [f32; 2]) -> bool {
+    let ab_c = cross_2d(a, b, c);
+    let ab_d = cross_2d(a, b, d);
+    let cd_a = cross_2d(c, d, a);
+    let cd_b = cross_2d(c, d, b);
+    ((ab_c > 0.0 && ab_d < 0.0) || (ab_c < 0.0 && ab_d > 0.0))
+        && ((cd_a > 0.0 && cd_b < 0.0) || (cd_a < 0.0 && cd_b > 0.0))
+        || (ab_c == 0.0 && point_on_segment_2d(c, a, b))
+        || (ab_d == 0.0 && point_on_segment_2d(d, a, b))
+        || (cd_a == 0.0 && point_on_segment_2d(a, c, d))
+        || (cd_b == 0.0 && point_on_segment_2d(b, c, d))
+}
+
+fn point_in_or_on_triangle_2d(point: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> bool {
+    cross_2d(a, b, point) >= 0.0 && cross_2d(b, c, point) >= 0.0 && cross_2d(c, a, point) >= 0.0
+}
+
 fn add2(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
     [a[0] + b[0], a[1] + b[1]]
 }
@@ -292,6 +323,183 @@ impl CpuMesh {
 pub struct MeshFactory;
 
 impl MeshFactory {
+    /// Validate and normalize a simple polygon boundary to counter-clockwise winding.
+    /// Signed zero is normalized so authored geometry can be compared reliably.
+    pub(crate) fn canonical_polygon_2d(points: &[[f32; 2]]) -> Result<Vec<[f32; 2]>, String> {
+        if points.len() < 3 {
+            return Err(format!(
+                "polygon requires at least three points; got {}",
+                points.len()
+            ));
+        }
+
+        let mut points = points.to_vec();
+        for (index, point) in points.iter_mut().enumerate() {
+            for (axis, value) in point.iter_mut().enumerate() {
+                if !value.is_finite() {
+                    return Err(format!(
+                        "polygon point {index} coordinate {axis} must be finite; got {value}"
+                    ));
+                }
+                if *value == 0.0 {
+                    *value = 0.0;
+                }
+            }
+        }
+
+        for index in 0..points.len() {
+            if points[index] == points[(index + 1) % points.len()] {
+                return Err(format!(
+                    "polygon has adjacent duplicate points at boundary indices {index} and {}",
+                    (index + 1) % points.len()
+                ));
+            }
+        }
+        let distinct = points
+            .iter()
+            .enumerate()
+            .filter(|(index, point)| !points[..*index].contains(point))
+            .count();
+        if distinct < 3 {
+            return Err(format!(
+                "polygon requires at least three distinct points; got {distinct}"
+            ));
+        }
+
+        for first in 0..points.len() {
+            let first_next = (first + 1) % points.len();
+            for second in first + 1..points.len() {
+                let second_next = (second + 1) % points.len();
+                if first == second
+                    || first_next == second
+                    || second_next == first
+                    || (first == 0 && second_next == 0)
+                {
+                    continue;
+                }
+                if segments_intersect_2d(
+                    points[first],
+                    points[first_next],
+                    points[second],
+                    points[second_next],
+                ) {
+                    return Err(format!(
+                        "polygon boundary self-intersects between edges {first}-{first_next} and {second}-{second_next}"
+                    ));
+                }
+            }
+        }
+
+        let area = points
+            .iter()
+            .enumerate()
+            .map(|(index, [x0, y0])| {
+                let [x1, y1] = points[(index + 1) % points.len()];
+                *x0 as f64 * y1 as f64 - x1 as f64 * *y0 as f64
+            })
+            .sum::<f64>()
+            * 0.5;
+        if area == 0.0 {
+            return Err("polygon boundary has zero area".to_string());
+        }
+        if area < 0.0 {
+            points.reverse();
+        }
+        let first = points
+            .iter()
+            .enumerate()
+            .min_by(|(_, left), (_, right)| {
+                left[0]
+                    .total_cmp(&right[0])
+                    .then_with(|| left[1].total_cmp(&right[1]))
+            })
+            .map(|(index, _)| index)
+            .expect("validated polygon is non-empty");
+        points.rotate_left(first);
+        Ok(points)
+    }
+
+    /// Filled simple polygon in the XY plane, triangulated with ear clipping.
+    pub fn polygon_2d(points: &[[f32; 2]]) -> Result<CpuMesh, String> {
+        let points = Self::canonical_polygon_2d(points)?;
+        let mut remaining: Vec<usize> = (0..points.len()).collect();
+        let mut indices = Vec::with_capacity((points.len() - 2) * 3);
+
+        while remaining.len() > 3 {
+            let mut clipped = false;
+            for cursor in 0..remaining.len() {
+                let previous = remaining[(cursor + remaining.len() - 1) % remaining.len()];
+                let current = remaining[cursor];
+                let next = remaining[(cursor + 1) % remaining.len()];
+                if cross_2d(points[previous], points[current], points[next]) <= 0.0 {
+                    continue;
+                }
+                if remaining.iter().copied().any(|candidate| {
+                    candidate != previous
+                        && candidate != current
+                        && candidate != next
+                        && point_in_or_on_triangle_2d(
+                            points[candidate],
+                            points[previous],
+                            points[current],
+                            points[next],
+                        )
+                }) {
+                    continue;
+                }
+                indices.extend_from_slice(&[previous as u32, current as u32, next as u32]);
+                remaining.remove(cursor);
+                clipped = true;
+                break;
+            }
+            if !clipped {
+                return Err(
+                    "polygon triangulation failed; check for duplicate or degenerate boundary points"
+                        .to_string(),
+                );
+            }
+        }
+        indices.extend_from_slice(&[
+            remaining[0] as u32,
+            remaining[1] as u32,
+            remaining[2] as u32,
+        ]);
+
+        let min_x = points
+            .iter()
+            .map(|point| point[0])
+            .fold(f32::INFINITY, f32::min);
+        let max_x = points
+            .iter()
+            .map(|point| point[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let min_y = points
+            .iter()
+            .map(|point| point[1])
+            .fold(f32::INFINITY, f32::min);
+        let max_y = points
+            .iter()
+            .map(|point| point[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let width = max_x as f64 - min_x as f64;
+        let height = max_y as f64 - min_y as f64;
+        if width == 0.0 || height == 0.0 {
+            return Err("polygon bounding box must have non-zero width and height".to_string());
+        }
+        let vertices = points
+            .into_iter()
+            .map(|[x, y]| CpuVertex {
+                pos: [x, y, 0.0],
+                uv: [
+                    ((x as f64 - min_x as f64) / width) as f32,
+                    (1.0 - (y as f64 - min_y as f64) / height) as f32,
+                ],
+                normal: [0.0, 0.0, 1.0],
+            })
+            .collect();
+        Ok(CpuMesh::new(vertices, indices))
+    }
+
     /// Exact Y-aligned capsule with hemispherical ends and a cylindrical middle.
     pub fn capsule_y(
         radius: f32,
@@ -1311,6 +1519,54 @@ mod tests {
         for axis in 0..3 {
             assert!((min[axis] - expected_min[axis]).abs() < 1.0e-5);
             assert!((max[axis] - expected_max[axis]).abs() < 1.0e-5);
+        }
+    }
+
+    fn chevron() -> Vec<[f32; 2]> {
+        vec![
+            [-0.50, 0.25],
+            [0.00, -0.25],
+            [0.50, 0.25],
+            [0.35, 0.40],
+            [0.00, 0.05],
+            [-0.35, 0.40],
+        ]
+    }
+
+    #[test]
+    fn polygon_ear_clips_concave_boundaries_in_both_windings() {
+        let points = chevron();
+        let forward = MeshFactory::polygon_2d(&points).unwrap();
+        let reverse =
+            MeshFactory::polygon_2d(&points.into_iter().rev().collect::<Vec<_>>()).unwrap();
+        assert_eq!(forward.indices_u32.len(), (6 - 2) * 3);
+        assert_eq!(reverse.indices_u32.len(), (6 - 2) * 3);
+        assert_eq!(forward.indices_u32, reverse.indices_u32);
+        for vertex in forward.vertices {
+            assert!(vertex.pos.into_iter().all(f32::is_finite));
+            assert!(vertex.uv.into_iter().all(f32::is_finite));
+            assert_eq!(vertex.normal, [0.0, 0.0, 1.0]);
+        }
+    }
+
+    #[test]
+    fn polygon_rejects_invalid_boundaries() {
+        let cases: &[(&[[f32; 2]], &str)] = &[
+            (&[], "at least three"),
+            (&[[0.0, 0.0], [1.0, 0.0], [1.0, 0.0]], "adjacent duplicate"),
+            (&[[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]], "zero area"),
+            (
+                &[[0.0, 0.0], [1.0, 1.0], [0.0, 1.0], [1.0, 0.0]],
+                "self-intersects",
+            ),
+            (&[[0.0, 0.0], [f32::NAN, 1.0], [1.0, 0.0]], "finite"),
+        ];
+        for (points, expected) in cases {
+            let error = MeshFactory::polygon_2d(points).unwrap_err();
+            assert!(
+                error.contains(expected),
+                "{error:?} did not contain {expected:?}"
+            );
         }
     }
 }

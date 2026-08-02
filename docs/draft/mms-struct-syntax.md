@@ -1,5 +1,9 @@
 # MMS Tables And Struct Syntax
 
+> Canonical typed syntax and nominal-identity decisions now live in the
+> [crate-local type-system epic](../../crates/meow-meow-script/docs/draft/type-system-epic.md).
+> This earlier task remains implementation history for the table runtime.
+
 ## Goal
 
 Give MMS a first-class plain-data surface that starts with anonymous tables and
@@ -18,7 +22,7 @@ and future MMS-to-Rust transpilation.
 - `struct`
   - a named typed table declaration
 - `struct allocation`
-  - a named table construction such as `special_table { id: 0, specialness: 1.0 }`
+  - a named table construction such as `special_table { id = 0 specialness = 1.0 }`
 
 The important constraint is that structs are not a separate runtime universe.
 They are tables with additional declaration/type information.
@@ -79,8 +83,8 @@ struct special_table {
 
 ```mms
 let special = special_table {
-    id: 0
-    specialness: 1.0
+    id = 0
+    specialness = 1.0
 }
 ```
 
@@ -125,19 +129,14 @@ This keeps declaration syntax consistent with typed fields.
 
 ### Struct allocations use value fields
 
-The current leading candidate is colon-style field assignment:
+Named allocations use the same equals-style value fields as anonymous tables:
 
 ```mms
 let special = special_table {
-    id: 0
-    specialness: 1.0
+    id = 0
+    specialness = 1.0
 }
 ```
-
-That keeps typed construction visually distinct from anonymous table literals.
-If implementation experience shows `=` is materially cleaner, this can be
-revisited, but the main requirement is to keep anonymous tables and component
-construction unambiguous.
 
 ## AST additions
 

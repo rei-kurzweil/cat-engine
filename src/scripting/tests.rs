@@ -1703,12 +1703,14 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     let mut world = World::default();
     let mut rx = RxWorld::default();
     let mut emit = CommandQueue::new();
+    let mut assets = RenderAssets::new();
     let source_path = repo_path("examples/accordion-test.mms");
-    let out = MeowMeowRunner::eval_with_world_at_path(
+    let out = MeowMeowRunner::eval_with_world_and_assets_at_path(
         src,
-        source_path.to_str(),
+        Some(source_path.to_str().unwrap()),
         &mut world,
         &mut rx,
+        Some(&mut assets),
         &mut emit,
     );
     assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
@@ -1723,12 +1725,50 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     let toggle_icon = world
         .find_component(panel, "#accordion_toggle_icon")
         .expect("accordion toggle icon");
+    assert_eq!(
+        world
+            .get_component_by_id_as::<TransformComponent>(toggle_icon)
+            .expect("accordion toggle icon transform")
+            .transform
+            .rotation,
+        [0.0, 0.0, 0.0, 1.0],
+        "expanded accordion glyph starts down-facing"
+    );
     let mount = world
         .find_component(panel, "#accordion_body_mount")
         .expect("accordion body mount");
     let body = world
         .find_component(panel, "#accordion_body")
         .expect("initial accordion body");
+    let polygon_renderables: Vec<_> = world
+        .all_components()
+        .filter_map(|id| {
+            world.get_component_by_id_as::<crate::engine::ecs::component::RenderableComponent>(id)
+        })
+        .filter(|renderable| {
+            matches!(
+                &renderable.authored_shape,
+                Some(crate::engine::ecs::component::renderable::AuthoredRenderableShape::Polygon {
+                    mesh_key,
+                    ..
+                }) if mesh_key == "ui/accordion/down-chevron/v1"
+            )
+        })
+        .collect();
+    assert_eq!(polygon_renderables.len(), 1, "one seamless chevron mesh");
+    let mesh = assets
+        .cpu_mesh(polygon_renderables[0].renderable.mesh)
+        .expect("cached accordion polygon");
+    assert!(mesh.vertices.iter().all(|vertex| vertex.pos[2] == 0.0));
+    let bottom_tip = mesh
+        .vertices
+        .iter()
+        .min_by(|a, b| a.pos[1].total_cmp(&b.pos[1]))
+        .expect("chevron vertex");
+    assert!(
+        bottom_tip.pos[0].abs() < 1.0e-6 && bottom_tip.pos[1] < 0.0,
+        "unrotated accordion glyph points down"
+    );
     let click = || EventSignal::Click {
         raycaster: ComponentId::default(),
         renderable: toggle,
@@ -1738,6 +1778,13 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
 
     rx.dispatch_event_handlers(&mut world, &Signal::event(toggle, click()));
     let close_intents = rx.drain_ready_intents();
+    assert!(close_intents.iter().any(|signal| matches!(
+        signal.intent.as_ref().map(|intent| &intent.value),
+        Some(IntentValue::UpdateTransform { component_id, rotation_quat_xyzw, .. })
+            if *component_id == toggle_icon
+                && (rotation_quat_xyzw[2] + std::f32::consts::FRAC_1_SQRT_2).abs() < 1.0e-4
+                && (rotation_quat_xyzw[3] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1.0e-4
+    )));
     assert!(close_intents.iter().any(|signal| matches!(
         signal.intent.as_ref().map(|intent| &intent.value),
         Some(IntentValue::RemoveSubtree { component_id }) if *component_id == body
@@ -1759,7 +1806,10 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     assert!(
         open_intents.iter().any(|signal| matches!(
             signal.intent.as_ref().map(|intent| &intent.value),
-            Some(IntentValue::UpdateTransform { component_id, .. }) if *component_id == toggle_icon
+            Some(IntentValue::UpdateTransform { component_id, rotation_quat_xyzw, .. })
+                if *component_id == toggle_icon
+                    && rotation_quat_xyzw[2].abs() < 1.0e-4
+                    && (rotation_quat_xyzw[3] - 1.0).abs() < 1.0e-4
         )),
         "opening must update its own disclosure affordance: {open_intents:?}"
     );
@@ -3721,6 +3771,104 @@ export fn procedural_defaults() {
             thickness: 0.04,
         })
     );
+}
+
+#[test]
+fn renderable_polygon_constructs_from_nested_arrays_and_serializes_losslessly() {
+    use crate::engine::ecs::component::RenderableComponent;
+    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
+
+    let points = vec![
+        [-0.5, 0.25],
+        [0.0, -0.25],
+        [0.5, 0.25],
+        [0.35, 0.4],
+        [0.0, 0.05],
+        [-0.35, 0.4],
+    ];
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut queue = CommandQueue::new();
+    let mut assets = RenderAssets::new();
+    let output = MeowMeowRunner::eval_with_world_and_assets(
+        r#"R.polygon(
+            "ui/test/chevron/v1",
+            [[-0.5, 0.25], [0.0, -0.25], [0.5, 0.25], [0.35, 0.4], [0.0, 0.05], [-0.35, 0.4]],
+        )"#,
+        &mut world,
+        &mut rx,
+        &mut assets,
+        &mut queue,
+    );
+    assert!(output.errors.is_empty(), "{:?}", output.errors);
+    let original = world
+        .all_components()
+        .find_map(|id| world.get_component_by_id_as::<RenderableComponent>(id))
+        .expect("polygon renderable");
+    assert_eq!(
+        original.authored_shape,
+        Some(AuthoredRenderableShape::Polygon {
+            mesh_key: "ui/test/chevron/v1".into(),
+            points: points.clone(),
+        })
+    );
+
+    let text = crate::scripting::unparser::unparse_component(&ComponentTrait::to_mms_ast(
+        original, &world,
+    ));
+    assert!(text.contains("ui/test/chevron/v1"), "{text}");
+    let parsed = parse(&text);
+    let ce = as_component!(parsed.into_iter().next().unwrap());
+    let materialized = crate::scripting::component_registry::ce_ast_to_materialized(&ce).unwrap();
+    let mut reparsed_world = World::default();
+    let id = crate::scripting::component_registry::with_live_render_assets(&mut assets, || {
+        crate::scripting::component_registry::spawn_tree_uninitialized(
+            &materialized,
+            &mut reparsed_world,
+            &mut queue,
+        )
+    })
+    .unwrap();
+    let reparsed = reparsed_world
+        .get_component_by_id_as::<RenderableComponent>(id)
+        .unwrap();
+    assert_eq!(reparsed.authored_shape, original.authored_shape);
+}
+
+#[test]
+fn renderable_polygon_reports_argument_shapes_clearly() {
+    let cases = [
+        (
+            "R.polygon(7, [[0, 0], [1, 0], [0, 1]])",
+            "mesh_key must be a string",
+        ),
+        (
+            "R.polygon(\"ui/test/bad/v1\", [0, 1, 2])",
+            "point 0 must be a [x, y] array",
+        ),
+        (
+            "R.polygon(\"ui/test/bad/v2\", [[0, 0], [1, \"x\"], [0, 1]])",
+            "point 1 y coordinate",
+        ),
+    ];
+    for (source, expected) in cases {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut queue = CommandQueue::new();
+        let mut assets = RenderAssets::new();
+        let output = MeowMeowRunner::eval_with_world_and_assets(
+            source,
+            &mut world,
+            &mut rx,
+            &mut assets,
+            &mut queue,
+        );
+        let errors = format!("{:?}", output.errors);
+        assert!(
+            errors.contains(expected),
+            "{errors} did not contain {expected:?}"
+        );
+    }
 }
 
 #[test]

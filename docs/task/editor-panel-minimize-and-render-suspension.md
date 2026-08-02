@@ -99,7 +99,11 @@ export fn world_panel(title, items, title_color, panel_color, item_color, path) 
 
 The factory owns the toggle so every caller gets the same hit target, spacing,
 animated disclosure icon, and payload. The icon uses a 0.6-beat ease-out
-transform transition (300 ms at the default 120 BPM). Callers supply their existing title controls: Save/Load,
+transform transition (300 ms at the default 120 BPM). Its seamless disclosure
+glyph is the named authored polygon `ui/accordion/down-chevron/v1`, rather
+than overlapping cube bars; the polygon cache gives it stable mesh identity
+and avoids z-fighting. Editor title-bar runtime integration remains a separate
+follow-up. Callers supply their existing title controls: Save/Load,
 Pin, grid visibility, and any future Close button. The factory must reserve a
 fixed-width control cell so title text cannot wrap over controls.
 

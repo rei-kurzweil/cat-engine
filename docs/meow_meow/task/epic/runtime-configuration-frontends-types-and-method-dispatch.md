@@ -20,7 +20,7 @@ topical efforts:
    let values = [1, 2, 3]
    values.length()
 
-   f32 angle = 1.0
+   let angle: f32 = 1.0
    angle.sin()
    ```
 
@@ -35,6 +35,9 @@ the focused task documents it links.
 
 The complementary engine-facing cutover and release gate is
 [Mittens MMS ownership cutover and 0.8 release](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md).
+
+The canonical typed-syntax and checker roadmap now lives in the crate at
+[MMS type-system epic](../../../../crates/meow-meow-script/docs/draft/type-system-epic.md).
 
 ## Decision summary
 

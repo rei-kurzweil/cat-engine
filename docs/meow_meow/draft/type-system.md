@@ -2,8 +2,8 @@
 
 > **Superseded direction:** The declaration syntax, primitive names, numeric
 > defaults, and strict-mode rules in this document are an older proposal. See
-> [type-registry-and-method-dispatch.md](type-registry-and-method-dispatch.md)
-> for the current design direction. This file remains as design history.
+> [the crate-local MMS type-system epic](../../../crates/meow-meow-script/docs/draft/type-system-epic.md)
+> for the canonical design direction. This file remains as design history.
 >
 > **Status: draft.** No type-checking is implemented yet.
 > The evaluator is fully dynamic today. This doc designs the static layer that
@@ -153,7 +153,7 @@ struct vec3  { x: Double, y: Double, z: Double }
 struct point { x: Double, y: Double, z: Double }  // same fields, different name
 
 fn translate(pos: vec3, delta: vec3): vec3 { ... }
-let p = point { x: 1, y: 2, z: 3 }
+let p = point { x = 1 y = 2 z = 3 }
 translate(p, ...)   // type error (structural) OR ok (nominal)?
 ```
 
@@ -243,7 +243,7 @@ Probably not — gradual typing with `Any` covers the use cases that unions woul
 let x: Double = 1.0
 let name: Str = "hello"
 let nums: [Double] = [1, 2, 3]
-let pos: vec3 = vec3 { x: 0, y: 1, z: 0 }
+let pos: vec3 = vec3 { x = 0 y = 1 z = 0 }
 ```
 
 Annotations are placed after `:` following the binding name — same as Rust and TypeScript.
@@ -310,7 +310,7 @@ Full Hindley-Milner inference is out of scope for v1. The practical subset:
 **Inference is applied:**
 - Literal expressions: `3` → `Int`, `1.0` → `Double`, `"foo"` → `Str`, `true` → `Bool`, `null` → `Null`
 - Array literals: `[1, 2, 3]` → `[Double]` (homogeneous case); `[1, "a"]` → `[Any]` (mixed)
-- Struct literals: `Vec3 { x: 1, y: 2, z: 3 }` → `Vec3`
+- Struct literals: `Vec3 { x = 1 y = 2 z = 3 }` → `Vec3`
 - Function return: if the body has an explicit `return expr` and `expr` is typed → infer return
 
 **Inference is NOT applied (falls back to Any):**

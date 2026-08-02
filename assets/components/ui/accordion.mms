@@ -54,7 +54,7 @@ export fn accordion(options) {
         ACCORDION_TOGGLE_WIDTH_GU / 2.0,
         -ACCORDION_TITLE_HEIGHT_GU / 2.0,
         0.02,
-    ).scale(1.62, 1.62, 1.0).rotation(0.0, 0.0, 3.141593) {
+    ).scale(1.62, 1.62, 1.0).rotation(0.0, 0.0, 0.0) {
         name = "accordion_toggle_icon"
         Transition {
             duration_beats(ACCORDION_TOGGLE_TRANSITION_BEATS)
@@ -157,14 +157,14 @@ export fn accordion(options) {
             current_body.remove_subtree()
             toggle_icon.update_transform(
                 [ACCORDION_TOGGLE_WIDTH_GU / 2.0, -ACCORDION_TITLE_HEIGHT_GU / 2.0, 0.02],
-                [0.0, 0.0, 1.570796],
+                [0.0, 0.0, -1.570796],
                 [1.62, 1.62, 1.0],
             )
             emit_data(panel_root, "AccordionMinimized", body_mount)
         } else {
             toggle_icon.update_transform(
                 [ACCORDION_TOGGLE_WIDTH_GU / 2.0, -ACCORDION_TITLE_HEIGHT_GU / 2.0, 0.02],
-                [0.0, 0.0, 3.141593],
+                [0.0, 0.0, 0.0],
                 [1.62, 1.62, 1.0],
             )
             emit_data(panel_root, "AccordionRestoreRequested", body_mount)
