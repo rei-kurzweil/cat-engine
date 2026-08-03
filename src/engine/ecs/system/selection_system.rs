@@ -10,7 +10,7 @@ use crate::engine::graphics::bounds::{Aabb, mat4_identity, mat4_mul};
 
 const SELECTED_HIGHLIGHT_RGBA: [f32; 4] = [1.0, 0.84, 0.0, 1.0];
 const SELECTED_HIGHLIGHT_EMISSIVE: f32 = 3.0;
-const OVERLAY_HIGHLIGHT_Z_OFFSET: f32 = 0.01;
+const OVERLAY_HIGHLIGHT_Z_GAP: f32 = 0.01;
 const OVERLAY_HIGHLIGHT_Z_THICKNESS: f32 = 0.001;
 
 #[derive(Debug, Clone, Copy)]
@@ -323,10 +323,13 @@ fn subtree_local_bounds(world: &World, root: ComponentId) -> Option<Aabb> {
         world: &World,
         node: ComponentId,
         parent_to_root: [[f32; 4]; 4],
+        apply_node_transform: bool,
         acc: &mut Option<Aabb>,
     ) {
         let mut local_to_root = parent_to_root;
-        if let Some(tc) = world.get_component_by_id_as::<TransformComponent>(node) {
+        if apply_node_transform
+            && let Some(tc) = world.get_component_by_id_as::<TransformComponent>(node)
+        {
             local_to_root = mat4_mul(parent_to_root, tc.transform.model);
         }
         if world
@@ -348,18 +351,25 @@ fn subtree_local_bounds(world: &World, root: ComponentId) -> Option<Aabb> {
             if world.component_label(child) == Some("selection_highlight") {
                 continue;
             }
-            visit(world, child, local_to_root, acc);
+            visit(world, child, local_to_root, true, acc);
         }
     }
 
     let mut acc = None;
-    visit(world, root, mat4_identity(), &mut acc);
+    // The highlight is attached beneath `root`, so its transform must be
+    // expressed in root-local coordinates. Applying the root transform here
+    // would make translation/rotation/scale take effect twice.
+    visit(world, root, mat4_identity(), false, &mut acc);
     acc
 }
 
-fn ensure_selection_overlay(world: &mut World, emit: &mut dyn SignalEmitter, item_id: ComponentId) {
+fn ensure_selection_overlay(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    item_id: ComponentId,
+) -> bool {
     let Some(bounds) = subtree_local_bounds(world, item_id) else {
-        return;
+        return false;
     };
 
     let highlight_id = world
@@ -391,23 +401,76 @@ fn ensure_selection_overlay(world: &mut World, emit: &mut dyn SignalEmitter, ite
         });
 
     let center = bounds.center();
+    let translation = [
+        center[0],
+        center[1],
+        bounds.min[2] - OVERLAY_HIGHLIGHT_Z_GAP,
+    ];
+    let scale = [
+        bounds.width().max(0.001),
+        bounds.height().max(0.001),
+        OVERLAY_HIGHLIGHT_Z_THICKNESS,
+    ];
+    let unchanged = world
+        .get_component_by_id_as::<TransformComponent>(highlight_id)
+        .is_some_and(|transform| {
+            transform
+                .transform
+                .translation
+                .iter()
+                .zip(translation)
+                .all(|(current, desired)| (*current - desired).abs() < 1.0e-5)
+                && transform
+                    .transform
+                    .scale
+                    .iter()
+                    .zip(scale)
+                    .all(|(current, desired)| (*current - desired).abs() < 1.0e-5)
+        });
+    if unchanged {
+        return false;
+    }
     emit.push_intent_now(
         highlight_id,
         IntentValue::UpdateTransform {
             component_id: highlight_id,
-            translation: [
-                center[0],
-                center[1],
-                bounds.max[2] + OVERLAY_HIGHLIGHT_Z_OFFSET,
-            ],
+            translation,
             rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
-            scale: [
-                bounds.width().max(0.001),
-                bounds.height().max(0.001),
-                OVERLAY_HIGHLIGHT_Z_THICKNESS,
-            ],
+            scale,
         },
     );
+    true
+}
+
+/// Refit an already-visible selection overlay after descendants are attached or
+/// removed. This deliberately does not create a new highlight for an
+/// unselected item.
+pub(crate) fn refresh_existing_selection_overlay(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    item_id: ComponentId,
+) {
+    let has_overlay = world
+        .children_of(item_id)
+        .iter()
+        .any(|&child| world.component_label(child) == Some("selection_highlight"));
+    if has_overlay {
+        let _ = ensure_selection_overlay(world, emit, item_id);
+    }
+}
+
+pub(crate) fn refresh_all_existing_selection_overlays(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+) -> bool {
+    let owners = world
+        .all_components()
+        .filter(|&component| world.component_label(component) == Some("selection_highlight"))
+        .filter_map(|highlight| world.parent_of(highlight))
+        .collect::<Vec<_>>();
+    owners.into_iter().fold(false, |changed, owner| {
+        ensure_selection_overlay(world, emit, owner) || changed
+    })
 }
 
 fn remove_selection_overlay(world: &World, emit: &mut dyn SignalEmitter, item_id: ComponentId) {
@@ -434,7 +497,7 @@ pub(crate) fn add_selection_highlight(
         remove_selection_overlay(world, emit, item_id);
         return;
     }
-    ensure_selection_overlay(world, emit, item_id);
+    let _ = ensure_selection_overlay(world, emit, item_id);
 }
 
 pub(crate) fn remove_selection_highlight(
@@ -1889,6 +1952,28 @@ mod tests {
         let _ = world.add_child(root, selection);
 
         let (item, hit, _) = spawn_test_option_item(&mut world, root, "unstyled_item", false);
+        let item_transform = world
+            .get_component_by_id_as_mut::<TransformComponent>(item)
+            .expect("item transform");
+        item_transform.transform.translation = [2.0, 1.0, 0.0];
+        item_transform.transform.recompute_model();
+        let removable_body = world.add_component_boxed_named(
+            "removable_body",
+            Box::new(TransformComponent::new().with_position(0.0, -3.0, 0.0)),
+        );
+        let body_renderable = world.add_component_boxed(Box::new(RenderableComponent::square()));
+        let body_bounds = world.add_component_boxed(Box::new(BoundsComponent::new(
+            Aabb::from_points(&[
+                [-0.5, -0.5, 0.0],
+                [0.5, -0.5, 0.0],
+                [-0.5, 0.5, 0.0],
+                [0.5, 0.5, 0.0],
+            ])
+            .expect("body bounds"),
+        )));
+        let _ = world.add_child(item, removable_body);
+        let _ = world.add_child(removable_body, body_renderable);
+        let _ = world.add_child(body_renderable, body_bounds);
 
         systems.rx.push_event(
             hit,
@@ -1915,7 +2000,31 @@ mod tests {
             .expect("highlight transform");
         assert_eq!(
             transform.transform.translation,
-            [0.0, 0.0, OVERLAY_HIGHLIGHT_Z_OFFSET]
+            [0.0, -1.5, -OVERLAY_HIGHLIGHT_Z_GAP],
+            "the overlay must stay root-local even when the selected root is translated"
+        );
+        assert!(transform.transform.scale[1] > 1.0);
+
+        systems.rx.push_intent_now(
+            removable_body,
+            IntentValue::RemoveSubtree {
+                component_id: removable_body,
+            },
+        );
+        let _ = systems.process_signals(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut emit,
+            100_000,
+        );
+        emit.flush(&mut world, &mut systems, &mut visuals, &mut render_assets);
+        let transform = world
+            .get_component_by_id_as::<TransformComponent>(highlight)
+            .expect("refitted highlight transform");
+        assert_eq!(
+            transform.transform.translation,
+            [0.0, 0.0, -OVERLAY_HIGHLIGHT_Z_GAP]
         );
         assert_eq!(
             transform.transform.scale,

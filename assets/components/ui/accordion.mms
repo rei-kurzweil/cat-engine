@@ -7,6 +7,7 @@ import { accordion_down_arrow_icon } from "../icons.mms"
 //   width_gu         panel width in layout units
 //   unit_scale       required scale for the private LayoutRoot
 //   background_color title-bar background RGBA
+//   toggle_background_color optional minimize-button background RGBA
 //   children         ordered retained title-bar component objects
 //   body             one component rooted at #accordion_body
 //
@@ -27,7 +28,6 @@ export fn accordion_body(content) {
             flex_direction("column")
             width(100%)
             margin_xy(0.0, ACCORDION_BODY_GAP_GU / 2.0)
-            padding(1.0)
         }
         content
     }
@@ -38,13 +38,18 @@ export fn accordion(options) {
     let width_gu = options.width_gu
     let accordion_unit_scale = options.unit_scale
     let background_rgba = options.background_color
+    let toggle_background_rgba = [0.12, 0.34, 0.66, 1.0]
+    let authored_toggle_background = options["toggle_background_color"]
+    if authored_toggle_background {
+        toggle_background_rgba = authored_toggle_background
+    }
     let title_children = options.children
 
     let toggle_icon = T.position(
-        ACCORDION_TOGGLE_WIDTH_GU / 2.0,
-        -ACCORDION_TITLE_HEIGHT_GU / 2.0,
+        ACCORDION_TOGGLE_WIDTH_GU / 2.0 * accordion_unit_scale,
+        -ACCORDION_TITLE_HEIGHT_GU / 2.0 * accordion_unit_scale,
         0.02,
-    ).scale(1.62, 1.62, 1.0).rotation(0.0, 0.0, 0.0) {
+    ).scale(1.62 * accordion_unit_scale, 1.62 * accordion_unit_scale, 1.0).rotation(0.0, 0.0, 0.0) {
         name = "accordion_toggle_icon"
         Transition {
             duration_beats(ACCORDION_TOGGLE_TRANSITION_BEATS)
@@ -64,7 +69,7 @@ export fn accordion(options) {
             height(ACCORDION_TITLE_HEIGHT_GU)
             align_items("center")
             justify_content("center")
-            background_color([0.12, 0.34, 0.66, 1.0])
+            background_color(toggle_background_rgba)
             background_z(-0.015)
             color([0.97, 0.99, 1.0, 1.0])
         }
@@ -122,16 +127,16 @@ export fn accordion(options) {
         if current_body {
             current_body.remove_subtree()
             toggle_icon.update_transform(
-                [ACCORDION_TOGGLE_WIDTH_GU / 2.0, -ACCORDION_TITLE_HEIGHT_GU / 2.0, 0.02],
+                [ACCORDION_TOGGLE_WIDTH_GU / 2.0 * accordion_unit_scale, -ACCORDION_TITLE_HEIGHT_GU / 2.0 * accordion_unit_scale, 0.02],
                 [0.0, 0.0, -1.570796],
-                [1.62, 1.62, 1.0],
+                [1.62 * accordion_unit_scale, 1.62 * accordion_unit_scale, 1.0],
             )
             emit_data(panel_root, "AccordionMinimized", body_mount)
         } else {
             toggle_icon.update_transform(
-                [ACCORDION_TOGGLE_WIDTH_GU / 2.0, -ACCORDION_TITLE_HEIGHT_GU / 2.0, 0.02],
+                [ACCORDION_TOGGLE_WIDTH_GU / 2.0 * accordion_unit_scale, -ACCORDION_TITLE_HEIGHT_GU / 2.0 * accordion_unit_scale, 0.02],
                 [0.0, 0.0, 0.0],
-                [1.62, 1.62, 1.0],
+                [1.62 * accordion_unit_scale, 1.62 * accordion_unit_scale, 1.0],
             )
             emit_data(panel_root, "AccordionRestoreRequested", body_mount)
         }

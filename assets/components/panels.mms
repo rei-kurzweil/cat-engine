@@ -26,6 +26,13 @@ let TITLE_BAR_HEIGHT_GU = 3.0
 let TITLE_CONTENT_GAP_GU = 0.5
 let TITLE_LABEL_PADDING_X_GU = 0.25
 let SETTINGS_PANEL_WIDTH_GU = 16.0
+// Editor panel roots are positioned directly in world space. Their private
+// accordion LayoutRoots therefore need the same GU -> WU conversion as the
+// shared editor layout; nested LayoutRoots do not inherit unit_scale.
+let EDITOR_PANEL_UNIT_SCALE = 0.08
+let EDITOR_ACCORDION_TOGGLE_BACKGROUND = [0.95, 0.73, 0.16, 1.0]
+let EDITOR_DARK_CHROME_BACKGROUND = [0.20, 0.21, 0.23, 1.0]
+let EDITOR_DARK_CHROME_TEXT = [0.96, 0.97, 0.98, 1.0]
 
 fn panel_title(title, title_color) {
     return T {
@@ -262,8 +269,9 @@ export fn editor_settings_panel(title, title_color, panel_background_color, conf
     return accordion({
         root_name = "editor_settings_panel_root"
         width_gu = SETTINGS_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [panel_title(title, title_color)]
         body = editor_settings_panel_body(config)
     })
@@ -294,6 +302,7 @@ fn tool_at_index(idx) {
 export fn paint_panel_body(item_background_color, title_color) {
     return accordion_body(T {
         name = "paint_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "content_slot"
             Style {
@@ -323,8 +332,9 @@ export fn paint_panel_body(item_background_color, title_color) {
                 text_align("left")
                 vertical_align("middle")
                 word_wrap("normal")
-                background_color([0.08, 0.24, 0.11, 0.92])
+                background_color(EDITOR_DARK_CHROME_BACKGROUND)
                 background_z(-0.01)
+                color = EDITOR_DARK_CHROME_TEXT
             }
             T {
                 name = "paint_panel_status_root"
@@ -343,8 +353,9 @@ export fn paint_panel(title, title_color, panel_background_color, item_backgroun
     return accordion({
         root_name = "paint_panel_root"
         width_gu = PAINT_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [panel_title(title, title_color)]
         body = paint_panel_body(item_background_color, title_color)
     })
@@ -378,6 +389,7 @@ fn color_swatch(name, label, idx, rgba, rgba_text) {
 export fn color_panel_body() {
     return accordion_body(T {
         name = "color_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "content_slot"
             Style {
@@ -411,8 +423,9 @@ export fn color_panel(title, title_color, panel_background_color) {
     return accordion({
         root_name = "color_panel_root"
         width_gu = COLOR_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [panel_title(title, title_color)]
         body = color_panel_body()
     })
@@ -428,6 +441,7 @@ let POSE_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + PO
 export fn pose_capture_panel_body() {
     return accordion_body(T {
         name = "pose_capture_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "pose_panel_content_area"
             Raycastable.enabled()
@@ -459,9 +473,9 @@ export fn pose_capture_panel_body() {
                 padding_xy(0.25, 0.45)
                 text_align("left")
                 vertical_align("middle")
-                background_color([0.08, 0.24, 0.11, 0.92])
+                background_color(EDITOR_DARK_CHROME_BACKGROUND)
                 background_z(-0.01)
-                color = [0.92, 1.00, 0.92, 1.0]
+                color = EDITOR_DARK_CHROME_TEXT
             }
             T.position(0.0, 0.0, 0.0) {
                 Text {
@@ -477,8 +491,9 @@ export fn pose_capture_panel(title, title_color, panel_background_color) {
     return accordion({
         root_name = "pose_capture_panel_root"
         width_gu = POSE_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [panel_title(title, title_color)]
         body = pose_capture_panel_body()
     })
@@ -515,8 +530,8 @@ fn panel_button(node_name, label) {
             padding_xy(0.0, 0.45)
             text_align("center")
             vertical_align("middle")
-            background_color([0.10, 0.55, 0.18, 1.0])
-            color = [0.75, 1.00, 0.45, 1.0]
+            background_color(EDITOR_DARK_CHROME_BACKGROUND)
+            color = EDITOR_DARK_CHROME_TEXT
         }
         T.position(0.0, 0.0, 0.0) {
             Text { label }
@@ -529,6 +544,7 @@ export fn world_panel_body(working_file_path) {
     let status = world_panel_status("idle")
     return accordion_body(T {
         name = "world_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "path_input_wrap"
             Raycastable.enabled()
@@ -583,9 +599,9 @@ export fn world_panel_body(working_file_path) {
                 padding_xy(0.25, 0.45)
                 text_align("left")
                 vertical_align("middle")
-                background_color([0.08, 0.24, 0.11, 0.92])
+                background_color(EDITOR_DARK_CHROME_BACKGROUND)
                 background_z(-0.01)
-                color = [0.92, 1.00, 0.92, 1.0]
+                color = EDITOR_DARK_CHROME_TEXT
             }
             status
         }
@@ -598,8 +614,9 @@ export fn world_panel(title, items, title_color, panel_background_color, item_ba
     return accordion({
         root_name = "world_panel_root"
         width_gu = WORLD_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [
             panel_title(title, title_color),
             panel_button("save_button", "Save"),
@@ -623,6 +640,7 @@ let INSPECTOR_PANEL_TITLE_TEXT_WIDTH_GU = INSPECTOR_PANEL_WIDTH_GU - INSPECTOR_P
 export fn inspector_panel_body() {
     return accordion_body(T {
         name = "inspector_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "content_slot"
             Raycastable.enabled()
@@ -687,12 +705,14 @@ export fn inspector_panel(title, items, title_color, panel_background_color, ite
     return accordion({
         root_name = "inspector_panel_root"
         width_gu = INSPECTOR_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [
             panel_title(title, title_color),
             T {
                 name = "pin_slot"
+                Style { display("block") }
                 panel_button("pin_button", "Pin")
             },
         ]
@@ -709,6 +729,7 @@ let ASSET_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + A
 export fn asset_panel_body(items, item_background_color) {
     return accordion_body(T {
         name = "asset_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "content_slot"
             Raycastable.enabled()
@@ -728,8 +749,9 @@ export fn asset_panel(title, items, title_color, panel_background_color, item_ba
     return accordion({
         root_name = "assets_root"
         width_gu = ASSET_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [panel_title(title, title_color)]
         body = asset_panel_body(items, item_background_color)
     })
@@ -745,6 +767,7 @@ let GRID_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + GR
 export fn grid_panel_body() {
     return accordion_body(T {
         name = "grid_panel_body"
+        Style { display("block") width(100%) }
         T {
             name = "grid_panel_content_area"
             Raycastable.enabled()
@@ -773,7 +796,7 @@ export fn grid_panel_body() {
             Style {
                 display("block")
                 height(GRID_PANEL_ADD_BUTTON_HEIGHT_GU)
-                background_color([0.10, 0.55, 0.18, 1.0])
+                background_color(EDITOR_DARK_CHROME_BACKGROUND)
                 background_z(-0.01)
             }
 
@@ -786,7 +809,7 @@ export fn grid_panel_body() {
                     padding_xy(0.25, TITLE_LABEL_PADDING_X_GU)
                     text_align("left")
                     vertical_align("middle")
-                    color = [0.75, 1.00, 0.45, 1.0]
+                    color = EDITOR_DARK_CHROME_TEXT
                 }
                 T.position(0.0, 0.0, 0.0) {
                     Text { "Add Grid" }
@@ -810,13 +833,14 @@ export fn grid_panel(title, items, title_color, panel_background_color, item_bac
             align_items("center")
             justify_content("center")
         }
-        T.scale(0.25, 0.25, 1.0) { grid_visibility_icon() }
+        T.scale(0.25 * EDITOR_PANEL_UNIT_SCALE, 0.25 * EDITOR_PANEL_UNIT_SCALE, 1.0) { grid_visibility_icon() }
     }
     return accordion({
         root_name = "grid_panel_root"
         width_gu = GRID_PANEL_WIDTH_GU
-        unit_scale = 1.0
+        unit_scale = EDITOR_PANEL_UNIT_SCALE
         background_color = panel_background_color
+        toggle_background_color = EDITOR_ACCORDION_TOGGLE_BACKGROUND
         children = [panel_title(title, title_color), visibility_control]
         body = grid_panel_body()
     })

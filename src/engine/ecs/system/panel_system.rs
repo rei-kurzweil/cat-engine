@@ -779,16 +779,16 @@ pub fn spawn_editor_panel_layout_tree(
 ) -> Option<(ComponentId, ComponentId)> {
     let selected_panels: Vec<_> = selected_panel_specs.iter().map(|spec| spec.panel).collect();
     let world_panel_title_color = Value::Array(vec![
-        Value::Number(0.90),
-        Value::Number(1.00),
-        Value::Number(0.92),
+        Value::Number(0.08),
+        Value::Number(0.09),
+        Value::Number(0.10),
         Value::Number(1.0),
     ]);
     let world_panel_bg = Value::Array(vec![
-        Value::Number(0.18),
-        Value::Number(0.78),
-        Value::Number(0.22),
-        Value::Number(0.95),
+        Value::Number(0.68),
+        Value::Number(0.70),
+        Value::Number(0.72),
+        Value::Number(0.98),
     ]);
     let world_panel_item_bg = Value::Array(vec![
         Value::Number(0.92),

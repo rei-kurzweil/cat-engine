@@ -414,6 +414,12 @@ impl RxMutationExecutor {
             IntentValue::RemoveSubtree { component_id } => {
                 let root = *component_id;
                 {
+                    let mut retained_ancestors = Vec::new();
+                    let mut current = world.parent_of(root);
+                    while let Some(ancestor) = current {
+                        retained_ancestors.push(ancestor);
+                        current = world.parent_of(ancestor);
+                    }
                     emit.push_intent_now(
                         root,
                         IntentValue::AudioGraphDirtyImmediate { component_id: root },
@@ -441,6 +447,13 @@ impl RxMutationExecutor {
                         );
                     }
                     systems.remove_subtree_immediate(world, visuals, root);
+                    for ancestor in retained_ancestors {
+                        if world.get_component_record(ancestor).is_some() {
+                            crate::engine::ecs::system::selection_system::refresh_existing_selection_overlay(
+                                world, emit, ancestor,
+                            );
+                        }
+                    }
                 }
             }
 

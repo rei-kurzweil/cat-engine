@@ -1139,32 +1139,32 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
 ) -> ComponentId {
     let title_color = if model.active {
         Value::Array(vec![
-            Value::Number(0.96),
-            Value::Number(1.0),
-            Value::Number(0.98),
+            Value::Number(0.08),
+            Value::Number(0.09),
+            Value::Number(0.10),
             Value::Number(1.0),
         ])
     } else {
         Value::Array(vec![
-            Value::Number(0.84),
-            Value::Number(0.90),
-            Value::Number(0.86),
+            Value::Number(0.18),
+            Value::Number(0.19),
+            Value::Number(0.20),
             Value::Number(1.0),
         ])
     };
     let panel_bg = if model.active {
         Value::Array(vec![
-            Value::Number(0.18),
-            Value::Number(0.78),
-            Value::Number(0.22),
-            Value::Number(0.95),
+            Value::Number(0.68),
+            Value::Number(0.70),
+            Value::Number(0.72),
+            Value::Number(0.98),
         ])
     } else {
         Value::Array(vec![
-            Value::Number(0.20),
             Value::Number(0.52),
-            Value::Number(0.24),
-            Value::Number(0.90),
+            Value::Number(0.54),
+            Value::Number(0.56),
+            Value::Number(0.94),
         ])
     };
     let item_bg = if model.pinned {
@@ -1332,12 +1332,12 @@ pub(crate) fn set_inspector_pin_button_state(
         style.background_color = Some(if pinned {
             [0.95, 0.82, 0.18, 1.0]
         } else {
-            [0.10, 0.55, 0.18, 1.0]
+            [0.20, 0.21, 0.23, 1.0]
         });
         style.color = Some(if pinned {
             [0.10, 0.12, 0.06, 1.0]
         } else {
-            [0.75, 1.00, 0.45, 1.0]
+            [0.96, 0.97, 0.98, 1.0]
         });
     }
 }

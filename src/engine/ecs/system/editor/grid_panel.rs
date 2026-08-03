@@ -270,9 +270,9 @@ fn spawn_grid_panel_row_tree(
         row_name,
         if shown { "Visible" } else { "Hidden" },
         if shown {
-            [0.10, 0.55, 0.18, 1.0]
+            [0.28, 0.29, 0.31, 1.0]
         } else {
-            [0.42, 0.42, 0.42, 1.0]
+            [0.16, 0.17, 0.18, 1.0]
         },
         None,
         None,

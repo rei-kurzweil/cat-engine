@@ -46,8 +46,9 @@ mod tests {
     use super::EditorInspectorSystem;
     use crate::engine::ecs::command_queue::CommandQueue;
     use crate::engine::ecs::component::{
-        BoundsComponent, EditorComponent, EditorUIComponent, GLTFComponent, RenderableComponent,
-        SelectionComponent, SerializeComponent, TransformComponent,
+        BoundsComponent, EditorComponent, EditorUIComponent, GLTFComponent, LayoutComponent,
+        RenderableComponent, SelectionComponent, SerializeComponent, TextComponent,
+        TransformComponent,
     };
     use crate::engine::ecs::system::TransformSystem;
     use crate::engine::ecs::system::editor::inspector_panel::{
@@ -326,6 +327,14 @@ mod tests {
             &mut render_assets,
             &mut emit,
         );
+        systems.layout.tick(&mut world, &mut emit);
+        flush_runtime_updates(
+            &mut systems,
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut emit,
+        );
 
         let runtime_ui_root = find_named_root(&world, "editor_runtime_ui_root");
         let panel_mount = world
@@ -371,6 +380,81 @@ mod tests {
             "expected editor settings panel under layout root"
         );
         assert_eq!(world.parent_of(panel_shared_layout), Some(panel_mount));
+        let shared_unit_scale = world
+            .get_component_by_id_as::<LayoutComponent>(panel_shared_layout)
+            .expect("shared panel layout component")
+            .unit_scale;
+        assert_eq!(shared_unit_scale, 0.08);
+        for selector in [
+            "#editor_settings_panel_root",
+            "#paint_panel_root",
+            "#color_panel_root",
+            "#grid_panel_root",
+            "#pose_capture_panel_root",
+            "#assets_root",
+            "#world_panel_root",
+        ] {
+            let panel = world
+                .find_component(panel_shared_layout, selector)
+                .unwrap_or_else(|| panic!("missing panel {selector}"));
+            let private_layout = world
+                .children_of(panel)
+                .iter()
+                .find_map(|id| world.get_component_by_id_as::<LayoutComponent>(*id))
+                .unwrap_or_else(|| panic!("missing private LayoutRoot below {selector}"));
+            assert_eq!(
+                private_layout.unit_scale, shared_unit_scale,
+                "{selector} must render at the same physical GU scale used to place its slot"
+            );
+        }
+        let paint_panel = world
+            .find_component(panel_shared_layout, "#paint_panel_root")
+            .expect("paint panel");
+        let paint_items = world.find_all_components(paint_panel, "#paint_panel_item");
+        assert_eq!(paint_items.len(), 6);
+        let paint_item_positions = paint_items
+            .iter()
+            .map(|id| {
+                world
+                    .get_component_by_id_as::<TransformComponent>(*id)
+                    .expect("paint item transform")
+                    .transform
+                    .translation
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            paint_item_positions
+                .windows(2)
+                .any(|positions| positions[0] != positions[1]),
+            "paint body wrappers must not prevent its items from receiving layout transforms"
+        );
+        let chevron = world
+            .find_component(paint_panel, "#accordion_toggle_icon")
+            .expect("paint accordion chevron");
+        let chevron_transform = &world
+            .get_component_by_id_as::<TransformComponent>(chevron)
+            .expect("paint accordion chevron transform")
+            .transform;
+        assert!((chevron_transform.translation[0] - 0.16).abs() < 0.0001);
+        assert!((chevron_transform.translation[1] + 0.14).abs() < 0.0001);
+        assert!((chevron_transform.scale[0] - 0.1296).abs() < 0.0001);
+        assert!((chevron_transform.scale[1] - 0.1296).abs() < 0.0001);
+        let paint_text_sizes = world
+            .find_all_components(paint_panel, "Text")
+            .into_iter()
+            .filter_map(|id| {
+                world
+                    .get_component_by_id_as::<TextComponent>(id)
+                    .map(|text| text.font_size)
+            })
+            .collect::<Vec<_>>();
+        assert!(!paint_text_sizes.is_empty());
+        assert!(
+            paint_text_sizes
+                .iter()
+                .all(|font_size| (*font_size - shared_unit_scale).abs() < 0.0001),
+            "paint body text must inherit the private LayoutRoot's physical GU scale"
+        );
         assert!(
             world
                 .find_component(runtime_ui_root, "#panel_status_value")

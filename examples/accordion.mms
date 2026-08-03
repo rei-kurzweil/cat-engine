@@ -156,6 +156,7 @@ let mms_panel = accordion({
     width_gu = 34.0
     unit_scale = 1.0
     background_color = [0.04, 0.16, 0.42, 0.98]
+    toggle_background_color = [0.95, 0.73, 0.16, 1.0]
     children = [title_label("MMS responder"), title_chip("DataEvent → MMS")]
     body = body_card(
         "generation 0",
@@ -169,6 +170,7 @@ let native_panel = accordion({
     width_gu = 34.0
     unit_scale = 1.0
     background_color = [0.16, 0.08, 0.42, 0.98]
+    toggle_background_color = [0.72, 0.46, 0.95, 1.0]
     children = [title_label("Native responder"), title_chip("DataEvent → Rust")]
     body = native_body_shell()
 })

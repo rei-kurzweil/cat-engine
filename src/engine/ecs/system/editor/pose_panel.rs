@@ -190,9 +190,9 @@ fn spawn_action_button(
             style.height = SizeDimension::GlyphUnits(2.2);
             style.margin = EdgeInsets::axes(0.2, 0.15);
             style.padding = EdgeInsets::axes(0.25, 0.35);
-            style.background_color = Some([0.10, 0.55, 0.18, 1.0]);
+            style.background_color = Some([0.20, 0.21, 0.23, 1.0]);
             style.background_z = Some(0.001);
-            style.color = Some([0.75, 1.0, 0.45, 1.0]);
+            style.color = Some([0.96, 0.97, 0.98, 1.0]);
             style.font_size = SizeDimension::GlyphUnits(POSE_PANEL_ACTION_FONT_SIZE_GU);
             style
         }),
@@ -205,7 +205,7 @@ fn spawn_action_button(
         root,
         &format!("{name}_text"),
         label,
-        [0.75, 1.0, 0.45, 1.0],
+        [0.96, 0.97, 0.98, 1.0],
     );
     add_payload(world, root, action, Some(target), Some(library), pose);
     root
@@ -430,9 +430,9 @@ fn spawn_new_library_button(world: &mut World) -> ComponentId {
             style.height = SizeDimension::GlyphUnits(2.8);
             style.margin = EdgeInsets::axes(0.0, 0.35);
             style.padding = EdgeInsets::axes(0.45, 0.45);
-            style.background_color = Some([0.10, 0.55, 0.18, 1.0]);
+            style.background_color = Some([0.20, 0.21, 0.23, 1.0]);
             style.background_z = Some(0.001);
-            style.color = Some([0.75, 1.0, 0.45, 1.0]);
+            style.color = Some([0.96, 0.97, 0.98, 1.0]);
             style
         }),
     );
@@ -443,7 +443,7 @@ fn spawn_new_library_button(world: &mut World) -> ComponentId {
         root,
         "pose_new_library_action_text",
         "New Pose Library",
-        [0.75, 1.0, 0.45, 1.0],
+        [0.96, 0.97, 0.98, 1.0],
     );
     add_payload(
         world,

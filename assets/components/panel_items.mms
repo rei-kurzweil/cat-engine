@@ -5,7 +5,9 @@
 
 // ── paint_panel_item ──────────────────────────────────────────────────────────
 
-let PAINT_PANEL_ICON_SCALE = 0.25
+// Procedural/icon transforms are authored in world units; unlike layout
+// positions, LayoutRoot does not multiply them by its GU scale.
+let PAINT_PANEL_ICON_SCALE = 0.25 * 0.08
 
 export fn paint_panel_item(item_label, icon, item_background_color, title_color) {
     return T {
@@ -249,8 +251,8 @@ fn pose_capture_add_button(label) {
             width(100%)
             margin_xy(0.25, 0.1)
             padding_xy(0.55, 0.45)
-            background_color([0.1, 0.5, 0.1, 1.0])
-            color = [0.8, 1.0, 0.8, 1.0]
+            background_color([0.20, 0.21, 0.23, 1.0])
+            color = [0.96, 0.97, 0.98, 1.0]
             text_align("center")
         }
         T {

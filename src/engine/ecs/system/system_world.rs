@@ -3007,6 +3007,11 @@ impl SystemWorld {
         self.layout.tick(world, queue);
         let vr_stage_started = self.vr_perf_enabled.then(Instant::now);
         queue.flush(world, self, visuals, render_assets);
+        if crate::engine::ecs::system::selection_system::refresh_all_existing_selection_overlays(
+            world, queue,
+        ) {
+            queue.flush(world, self, visuals, render_assets);
+        }
         if let Some(started) = vr_stage_started {
             self.vr_perf_pre_xr.post_pose_command_flush = started.elapsed();
         }

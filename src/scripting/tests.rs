@@ -1723,6 +1723,19 @@ fn accordion_example_gives_responder_text_distinct_line_boxes() {
             .is_some()),
         "the stable body mount must participate in private-root flow"
     );
+    let toggle = world
+        .find_component(panel, "#accordion_toggle")
+        .expect("accordion toggle");
+    let toggle_style = world
+        .children_of(toggle)
+        .iter()
+        .find_map(|id| world.get_component_by_id_as::<StyleComponent>(*id))
+        .expect("accordion toggle style");
+    assert_eq!(
+        toggle_style.background_color,
+        Some([0.95, 0.73, 0.16, 1.0]),
+        "accordion toggle background must be caller-themeable"
+    );
 
     let icon = world
         .find_component(panel, "#accordion_down_arrow_icon")

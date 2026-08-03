@@ -231,14 +231,15 @@ T {
                     }
             }
 
-            OV {
-                T.scale(0.06, 0.06, 0.12) {
-                    R.cube() {
-                        C.rgba(0.00, 1.0, 1.0, 0.5)
-                        EM.on()
-                    }
-                }
-            }
+            // CameraXR reference cube (since the AVC{ GLTF } model is moved relative to the CameraXR pose)
+            // OV {
+            //     T.scale(0.06, 0.06, 0.12) {
+            //         R.cube() {
+            //             C.rgba(0.00, 1.0, 1.0, 0.5)
+            //             EM.on()
+            //         }
+            //     }
+            // }
         }
     }
 }
