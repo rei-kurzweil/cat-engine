@@ -1,30 +1,20 @@
-// accordion.mms — single-section collapsible UI molecule (=^･ω･^=)
+// accordion.mms — retained-title, removable-body editor shell (=^･ω･^=)
 
-import { accordion_down_arrow_icon } from "../icons.mms"
-//
-// The accordion owns its title bar, toggle handler, and body teardown.
-// Its body must have one outer root named `accordion_body`.
-//
 // Options:
-// Required options:
-//   root_name        string
-//   width_gu         number
-//   title            string
-//   title_color      rgba array
-//   background_color rgba array
-//   title_controls   component object (use T {} when empty)
-//   title_controls_width_gu number (use 0.0 when empty)
-//   body             component object rooted at #accordion_body
+//   root_name        public name of the inner draggable panel transform
+//   width_gu         panel width in layout units
+//   unit_scale       required scale for the private LayoutRoot
+//   background_color title-bar background RGBA
+//   children         ordered retained title-bar component objects
+//   body             one component rooted at #accordion_body
 //
-// Opening emits `AccordionRestoreRequested` on the accordion root with the
-// stable body mount as its optional component payload. The owner repopulates
-// the mount; the accordion does not listen for an acknowledgement.
+// The returned object is the layout-owned outer slot. The default minimize
+// toggle is always inserted before caller children. Accordion events originate
+// on the inner panel root and therefore bubble to handlers on the named slot.
 
 let ACCORDION_TITLE_HEIGHT_GU = 3.5
 let ACCORDION_TOGGLE_WIDTH_GU = 4.0
 let ACCORDION_BODY_GAP_GU = 0.6
-// Transition timing is currently beat-based. At the default 120 BPM,
-// 0.6 beats is 300 ms.
 let ACCORDION_TOGGLE_TRANSITION_BEATS = 0.6
 
 export fn accordion_body(content) {
@@ -44,11 +34,9 @@ export fn accordion_body(content) {
 export fn accordion(options) {
     let root_name = options.root_name
     let width_gu = options.width_gu
-    let title = options.title
-    let title_rgba = options.title_color
+    let accordion_unit_scale = options.unit_scale
     let background_rgba = options.background_color
-    let title_controls = options.title_controls
-    let title_controls_width_gu = options.title_controls_width_gu
+    let title_children = options.children
 
     let toggle_icon = T.position(
         ACCORDION_TOGGLE_WIDTH_GU / 2.0,
@@ -62,14 +50,12 @@ export fn accordion(options) {
             capture_from_current(true)
             replace_same_target()
         }
-        accordion_down_arrow_icon([0.72, 0.90, 1.0, 1.0], 1.8)
+        Text { "⌄" }
     }
 
     let toggle = T {
         name = "accordion_toggle"
-        Raycastable.enabled() {
-            interaction_priority(110.0)
-        }
+        Raycastable.enabled() { interaction_priority(110.0) }
         Style {
             display("flex")
             width(ACCORDION_TOGGLE_WIDTH_GU)
@@ -85,70 +71,44 @@ export fn accordion(options) {
 
     let body_mount = T {
         name = "accordion_body_mount"
-        Style {
-            display("flex")
-            flex_direction("column")
-            width(100%)
-        }
         options.body
     }
 
+    let drag_target = "../../#" + root_name
     let panel_root = T {
         name = root_name
-        Style {
-            display("flex")
-            flex_direction("column")
-            width(width_gu)
-        }
+        Option {}
+        Raycastable.enabled() { interaction_priority(100.0) }
+        Style { width(width_gu) }
 
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("flex")
-                flex_direction("row")
-                align_items("center")
-                width(100%)
-                height(ACCORDION_TITLE_HEIGHT_GU)
-                background_color(background_rgba)
-                background_z(-0.01)
-            }
+        LayoutRoot {
+            available_width(width_gu)
+            unit_scale(accordion_unit_scale)
 
             T {
-                name = "accordion_title_slot"
-                Style {
-                    display("flex")
-                    width(0.0)
-                    flex_grow(1.0)
-                    height(ACCORDION_TITLE_HEIGHT_GU)
-                    align_items("center")
-                    padding(1.0)
-                    color(title_rgba)
-                }
-                T.position(0.0, 0.0, 0.02) {
-                    Text {
-                        name = "title_label"
-                        title
-                    }
-                }
-            }
-
-            T {
-                name = "accordion_title_controls"
+                name = "title_bar"
+                Draggable.target(drag_target)
+                Raycastable.enabled()
                 Style {
                     display("flex")
                     flex_direction("row")
                     align_items("center")
-                    width(title_controls_width_gu)
+                    width(100%)
                     height(ACCORDION_TITLE_HEIGHT_GU)
+                    background_color(background_rgba)
+                    background_z(-0.01)
                 }
-                title_controls
+                toggle
+                for child in title_children { child }
             }
-            toggle
-        }
 
-        body_mount
+            body_mount
+        }
+    }
+    let layout_slot = T {
+        name = "accordion_layout_slot"
+        Style { width(width_gu) }
+        panel_root
     }
 
     on(toggle, "Click", fn(event) {
@@ -171,5 +131,5 @@ export fn accordion(options) {
         }
     })
 
-    return panel_root
+    return layout_slot
 }

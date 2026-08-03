@@ -1,5 +1,5 @@
 use crate::engine::ecs::component::{
-    AnimationState, RenderableComponent, TextComponent, TransformComponent,
+    AnimationState, LayoutComponent, RenderableComponent, TextComponent, TransformComponent,
 };
 use crate::engine::ecs::system::SystemWorld;
 use crate::engine::ecs::system::pose_capture_system::{
@@ -421,6 +421,16 @@ impl RxMutationExecutor {
                     // Best-effort: if the root is still attached, detach it first and publish
                     // a topology fact before deletion.
                     if let Some(old_parent) = world.parent_of(root) {
+                        let mut current = Some(old_parent);
+                        while let Some(id) = current {
+                            if let Some(layout) =
+                                world.get_component_by_id_as_mut::<LayoutComponent>(id)
+                            {
+                                layout.mark_dirty();
+                                break;
+                            }
+                            current = world.parent_of(id);
+                        }
                         world.detach_from_parent(root);
                         emit.push_event(
                             root,

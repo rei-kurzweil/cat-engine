@@ -142,7 +142,7 @@ pub use component_ref::{
 pub use controller_xr::{ControllerHand, ControllerPoseKind, ControllerXRComponent};
 pub use data::{DataComponent, DataEntry, DataValue};
 pub use directional_light::DirectionalLightComponent;
-pub use draggable::{DraggableComponent, DraggablePlane};
+pub use draggable::{DraggableComponent, DraggablePlane, DraggableTarget};
 pub use editor::EditorComponent;
 pub use editor::EditorInteractionMode;
 pub use editor::TransformGizmoCoordSpace;

@@ -152,6 +152,38 @@ impl DataRendererSystem {
         self.remove_previous(world, emit, slot);
     }
 
+    /// Forget bookkeeping for a slot without removing its rendered subtree.
+    ///
+    /// This is used when an ancestor is already being removed, avoiding a second,
+    /// overlapping `RemoveSubtree` request.
+    pub fn forget_slot(&mut self, slot: ComponentId) -> Option<ComponentId> {
+        self.rendered_subtrees.remove(&slot)
+    }
+
+    /// Forget all tracked slots contained by `subtree`, without mutating the world.
+    pub fn forget_subtree_slots(&mut self, world: &World, subtree: ComponentId) -> usize {
+        let before = self.rendered_subtrees.len();
+        self.rendered_subtrees.retain(|slot, _| {
+            let mut current = Some(*slot);
+            while let Some(id) = current {
+                if id == subtree {
+                    return false;
+                }
+                current = world.parent_of(id);
+            }
+            true
+        });
+        before - self.rendered_subtrees.len()
+    }
+
+    /// Forget slots whose component nodes have already been deleted.
+    pub fn forget_removed_slots(&mut self, world: &World) -> usize {
+        let before = self.rendered_subtrees.len();
+        self.rendered_subtrees
+            .retain(|slot, _| world.get_component_record(*slot).is_some());
+        before - self.rendered_subtrees.len()
+    }
+
     fn remove_previous(&mut self, world: &World, emit: &mut dyn SignalEmitter, slot: ComponentId) {
         if let Some(prev_root) = self.rendered_subtrees.remove(&slot) {
             if world.get_component_record(prev_root).is_some() {

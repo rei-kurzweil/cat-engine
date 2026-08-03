@@ -1729,11 +1729,9 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
         let panel = accordion({
             root_name = "test_accordion"
             width_gu = 24.0
-            title = "test"
-            title_color = [1.0, 1.0, 1.0, 1.0]
+            unit_scale = 1.0
             background_color = [0.0, 0.1, 0.3, 1.0]
-            title_controls = T {}
-            title_controls_width_gu = 0.0
+            children = [T { name = "test_title" Text { "test" } }]
             body = accordion_body(T { Text { "body" } })
         })
         panel
@@ -1753,14 +1751,42 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
         &mut emit,
     );
     assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
-
     let panel = world
         .all_components()
         .find(|&id| world.component_label(id) == Some("test_accordion"))
         .expect("test accordion root");
+    let layout_slot = world.parent_of(panel).expect("accordion layout slot");
+    assert_eq!(
+        world.component_label(layout_slot),
+        Some("accordion_layout_slot")
+    );
+    let title_bar = world
+        .find_component(panel, "#title_bar")
+        .expect("accordion title bar");
     let toggle = world
         .find_component(panel, "#accordion_toggle")
         .expect("accordion toggle");
+    let title = world
+        .find_component(panel, "#test_title")
+        .expect("caller-authored title child");
+    let title_children = world.children_of(title_bar);
+    assert!(
+        title_children.iter().position(|id| *id == toggle)
+            < title_children.iter().position(|id| *id == title),
+        "the built-in toggle must precede caller title children"
+    );
+    let draggable = title_children
+        .iter()
+        .find_map(|id| {
+            world.get_component_by_id_as::<crate::engine::ecs::component::DraggableComponent>(*id)
+        })
+        .expect("title bar draggable marker");
+    assert!(matches!(
+        &draggable.target,
+        crate::engine::ecs::component::DraggableTarget::Explicit(
+            crate::engine::ecs::component::ComponentRef::Query(selector)
+        ) if selector == "../../#test_accordion"
+    ));
     let toggle_icon = world
         .find_component(panel, "#accordion_toggle_icon")
         .expect("accordion toggle icon");
@@ -1779,35 +1805,6 @@ fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     let body = world
         .find_component(panel, "#accordion_body")
         .expect("initial accordion body");
-    let polygon_renderables: Vec<_> = world
-        .all_components()
-        .filter_map(|id| {
-            world.get_component_by_id_as::<crate::engine::ecs::component::RenderableComponent>(id)
-        })
-        .filter(|renderable| {
-            matches!(
-                &renderable.authored_shape,
-                Some(crate::engine::ecs::component::renderable::AuthoredRenderableShape::Polygon {
-                    mesh_key,
-                    ..
-                }) if mesh_key == "ui/accordion/down-chevron/v1"
-            )
-        })
-        .collect();
-    assert_eq!(polygon_renderables.len(), 1, "one seamless chevron mesh");
-    let mesh = assets
-        .cpu_mesh(polygon_renderables[0].renderable.mesh)
-        .expect("cached accordion polygon");
-    assert!(mesh.vertices.iter().all(|vertex| vertex.pos[2] == 0.0));
-    let bottom_tip = mesh
-        .vertices
-        .iter()
-        .min_by(|a, b| a.pos[1].total_cmp(&b.pos[1]))
-        .expect("chevron vertex");
-    assert!(
-        bottom_tip.pos[0].abs() < 1.0e-6 && bottom_tip.pos[1] < 0.0,
-        "unrotated accordion glyph points down"
-    );
     let click = || EventSignal::Click {
         raycaster: ComponentId::default(),
         renderable: toggle,
@@ -5680,7 +5677,13 @@ fn editor_ui_settings_config_conditionally_authors_diagnostic_rows() {
     assert!(world.children_of(title_bar).iter().any(|child| {
         world
             .get_component_by_id_as::<crate::engine::ecs::component::DraggableComponent>(*child)
-            .is_some_and(|draggable| draggable.enabled && draggable.move_parent)
+            .is_some_and(|draggable| {
+                draggable.enabled
+                    && matches!(
+                        &draggable.target,
+                        crate::engine::ecs::component::DraggableTarget::Explicit(_)
+                    )
+            })
     }));
     for omitted in [
         "#editor_settings_armature_visibility",
@@ -6459,7 +6462,9 @@ fn roundtrip_grabbable() {
 
 #[test]
 fn roundtrip_draggable() {
-    use crate::engine::ecs::component::{DraggableComponent, DraggablePlane};
+    use crate::engine::ecs::component::{
+        ComponentRef, DraggableComponent, DraggablePlane, DraggableTarget,
+    };
     for plane in [
         DraggablePlane::Camera,
         DraggablePlane::WorldAxes([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
@@ -6472,6 +6477,17 @@ fn roundtrip_draggable() {
             Some(plane)
         );
     }
+    let explicit = DraggableComponent::explicit(ComponentRef::Query("../#panel".to_string()))
+        .with_plane(DraggablePlane::Camera);
+    let (world, id) = roundtrip_component(explicit);
+    assert!(matches!(
+        world.get_component_by_id_as::<DraggableComponent>(id),
+        Some(DraggableComponent {
+            target: DraggableTarget::Explicit(ComponentRef::Query(query)),
+            plane: DraggablePlane::Camera,
+            ..
+        }) if query == "../#panel"
+    ));
 }
 
 #[test]

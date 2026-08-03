@@ -137,11 +137,9 @@ let demo_state = {
 let mms_panel = accordion({
     root_name = "mms_accordion"
     width_gu = 34.0
-    title = "MMS responder"
-    title_color = [0.94, 0.98, 1.0, 1.0]
+    unit_scale = 1.0
     background_color = [0.04, 0.16, 0.42, 0.98]
-    title_controls = title_chip("DataEvent → MMS")
-    title_controls_width_gu = 14.0
+    children = [title_chip("MMS responder"), title_chip("DataEvent → MMS")]
     body = body_card(
         "generation 0",
         "this body will be deleted, then rebuilt by an MMS DataEvent handler",
@@ -152,11 +150,9 @@ let mms_panel = accordion({
 let native_panel = accordion({
     root_name = "native_accordion"
     width_gu = 34.0
-    title = "Native responder"
-    title_color = [0.96, 0.94, 1.0, 1.0]
+    unit_scale = 1.0
     background_color = [0.16, 0.08, 0.42, 0.98]
-    title_controls = title_chip("DataEvent → Rust")
-    title_controls_width_gu = 14.0
+    children = [title_chip("Native responder"), title_chip("DataEvent → Rust")]
     body = native_body_shell()
 })
 

@@ -1650,6 +1650,10 @@ fn eval_call(call: &CallExpression, ctx: &mut EvalContext<'_>) -> Result<Value, 
             .collect::<Result<_, _>>()?;
         let scope = match args.get(0) {
             Some(Value::ComponentObject { id, .. }) => *id,
+            // A nested component factory may not have a live scope yet. Keep
+            // template materialization valid; the owning runtime installs the
+            // equivalent responder after spawning the returned tree.
+            Some(Value::ComponentExpr(_)) => return Ok(Value::Null),
             other => {
                 return Err(format!(
                     "on(): arg 0 must be a ComponentObject, got {:?}",

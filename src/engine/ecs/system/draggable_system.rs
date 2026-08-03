@@ -1,14 +1,21 @@
 use crate::engine::ecs::component::{
-    Camera3DComponent, CameraXRComponent, DraggableComponent, DraggablePlane, RaycastableComponent,
-    SelectableComponent, SerializeComponent, TransformComponent,
+    Camera3DComponent, CameraXRComponent, ComponentRef, DraggableComponent, DraggablePlane,
+    DraggableTarget, QueryRootMode, RaycastableComponent, SelectableComponent, SerializeComponent,
+    TransformComponent, parse_scoped_query,
 };
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 use crate::engine::ecs::{EventSignal, IntentValue, PointerActivationSource, RxWorld, SignalKind};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+type GestureKey = (u8, ComponentId, ComponentId);
 
 #[derive(Debug, Default)]
 pub struct DraggableSystem {
     handlers_installed: bool,
+    active: Arc<Mutex<HashMap<GestureKey, Option<ResolvedDraggable>>>>,
+    diagnostics: Arc<Mutex<HashSet<String>>>,
 }
 
 impl DraggableSystem {
@@ -16,7 +23,32 @@ impl DraggableSystem {
         if self.handlers_installed {
             return;
         }
-        rx.add_global_handler_closure(SignalKind::DragMove, |world, emit, env| {
+        let active = Arc::clone(&self.active);
+        let diagnostics = Arc::clone(&self.diagnostics);
+        rx.add_global_handler_closure(SignalKind::DragStart, move |world, _emit, env| {
+            let Some(EventSignal::DragStart {
+                activation_source,
+                raycaster,
+                renderable,
+                ..
+            }) = env.event.as_ref()
+            else {
+                return;
+            };
+            if *activation_source != PointerActivationSource::Trigger {
+                return;
+            }
+            let key = gesture_key(*activation_source, *raycaster, *renderable);
+            let resolved = resolve_draggable_for_hit(world, *renderable, &diagnostics);
+            active
+                .lock()
+                .expect("draggable gesture lock")
+                .insert(key, resolved);
+        });
+
+        let active = Arc::clone(&self.active);
+        let diagnostics = Arc::clone(&self.diagnostics);
+        rx.add_global_handler_closure(SignalKind::DragMove, move |world, emit, env| {
             let Some(EventSignal::DragMove {
                 activation_source,
                 raycaster,
@@ -32,7 +64,14 @@ impl DraggableSystem {
             if !supported_activation {
                 return;
             }
-            let Some(resolved) = resolve_draggable_for_hit(world, *renderable) else {
+            let key = gesture_key(*activation_source, *raycaster, *renderable);
+            let resolved = active
+                .lock()
+                .expect("draggable gesture lock")
+                .get(&key)
+                .copied()
+                .unwrap_or_else(|| resolve_draggable_for_hit(world, *renderable, &diagnostics));
+            let Some(resolved) = resolved else {
                 return;
             };
             let owner = resolved.target;
@@ -60,6 +99,22 @@ impl DraggableSystem {
                 },
             );
         });
+        let active = Arc::clone(&self.active);
+        rx.add_global_handler_closure(SignalKind::DragEnd, move |_world, _emit, env| {
+            let Some(EventSignal::DragEnd {
+                activation_source,
+                raycaster,
+                renderable,
+                ..
+            }) = env.event.as_ref()
+            else {
+                return;
+            };
+            active
+                .lock()
+                .expect("draggable gesture lock")
+                .remove(&gesture_key(*activation_source, *raycaster, *renderable));
+        });
         self.handlers_installed = true;
     }
 
@@ -82,6 +137,7 @@ impl DraggableSystem {
         }) else {
             return;
         };
+        cache_explicit_target(world, draggable, owner, &self.diagnostics);
         let has_immediate_raycastable = world.children_of(owner).iter().any(|child| {
             world
                 .get_component_by_id_as::<RaycastableComponent>(*child)
@@ -219,10 +275,31 @@ struct ResolvedDraggable {
 /// An enabled Selectable sidecar on the same owner wins over Draggable. Handle-style
 /// `Draggable.parent()` markers resolve to the owner's parent Transform.
 pub fn draggable_owner_for_hit(world: &World, renderable: ComponentId) -> Option<ComponentId> {
-    resolve_draggable_for_hit(world, renderable).map(|resolved| resolved.target)
+    let diagnostics = Arc::new(Mutex::new(HashSet::new()));
+    resolve_draggable_for_hit_readonly(world, renderable, &diagnostics)
+        .map(|resolved| resolved.target)
 }
 
-fn resolve_draggable_for_hit(world: &World, renderable: ComponentId) -> Option<ResolvedDraggable> {
+fn gesture_key(
+    activation_source: PointerActivationSource,
+    raycaster: ComponentId,
+    renderable: ComponentId,
+) -> GestureKey {
+    let source = match activation_source {
+        PointerActivationSource::Trigger => 0,
+        PointerActivationSource::Grip => 1,
+    };
+    (source, raycaster, renderable)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DraggableMarker {
+    marker: ComponentId,
+    owner: ComponentId,
+    plane: DraggablePlane,
+}
+
+fn find_draggable_marker(world: &World, renderable: ComponentId) -> Option<DraggableMarker> {
     let mut current = Some(renderable);
     while let Some(id) = current {
         if world
@@ -240,39 +317,185 @@ fn resolve_draggable_for_hit(world: &World, renderable: ComponentId) -> Option<R
             if selectable_wins {
                 return None;
             }
-            if let Some(draggable) = world
-                .children_of(id)
-                .iter()
-                .find_map(|child| world.get_component_by_id_as::<DraggableComponent>(*child))
-            {
+            if let Some((marker, draggable)) = world.children_of(id).iter().find_map(|child| {
+                world
+                    .get_component_by_id_as::<DraggableComponent>(*child)
+                    .map(|component| (*child, component))
+            }) {
                 if !draggable.enabled {
                     return None;
                 }
-                if !draggable.move_parent {
-                    return Some(ResolvedDraggable {
-                        target: id,
-                        plane: draggable.plane,
-                    });
-                }
-                let mut parent = world.parent_of(id);
-                while let Some(candidate) = parent {
-                    if world
-                        .get_component_by_id_as::<TransformComponent>(candidate)
-                        .is_some()
-                    {
-                        return Some(ResolvedDraggable {
-                            target: candidate,
-                            plane: draggable.plane,
-                        });
-                    }
-                    parent = world.parent_of(candidate);
-                }
-                return None;
+                return Some(DraggableMarker {
+                    marker,
+                    owner: id,
+                    plane: draggable.plane,
+                });
             }
         }
         current = world.parent_of(id);
     }
     None
+}
+
+fn resolve_draggable_for_hit(
+    world: &mut World,
+    renderable: ComponentId,
+    diagnostics: &Arc<Mutex<HashSet<String>>>,
+) -> Option<ResolvedDraggable> {
+    let marker = find_draggable_marker(world, renderable)?;
+    let target = resolve_marker_motion_target(world, marker.marker, marker.owner, diagnostics)?;
+    Some(ResolvedDraggable {
+        target,
+        plane: marker.plane,
+    })
+}
+
+fn resolve_draggable_for_hit_readonly(
+    world: &World,
+    renderable: ComponentId,
+    diagnostics: &Arc<Mutex<HashSet<String>>>,
+) -> Option<ResolvedDraggable> {
+    let marker = find_draggable_marker(world, renderable)?;
+    let component = world.get_component_by_id_as::<DraggableComponent>(marker.marker)?;
+    let target = match &component.target {
+        DraggableTarget::Owner => Some(marker.owner),
+        DraggableTarget::ParentTransform => nearest_parent_transform(world, marker.owner),
+        DraggableTarget::Explicit(reference) => component
+            .target_id
+            .filter(|id| is_transform(world, *id))
+            .or_else(|| resolve_explicit_unique(world, marker.owner, reference)),
+    };
+    if target.is_none() {
+        diagnose_target(diagnostics, marker.marker, &component.target);
+    }
+    target.map(|target| ResolvedDraggable {
+        target,
+        plane: marker.plane,
+    })
+}
+
+fn resolve_marker_motion_target(
+    world: &mut World,
+    marker: ComponentId,
+    owner: ComponentId,
+    diagnostics: &Arc<Mutex<HashSet<String>>>,
+) -> Option<ComponentId> {
+    let (mode, cached, was_bound) = {
+        let component = world.get_component_by_id_as::<DraggableComponent>(marker)?;
+        (
+            component.target.clone(),
+            component.target_id,
+            component.target_was_bound,
+        )
+    };
+    match mode {
+        DraggableTarget::Owner => Some(owner),
+        DraggableTarget::ParentTransform => nearest_parent_transform(world, owner),
+        DraggableTarget::Explicit(reference) => {
+            if let Some(target) = cached.filter(|id| is_transform(world, *id)) {
+                return Some(target);
+            }
+            if cached.is_some()
+                && let Some(component) =
+                    world.get_component_by_id_as_mut::<DraggableComponent>(marker)
+            {
+                component.target_id = None;
+            }
+            if matches!(reference, ComponentRef::Guid(_)) && was_bound {
+                diagnose_target(diagnostics, marker, &DraggableTarget::Explicit(reference));
+                return None;
+            }
+            let resolved = resolve_explicit_unique(world, owner, &reference)
+                .filter(|id| is_transform(world, *id));
+            if let Some(component) = world.get_component_by_id_as_mut::<DraggableComponent>(marker)
+            {
+                component.target_id = resolved;
+                component.target_was_bound |= resolved.is_some();
+            }
+            if resolved.is_none() {
+                diagnose_target(diagnostics, marker, &DraggableTarget::Explicit(reference));
+            }
+            resolved
+        }
+    }
+}
+
+fn cache_explicit_target(
+    world: &mut World,
+    marker: ComponentId,
+    owner: ComponentId,
+    diagnostics: &Arc<Mutex<HashSet<String>>>,
+) {
+    let _ = resolve_marker_motion_target(world, marker, owner, diagnostics);
+}
+
+fn nearest_parent_transform(world: &World, owner: ComponentId) -> Option<ComponentId> {
+    let mut current = world.parent_of(owner);
+    while let Some(candidate) = current {
+        if is_transform(world, candidate) {
+            return Some(candidate);
+        }
+        current = world.parent_of(candidate);
+    }
+    None
+}
+
+fn is_transform(world: &World, id: ComponentId) -> bool {
+    world
+        .get_component_by_id_as::<TransformComponent>(id)
+        .is_some()
+}
+
+fn resolve_explicit_unique(
+    world: &World,
+    owner: ComponentId,
+    reference: &ComponentRef,
+) -> Option<ComponentId> {
+    match reference {
+        ComponentRef::Guid(guid) => world.component_id_by_guid(*guid),
+        ComponentRef::Query(query) => {
+            let scoped = parse_scoped_query(query);
+            let mut roots = Vec::new();
+            match scoped.root_mode {
+                QueryRootMode::SelfSubtree => roots.push(owner),
+                QueryRootMode::ParentScope { levels_up } => {
+                    let mut root = owner;
+                    for _ in 0..levels_up {
+                        root = world.parent_of(root)?;
+                    }
+                    roots.push(root);
+                }
+                QueryRootMode::WorldRoot => roots.extend(world.world_roots()),
+            }
+            let selector = scoped.selector.trim();
+            if selector.is_empty() {
+                return None;
+            }
+            let mut matches: Vec<_> = roots
+                .into_iter()
+                .flat_map(|root| world.find_all_components(root, selector))
+                .collect();
+            matches.sort_by_key(|id| format!("{id:?}"));
+            matches.dedup();
+            (matches.len() == 1).then(|| matches[0])
+        }
+    }
+}
+
+fn diagnose_target(
+    diagnostics: &Arc<Mutex<HashSet<String>>>,
+    marker: ComponentId,
+    target: &DraggableTarget,
+) {
+    let message =
+        format!("[Draggable] marker {marker:?} has no unique Transform target for {target:?}");
+    if diagnostics
+        .lock()
+        .expect("draggable diagnostics lock")
+        .insert(message.clone())
+    {
+        eprintln!("{message}");
+    }
 }
 
 #[cfg(test)]
@@ -378,6 +601,181 @@ mod tests {
         world.add_child(title_bar, renderable).unwrap();
 
         assert_eq!(draggable_owner_for_hit(&world, renderable), Some(panel));
+    }
+
+    #[test]
+    fn explicit_target_moves_only_the_uniquely_resolved_transform() {
+        let mut world = World::default();
+        let scope = world.add_component(TransformComponent::new());
+        let owner = world.add_component(TransformComponent::new());
+        let target = world.add_component_boxed_named("target", Box::new(TransformComponent::new()));
+        let draggable = world.add_component(DraggableComponent::explicit(ComponentRef::Query(
+            "../#target".to_string(),
+        )));
+        let renderable = world.add_component(RenderableComponent::cube());
+        world.add_child(scope, owner).unwrap();
+        world.add_child(scope, target).unwrap();
+        world.add_child(owner, draggable).unwrap();
+        world.add_child(owner, renderable).unwrap();
+
+        let mut rx = RxWorld::default();
+        DraggableSystem::default().install_handlers(&mut rx);
+        let raycaster = ComponentId::default();
+        rx.dispatch_event_handlers(
+            &mut world,
+            &Signal::event(
+                renderable,
+                EventSignal::DragStart {
+                    activation_source: PointerActivationSource::Trigger,
+                    raycaster,
+                    renderable,
+                    hit_point: [0.0; 3],
+                    ray_dir_world: [0.0, 0.0, -1.0],
+                    screen_pos_px: None,
+                },
+            ),
+        );
+        rx.dispatch_event_handlers(
+            &mut world,
+            &Signal::event(
+                renderable,
+                EventSignal::DragMove {
+                    activation_source: PointerActivationSource::Trigger,
+                    raycaster,
+                    renderable,
+                    hit_point: [0.0; 3],
+                    delta_world: [0.5, 0.25, 1.0],
+                    screen_pos_px: None,
+                    screen_delta_px: None,
+                },
+            ),
+        );
+        let intents = rx.drain_ready_intents();
+        assert!(intents.iter().any(|signal| matches!(
+            signal.intent.as_ref().map(|intent| &intent.value),
+            Some(IntentValue::UpdateTransform { component_id, translation, .. })
+                if *component_id == target && *translation == [0.5, 0.25, 0.0]
+        )));
+        assert!(!intents.iter().any(|signal| matches!(
+            signal.intent.as_ref().map(|intent| &intent.value),
+            Some(IntentValue::UpdateTransform { component_id, .. }) if *component_id == owner
+        )));
+    }
+
+    #[test]
+    fn selector_targets_stay_cached_while_live_and_rebind_after_deletion() {
+        let mut world = World::default();
+        let scope = world.add_component(TransformComponent::new());
+        let owner = world.add_component(TransformComponent::new());
+        let first = world.add_component_boxed_named("target", Box::new(TransformComponent::new()));
+        let marker = world.add_component(DraggableComponent::explicit(ComponentRef::Query(
+            "../#target".to_string(),
+        )));
+        world.add_child(scope, owner).unwrap();
+        world.add_child(scope, first).unwrap();
+        world.add_child(owner, marker).unwrap();
+        let diagnostics = Arc::new(Mutex::new(HashSet::new()));
+
+        assert_eq!(
+            resolve_marker_motion_target(&mut world, marker, owner, &diagnostics),
+            Some(first)
+        );
+        world.get_component_record_mut(first).unwrap().name.clear();
+        let replacement =
+            world.add_component_boxed_named("target", Box::new(TransformComponent::new()));
+        world.add_child(scope, replacement).unwrap();
+        assert_eq!(
+            resolve_marker_motion_target(&mut world, marker, owner, &diagnostics),
+            Some(first),
+            "a live cached selector target must remain sticky"
+        );
+
+        world.remove_component_subtree(first).unwrap();
+        assert_eq!(
+            resolve_marker_motion_target(&mut world, marker, owner, &diagnostics),
+            Some(replacement),
+            "a selector may bind its replacement after deletion"
+        );
+    }
+
+    #[test]
+    fn guid_targets_do_not_rebind_after_the_bound_component_is_deleted() {
+        let mut world = World::default();
+        let owner = world.add_component(TransformComponent::new());
+        let target = world.add_component(TransformComponent::new());
+        let guid = world.get_component_record(target).unwrap().guid;
+        let marker = world.add_component(DraggableComponent::explicit(ComponentRef::Guid(guid)));
+        world.add_child(owner, marker).unwrap();
+        let diagnostics = Arc::new(Mutex::new(HashSet::new()));
+
+        assert_eq!(
+            resolve_marker_motion_target(&mut world, marker, owner, &diagnostics),
+            Some(target)
+        );
+        world.remove_component_subtree(target).unwrap();
+        let replacement = world.add_component(TransformComponent::new());
+        world.get_component_record_mut(replacement).unwrap().guid = guid;
+        assert_eq!(
+            resolve_marker_motion_target(&mut world, marker, owner, &diagnostics),
+            None
+        );
+    }
+
+    #[test]
+    fn captured_target_does_not_switch_during_an_active_gesture() {
+        let mut world = World::default();
+        let scope = world.add_component(TransformComponent::new());
+        let owner = world.add_component(TransformComponent::new());
+        let target = world.add_component_boxed_named("target", Box::new(TransformComponent::new()));
+        let marker = world.add_component(DraggableComponent::explicit(ComponentRef::Query(
+            "../#target".to_string(),
+        )));
+        let renderable = world.add_component(RenderableComponent::cube());
+        world.add_child(scope, owner).unwrap();
+        world.add_child(scope, target).unwrap();
+        world.add_child(owner, marker).unwrap();
+        world.add_child(owner, renderable).unwrap();
+
+        let mut rx = RxWorld::default();
+        DraggableSystem::default().install_handlers(&mut rx);
+        let raycaster = ComponentId::default();
+        rx.dispatch_event_handlers(
+            &mut world,
+            &Signal::event(
+                renderable,
+                EventSignal::DragStart {
+                    activation_source: PointerActivationSource::Trigger,
+                    raycaster,
+                    renderable,
+                    hit_point: [0.0; 3],
+                    ray_dir_world: [0.0, 0.0, -1.0],
+                    screen_pos_px: None,
+                },
+            ),
+        );
+        world.remove_component_subtree(target).unwrap();
+        let replacement =
+            world.add_component_boxed_named("target", Box::new(TransformComponent::new()));
+        world.add_child(scope, replacement).unwrap();
+        rx.dispatch_event_handlers(
+            &mut world,
+            &Signal::event(
+                renderable,
+                EventSignal::DragMove {
+                    activation_source: PointerActivationSource::Trigger,
+                    raycaster,
+                    renderable,
+                    hit_point: [0.0; 3],
+                    delta_world: [1.0, 0.0, 0.0],
+                    screen_pos_px: None,
+                    screen_delta_px: None,
+                },
+            ),
+        );
+        assert!(rx.drain_ready_intents().iter().all(|signal| !matches!(
+            signal.intent.as_ref().map(|intent| &intent.value),
+            Some(IntentValue::UpdateTransform { component_id, .. }) if *component_id == replacement
+        )));
     }
 
     #[test]

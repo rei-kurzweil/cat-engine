@@ -2,7 +2,7 @@
 
 Date: 2026-08-01
 
-Status: active pre-0.8 performance task
+Status: implemented pre-0.8 performance task (2026-08-03)
 
 ## Goal
 
@@ -62,20 +62,16 @@ export fn world_panel_body(working_file_path) {
 }
 
 export fn world_panel(title, items, title_color, panel_color, item_color, path) {
-    let title_controls = T {
-        name = "panel_title_controls"
-        panel_button("save_button", "Save")
-        panel_button("load_button", "Load")
-    }
-
     return accordion({
         root_name = "world_panel_root"
         width_gu = WORLD_PANEL_WIDTH_GU
-        title = title
-        title_color = title_color
+        unit_scale = 1.0
         background_color = panel_color
-        title_controls = title_controls
-        title_controls_width_gu = 12.0
+        children = [
+            panel_title(title, title_color),
+            panel_button("save_button", "Save"),
+            panel_button("load_button", "Load"),
+        ]
         body = world_panel_body(path)
     })
 }
@@ -84,17 +80,16 @@ export fn world_panel(title, items, title_color, panel_color, item_color, path) 
 `accordion(...)` should author this stable topology:
 
 ```text
-<panel root: stable, draggable through its title bar, focus/select target>
-├── Style(width, inline/block layout; no fixed expanded height)
-├── title_bar                                  retained
-│   ├── title_label                            retained
-│   ├── caller title controls                  retained
-│   └── accordion_toggle                       retained
-│       ├── Data(action = "ToggleMinimized")
-│       └── accordion_toggle_icon (down / opposite-facing disclosure chevron)
-└── accordion_body_mount                       retained, no visual/style work
-    └── accordion_body                          removed while minimized
-        └── <panel-specific body root/content>
+<layout slot: shared-layout placement and margins>
+└── <panel transform: stable drag offset and focus/select target>
+    └── private LayoutRoot(width, unit_scale)
+        ├── title_bar                          retained
+        │   ├── accordion_toggle               retained, always leftmost
+        │   ├── caller title children, in order retained
+        │   └── accordion_toggle_icon          retained disclosure glyph
+        └── accordion_body_mount               retained, no visual/style work
+            └── accordion_body                 removed while minimized
+                └── <panel-specific body root/content>
 ```
 
 The factory owns the toggle so every caller gets the same hit target, spacing,

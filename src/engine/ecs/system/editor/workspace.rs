@@ -7,7 +7,7 @@ use crate::engine::ecs::system::editor::grid_panel::GRID_PANEL_ROOT_SELECTOR;
 use crate::engine::ecs::system::editor::pose_panel::POSE_PANEL_ROOT_SELECTOR;
 use crate::engine::ecs::system::panel_system::{
     PANEL_LAYOUT_SELECTION_NAME, PanelControlKind, PanelInstance, PanelKind, PanelShellSpec,
-    PanelSlotKind, get_or_create_editor_ui_root, resolve_panel_instance,
+    PanelSlotKind, editor_panel_body_spec, get_or_create_editor_ui_root, resolve_panel_instance,
 };
 use crate::engine::ecs::{ComponentId, EventSignal, IntentValue, SignalKind, World};
 
@@ -25,7 +25,7 @@ pub(crate) struct EditorWorkspaceRuntime {
     installed_editor_roots: Arc<Mutex<Vec<ComponentId>>>,
     refresh_handler_editor_roots: Arc<Mutex<Vec<ComponentId>>>,
     runtime_ui_root: Arc<Mutex<Option<ComponentId>>>,
-    mounted_panels: HashMap<PanelKind, PanelInstance>,
+    mounted_panels: Arc<Mutex<HashMap<PanelKind, PanelInstance>>>,
 }
 
 impl EditorWorkspaceRuntime {
@@ -73,8 +73,16 @@ impl EditorWorkspaceRuntime {
         runtime_ui_root
     }
 
-    pub(crate) fn panel_instance(&self, kind: PanelKind) -> Option<&PanelInstance> {
-        self.mounted_panels.get(&kind)
+    pub(crate) fn panel_instance(&self, kind: PanelKind) -> Option<PanelInstance> {
+        self.mounted_panels
+            .lock()
+            .expect("mounted panels mutex poisoned")
+            .get(&kind)
+            .cloned()
+    }
+
+    pub(crate) fn mounted_panels_handle(&self) -> Arc<Mutex<HashMap<PanelKind, PanelInstance>>> {
+        Arc::clone(&self.mounted_panels)
     }
 
     pub(crate) fn find_panel_mount_root(&self, world: &World) -> Option<ComponentId> {
@@ -111,6 +119,7 @@ impl EditorWorkspaceRuntime {
                 root_selector: root_sel.to_string(),
                 slot_selectors: HashMap::new(),
                 control_selectors: HashMap::new(),
+                body_spec: Some(editor_panel_body_spec(*kind)),
             };
             if let Some(instance) =
                 resolve_panel_instance(world, editor_root, &spec, mount_root, None)
@@ -135,6 +144,7 @@ impl EditorWorkspaceRuntime {
                     PanelControlKind::Selection,
                     WORLD_PANEL_SELECTION_SELECTOR.to_string(),
                 )]),
+                body_spec: Some(editor_panel_body_spec(PanelKind::World)),
             };
             if let Some(instance) =
                 resolve_panel_instance(world, editor_root, &spec, mount_root, None)
@@ -143,7 +153,10 @@ impl EditorWorkspaceRuntime {
             }
         }
 
-        self.mounted_panels = mounted;
+        *self
+            .mounted_panels
+            .lock()
+            .expect("mounted panels mutex poisoned") = mounted;
     }
 }
 

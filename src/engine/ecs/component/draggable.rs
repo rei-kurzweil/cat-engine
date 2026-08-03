@@ -1,4 +1,4 @@
-use crate::engine::ecs::component::Component;
+use crate::engine::ecs::component::{Component, ComponentRef};
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter};
 
 /// Plane used to constrain pointer-driven translation.
@@ -15,11 +15,26 @@ impl Default for DraggablePlane {
     }
 }
 
-/// Marks its immediate parent Transform as movable by pointer drag gestures.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Selects the transform moved by a draggable marker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DraggableTarget {
+    /// Move the Transform that owns the marker.
+    Owner,
+    /// Move the nearest Transform above the marker owner.
+    ParentTransform,
+    /// Move exactly the uniquely resolved authored reference.
+    Explicit(ComponentRef),
+}
+
+/// Marks a Transform subtree as movable by pointer drag gestures.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DraggableComponent {
     pub enabled: bool,
-    pub move_parent: bool,
+    pub target: DraggableTarget,
+    /// Runtime-only cache for an explicit target. The authored reference remains in `target`.
+    pub target_id: Option<ComponentId>,
+    /// Runtime-only sticky-binding bit. Once a GUID target dies it must never retarget.
+    pub target_was_bound: bool,
     pub plane: DraggablePlane,
 }
 
@@ -30,21 +45,36 @@ impl DraggableComponent {
     pub fn on() -> Self {
         Self {
             enabled: true,
-            move_parent: false,
+            target: DraggableTarget::Owner,
+            target_id: None,
+            target_was_bound: false,
             plane: DraggablePlane::Object,
         }
     }
     pub fn off() -> Self {
         Self {
             enabled: false,
-            move_parent: false,
+            target: DraggableTarget::Owner,
+            target_id: None,
+            target_was_bound: false,
             plane: DraggablePlane::Object,
         }
     }
     pub fn parent() -> Self {
         Self {
             enabled: true,
-            move_parent: true,
+            target: DraggableTarget::ParentTransform,
+            target_id: None,
+            target_was_bound: false,
+            plane: DraggablePlane::Object,
+        }
+    }
+    pub fn explicit(target: ComponentRef) -> Self {
+        Self {
+            enabled: true,
+            target: DraggableTarget::Explicit(target),
+            target_id: None,
+            target_was_bound: false,
             plane: DraggablePlane::Object,
         }
     }
@@ -85,10 +115,18 @@ impl Component for DraggableComponent {
         use crate::engine::ecs::component::ce_helpers::*;
         let expression = if !self.enabled {
             ce_call("Draggable", "off", vec![])
-        } else if self.move_parent {
-            ce_call("Draggable", "parent", vec![])
         } else {
-            ce("Draggable")
+            match &self.target {
+                DraggableTarget::Owner => ce_call("Draggable", "on", vec![]),
+                DraggableTarget::ParentTransform => ce_call("Draggable", "parent", vec![]),
+                DraggableTarget::Explicit(reference) => {
+                    let value = match reference {
+                        ComponentRef::Guid(guid) => s(&format!("@uuid:{guid}")),
+                        ComponentRef::Query(query) => s(query),
+                    };
+                    ce_call("Draggable", "target", vec![value])
+                }
+            }
         };
         match self.plane {
             DraggablePlane::Object => expression,

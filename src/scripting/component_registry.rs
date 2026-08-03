@@ -1928,6 +1928,11 @@ fn create_component(
             Some("parent") => add!(DraggableComponent::parent()),
             Some("off") => add!(DraggableComponent::off()),
             Some("on") => add!(DraggableComponent::on()),
+            Some("target") => {
+                add!(DraggableComponent::explicit(arg_component_ref(
+                    world, args, 0
+                )?))
+            }
             Some("plane") => {
                 add!(DraggableComponent::new().with_plane(parse_draggable_plane(args)?))
             }
@@ -2357,9 +2362,25 @@ fn apply_call(
     method: &str,
     args: &[Value],
 ) -> Result<(), String> {
-    if let Some(draggable) = world.get_component_by_id_as_mut::<DraggableComponent>(id) {
-        if method == "plane" {
-            draggable.plane = parse_draggable_plane(args)?;
+    if world
+        .get_component_by_id_as::<DraggableComponent>(id)
+        .is_some()
+    {
+        let target_source = (method == "target")
+            .then(|| arg_component_ref(world, args, 0))
+            .transpose()?;
+        let draggable = world
+            .get_component_by_id_as_mut::<DraggableComponent>(id)
+            .expect("draggable checked above");
+        match method {
+            "plane" => draggable.plane = parse_draggable_plane(args)?,
+            "target" => {
+                let source = target_source.expect("target source parsed above");
+                draggable.target = crate::engine::ecs::component::DraggableTarget::Explicit(source);
+                draggable.target_id = None;
+                draggable.target_was_bound = false;
+            }
+            _ => {}
         }
         return Ok(());
     }

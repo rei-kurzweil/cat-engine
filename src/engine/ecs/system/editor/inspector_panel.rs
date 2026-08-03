@@ -1217,6 +1217,13 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
             ),
             (PanelControlKind::TitleLabel, "#title_label".to_string()),
         ]),
+        body_spec: Some(crate::engine::ecs::system::panel_system::PanelBodySpec {
+            asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms")
+                .to_string(),
+            export_name: "inspector_panel_body".to_string(),
+            args: Vec::new(),
+            root_selector: "#accordion_body".to_string(),
+        }),
     };
     let spawned = match spawn_panel_instance(
         world,
@@ -1231,14 +1238,15 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
             return spawn_inspector_panel_instance_fallback_root(world, model.panel_id);
         }
     };
-    attach_inspector_panel_instance_id(world, spawned.mount_root, model.panel_id);
+    let panel_mount_root = spawned.mount_root;
+    attach_inspector_panel_instance_id(world, panel_mount_root, model.panel_id);
     let instance = spawned.instance;
     let inspector_panel_root = instance.root;
     let Some(sidebar_slot) = instance.slots.get(&PanelSlotKind::Sidebar).copied() else {
-        return inspector_panel_root;
+        return panel_mount_root;
     };
     let Some(detail_slot) = instance.slots.get(&PanelSlotKind::Detail).copied() else {
-        return inspector_panel_root;
+        return panel_mount_root;
     };
     let selection_root = instance.controls.get(&PanelControlKind::Selection).copied();
     rerender_single_inspector_panel_sidebar(
@@ -1259,7 +1267,7 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
         &model.detail,
         data_renderer,
     );
-    inspector_panel_root
+    panel_mount_root
 }
 
 pub(crate) fn attach_inspector_panel_instance_id(

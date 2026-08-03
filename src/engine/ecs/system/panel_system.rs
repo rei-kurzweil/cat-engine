@@ -57,16 +57,32 @@ pub struct PanelShellSpec {
     pub root_selector: String,
     pub slot_selectors: HashMap<PanelSlotKind, String>,
     pub control_selectors: HashMap<PanelControlKind, String>,
+    pub body_spec: Option<PanelBodySpec>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PanelBodySpec {
+    pub asset_path: String,
+    pub export_name: String,
+    pub args: Vec<Value>,
+    pub root_selector: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PanelInstance {
     pub panel_kind: PanelKind,
     pub editor_root: ComponentId,
     pub root: ComponentId,
     pub slots: HashMap<PanelSlotKind, ComponentId>,
     pub controls: HashMap<PanelControlKind, ComponentId>,
+    pub slot_selectors: HashMap<PanelSlotKind, String>,
+    pub control_selectors: HashMap<PanelControlKind, String>,
     pub instance_id: Option<u64>,
+    pub body_mount: ComponentId,
+    pub body_root: Option<ComponentId>,
+    pub body_spec: Option<PanelBodySpec>,
+    pub dirty_while_minimized: bool,
+    pub restore_pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,7 +117,7 @@ pub struct PanelLayoutMountSpec {
     pub children: Vec<MaterializedCE>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpawnedPanelInstance {
     pub mount_root: ComponentId,
     pub instance: PanelInstance,
@@ -254,38 +270,6 @@ pub fn decorate_panel_root_ce(
     mut panel_root: MaterializedCE,
     margin_right_gu: f64,
 ) -> MaterializedCE {
-    panel_root.children.insert(
-        0,
-        CeChild::Spawn(MaterializedCE {
-            component_type: "Option".to_string(),
-            component_property_assignment_only: false,
-            ctor_method: None,
-            ctor_args: Vec::new(),
-            calls: Vec::new(),
-            named: Vec::new(),
-            positionals: Vec::new(),
-            deferred_block: None,
-            children: Vec::new(),
-        }),
-    );
-    panel_root.children.insert(
-        1,
-        CeChild::Spawn(MaterializedCE {
-            component_type: "Raycastable".to_string(),
-            component_property_assignment_only: false,
-            ctor_method: Some("enabled".to_string()),
-            ctor_args: Vec::new(),
-            calls: vec![(
-                "interaction_priority".to_string(),
-                vec![Value::Number(100.0)],
-            )],
-            named: Vec::new(),
-            positionals: Vec::new(),
-            deferred_block: None,
-            children: Vec::new(),
-        }),
-    );
-
     if let Some(CeChild::Spawn(style_ce)) = panel_root.children.iter_mut().find(|child| {
         matches!(
             child,
@@ -374,6 +358,8 @@ pub fn resolve_panel_instance(
     instance_id: Option<u64>,
 ) -> Option<PanelInstance> {
     let shell_root = world.find_component(root, &spec.root_selector)?;
+    let body_mount = world.find_component(shell_root, "#accordion_body_mount")?;
+    let body_root = world.find_component(body_mount, "#accordion_body");
     let mut slots = HashMap::new();
     for (kind, selector) in &spec.slot_selectors {
         let slot = world.find_component(shell_root, selector)?;
@@ -390,8 +376,124 @@ pub fn resolve_panel_instance(
         root: shell_root,
         slots,
         controls,
+        slot_selectors: spec.slot_selectors.clone(),
+        control_selectors: spec.control_selectors.clone(),
         instance_id,
+        body_mount,
+        body_root,
+        body_spec: spec.body_spec.clone(),
+        dirty_while_minimized: false,
+        restore_pending: false,
     })
+}
+
+/// Project the accordion's body-removal event into native panel bookkeeping.
+pub fn panel_body_removed(
+    world: &World,
+    panel: &mut PanelInstance,
+    payload_mount: ComponentId,
+    renderer: &mut DataRendererSystem,
+) -> bool {
+    if payload_mount != panel.body_mount || panel.body_root.is_none() {
+        return false;
+    }
+    if let Some(body_root) = panel.body_root.take() {
+        renderer.forget_subtree_slots(world, body_root);
+        for slot in panel.slots.values() {
+            renderer.forget_slot(*slot);
+        }
+        panel.slots.clear();
+        panel.controls.retain(|_, id| {
+            world.get_component_record(*id).is_some()
+                && !is_descendant_or_self(world, body_root, *id)
+        });
+    }
+    panel.restore_pending = false;
+    true
+}
+
+/// Coalesce a body refresh while minimized. Returns true when callers should stop.
+pub fn defer_refresh_while_minimized(panel: &mut PanelInstance) -> bool {
+    if panel.body_root.is_none() {
+        panel.dirty_while_minimized = true;
+        return true;
+    }
+    false
+}
+
+/// Recreate a removed accordion body once and resolve all body-owned IDs afresh.
+pub fn restore_panel_body(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    panel: &mut PanelInstance,
+    payload_mount: ComponentId,
+) -> Result<bool, String> {
+    if payload_mount != panel.body_mount || panel.body_root.is_some() || panel.restore_pending {
+        return Ok(false);
+    }
+    let Some(spec) = panel.body_spec.clone() else {
+        return Err(format!(
+            "{:?} has no body factory metadata",
+            panel.panel_kind
+        ));
+    };
+    if world.get_component_record(panel.root).is_none()
+        || world.get_component_record(panel.body_mount).is_none()
+    {
+        return Ok(false);
+    }
+    panel.restore_pending = true;
+    let result = (|| {
+        let ce = MeowMeowRunner::materialize_mms_module_component_from_file(
+            &spec.asset_path,
+            &spec.export_name,
+            spec.args.clone(),
+            Some(world),
+            Some(emit),
+        )?;
+        let body = spawn_tree(&ce, None, world, emit)?;
+        if !world.component_matches_selector(body, &spec.root_selector) {
+            let _ = world.remove_component_subtree(body);
+            return Err(format!(
+                "{} must return one root matching {}",
+                spec.export_name, spec.root_selector
+            ));
+        }
+        world.add_child(panel.body_mount, body)?;
+        panel.body_root = Some(body);
+        panel.slots.clear();
+        for (kind, selector) in &panel.slot_selectors {
+            if let Some(id) = world.find_component(panel.root, selector) {
+                panel.slots.insert(*kind, id);
+            }
+        }
+        panel
+            .controls
+            .retain(|_, id| world.get_component_record(*id).is_some());
+        for (kind, selector) in &panel.control_selectors {
+            if let Some(id) = world.find_component(panel.root, selector) {
+                panel.controls.insert(*kind, id);
+            }
+        }
+        panel.dirty_while_minimized = false;
+        mark_panel_layout_dirty(world, panel.body_mount);
+        Ok(true)
+    })();
+    panel.restore_pending = false;
+    result
+}
+
+fn mark_panel_layout_dirty(world: &mut World, start: ComponentId) {
+    let mut current = Some(start);
+    while let Some(id) = current {
+        if let Some(layout) =
+            world.get_component_by_id_as_mut::<crate::engine::ecs::component::LayoutComponent>(id)
+        {
+            layout.mark_dirty();
+            break;
+        }
+        current = world.parent_of(id);
+    }
 }
 
 pub fn spawn_panel_instance(
@@ -528,6 +630,7 @@ pub fn build_editor_panel_component_expr(
             root_selector: String::new(),
             slot_selectors: HashMap::new(),
             control_selectors: HashMap::new(),
+            body_spec: None,
         },
     )
     .map_err(|error| {
@@ -622,10 +725,53 @@ pub fn pose_panel_asset_path() -> &'static str {
     concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms")
 }
 
+/// Default restoration metadata for the eight built-in editor panel bodies.
+pub fn editor_panel_body_spec(kind: PanelKind) -> PanelBodySpec {
+    let export_name = match kind {
+        PanelKind::Settings => "editor_settings_panel_body",
+        PanelKind::World => "world_panel_body",
+        PanelKind::Inspector => "inspector_panel_body",
+        PanelKind::Paint => "paint_panel_body",
+        PanelKind::Color => "color_panel_body",
+        PanelKind::Assets => "asset_panel_body",
+        PanelKind::Grid => "grid_panel_body",
+        PanelKind::Pose => "pose_capture_panel_body",
+    };
+    let rgba = || {
+        Value::Array(vec![
+            Value::Number(0.92),
+            Value::Number(0.97),
+            Value::Number(0.92),
+            Value::Number(1.0),
+        ])
+    };
+    let args = match kind {
+        PanelKind::Settings => vec![Value::Map(HashMap::from([
+            ("show_armature".to_string(), Value::Bool(true)),
+            ("show_bounds".to_string(), Value::Bool(true)),
+            ("show_cameras".to_string(), Value::Bool(true)),
+            ("show_colliders".to_string(), Value::Bool(true)),
+            ("show_gltf_colliders".to_string(), Value::Bool(true)),
+            ("show_spring_bones".to_string(), Value::Bool(true)),
+        ]))],
+        PanelKind::World => vec![Value::String(String::new())],
+        PanelKind::Paint => vec![rgba(), rgba()],
+        PanelKind::Assets => vec![Value::Array(Vec::new()), rgba()],
+        PanelKind::Inspector | PanelKind::Color | PanelKind::Grid | PanelKind::Pose => Vec::new(),
+    };
+    PanelBodySpec {
+        asset_path: world_panel_asset_path().to_string(),
+        export_name: export_name.to_string(),
+        args,
+        root_selector: "#accordion_body".to_string(),
+    }
+}
+
 /// Build the panel layout tree: all panel component expressions + mount.
 /// Returns `(panel_mount_root, layout_root_id)` on success.
 pub fn spawn_editor_panel_layout_tree(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     model: &WorldPanelModel,
     working_file_path: &Path,
@@ -849,19 +995,23 @@ pub fn spawn_editor_panel_layout_tree(
     children.extend(asset_panel);
     children.extend(world_panel);
 
-    let (panel_mount_root, layout_root_id) = match spawn_panel_layout_mount(
-        world,
-        emit,
-        PanelLayoutMountSpec {
-            anchor_pos,
-            total_height_gu,
-            available_width_gu: 200000.0,
-            text_scale: 0.08,
-            mount_name: PANEL_LAYOUT_MOUNT_NAME.to_string(),
-            layout_name: PANEL_LAYOUT_ROOT_NAME.to_string(),
-            children,
-        },
-    ) {
+    let spawn_result =
+        crate::scripting::component_registry::with_live_render_assets(render_assets, || {
+            spawn_panel_layout_mount(
+                world,
+                emit,
+                PanelLayoutMountSpec {
+                    anchor_pos,
+                    total_height_gu,
+                    available_width_gu: 200000.0,
+                    text_scale: 0.08,
+                    mount_name: PANEL_LAYOUT_MOUNT_NAME.to_string(),
+                    layout_name: PANEL_LAYOUT_ROOT_NAME.to_string(),
+                    children,
+                },
+            )
+        });
+    let (panel_mount_root, layout_root_id) = match spawn_result {
         Ok(ids) => ids,
         Err(error) => {
             eprintln!("[InspectorSystemStopgapMmsAdapter] panel layout spawn error: {error}");
@@ -874,8 +1024,15 @@ pub fn spawn_editor_panel_layout_tree(
 
 #[cfg(test)]
 mod tests {
-    use super::{PanelLayoutMountSpec, build_panel_layout_mount_ce};
+    use super::{
+        PanelBodySpec, PanelKind, PanelLayoutMountSpec, PanelShellSpec,
+        build_panel_layout_mount_ce, panel_body_removed, restore_panel_body, spawn_panel_instance,
+    };
+    use crate::engine::ecs::component::TransformComponent;
+    use crate::engine::ecs::system::data_renderer_system::DataRendererSystem;
+    use crate::engine::ecs::{CommandQueue, World};
     use crate::scripting::object::{CeChild, Value};
+    use std::collections::HashMap;
 
     #[test]
     fn build_panel_layout_mount_ce_places_layout_root_directly_under_mount() {
@@ -902,5 +1059,74 @@ mod tests {
                 Value::String("panel_layout".to_string())
             )]
         );
+    }
+
+    #[test]
+    fn panel_body_can_be_removed_and_restored_for_one_hundred_cycles() {
+        let asset_path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms");
+        let rgba = || {
+            Value::Array(vec![
+                Value::Number(0.2),
+                Value::Number(0.3),
+                Value::Number(0.4),
+                Value::Number(1.0),
+            ])
+        };
+        let spec = PanelShellSpec {
+            panel_kind: PanelKind::Color,
+            asset_path: asset_path.to_string(),
+            export_name: "color_panel".to_string(),
+            args: vec![
+                Value::String("Color".to_string()),
+                rgba(),
+                rgba(),
+            ],
+            root_selector: "#color_panel_root".to_string(),
+            slot_selectors: HashMap::new(),
+            control_selectors: HashMap::new(),
+            body_spec: Some(PanelBodySpec {
+                asset_path: asset_path.to_string(),
+                export_name: "color_panel_body".to_string(),
+                args: Vec::new(),
+                root_selector: "#accordion_body".to_string(),
+            }),
+        };
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let mut panel = spawn_panel_instance(&mut world, &mut emit, &spec, None, 2.0)
+            .expect("spawn color panel")
+            .instance;
+        world
+            .get_component_by_id_as_mut::<TransformComponent>(panel.root)
+            .expect("inner panel transform")
+            .transform
+            .translation = [3.0, -2.0, 0.5];
+        let stable_count = world.all_components().count();
+        let mut renderer = DataRendererSystem::new();
+        let body_mount = panel.body_mount;
+
+        for _ in 0..100 {
+            let body = panel.body_root.expect("expanded body");
+            assert!(panel_body_removed(
+                &world,
+                &mut panel,
+                body_mount,
+                &mut renderer,
+            ));
+            world.remove_component_subtree(body).expect("remove body");
+            assert!(
+                restore_panel_body(&mut world, &mut emit, &mut panel, body_mount)
+                    .expect("restore body")
+            );
+            assert_eq!(world.all_components().count(), stable_count);
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<TransformComponent>(panel.root)
+                    .expect("inner panel transform")
+                    .transform
+                    .translation,
+                [3.0, -2.0, 0.5]
+            );
+        }
     }
 }

@@ -8,13 +8,8 @@ import { world_panel_content } from "./panel_items.mms"
 import { world_panel_status } from "./panel_items.mms"
 import { inspector_panel_content } from "./panel_items.mms"
 import { assets_content } from "./assets_content.mms"
-import { pencil_icon } from "./icons.mms"
-import { line_icon } from "./icons.mms"
-import { spray_can_icon } from "./icons.mms"
-import { fill_icon } from "./icons.mms"
-import { erase_icon } from "./icons.mms"
-import { grid_tool_icon } from "./icons.mms"
 import { grid_visibility_icon } from "./icons.mms"
+import { accordion, accordion_body } from "./ui/accordion.mms"
 
 
 // ── Shared constants ──────────────────────────────────────────────────────────
@@ -23,6 +18,24 @@ let TITLE_BAR_HEIGHT_GU = 3.0
 let TITLE_CONTENT_GAP_GU = 0.5
 let TITLE_LABEL_PADDING_X_GU = 0.25
 let SETTINGS_PANEL_WIDTH_GU = 16.0
+
+fn panel_title(title, title_color) {
+    return T {
+        name = "title_label_wrap"
+        Style {
+            display("flex")
+            width(0.0)
+            flex_grow(1.0)
+            height(3.5)
+            align_items("center")
+            padding(1.0)
+            color(title_color)
+        }
+        T.position(0.0, 0.0, 0.02) {
+            Text { name = "title_label" title }
+        }
+    }
+}
 
 fn editor_settings_mode_row(row_name, label, mode_value) {
     return T {
@@ -201,36 +214,8 @@ fn editor_settings_camera_row() {
     }
 }
 
-export fn editor_settings_panel(title, title_color, panel_background_color, config) {
-    return T {
-        name = "editor_settings_panel_root"
-        Style {
-            display("block")
-            width(SETTINGS_PANEL_WIDTH_GU)
-            margin_xy(0.5, 0.5)
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                padding_xy(0.5, 0.5)
-                color = title_color
-                background_color(panel_background_color)
-                text_align("left")
-                vertical_align("middle")
-                background_z(-0.01)
-            }
-            T.position(0.0, 0.0, 0.0) {
-                Text { title }
-            }
-        }
-
-        T {
+export fn editor_settings_panel_body(config) {
+    return accordion_body(T {
             name = "content_slot"
             Style {
                 display("block")
@@ -262,8 +247,18 @@ export fn editor_settings_panel(title, title_color, panel_background_color, conf
             }
 
             Selection.root("#editor_settings_mode_rows") { name = "editor_settings_selection" }
-        }
-    }
+    })
+}
+
+export fn editor_settings_panel(title, title_color, panel_background_color, config) {
+    return accordion({
+        root_name = "editor_settings_panel_root"
+        width_gu = SETTINGS_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [panel_title(title, title_color)]
+        body = editor_settings_panel_body(config)
+    })
 }
 
 // ── paint_panel ───────────────────────────────────────────────────────────────
@@ -279,45 +274,18 @@ let COLOR_PANEL_HEIGHT_GU = 18.5
 let tool_names = ["Free Draw", "Grid Tool", "Line", "Spray Can", "Fill", "Erase"]
 
 fn tool_at_index(idx) {
-    if idx == 0 { return pencil_icon() }
-    if idx == 1 { return grid_tool_icon() }
-    if idx == 2 { return line_icon() }
-    if idx == 3 { return spray_can_icon() }
-    if idx == 4 { return fill_icon() }
-    if idx == 5 { return erase_icon() }
+    if idx == 0 { return T { Text { "✎" } } }
+    if idx == 1 { return T { Text { "▦" } } }
+    if idx == 2 { return T { Text { "╱" } } }
+    if idx == 3 { return T { Text { "⁙" } } }
+    if idx == 4 { return T { Text { "▰" } } }
+    if idx == 5 { return T { Text { "⌫" } } }
     return T {}
 }
 
-export fn paint_panel(title, title_color, panel_background_color, item_background_color) {
-    return T {
-        name = "paint_panel_root"
-        Style {
-            display("block")
-            width(PAINT_PANEL_WIDTH_GU)
-            height(PAINT_PANEL_TOTAL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                padding_xy(0.5, 0.5)
-                color = title_color
-                background_color(panel_background_color)
-                text_align("left")
-                vertical_align("middle")
-                background_z(-0.01)
-            }
-            T.position(0.0, 0.0, 0.0) {
-                Text { title }
-            }
-        }
-
+export fn paint_panel_body(item_background_color, title_color) {
+    return accordion_body(T {
+        name = "paint_panel_body"
         T {
             name = "content_slot"
             Style {
@@ -360,7 +328,18 @@ export fn paint_panel(title, title_color, panel_background_color, item_backgroun
                 }
             }
         }
-    }
+    })
+}
+
+export fn paint_panel(title, title_color, panel_background_color, item_background_color) {
+    return accordion({
+        root_name = "paint_panel_root"
+        width_gu = PAINT_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [panel_title(title, title_color)]
+        body = paint_panel_body(item_background_color, title_color)
+    })
 }
 
 fn color_swatch(name, label, idx, rgba, rgba_text) {
@@ -388,32 +367,9 @@ fn color_swatch(name, label, idx, rgba, rgba_text) {
     }
 }
 
-export fn color_panel(title, title_color, panel_background_color) {
-    return T {
-        name = "color_panel_root"
-        Style {
-            display("block")
-            width(COLOR_PANEL_WIDTH_GU)
-            height(COLOR_PANEL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                padding_xy(0.5, 0.5)
-                color = title_color
-                background_color(panel_background_color)
-                text_align("left")
-                vertical_align("middle")
-                background_z(-0.01)
-            }
-            T.position(0.0, 0.0, 0.0) { Text { title } }
-        }
+export fn color_panel_body() {
+    return accordion_body(T {
+        name = "color_panel_body"
         T {
             name = "content_slot"
             Style {
@@ -440,7 +396,18 @@ export fn color_panel(title, title_color, panel_background_color) {
             color_swatch("swatch_15", "Char", 15, [0.16, 0.16, 0.16, 1.0], "0.16,0.16,0.16,1.0")
             Selection.root("#content_slot") { name = "color_panel_selection" }
         }
-    }
+    })
+}
+
+export fn color_panel(title, title_color, panel_background_color) {
+    return accordion({
+        root_name = "color_panel_root"
+        width_gu = COLOR_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [panel_title(title, title_color)]
+        body = color_panel_body()
+    })
 }
 
 // ── pose_capture_panel ────────────────────────────────────────────────────────
@@ -450,36 +417,9 @@ let POSE_PANEL_CONTENT_HEIGHT_GU = 51.0
 let POSE_PANEL_STATUS_HEIGHT_GU = 2.5
 let POSE_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + POSE_PANEL_CONTENT_HEIGHT_GU + TITLE_CONTENT_GAP_GU + POSE_PANEL_STATUS_HEIGHT_GU
 
-export fn pose_capture_panel(title, title_color, panel_background_color) {
-    return T {
-        name = "pose_capture_panel_root"
-        Style {
-            display("block")
-            width(POSE_PANEL_WIDTH_GU)
-            height(POSE_PANEL_TOTAL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                background_color(panel_background_color)
-                background_z(-0.01)
-                padding_xy(0.5, 0.5)
-                color = title_color
-                text_align("left")
-                vertical_align("middle")
-            }
-            T.position(0.0, 0.0, 0.0) {
-                Text { title }
-            }
-        }
-
+export fn pose_capture_panel_body() {
+    return accordion_body(T {
+        name = "pose_capture_panel_body"
         T {
             name = "pose_panel_content_area"
             Raycastable.enabled()
@@ -522,7 +462,18 @@ export fn pose_capture_panel(title, title_color, panel_background_color) {
                 }
             }
         }
-    }
+    })
+}
+
+export fn pose_capture_panel(title, title_color, panel_background_color) {
+    return accordion({
+        root_name = "pose_capture_panel_root"
+        width_gu = POSE_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [panel_title(title, title_color)]
+        body = pose_capture_panel_body()
+    })
 }
 
 
@@ -566,20 +517,10 @@ fn panel_button(node_name, label) {
     return root
 }
 
-export fn world_panel(title, items, title_color, panel_background_color, item_background_color, working_file_path) {
-    let save_button = panel_button("save_button", "Save")
-    let load_button = panel_button("load_button", "Load")
+export fn world_panel_body(working_file_path) {
     let status = world_panel_status("idle")
-
-    let panel = T {
-        name = "world_panel_root"
-        Style {
-            display("block")
-            width(WORLD_PANEL_WIDTH_GU)
-            height(WORLD_PANEL_TOTAL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-
+    return accordion_body(T {
+        name = "world_panel_body"
         T {
             name = "path_input_wrap"
             Raycastable.enabled()
@@ -601,41 +542,6 @@ export fn world_panel(title, items, title_color, panel_background_color, item_ba
                     working_file_path
                 }
             }
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(GAP_GU)
-                background_color(panel_background_color)
-                background_z(-0.01)
-            }
-
-            T {
-                name = "title_label_wrap"
-                Style {
-                    display("inline-block")
-                    width(TITLE_LABEL_WIDTH_GU)
-                    height(TITLE_BAR_HEIGHT_GU)
-                    padding_xy(0.25, TITLE_LABEL_PADDING_X_GU)
-                    text_align("left")
-                    vertical_align("middle")
-                    color = title_color
-                }
-                T.position(0.0, 0.0, 0.0) {
-                    Text {
-                        name = "title_label"
-                        title
-                    }
-                }
-            }
-
-            save_button
-            load_button
         }
 
         T {
@@ -675,9 +581,24 @@ export fn world_panel(title, items, title_color, panel_background_color, item_ba
             }
             status
         }
-    }
+    })
+}
 
-    return panel
+export fn world_panel(title, items, title_color, panel_background_color, item_background_color, working_file_path) {
+    let _unused_items = items
+    let _unused_item_background_color = item_background_color
+    return accordion({
+        root_name = "world_panel_root"
+        width_gu = WORLD_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [
+            panel_title(title, title_color),
+            panel_button("save_button", "Save"),
+            panel_button("load_button", "Load"),
+        ]
+        body = world_panel_body(working_file_path)
+    })
 }
 
 // ── inspector_panel ───────────────────────────────────────────────────────────
@@ -691,69 +612,9 @@ let INSPECTOR_PANEL_DETAIL_WIDTH_GU = INSPECTOR_PANEL_WIDTH_GU - INSPECTOR_PANEL
 let INSPECTOR_PANEL_PIN_SLOT_WIDTH_GU = 5.0
 let INSPECTOR_PANEL_TITLE_TEXT_WIDTH_GU = INSPECTOR_PANEL_WIDTH_GU - INSPECTOR_PANEL_PIN_SLOT_WIDTH_GU
 
-export fn inspector_panel(title, items, title_color, panel_background_color, item_background_color) {
-    let pin_button = panel_button("pin_button", "Pin")
-    let root = T {
-        name = "inspector_panel_root"
-        Style {
-            display("block")
-            width(INSPECTOR_PANEL_WIDTH_GU)
-            height(INSPECTOR_PANEL_TOTAL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                background_color(panel_background_color)
-                background_z(-0.01)
-            }
-
-            T {
-                name = "title_text_slot"
-                Style {
-                    display("inline-block")
-                    width(INSPECTOR_PANEL_TITLE_TEXT_WIDTH_GU)
-                    height(TITLE_BAR_HEIGHT_GU)
-                    padding_xy(0.0, TITLE_LABEL_PADDING_X_GU)
-                    font_size(1)
-                    vertical_align("middle")
-                    color = title_color
-                }
-                T {
-                    name = "title_label_wrap"
-                    Style {
-                        display("block")
-                        width(100%)
-                        height(TITLE_BAR_HEIGHT_GU)
-                        vertical_align("middle")
-                    }
-                    T.position(0.0, 0.0, 0.015) {
-                        Text {
-                            name = "title_label"
-                            title
-                        }
-                    }
-                }
-            }
-
-            T {
-                name = "pin_slot"
-                Style {
-                    display("inline-block")
-                    width(INSPECTOR_PANEL_PIN_SLOT_WIDTH_GU)
-                    height(TITLE_BAR_HEIGHT_GU)
-                    vertical_align("middle")
-                }
-                pin_button
-            }
-        }
-
+export fn inspector_panel_body() {
+    return accordion_body(T {
+        name = "inspector_panel_body"
         T {
             name = "content_slot"
             Raycastable.enabled()
@@ -809,9 +670,26 @@ export fn inspector_panel(title, items, title_color, panel_background_color, ite
                 }
             }
         }
-    }
+    })
+}
 
-    return root
+export fn inspector_panel(title, items, title_color, panel_background_color, item_background_color) {
+    let _unused_items = items
+    let _unused_item_background_color = item_background_color
+    return accordion({
+        root_name = "inspector_panel_root"
+        width_gu = INSPECTOR_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [
+            panel_title(title, title_color),
+            T {
+                name = "pin_slot"
+                panel_button("pin_button", "Pin")
+            },
+        ]
+        body = inspector_panel_body()
+    })
 }
 
 // ── asset_panel ───────────────────────────────────────────────────────────────
@@ -820,37 +698,9 @@ let ASSET_PANEL_WIDTH_GU = 39.0
 let ASSET_PANEL_CONTENT_HEIGHT_GU = 57.0
 let ASSET_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + ASSET_PANEL_CONTENT_HEIGHT_GU
 
-export fn asset_panel(title, items, title_color, panel_background_color, item_background_color) {
-    return T {
-        name = "assets_root"
-        Style {
-            display("block")
-            width(ASSET_PANEL_WIDTH_GU)
-            height(ASSET_PANEL_TOTAL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                background_color(panel_background_color)
-                background_z(-0.01)
-                font_size(1)
-                color = title_color
-                padding_xy(0.5, 0.5)
-                text_align("left")
-                vertical_align("middle")
-            }
-            T.position(0.0, 0.0, 0.0) {
-                Text { title }
-            }
-        }
-
+export fn asset_panel_body(items, item_background_color) {
+    return accordion_body(T {
+        name = "asset_panel_body"
         T {
             name = "content_slot"
             Raycastable.enabled()
@@ -863,7 +713,18 @@ export fn asset_panel(title, items, title_color, panel_background_color, item_ba
             }
             assets_content(items, item_background_color)
         }
-    }
+    })
+}
+
+export fn asset_panel(title, items, title_color, panel_background_color, item_background_color) {
+    return accordion({
+        root_name = "assets_root"
+        width_gu = ASSET_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [panel_title(title, title_color)]
+        body = asset_panel_body(items, item_background_color)
+    })
 }
 
 // ── grid_panel ───────────────────────────────────────────────────────────────
@@ -873,67 +734,9 @@ let GRID_PANEL_CONTENT_HEIGHT_GU = 51.0
 let GRID_PANEL_ADD_BUTTON_HEIGHT_GU = 3.0
 let GRID_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + GRID_PANEL_CONTENT_HEIGHT_GU + GAP_GU + GRID_PANEL_ADD_BUTTON_HEIGHT_GU
 
-export fn grid_panel(title, items, title_color, panel_background_color, item_background_color) {
-    let _unused_items = items
-    let _unused_item_background_color = item_background_color
-
-    return T {
-        name = "grid_panel_root"
-        Style {
-            display("block")
-            width(GRID_PANEL_WIDTH_GU)
-            height(GRID_PANEL_TOTAL_HEIGHT_GU)
-            margin_xy(0.5, 0.5)
-        }
-
-        T {
-            name = "title_bar"
-            Draggable.parent()
-            Raycastable.enabled()
-            Style {
-                display("block")
-                height(TITLE_BAR_HEIGHT_GU)
-                margin_bottom(TITLE_CONTENT_GAP_GU)
-                background_color(panel_background_color)
-                background_z(-0.01)
-            }
-
-            T {
-                name = "title_label_wrap"
-                Style {
-                    display("inline-block")
-                    width(23.0)
-                    height(TITLE_BAR_HEIGHT_GU)
-                    padding_xy(0.25, TITLE_LABEL_PADDING_X_GU)
-                    text_align("left")
-                    vertical_align("middle")
-                    color = title_color
-                }
-                T.position(0.0, 0.0, 0.0) {
-                    Text {
-                        name = "title_label"
-                        title
-                    }
-                }
-            }
-
-            T {
-                name = "title_icon_wrap"
-                Style {
-                    display("inline-block")
-                    width(5.0)
-                    height(TITLE_BAR_HEIGHT_GU)
-                    text_align("center")
-                    vertical_align("middle")
-                }
-                T.position(0.0, 0.0, 0.0) {
-                    T.scale(0.25, 0.25, 1.0) {
-                        grid_visibility_icon()
-                    }
-                }
-            }
-        }
-
+export fn grid_panel_body() {
+    return accordion_body(T {
+        name = "grid_panel_body"
         T {
             name = "grid_panel_content_area"
             Raycastable.enabled()
@@ -983,5 +786,30 @@ export fn grid_panel(title, items, title_color, panel_background_color, item_bac
             }
 
         }
+    })
+}
+
+export fn grid_panel(title, items, title_color, panel_background_color, item_background_color) {
+    let _unused_items = items
+    let _unused_item_background_color = item_background_color
+    let visibility_control = T {
+        name = "title_icon_wrap"
+        Raycastable.click_only()
+        Style {
+            display("flex")
+            width(5.0)
+            height(3.5)
+            align_items("center")
+            justify_content("center")
+        }
+        T.scale(0.25, 0.25, 1.0) { grid_visibility_icon() }
     }
+    return accordion({
+        root_name = "grid_panel_root"
+        width_gu = GRID_PANEL_WIDTH_GU
+        unit_scale = 1.0
+        background_color = panel_background_color
+        children = [panel_title(title, title_color), visibility_control]
+        body = grid_panel_body()
+    })
 }

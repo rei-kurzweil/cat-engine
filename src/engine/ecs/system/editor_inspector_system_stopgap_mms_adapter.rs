@@ -15,7 +15,8 @@ use crate::engine::ecs::system::editor::grid_panel::{
 use crate::engine::ecs::system::editor::inspector_panel::{
     InspectorPanelModel, InspectorWorkspaceState, build_inspector_panel_models,
     focus_panel_from_descendant_click, handle_inspector_panel_workspace_click,
-    rerender_inspector_panels, sync_and_refresh_inspector_panels,
+    inspector_panel_instance_id_on_root, rerender_inspector_panels,
+    sync_and_refresh_inspector_panels, update_inspector_panel_instance_tree,
     world_panel_selection_matches_editor_context,
 };
 use crate::engine::ecs::system::editor::panel_bootstrap::reconcile_editor_panel_layout;
@@ -40,7 +41,7 @@ use crate::engine::ecs::system::editor::world_panel::{
 };
 use crate::engine::ecs::system::panel_system::{
     PANEL_LAYOUT_SELECTION_NAME, PanelControlKind, PanelKind, PanelSlotKind, is_descendant_or_self,
-    panel_layout_root_id,
+    panel_body_removed, panel_layout_root_id, restore_panel_body,
 };
 use crate::engine::ecs::{ComponentId, EventSignal, IntentValue, SignalEmitter, SignalKind, World};
 
@@ -238,6 +239,207 @@ impl EditorInspectorSystemStopgapMmsAdapter {
             return;
         }
         self.workspace_runtime.mark_panel_handler_installed();
+
+        rx.add_handler_closure(
+            SignalKind::Click,
+            panel_query_root,
+            move |world, emit, signal| {
+                let Some(EventSignal::Click { renderable, .. }) = signal.event.as_ref() else {
+                    return;
+                };
+                let mut current = Some(*renderable);
+                let mut toggle = None;
+                while let Some(id) = current {
+                    if world.component_label(id) == Some("accordion_toggle") {
+                        toggle = Some(id);
+                        break;
+                    }
+                    if id == panel_query_root {
+                        break;
+                    }
+                    current = world.parent_of(id);
+                }
+                let Some(toggle) = toggle else {
+                    return;
+                };
+                let Some(title_bar) = world.parent_of(toggle) else {
+                    return;
+                };
+                let Some(private_layout_root) = world.parent_of(title_bar) else {
+                    return;
+                };
+                let Some(panel_root) = world.parent_of(private_layout_root) else {
+                    return;
+                };
+                let Some(mount) = world.find_component(panel_root, "#accordion_body_mount") else {
+                    return;
+                };
+                if let Some(body) = world.find_component(mount, "#accordion_body") {
+                    emit.push_intent_now(body, IntentValue::RemoveSubtree { component_id: body });
+                    emit.push_event(
+                        panel_root,
+                        EventSignal::DataEvent {
+                            name: "AccordionMinimized".to_string(),
+                            payload: Some(mount),
+                        },
+                    );
+                } else {
+                    emit.push_event(
+                        panel_root,
+                        EventSignal::DataEvent {
+                            name: "AccordionRestoreRequested".to_string(),
+                            payload: Some(mount),
+                        },
+                    );
+                }
+            },
+        );
+
+        let accordion_panels = self.workspace_runtime.mounted_panels_handle();
+        let accordion_renderer = Arc::clone(&self.data_renderer);
+        let accordion_context = self
+            .editor_context_state
+            .as_ref()
+            .expect("editor context state installed")
+            .clone();
+        let accordion_scene_model = Arc::clone(&self.world_panel_scene_model);
+        let accordion_path = Arc::clone(&self.working_file_path);
+        let accordion_inspector_models = Arc::clone(&self.rendered_inspector_models);
+        rx.add_handler_closure(
+            SignalKind::DataEvent,
+            panel_query_root,
+            move |world, emit, signal| {
+                let Some(EventSignal::DataEvent {
+                    name,
+                    payload: Some(mount),
+                }) = signal.event.as_ref()
+                else {
+                    return;
+                };
+                if name != "AccordionMinimized" && name != "AccordionRestoreRequested" {
+                    return;
+                }
+                let mut panels = accordion_panels
+                    .lock()
+                    .expect("mounted panels mutex poisoned");
+                let panel = panels.values_mut().find(|panel| {
+                    panel.root == signal.scope
+                        || is_descendant_or_self(world, panel.root, signal.scope)
+                });
+                if panel.is_none() {
+                    let mut instance_root = Some(signal.scope);
+                    let mut inspector_id = None;
+                    while let Some(id) = instance_root {
+                        if let Some(found) = inspector_panel_instance_id_on_root(world, id) {
+                            inspector_id = Some(found);
+                            break;
+                        }
+                        instance_root = world.parent_of(id);
+                    }
+                    let Some(instance_root) = instance_root else { return; };
+                    let Some(inspector_id) = inspector_id else { return; };
+                    let mut renderer = accordion_renderer
+                        .lock()
+                        .expect("data renderer mutex poisoned");
+                    if name == "AccordionMinimized" {
+                        renderer.forget_removed_slots(world);
+                        return;
+                    }
+                    if world.find_component(*mount, "#accordion_body").is_some() {
+                        return;
+                    }
+                    let Ok(ce) = crate::scripting::runner::MeowMeowRunner::materialize_mms_module_component_from_file(
+                        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms"),
+                        "inspector_panel_body",
+                        Vec::new(),
+                        Some(world),
+                        Some(emit),
+                    ) else { return; };
+                    let Ok(body) = crate::scripting::component_registry::spawn_tree(&ce, None, world, emit) else { return; };
+                    if world.add_child(*mount, body).is_err() {
+                        let _ = world.remove_component_subtree(body);
+                        return;
+                    }
+                    let models = accordion_inspector_models
+                        .lock()
+                        .expect("rendered inspector models mutex poisoned");
+                    if let Some(model) = models.iter().find(|model| model.panel_id == inspector_id) {
+                        update_inspector_panel_instance_tree(
+                            world, emit, instance_root, model, None, &mut renderer,
+                        );
+                    }
+                    return;
+                }
+                let panel = panel.expect("checked above");
+                let mut renderer = accordion_renderer
+                    .lock()
+                    .expect("data renderer mutex poisoned");
+                if name == "AccordionMinimized" {
+                    panel_body_removed(world, panel, *mount, &mut renderer);
+                    return;
+                }
+                if panel.panel_kind == PanelKind::World
+                    && let Some(spec) = panel.body_spec.as_mut()
+                {
+                    spec.args = vec![crate::scripting::object::Value::String(
+                        accordion_path
+                            .lock()
+                            .expect("working file path mutex poisoned")
+                            .to_string_lossy()
+                            .to_string(),
+                    )];
+                }
+                let Ok(true) = restore_panel_body(world, emit, panel, *mount) else {
+                    return;
+                };
+                let context = accordion_context
+                    .lock()
+                    .expect("editor context mutex poisoned")
+                    .clone();
+                match panel.panel_kind {
+                    PanelKind::World => {
+                        if let (Some(content), Some(selection)) = (
+                            panel.slots.get(&PanelSlotKind::List).copied(),
+                            panel.controls.get(&PanelControlKind::Selection).copied(),
+                        ) {
+                            let model = build_world_panel_model(
+                                world,
+                                &context,
+                                &accordion_scene_model
+                                    .lock()
+                                    .expect("world panel model mutex poisoned"),
+                            );
+                            rerender_world_panel_content(
+                                world,
+                                emit,
+                                content,
+                                selection,
+                                &model.rows,
+                                model.selected_index,
+                                &mut renderer,
+                            );
+                        }
+                    }
+                    PanelKind::Grid => rerender_grid_panel_from_context(
+                        world,
+                        emit,
+                        panel_query_root,
+                        &context,
+                        &mut renderer,
+                    ),
+                    PanelKind::Pose => {
+                        rerender_pose_panel(world, emit, panel_query_root, &mut renderer)
+                    }
+                    PanelKind::Settings => sync_editor_settings_panel_selection(
+                        world,
+                        emit,
+                        panel_query_root,
+                        &context,
+                    ),
+                    _ => {}
+                }
+            },
+        );
 
         let editor_context_state = self
             .editor_context_state

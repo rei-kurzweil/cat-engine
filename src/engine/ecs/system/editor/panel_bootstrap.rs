@@ -57,6 +57,7 @@ pub(crate) fn reconcile_editor_panel_layout(
 
     let Some((panel_mount_root, layout_root_id)) = spawn_editor_panel_layout_tree(
         world,
+        render_assets,
         emit,
         model,
         working_file_path,

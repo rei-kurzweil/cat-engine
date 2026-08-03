@@ -94,6 +94,15 @@ Carries transform gizmo translate state used when that engine feature is present
 TransformGizmoTranslate {}
 ```
 
+### `TransformGizmoTranslatePlaneComponent`
+<!-- catalog:component source="TransformGizmoTranslatePlaneComponent" mms="direct" names="TransformGizmoTranslatePlane" -->
+Marks a planar translation handle and its locked axis. **Directly constructible** as
+`TransformGizmoTranslatePlane`. Sources: [Rust implementation](../../../src/engine/ecs/component/gizmo.rs)
+and [MMS registry](../../../src/scripting/component_registry.rs).
+```mms parse-only
+TransformGizmoTranslatePlane.xy() {}
+```
+
 ### `TransformMapRotationComponent`
 <!-- catalog:component source="TransformMapRotationComponent" mms="direct" names="TransformMapRotation" -->
 Carries transform map rotation state used when that engine feature is present in a component tree. Use it when a tree needs this state or behavior. Transform and bounds systems; transform update/removal intents and `ParentChanged` are relevant.
@@ -400,23 +409,36 @@ Controller/hand pointers default to 0.05 m grab clearance. Desktop-camera and XR
 pointers default to 0.75 m. `min_grab_distance` overrides that value per pointer.
 
 ### `GrabbableComponent`
+<!-- catalog:component source="GrabbableComponent" mms="direct" names="Grabbable" -->
 
 `Grabbable`, `Grabbable.on()`, and `Grabbable.parent()` mark transforms for attachment-style
 grabbing. XR grip and desktop left mouse temporarily reparent the resolved target beneath the
 pointer-driving transform while preserving world pose; release restores the original parent.
+**Directly constructible** as `Grabbable`. Sources: [Rust implementation](../../../src/engine/ecs/component/grabbable.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
 
 ```mms parse-only
 T { Grabbable {} }
 ```
 
 ### `DraggableComponent`
+<!-- catalog:component source="DraggableComponent" mms="direct" names="Draggable" -->
 
-`Draggable` retains planar translation behavior. XR trigger and desktop left mouse drag it;
-`.parent()` targets the next parent transform and `.plane("object" | "camera")` or two authored
-world axes constrain movement.
+`Draggable` and `Draggable.on()` move the marker's owning transform. `Draggable.parent()` moves
+the next transform above that owner. `Draggable.target(ref)` instead requires one explicit
+transform, where `ref` may be a selector, a live component object, or `@uuid:` GUID. Selectors are
+local by default; prefix them with `../` to climb authoring scopes or `/` to search world roots.
+
+Explicit resolution is strict: missing, ambiguous, or non-transform targets do not fall back to
+the owner or parent. A live cached target remains sticky, selector targets may bind a replacement
+after deletion, and GUID targets never retarget. The resolved target is captured at `DragStart`
+and cannot switch before that gesture's `DragEnd`. All target modes chain with
+`.plane("object" | "camera")` or two authored world axes.
+**Directly constructible** as `Draggable`; canonical serialization writes the owner, parent, or
+explicit target constructor before an optional chained plane call. Sources: [Rust implementation](../../../src/engine/ecs/component/draggable.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
 
 ```mms parse-only
 T { Draggable.plane("camera") {} }
+T { Draggable.target("../#panel_root").plane("camera") {} }
 ```
 
 ### `RayCastComponent`
