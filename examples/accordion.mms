@@ -51,11 +51,28 @@ I.speed(3.0) {
     }
 }
 
+fn title_label(label) {
+    return T {
+        name = "accordion_demo_title_label"
+        Style {
+            display("flex")
+            width(0.0)
+            flex_grow(1.0)
+            height(3.5)
+            padding_xy(0.7, 0.3)
+            align_items("center")
+            color([0.70, 0.86, 1.0, 1.0])
+        }
+        T.position(0.0, 0.0, 0.02) { Text { label } }
+    }
+}
+
 fn title_chip(label) {
     return T {
         name = "accordion_demo_title_chip"
         Style {
             display("flex")
+            width(14.0)
             height(3.5)
             padding_xy(0.7, 0.3)
             align_items("center")
@@ -139,7 +156,7 @@ let mms_panel = accordion({
     width_gu = 34.0
     unit_scale = 1.0
     background_color = [0.04, 0.16, 0.42, 0.98]
-    children = [title_chip("MMS responder"), title_chip("DataEvent → MMS")]
+    children = [title_label("MMS responder"), title_chip("DataEvent → MMS")]
     body = body_card(
         "generation 0",
         "this body will be deleted, then rebuilt by an MMS DataEvent handler",
@@ -152,7 +169,7 @@ let native_panel = accordion({
     width_gu = 34.0
     unit_scale = 1.0
     background_color = [0.16, 0.08, 0.42, 0.98]
-    children = [title_chip("Native responder"), title_chip("DataEvent → Rust")]
+    children = [title_label("Native responder"), title_chip("DataEvent → Rust")]
     body = native_body_shell()
 })
 

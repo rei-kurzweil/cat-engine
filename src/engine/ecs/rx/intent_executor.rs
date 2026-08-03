@@ -268,7 +268,7 @@ fn handle_intent_signal(
                 // A detached subtree may already be initialized, so its Style components
                 // cannot be relied on to dirty the newly acquired layout ancestor here.
                 // Always recompute flow after a live topology attachment.
-                mark_nearest_layout_dirty(world, parent);
+                mark_ancestor_layouts_dirty(world, parent);
 
                 emit_topology_transform_refresh(world, emit, *child);
                 emit_topology_transform_refresh(world, emit, parent);
@@ -1051,7 +1051,7 @@ fn collect_oscillator_targets(world: &World, target: ComponentId, out: &mut Vec<
     }
 }
 
-fn mark_nearest_layout_dirty(world: &mut World, start: ComponentId) {
+fn mark_ancestor_layouts_dirty(world: &mut World, start: ComponentId) {
     let mut current = Some(start);
     while let Some(component_id) = current {
         if let Some(layout) = world
@@ -1060,7 +1060,6 @@ fn mark_nearest_layout_dirty(world: &mut World, start: ComponentId) {
             )
         {
             layout.mark_dirty();
-            return;
         }
         current = world.parent_of(component_id);
     }
@@ -1076,18 +1075,24 @@ mod tests {
     #[test]
     fn attaching_an_initialized_subtree_dirties_its_new_layout_root() {
         let mut world = World::default();
+        let outer_layout_root = world.add_component(LayoutComponent::new(80.0));
+        let layout_slot = world.add_component(TransformComponent::new());
         let layout_root = world.add_component(LayoutComponent::new(40.0));
         let mount = world.add_component(TransformComponent::new());
         let detached = world.add_component(TransformComponent::new());
+        world.add_child(outer_layout_root, layout_slot).unwrap();
+        world.add_child(layout_slot, layout_root).unwrap();
         world.add_child(layout_root, mount).unwrap();
 
         let mut queue = CommandQueue::new();
-        world.init_component_tree(layout_root, &mut queue);
+        world.init_component_tree(outer_layout_root, &mut queue);
         world.init_component_tree(detached, &mut queue);
-        world
-            .get_component_by_id_as_mut::<LayoutComponent>(layout_root)
-            .unwrap()
-            .dirty = false;
+        for id in [outer_layout_root, layout_root] {
+            world
+                .get_component_by_id_as_mut::<LayoutComponent>(id)
+                .unwrap()
+                .dirty = false;
+        }
 
         let signal = Signal::intent(
             mount,
@@ -1104,6 +1109,13 @@ mod tests {
                 .get_component_by_id_as::<LayoutComponent>(layout_root)
                 .unwrap()
                 .dirty
+        );
+        assert!(
+            world
+                .get_component_by_id_as::<LayoutComponent>(outer_layout_root)
+                .unwrap()
+                .dirty,
+            "an intrinsic-size change below a nested layout root must invalidate its outer flow"
         );
     }
 }

@@ -427,7 +427,6 @@ impl RxMutationExecutor {
                                 world.get_component_by_id_as_mut::<LayoutComponent>(id)
                             {
                                 layout.mark_dirty();
-                                break;
                             }
                             current = world.parent_of(id);
                         }

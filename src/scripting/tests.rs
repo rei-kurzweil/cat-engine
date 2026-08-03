@@ -3,8 +3,12 @@ use std::time::{Duration, Instant};
 use std::{fs, path::PathBuf};
 
 use crate::engine;
+use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
 use crate::engine::ecs::component::style::SizeDimension;
-use crate::engine::ecs::component::{LayoutComponent, StyleComponent, TransformComponent};
+use crate::engine::ecs::component::{
+    LayoutComponent, RenderableComponent, StyleComponent, TransformComponent,
+};
+use crate::engine::ecs::system::layout::LayoutSystem;
 use crate::engine::ecs::{
     CommandQueue, ComponentId, EventSignal, IntentValue, RxWorld, Signal, SignalEmitter, World,
 };
@@ -1699,6 +1703,60 @@ fn accordion_example_gives_responder_text_distinct_line_boxes() {
         &mut emit,
     );
     assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+
+    let panel = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("mms_accordion"))
+        .expect("MMS accordion root");
+    assert!(
+        world.children_of(panel).iter().all(|id| world
+            .get_component_by_id_as::<StyleComponent>(*id)
+            .is_none()),
+        "the draggable inner panel must not be repositioned by an outer layout pass"
+    );
+    let body_mount = world
+        .find_component(panel, "#accordion_body_mount")
+        .expect("accordion body mount");
+    assert!(
+        world.children_of(body_mount).iter().any(|id| world
+            .get_component_by_id_as::<StyleComponent>(*id)
+            .is_some()),
+        "the stable body mount must participate in private-root flow"
+    );
+
+    let icon = world
+        .find_component(panel, "#accordion_down_arrow_icon")
+        .expect("font-independent accordion icon");
+    assert!(world.children_of(icon).iter().any(|id| matches!(
+        world
+            .get_component_by_id_as::<RenderableComponent>(*id)
+            .and_then(|renderable| renderable.authored_shape.as_ref()),
+        Some(AuthoredRenderableShape::Polygon { mesh_key, .. })
+            if mesh_key == "ui/accordion/down-chevron/v1"
+    )));
+
+    LayoutSystem::new().tick(&mut world, &mut emit);
+    let mut layout_rx = RxWorld::default();
+    emit.drain_into_rx(&mut layout_rx);
+    let layout_intents = layout_rx.drain_ready_intents();
+    let translation_y = |component_id| {
+        layout_intents
+            .iter()
+            .filter_map(|signal| signal.intent.as_ref())
+            .find_map(|intent| match &intent.value {
+                IntentValue::UpdateTransform {
+                    component_id: target,
+                    translation,
+                    ..
+                } if *target == component_id => Some(translation[1]),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing layout transform for {component_id:?}"))
+    };
+    assert!(
+        translation_y(body_mount) <= -3.5,
+        "the body mount must flow below the 3.5 GU title bar"
+    );
 
     for (name, expected_height) in [
         ("accordion_demo_card_heading", 1.5),

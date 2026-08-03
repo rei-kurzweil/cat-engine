@@ -490,7 +490,6 @@ fn mark_panel_layout_dirty(world: &mut World, start: ComponentId) {
             world.get_component_by_id_as_mut::<crate::engine::ecs::component::LayoutComponent>(id)
         {
             layout.mark_dirty();
-            break;
         }
         current = world.parent_of(id);
     }
@@ -1076,11 +1075,7 @@ mod tests {
             panel_kind: PanelKind::Color,
             asset_path: asset_path.to_string(),
             export_name: "color_panel".to_string(),
-            args: vec![
-                Value::String("Color".to_string()),
-                rgba(),
-                rgba(),
-            ],
+            args: vec![Value::String("Color".to_string()), rgba(), rgba()],
             root_selector: "#color_panel_root".to_string(),
             slot_selectors: HashMap::new(),
             control_selectors: HashMap::new(),
@@ -1093,9 +1088,13 @@ mod tests {
         };
         let mut world = World::default();
         let mut emit = CommandQueue::new();
-        let mut panel = spawn_panel_instance(&mut world, &mut emit, &spec, None, 2.0)
-            .expect("spawn color panel")
-            .instance;
+        let mut render_assets = crate::engine::graphics::RenderAssets::new();
+        let mut panel = crate::scripting::component_registry::with_live_render_assets(
+            &mut render_assets,
+            || spawn_panel_instance(&mut world, &mut emit, &spec, None, 2.0),
+        )
+        .expect("spawn color panel")
+        .instance;
         world
             .get_component_by_id_as_mut::<TransformComponent>(panel.root)
             .expect("inner panel transform")

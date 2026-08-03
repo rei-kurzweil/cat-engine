@@ -1,5 +1,7 @@
 // accordion.mms — retained-title, removable-body editor shell (=^･ω･^=)
 
+import { accordion_down_arrow_icon } from "../icons.mms"
+
 // Options:
 //   root_name        public name of the inner draggable panel transform
 //   width_gu         panel width in layout units
@@ -50,7 +52,7 @@ export fn accordion(options) {
             capture_from_current(true)
             replace_same_target()
         }
-        Text { "⌄" }
+        accordion_down_arrow_icon([0.72, 0.90, 1.0, 1.0], 1.8)
     }
 
     let toggle = T {
@@ -71,6 +73,11 @@ export fn accordion(options) {
 
     let body_mount = T {
         name = "accordion_body_mount"
+        Style {
+            display("flex")
+            flex_direction("column")
+            width(100%)
+        }
         options.body
     }
 
@@ -79,7 +86,6 @@ export fn accordion(options) {
         name = root_name
         Option {}
         Raycastable.enabled() { interaction_priority(100.0) }
-        Style { width(width_gu) }
 
         LayoutRoot {
             available_width(width_gu)

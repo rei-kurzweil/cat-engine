@@ -8,7 +8,15 @@ import { world_panel_content } from "./panel_items.mms"
 import { world_panel_status } from "./panel_items.mms"
 import { inspector_panel_content } from "./panel_items.mms"
 import { assets_content } from "./assets_content.mms"
-import { grid_visibility_icon } from "./icons.mms"
+import {
+    pencil_icon,
+    line_icon,
+    spray_can_icon,
+    fill_icon,
+    erase_icon,
+    grid_tool_icon,
+    grid_visibility_icon,
+} from "./icons.mms"
 import { accordion, accordion_body } from "./ui/accordion.mms"
 
 
@@ -274,12 +282,12 @@ let COLOR_PANEL_HEIGHT_GU = 18.5
 let tool_names = ["Free Draw", "Grid Tool", "Line", "Spray Can", "Fill", "Erase"]
 
 fn tool_at_index(idx) {
-    if idx == 0 { return T { Text { "✎" } } }
-    if idx == 1 { return T { Text { "▦" } } }
-    if idx == 2 { return T { Text { "╱" } } }
-    if idx == 3 { return T { Text { "⁙" } } }
-    if idx == 4 { return T { Text { "▰" } } }
-    if idx == 5 { return T { Text { "⌫" } } }
+    if idx == 0 { return pencil_icon() }
+    if idx == 1 { return grid_tool_icon() }
+    if idx == 2 { return line_icon() }
+    if idx == 3 { return spray_can_icon() }
+    if idx == 4 { return fill_icon() }
+    if idx == 5 { return erase_icon() }
     return T {}
 }
 
