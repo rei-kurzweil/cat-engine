@@ -428,6 +428,23 @@ mod tests {
                 .any(|positions| positions[0] != positions[1]),
             "paint body wrappers must not prevent its items from receiving layout transforms"
         );
+        let pencil_icon = world
+            .find_component(paint_panel, "#pencil_icon")
+            .expect("paint pencil icon");
+        let icon_wrapper = world
+            .parent_of(pencil_icon)
+            .and_then(|parent| world.parent_of(parent))
+            .expect("paint icon scale wrapper");
+        let icon_scale = world
+            .get_component_by_id_as::<TransformComponent>(icon_wrapper)
+            .expect("paint icon wrapper transform")
+            .transform
+            .scale;
+        assert_eq!(
+            icon_scale,
+            [0.1, 0.1, 1.0],
+            "paint icons should fill the four-GU icon cell without overflowing it"
+        );
         let chevron = world
             .find_component(paint_panel, "#accordion_toggle_icon")
             .expect("paint accordion chevron");

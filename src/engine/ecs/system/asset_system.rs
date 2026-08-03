@@ -507,7 +507,10 @@ impl AssetSystem {
                     .map(|name| name.contains("panel"))
                     .unwrap_or(false);
                 if is_panel {
-                    // panel module item — skip preview rendering
+                    // Panel factories are intentionally not previewed, but the factory has
+                    // already produced a detached, uninitialised subtree. Leaving it alive
+                    // makes the entire panel render as a world root at the origin.
+                    let _ = world.remove_component_subtree(preview_root);
                 } else {
                     // Geometry-based preview (icons, meshes, etc.)
                     let preview_slot = world
@@ -759,6 +762,40 @@ mod tests {
         assert_eq!(
             first_text_under(&world, item_root),
             Some("bad_preview::broken_preview".to_string())
+        );
+    }
+
+    #[test]
+    fn build_asset_item_shell_removes_skipped_panel_preview() {
+        let tmp_dir = temp_asset_directory();
+        let asset_path = tmp_dir.join("test_panel.mms");
+        std::fs::write(
+            &asset_path,
+            r#"
+                export fn panel_preview() {
+                    return T { name = "detached_panel_preview" }
+                }
+            "#,
+        )
+        .expect("write panel asset file");
+
+        let mut system = AssetSystem::new();
+        system.load_module(asset_path).expect("load module");
+
+        let item = &system.items[0];
+        let mut world = World::default();
+        let mut render_assets = RenderAssets::new();
+        let mut emit = CommandQueue::new();
+        let item_root = system
+            .build_asset_item_shell(&mut world, &mut render_assets, &mut emit, item, 0)
+            .expect("build asset item");
+
+        assert_eq!(world.component_label(item_root), Some("asset_item"));
+        assert!(
+            world
+                .all_components()
+                .all(|id| world.component_label(id) != Some("detached_panel_preview")),
+            "a skipped panel preview must not survive as a detached world root"
         );
     }
 

@@ -7,7 +7,10 @@
 
 // Procedural/icon transforms are authored in world units; unlike layout
 // positions, LayoutRoot does not multiply them by its GU scale.
-let PAINT_PANEL_ICON_SCALE = 0.25 * 0.08
+// The icon cell is 4 GU tall (0.32 WU at the editor's 0.08 unit scale).
+// Most shared paint icons span roughly two authored units, so 1.25 GU gives
+// them a useful 0.20 WU footprint with breathing room inside the cell.
+let PAINT_PANEL_ICON_SCALE = 1.25 * 0.08
 
 export fn paint_panel_item(item_label, icon, item_background_color, title_color) {
     return T {
