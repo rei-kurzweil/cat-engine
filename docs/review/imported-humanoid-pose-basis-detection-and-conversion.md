@@ -35,11 +35,11 @@ A complete orientation needs two non-collinear semantic directions.
 ## Hand frame construction
 
 The controller-hand path uses immutable GLTF rest-pose positions expressed
-relative to the configured hand bone:
+relative to the configured hand bone. Its preferred full-palm construction is:
 
-- `forward`: normalized final segment from `Middle2` to `Middle3`;
-- `thumbward_raw`: position of `Thumb1` minus position of `Middle1`;
-- `up`: `thumbward_raw` projected onto the plane perpendicular to `forward`,
+- `forward`: normalized whole middle-finger direction from `Middle1` to `Middle3`;
+- `knuckle_width`: position of `Index1` minus position of `Little1`;
+- `up`: `knuckle_width` projected onto the plane perpendicular to `forward`,
   then normalized;
 - `back`: `-forward`;
 - `right`: normalized `up × back`.
@@ -49,15 +49,21 @@ orthonormal, right-handed frame. Its columns are `[right, up, back]`, meaning
 that the resulting quaternion maps canonical controller axes as follows:
 
 - canonical `-Z` to avatar finger-forward;
-- canonical `+Y` to avatar thumbward;
+- canonical `+Y` to avatar little-to-index knuckle width;
 - canonical `+X` to the remaining orthogonal hand axis.
 
 AVC applies the inverse quaternion at the runtime visual hand target. With an
 OpenXR Aim orientation on that target, the avatar's finger-forward reproduces
-Aim `-Z` and its thumbward direction reproduces Aim `+Y`. Left and right hands
+Aim `-Z` and its little-to-index direction reproduces Aim `+Y`. Left and right hands
 use the same semantic rule; no mirrored authored quaternion is required.
 
-The fingertip laser mount uses the forward transform rather than a second copy
+The four-landmark middle-finger/thumb API remains as a fallback for models that
+do not configure the preferred index/little knuckle pair. The thumb-root vector
+can be a poor palm-width proxy when the thumb root sits substantially wristward
+of the middle root, so it should not be preferred when proximal knuckle
+landmarks are available.
+
+The fingertip laser mount uses the derived transform rather than a second copy
 of the conversion, so the visible hand and ray share one derived basis.
 
 ## Degenerate and fallback behavior
@@ -67,8 +73,8 @@ The basis is rejected when:
 - a selector does not resolve to exactly one spawned GLTF node;
 - the middle joints are not an ancestral chain under the hand;
 - the final finger segment has zero length;
-- the thumb landmark is not beneath the hand; or
-- projected thumbward is collinear with finger-forward.
+- a configured palm landmark is not beneath the hand; or
+- projected palm width is collinear with finger-forward.
 
 The three-landmark `.laser_from_avatar_finger(...)` API remains a compatible
 forward-only fallback. It deliberately cannot promise palm roll. The four-
@@ -100,17 +106,17 @@ future articulated-hand retargeting.
 ## Diagnostics and validation
 
 `CAT_DEBUG_XR_HAND_ALIGNMENT=1` reports whether the avatar basis is
-`forward-only` or `forward+thumb-up`, the raw Aim and Grip rotations, the
+`forward-only`, `forward+thumb-up`, or `whole-forward+knuckle-up`, the raw Aim and Grip rotations, the
 Grip-to-Aim delta, the derived canonical-to-hand quaternion, the applied inverse
 correction, and the predicted final basis-to-Aim error.
 
 Useful validation poses are:
 
-- controller Aim held forward: finger direction is forward and thumbward is up;
+- controller Aim held forward: finger direction is forward and little-to-index is up;
 - controller rolled around Aim: the avatar hand follows that roll continuously;
 - controller pitched through the Grip/Aim offset: no discontinuity or source
   switch occurs;
-- left and right hands together: both use thumbward `+Y` without authored
+- left and right hands together: both use little-to-index `+Y` without authored
   mirrored corrections;
 - controller actions becoming inactive: wrist/palm fallback applies identity
   until articulated-hand basis retargeting is implemented.

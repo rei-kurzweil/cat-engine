@@ -218,11 +218,13 @@ T {
                     }
 
                     XRHand.new(true, Left, GripAim)
-                        .laser_from_avatar_hand("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Thumb1']") {
+                        .laser_from_avatar_hand("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Thumb1']")
+                        .palm_from_avatar_knuckles("[name='J_Bip_L_Index1']", "[name='J_Bip_L_Little1']") {
                         T { Pointer {} }
                     }
                     XRHand.new(true, Right, GripAim)
-                        .laser_from_avatar_hand("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Thumb1']") {
+                        .laser_from_avatar_hand("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Thumb1']")
+                        .palm_from_avatar_knuckles("[name='J_Bip_R_Index1']", "[name='J_Bip_R_Little1']") {
                         T { Pointer {} }
                     }
             }

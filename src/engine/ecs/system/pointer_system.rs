@@ -34,6 +34,7 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
     }
     let avatar_finger = config.avatar_finger.clone();
     let avatar_hand_up = config.avatar_hand_up.clone();
+    let avatar_palm_width = config.avatar_palm_width.clone();
     let mut stack = world.children_of(hand).to_vec();
     let mut pointer = None;
     while let Some(node) = stack.pop() {
@@ -60,7 +61,14 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
         return;
     };
     if let Some(finger) = avatar_finger {
-        match avatar_finger_mount(world, hand, pointer, &finger, avatar_hand_up.as_ref()) {
+        match avatar_finger_mount(
+            world,
+            hand,
+            pointer,
+            &finger,
+            avatar_hand_up.as_ref(),
+            avatar_palm_width.as_ref(),
+        ) {
             Ok(Some(mount)) => driver = mount,
             Ok(None) => return, // AVC/GLTF initialization is still in flight.
             Err(message) => {
@@ -125,6 +133,7 @@ fn avatar_finger_mount(
     pointer: Option<ComponentId>,
     finger: &[ComponentRef; 3],
     hand_up: Option<&ComponentRef>,
+    palm_width: Option<&[ComponentRef; 2]>,
 ) -> Result<Option<ComponentId>, String> {
     let mut current = world.parent_of(hand);
     let avc_id = loop {
@@ -176,7 +185,7 @@ fn avatar_finger_mount(
         return Ok(Some(existing));
     }
     let Some(basis) =
-        resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up)?
+        resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up, palm_width)?
     else {
         return Ok(None);
     };
@@ -608,6 +617,7 @@ mod tests {
                 &world,
                 hand_bone,
                 [root, middle, tip],
+                None,
                 None,
             )
             .unwrap();

@@ -94,8 +94,9 @@ The first useful set is:
 - center: hips, spine, chest, upper chest, neck, head;
 - left/right arms: shoulder, upper arm, lower arm, hand;
 - left/right legs: upper leg, lower leg, foot, toes;
-- left/right hand landmarks: thumb proximal/root, middle proximal/root,
-  middle intermediate, middle distal/tip.
+- left/right hand landmarks: thumb proximal/root, index proximal/root, middle
+  proximal/root, middle intermediate, middle distal/tip, and little
+  proximal/root.
 
 Eye and complete finger slots can be added when a concrete consumer needs
 them. Unknown extension slots may be supported separately, but they must not
@@ -216,17 +217,17 @@ slots it requires.
 
 ## Hand orientation integration
 
-When the map resolves a hand plus middle-finger and thumb landmarks, reuse the
+When the map resolves a hand plus middle-finger and proximal index/little landmarks, reuse the
 existing anatomical-basis construction:
 
-- final middle segment -> finger-forward;
-- projected middle-root-to-thumb-root -> thumbward/up;
+- whole middle-finger direction -> finger-forward;
+- projected little-root-to-index-root -> palm width/up;
 - Gram-Schmidt/cross products -> orthonormal full frame.
 
 AVC/XRHand can then request the derived basis from the humanoid map rather than
-repeat four selectors in scene code. Forward-only fallback may remain available
-when the thumb landmark is absent, but diagnostics must state that palm roll is
-unconstrained.
+repeat selectors in scene code. Thumb-root-based and forward-only fallbacks may
+remain available when the knuckle landmarks are absent, but diagnostics must
+state which weaker basis was used and when palm roll is unconstrained.
 
 This is not an additional calibration angle. It is a conversion derived from
 the imported avatar's rest geometry and a documented semantic controller frame.
@@ -393,7 +394,7 @@ documents limitations, but it must not add whole-world or per-frame rescans.
 - `ExplicitOnly` never invokes inference;
 - `Auto` fills unspecified slots but honors per-slot absence;
 - GLTF readiness/respawn triggers one targeted re-resolution;
-- controller Aim forward produces finger-forward with thumbward/up vertical for
+- controller Aim forward produces finger-forward with little-to-index/up vertical for
   both hands when full landmarks exist.
 
 ### Serialization tests
@@ -422,4 +423,3 @@ This task is complete when:
 - no mapping scan or retry runs every frame;
 - affected specifications are updated to distinguish current implementation
   from remaining future work.
-

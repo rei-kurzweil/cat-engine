@@ -48,7 +48,7 @@ hand bone while still not saying which direction its fingers or palm face.
 | AVC authored fields | Strings for head, hands, upper/lower arms, camera, hips, and neck | `AvatarControlSystem` | Fragmented, partly optional, and not a reusable map |
 | AVC runtime caches | IDs for the head, hands, camera splice, neck, and generated targets | `AvatarControlSystem` | Not a complete humanoid map; arms are passed directly to IK and legs/fingers are absent |
 | `BoneMappingSystem` | Stateless arm/spine chain helpers with optional explicit names and distance walking | No current runtime caller | Existing spec overstates its integration and scope |
-| XR hand basis | Middle-finger chain plus optional thumb landmark | Controller-driven visual hand target and laser mount | References live on `XRHand`, rather than in shared avatar semantics |
+| XR hand basis | Middle-finger chain, optional thumb fallback, and optional index/little knuckle landmarks | Controller-driven visual hand target and laser mount | References live on `XRHand`, rather than in shared avatar semantics |
 | Pose capture | Exact, instance-owned joint selector resolution | Pose libraries | Resolves pose entries, not semantic slots |
 | Secondary motion | `ComponentRef`, scoped resolution, topology discovery, reusable MMS presets | Spring chains and colliders | The pattern is reusable, but the data is not a humanoid map |
 
@@ -222,12 +222,14 @@ identify anatomical landmarks; they do not establish portable local axes.
 The controller-hand path now obtains a full hand frame from two non-collinear
 rest-pose directions:
 
-- the final middle-finger segment provides finger-forward;
-- the projected middle-root-to-thumb-root direction provides thumbward/up.
+- the whole middle-finger chain provides finger-forward;
+- the projected little-root-to-index-root direction provides palm width/up.
 
 This resolves the otherwise free roll around finger-forward. A humanoid map
 that includes hand and finger slots can supply those landmarks automatically,
-removing the need to repeat finger bone names on each `XRHand`. The basis math
+removing the need to repeat finger bone names on each `XRHand`. A projected
+middle-root-to-thumb-root direction remains a less stable fallback when the
+knuckle pair is unavailable. The basis math
 and its degeneracy rules remain separate from slot discovery.
 
 See

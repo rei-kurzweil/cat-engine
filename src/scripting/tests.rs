@@ -4948,6 +4948,10 @@ fn roundtrip_xr_hand_avatar_hand_laser() {
             ComponentRef::Query("[name='middle']".into()),
             ComponentRef::Query("[name='tip']".into()),
             ComponentRef::Query("[name='thumb']".into()),
+        )
+        .palm_from_avatar_knuckles(
+            ComponentRef::Query("[name='index']".into()),
+            ComponentRef::Query("[name='little']".into()),
         );
     let (world, id) = roundtrip_component(original);
     let got = world.get_component_by_id_as::<XRHandComponent>(id).unwrap();
@@ -4955,6 +4959,11 @@ fn roundtrip_xr_hand_avatar_hand_laser() {
     assert!(matches!(
         &got.avatar_hand_up,
         Some(ComponentRef::Query(thumb)) if thumb == "[name='thumb']"
+    ));
+    assert!(matches!(
+        &got.avatar_palm_width,
+        Some([ComponentRef::Query(index), ComponentRef::Query(little)])
+            if index == "[name='index']" && little == "[name='little']"
     ));
 }
 

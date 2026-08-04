@@ -2416,6 +2416,14 @@ fn apply_call(
         ),
         _ => (None, None),
     };
+    let avatar_palm_width = if method == "palm_from_avatar_knuckles" {
+        Some([
+            arg_component_ref(world, args, 0)?,
+            arg_component_ref(world, args, 1)?,
+        ])
+    } else {
+        None
+    };
     if let Some(hand) = world.get_component_by_id_as_mut::<XRHandComponent>(id) {
         if method == "laser" {
             hand.laser = true;
@@ -2423,6 +2431,8 @@ fn apply_call(
             hand.laser = true;
             hand.avatar_finger = Some(finger);
             hand.avatar_hand_up = avatar_hand_up;
+        } else if let Some(palm) = avatar_palm_width {
+            hand.avatar_palm_width = Some(palm);
         }
         return Ok(());
     }
