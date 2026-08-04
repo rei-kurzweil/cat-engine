@@ -51,6 +51,10 @@ bone map exists, it should supply resolved landmark IDs instead. The basis math
 should remain independent of whether mapping came from an MMS preset, embedded
 avatar metadata, name matching, topology inference, or manual authoring.
 
+The intended retained cache and one-definition-per-target invariant are
+specified in
+[joint-basis-retargeting-system.md](./joint-basis-retargeting-system.md).
+
 ## What it does
 
 The module:
@@ -160,4 +164,4 @@ bone names a generic mapping convention.
 - [humanoid bone-map task](../task/humanoid-bone-map-automapping-and-mms-presets.md)
 - [avatar control](avatar-control.md)
 - [bone mapping](bone-mapping-system.md)
-
+- [joint basis retargeting system](joint-basis-retargeting-system.md)
