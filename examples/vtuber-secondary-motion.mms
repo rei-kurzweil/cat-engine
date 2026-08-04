@@ -63,11 +63,11 @@ ED {
                         CXR { Pointer {} }
                     }
 
-                    XRHand.new(true, Left, Grip)
+                    XRHand.new(true, Left, GripAim)
                         .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
                         T { Pointer {} }
                     }
-                    XRHand.new(true, Right, Grip)
+                    XRHand.new(true, Right, GripAim)
                         .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
                         T { Pointer {} }
                     }

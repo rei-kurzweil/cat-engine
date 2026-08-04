@@ -127,22 +127,23 @@ By default locomotion reads the left thumbstick when it is available, applies a 
 
 They serve different purposes and can be used together:
 
-- `XRHand` consumes a tracked controller pose. Under `AVC`, left and right grip targets drive the corresponding arm IK chains.
+- `XRHand` consumes a tracked controller or hand pose. Under `AVC`, `GripAim` hands prefer active, valid controller actions and use grip position with aim rotation; wrist/palm tracking takes over automatically when those actions are inactive or unavailable.
 - `InputXRGamepad` consumes controller buttons and analog axes. With `locomotion()`, it moves the rig transform. It can also emit XR button and axis events to MMS handlers.
 - `InputXR` owns the HMD/controller input context. Both components must be descendants of the relevant `InputXR`.
 
-Use `.laser()` for a legacy controller-space ray. For avatar-aligned rays, configure the three middle-finger joints; the ray and visible beam are mounted under AVC's corrected hand target:
+Use `.laser()` for a legacy controller-space ray. For a fully avatar-aligned hand and ray, configure the three middle-finger joints plus a thumb-root landmark; the ray and visible beam are mounted under AVC's corrected hand target:
 
 ```mms
-XRHand.new(true, Left, Grip)
-    .laser_from_avatar_finger(
+XRHand.new(true, Left, GripAim)
+    .laser_from_avatar_hand(
         "[name='J_Bip_L_Middle1']",
         "[name='J_Bip_L_Middle2']",
         "[name='J_Bip_L_Middle3']",
+        "[name='J_Bip_L_Thumb1']",
     ) { T { Pointer {} } }
 ```
 
-If the finger chain cannot be resolved uniquely inside the avatar GLTF, XRHand warns once and falls back to controller-space laser behavior.
+AVC derives the hand correction once from the immutable avatar rest pose. The middle-finger chain defines forward; the projected direction from its root toward the thumb root defines thumbward/up and therefore hand roll. This aligns the configured hand basis and laser with controller aim without sampling the user's pose. The older `.laser_from_avatar_finger(root, middle, tip)` remains available when only forward alignment is needed, but its roll is intentionally unconstrained. If the landmarks cannot be resolved uniquely inside the avatar GLTF, XRHand warns once and falls back to controller-space laser behavior. Wrist/palm takeover currently uses identity correction until articulated-hand retargeting has its own basis implementation.
 
 For a seated experience, omit `InputXRGamepad` or disable locomotion. For head tracking without avatar arms, omit `XRHand`. `XR.on()` is still required to initialize the OpenXR runtime.
 
@@ -156,7 +157,7 @@ right_arm_pole_direction([-1, -0.35, 1])
 hand_rotation_smoothing(220.0)
 ```
 
-Hand grip rotation corrections may be needed because controller grip coordinates and model wrist coordinates differ between avatars.
+Set `CAT_DEBUG_XR_HAND_ALIGNMENT=1` to print rate-limited raw grip/aim, selected source, derived basis, applied correction, and final alignment diagnostics.
 
 `ik_debug()` draws IK diagnostics and is useful while calibrating a rig, but it adds visible geometry and measurable runtime work. Do not leave it enabled when evaluating normal rendering performance.
 
@@ -167,5 +168,5 @@ Working references are `examples/bisket-vr-only-example.mms`, `examples/bisket-v
 - **Thumbstick events work but the rig does not move:** ensure a `Transform` is an ancestor of `InputXR`.
 - **The camera tracks but the avatar does not:** ensure the driven transform and `AVC` are descendants of the same `InputXR`.
 - **Hands track but elbows bend incorrectly:** adjust the body-local pole directions.
-- **Wrists are twisted:** calibrate `hand_grip_rotation_left` and `hand_grip_rotation_right` for the avatar.
+- **Wrists are twisted while using controllers:** use `GripAim` with a valid three-joint middle-finger chain and inspect `CAT_DEBUG_XR_HAND_ALIGNMENT=1` output.
 - **No XR input:** include `XR.on()` and verify that the OpenXR runtime reports active input.

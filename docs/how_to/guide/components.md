@@ -548,7 +548,7 @@ XRHand.new(true, "Left", "Aim").laser()
 ```
 
 `.laser()` adds one runtime-only, noninteractive cyan direction laser along local `-Z`.
-`.laser_from_avatar_finger(root, middle, tip)` instead aligns the ray and visual to an avatar finger beneath AVC's corrected hand target, with controller-space fallback when binding fails.
+`.laser_from_avatar_finger(root, middle, tip)` aligns forward to an avatar finger beneath AVC's corrected hand target but leaves roll unconstrained. `.laser_from_avatar_hand(root, middle, tip, thumb_root)` also derives thumbward/up from the imported rest pose, fully constraining hand roll. Both use controller-space fallback when binding fails.
 
 ### `XrComponent`
 <!-- catalog:component source="XrComponent" mms="direct" names="XR" -->

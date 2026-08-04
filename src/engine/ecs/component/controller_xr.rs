@@ -19,12 +19,25 @@ pub enum ControllerPoseKind {
     Aim,
     /// A “held object” pose, typically used for attaching models/tools.
     Grip,
+    /// Grip position combined with aim orientation from the same XR frame.
+    GripAim,
 }
 
 impl Default for ControllerPoseKind {
     fn default() -> Self {
         Self::Aim
     }
+}
+
+/// Frame-local tracking source selected by the XR runtime for this hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ControllerPoseSource {
+    #[default]
+    None,
+    WristPalm,
+    ControllerAim,
+    ControllerGrip,
+    ControllerGripAim,
 }
 
 /// Marker/config for an XR controller tracked pose.
@@ -37,11 +50,18 @@ pub struct ControllerXRComponent {
     pub enabled: bool,
     /// Runtime-only: true after a valid controller pose was applied this frame.
     pub pose_valid: bool,
+    /// Runtime-only source selected for the current frame.
+    pub active_pose_source: ControllerPoseSource,
+    /// Runtime-only raw controller orientations for alignment diagnostics.
+    pub raw_aim_rotation: Option<[f32; 4]>,
+    pub raw_grip_rotation: Option<[f32; 4]>,
     pub hand: ControllerHand,
     pub pose: ControllerPoseKind,
     pub laser: bool,
     /// Optional avatar middle-finger chain used to place and orient the ray.
     pub avatar_finger: Option<[ComponentRef; 3]>,
+    /// Optional thumb-root landmark used to resolve hand roll around the finger axis.
+    pub avatar_hand_up: Option<ComponentRef>,
     pub(crate) avatar_laser_warned: bool,
 
     // Cached ECS id (runtime-only). Filled during init.
@@ -53,10 +73,14 @@ impl ControllerXRComponent {
         Self {
             enabled,
             pose_valid: false,
+            active_pose_source: ControllerPoseSource::None,
+            raw_aim_rotation: None,
+            raw_grip_rotation: None,
             hand,
             pose,
             laser: false,
             avatar_finger: None,
+            avatar_hand_up: None,
             avatar_laser_warned: false,
             component_id: None,
         }
@@ -75,6 +99,19 @@ impl ControllerXRComponent {
     ) -> Self {
         self.laser = true;
         self.avatar_finger = Some([root, middle, tip]);
+        self
+    }
+
+    pub fn laser_from_avatar_hand(
+        mut self,
+        root: ComponentRef,
+        middle: ComponentRef,
+        tip: ComponentRef,
+        thumb_root: ComponentRef,
+    ) -> Self {
+        self.laser = true;
+        self.avatar_finger = Some([root, middle, tip]);
+        self.avatar_hand_up = Some(thumb_root);
         self
     }
 
@@ -139,6 +176,7 @@ impl Component for ControllerXRComponent {
         let pose = match self.pose {
             ControllerPoseKind::Aim => "Aim",
             ControllerPoseKind::Grip => "Grip",
+            ControllerPoseKind::GripAim => "GripAim",
         };
         let expression = ce_call("XRHand", "new", vec![b(self.enabled), s(hand), s(pose)]);
         if let Some([root, middle, tip]) = &self.avatar_finger {
@@ -146,10 +184,22 @@ impl Component for ControllerXRComponent {
                 ComponentRef::Guid(guid) => s(&format!("@uuid:{guid}")),
                 ComponentRef::Query(query) => s(query),
             };
-            expression.with_call(
-                "laser_from_avatar_finger",
-                vec![reference(root), reference(middle), reference(tip)],
-            )
+            if let Some(thumb_root) = &self.avatar_hand_up {
+                expression.with_call(
+                    "laser_from_avatar_hand",
+                    vec![
+                        reference(root),
+                        reference(middle),
+                        reference(tip),
+                        reference(thumb_root),
+                    ],
+                )
+            } else {
+                expression.with_call(
+                    "laser_from_avatar_finger",
+                    vec![reference(root), reference(middle), reference(tip)],
+                )
+            }
         } else if self.laser {
             expression.with_call("laser", vec![])
         } else {

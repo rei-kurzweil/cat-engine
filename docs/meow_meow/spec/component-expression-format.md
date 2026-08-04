@@ -258,7 +258,7 @@ At a glance this reads like a tree description. Under the hood, every line that 
 
 | Expression | What it actually calls |
 |---|---|
-| `ControllerXR.new(true, hand, Aim)` | `ControllerXRComponent::new(true, hand, ControllerPoseKind::Aim)` |
+| `ControllerXR.new(true, hand, GripAim)` | `ControllerXRComponent::new(true, hand, ControllerPoseKind::GripAim)` |
 | `T.with_scale(0.06, 0.06, 0.12)` | `TransformComponent::new().with_scale(0.06, 0.06, 0.12)` |
 | `TransformForkTRS {}` | `TransformForkTRSComponent::new()` |
 | `QuatTemporalFilter.with_smoothing_factor(rotation_smoothing)` | `QuatTemporalFilterComponent::new().with_smoothing_factor(rotation_smoothing)` |

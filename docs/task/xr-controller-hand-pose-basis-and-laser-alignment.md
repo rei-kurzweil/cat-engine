@@ -2,7 +2,29 @@
 
 Date: 2026-08-01
 
-Status: active pre-0.8 investigation
+Status: implemented in the worktree; headset validation pending
+
+## Implemented direction
+
+The controller-driven avatar path now uses a `GripAim` pose composed from grip
+position and aim orientation located in the same OpenXR frame. After the GLTF
+skeleton is available, AVC derives an immutable hand-local frame from the
+configured middle-finger chain and optional thumb-root landmark, then applies
+its inverse at the visual hand target. The finger chain supplies forward and the
+projected thumb direction supplies up/roll. This makes the final hand, finger
+mount, and laser reproduce the runtime aim orientation without sampling the
+user's startup posture or authoring mirrored per-avatar correction quaternions.
+
+Active, valid controller pose actions take precedence for controller-configured
+hands. Wrist/palm tracking remains the automatic fallback when those actions are
+inactive or unavailable, and uses identity correction for now. Articulated-hand
+basis synthesis and finger-joint retargeting remain separate follow-up work.
+
+The former `hand_grip_rotation_left/right` and interactive
+`calibrate_hand_transforms` APIs have been removed. Set
+`CAT_DEBUG_XR_HAND_ALIGNMENT=1` to report the selected source, raw aim/grip
+rotations, their relative axis-angle, the derived rest basis, and the predicted
+final laser-to-aim error.
 
 ## Problem
 
@@ -55,12 +77,12 @@ hand-specific model-rest error point to different causes.
 
 ## Instrumentation
 
-- [ ] Log raw located poses and validity/tracking flags for left/right aim and
+- [x] Log raw located poses and validity/tracking flags for left/right aim and
       grip spaces.
-- [ ] Log the active interaction profile, selected fallback/source, reference
+- [x] Log the active interaction profile and selected fallback/source. Reference
       space, and action activity.
-- [ ] Log raw OpenXR quaternions and positions beside the post-conversion
-      engine transforms.
+- [x] Log raw aim/grip quaternions beside the derived avatar correction and
+      predicted final alignment.
 - [ ] Log wrist/palm or chosen hand-joint poses when hand tracking is active.
 - [ ] Log avatar-control/IK wrist corrections and the final hand, finger
       mount, pointer, and laser world transforms.
@@ -99,12 +121,13 @@ into the generic pointer or laser presentation.
 
 ## Regression coverage
 
-- [ ] Unit-test aim and grip source routing independently.
+- [x] Unit-test aim/grip composition and same-frame validity.
 - [ ] Test OpenXR-to-engine basis conversion with fixed poses and expected
       forward/up axes.
-- [ ] Test left/right handedness and mirrored transforms.
-- [ ] Test that an avatar/model rest correction is applied exactly once.
-- [ ] Keep the laser aligned with its actual pointer source without adding a
+- [x] Test left/right hand mounts with different authored finger axes.
+- [x] Test that source-dependent avatar/model correction is absolute and does
+      not accumulate.
+- [x] Keep the laser aligned with its actual pointer source without adding a
       compensating world-space yaw.
 - [ ] Capture VR verification evidence for each supported source/profile in
       the reproduction matrix.
@@ -133,4 +156,3 @@ into the generic pointer or laser presentation.
 - [Controller XR armature targeting](refactor/controller-xr-armature-targeting.md)
 - [OpenXR input refactor](refactor/openxr-input.md)
 - [Mittens MMS ownership cutover and 0.8 release](mittens-mms-ownership-cutover-and-0.8-release.md)
-

@@ -1,11 +1,12 @@
 use crate::engine::ecs::component::{
     AvatarControlComponent, BoneRestPoseComponent, Camera3DComponent, CameraXRComponent,
     CollisionComponent, CollisionResponseComponent, CollisionShape, CollisionShapeComponent,
-    ControllerHand, ControllerXRComponent, GLTFComponent, IKChainComponent, IKSolver,
-    InputXRComponent, QuatYawFollowComponent, SerializeComponent, TransformComponent,
+    ControllerHand, ControllerPoseSource, ControllerXRComponent, GLTFComponent, IKChainComponent,
+    IKSolver, InputXRComponent, QuatYawFollowComponent, SerializeComponent, TransformComponent,
     TransformDropComponent, TransformForkTRSComponent, TransformMapRotationComponent,
     TransformMapScaleComponent, TransformMapTranslationComponent,
 };
+use crate::engine::ecs::system::avatar_hand_pose_basis::resolve_avatar_hand_pose_basis;
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
 use crate::engine::ecs::system::input_xr_gamepad_system::xr_locomotion_target_transform;
@@ -13,16 +14,17 @@ use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
 use crate::engine::graphics::{RenderAssets, primitives::Transform};
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
-    mat_to_quat, mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3,
-    quat_rotation_y,
+    mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3, quat_rotation_y,
+    quat_to_axis_angle,
 };
 use std::collections::HashSet;
-use winit::keyboard::{Key, NamedKey};
+use std::sync::OnceLock;
 
 #[derive(Debug, Default)]
 pub struct AvatarControlSystem {
     avatars: HashSet<ComponentId>,
     pending_capsule_diagnostics: HashSet<ComponentId>,
+    alignment_diagnostic_tick: u64,
 }
 
 impl AvatarControlSystem {
@@ -33,15 +35,16 @@ impl AvatarControlSystem {
     pub fn tick(
         &mut self,
         world: &mut World,
-        input: &InputState,
+        _input: &InputState,
         render_assets: &RenderAssets,
         emit: &mut dyn SignalEmitter,
         dt_sec: f32,
     ) {
         let ids: Vec<_> = self.avatars.iter().copied().collect();
 
-        let mut calibration_consumed = false;
-        let calibrate_pressed = input.key_pressed(&Key::Named(NamedKey::Enter));
+        self.alignment_diagnostic_tick = self.alignment_diagnostic_tick.wrapping_add(1);
+        let log_alignment =
+            hand_alignment_debug_enabled() && self.alignment_diagnostic_tick % 120 == 0;
         for id in ids {
             if self.pending_capsule_diagnostics.remove(&id) {
                 log_settled_capsule_diagnostics(id, world);
@@ -49,10 +52,7 @@ impl AvatarControlSystem {
             let capsule_before = world
                 .get_component_by_id_as::<AvatarControlComponent>(id)
                 .and_then(|avc| avc.capsule_transform_id);
-            let allow_calibration = calibrate_pressed && !calibration_consumed;
-            if tick_one(id, world, render_assets, emit, dt_sec, allow_calibration) {
-                calibration_consumed = true;
-            }
+            tick_one(id, world, render_assets, emit, dt_sec, log_alignment);
             let capsule_after = world
                 .get_component_by_id_as::<AvatarControlComponent>(id)
                 .and_then(|avc| avc.capsule_transform_id);
@@ -78,12 +78,12 @@ fn tick_one(
     render_assets: &RenderAssets,
     emit: &mut dyn SignalEmitter,
     _dt_sec: f32,
-    allow_calibration: bool,
-) -> bool {
+    log_alignment: bool,
+) {
     // --- Init phase ---
     let needs_init = {
         let Some(c) = world.get_component_by_id_as::<AvatarControlComponent>(id) else {
-            return false;
+            return;
         };
         c.head_mount.is_none()
     };
@@ -94,7 +94,7 @@ fn tick_one(
         // pose until the headset has supplied a valid pose. Non-XR AVC trees continue
         // to initialize immediately.
         if !ancestor_input_xr_is_ready(world, id) {
-            return false;
+            return;
         }
         try_init_splices(id, world, emit);
     }
@@ -123,10 +123,7 @@ fn tick_one(
         }
     }
 
-    if allow_calibration && capture_hand_grip_calibration(id, world, emit) {
-        return true;
-    }
-    false
+    update_hand_pose_corrections(id, world, emit, log_alignment);
 }
 
 fn try_init_or_route_capsule(
@@ -402,8 +399,6 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
         eye_height_from_head_bone,
         head_ik_eye_height,
         neck_bone_name,
-        hand_grip_rotation_left,
-        hand_grip_rotation_right,
     ) = {
         let Some(c) = world.get_component_by_id_as::<AvatarControlComponent>(id) else {
             return;
@@ -430,8 +425,6 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
             c.eye_height_from_head_bone,
             c.head_ik_eye_height,
             c.neck_bone.clone(),
-            c.hand_grip_rotation_left,
-            c.hand_grip_rotation_right,
         )
     };
 
@@ -496,19 +489,37 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
     // The hand bone stays in the armature; IKSystem rotates UpperArm + LowerArm
     // each tick so the hand reaches the controller world pose, optionally
     // through a rotated child target that compensates for grip-vs-palm framing.
+    let Some(left_aim_correction) = derive_hand_aim_correction(
+        world,
+        model_root_id,
+        left_hand_bone.as_deref(),
+        left_ctrl,
+        "left",
+    ) else {
+        return;
+    };
+    let Some(right_aim_correction) = derive_hand_aim_correction(
+        world,
+        model_root_id,
+        right_hand_bone.as_deref(),
+        right_ctrl,
+        "right",
+    ) else {
+        return;
+    };
     let left = resolve_hand_splice(
         world,
         model_root_id,
         left_hand_bone.as_deref(),
         left_ctrl,
-        hand_grip_rotation_left,
+        left_aim_correction,
     );
     let right = resolve_hand_splice(
         world,
         model_root_id,
         right_hand_bone.as_deref(),
         right_ctrl,
-        hand_grip_rotation_right,
+        right_aim_correction,
     );
 
     // --- Camera bone: auto-calibrate model_root.y + discover camera children ---
@@ -670,6 +681,8 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
             c.right_hand_raw_target_id = Some(raw_driver);
             c.right_hand_visual_target_id = Some(hand_driver);
         }
+        c.left_hand_aim_correction = left_aim_correction;
+        c.right_hand_aim_correction = right_aim_correction;
     }
     // Avatar-finger lasers need the final quaternion-corrected hand targets
     // cached above. Controller registration happens earlier, so retry their
@@ -773,14 +786,13 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
     //   - else fall back to `parent_of` walk-up from the hand bone (works for
     //     clean VRM-style rigs with no twist bones).
     // -----------------------------------------------------------------------
-    for (hand_opt, upper_name, lower_name, pole_dir, side_label, grip_rotation_offset) in [
+    for (hand_opt, upper_name, lower_name, pole_dir, side_label) in [
         (
             left,
             left_upper_arm_bone.as_deref(),
             left_lower_arm_bone.as_deref(),
             left_arm_pole_direction,
             "left",
-            hand_grip_rotation_left,
         ),
         (
             right,
@@ -788,7 +800,6 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
             right_lower_arm_bone.as_deref(),
             right_arm_pole_direction,
             "right",
-            hand_grip_rotation_right,
         ),
     ] {
         let Some((_, raw_driver, hand_driver, hand_bone)) = hand_opt else {
@@ -875,14 +886,7 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
         let chain_id = world.add_component(chain);
         let chain_serialize_id = world.add_component(SerializeComponent::off());
         let _ = world.set_parent(chain_serialize_id, Some(chain_id));
-        if let Some(offset_q) = grip_rotation_offset {
-            println!(
-                "[AVC] {} hand IK target rotation offset = {:?}",
-                side_label, offset_q
-            );
-        } else {
-            let _ = raw_driver;
-        }
+        let _ = raw_driver;
         // Parent under AVC for cleanup; the solver itself ignores the chain's parent.
         emit_attach(emit, id, chain_id);
     }
@@ -995,6 +999,39 @@ fn resolve_hand_splice(
     Some((bone_parent, driver, hand_driver, bone))
 }
 
+/// Returns `None` only while the imported skeleton is still in flight. The
+/// inner option is absent when this controller has no avatar-finger basis.
+fn derive_hand_aim_correction(
+    world: &World,
+    model_root: ComponentId,
+    bone_name: Option<&str>,
+    controller: Option<ComponentId>,
+    side: &str,
+) -> Option<Option<[f32; 4]>> {
+    let (Some(bone_name), Some(controller)) = (bone_name, controller) else {
+        return Some(None);
+    };
+    let controller = world.get_component_by_id_as::<ControllerXRComponent>(controller);
+    let finger = controller.and_then(|controller| controller.avatar_finger.as_ref());
+    let Some(finger) = finger else {
+        return Some(None);
+    };
+    let hand_up = controller.and_then(|controller| controller.avatar_hand_up.as_ref());
+    let Some(hand_bone) = world.find_component(model_root, &format!("#{bone_name}")) else {
+        return Some(None);
+    };
+    match resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up) {
+        Ok(Some(basis)) => Some(Some(quat_conjugate(basis.rotation))),
+        Ok(None) => None,
+        Err(error) => {
+            eprintln!(
+                "[AVC][hand-basis] {side} hand could not derive its avatar finger basis: {error}; using identity"
+            );
+            Some(None)
+        }
+    }
+}
+
 fn emit_attach(emit: &mut dyn SignalEmitter, parent: ComponentId, child: ComponentId) {
     emit.push_intent_now(
         parent,
@@ -1005,88 +1042,108 @@ fn emit_attach(emit: &mut dyn SignalEmitter, parent: ComponentId, child: Compone
     );
 }
 
-fn capture_hand_grip_calibration(
+fn update_hand_pose_corrections(
     avc_id: ComponentId,
-    world: &mut World,
+    world: &World,
     emit: &mut dyn SignalEmitter,
-) -> bool {
-    let (enabled, left_raw, right_raw, left_visual, right_visual, left_hand, right_hand) = {
+    log_alignment: bool,
+) {
+    let (left_raw, right_raw, left_visual, right_visual, left_correction, right_correction) = {
         let Some(c) = world.get_component_by_id_as::<AvatarControlComponent>(avc_id) else {
-            return false;
+            return;
         };
         (
-            c.calibrate_hand_transforms,
             c.left_hand_raw_target_id,
             c.right_hand_raw_target_id,
             c.left_hand_visual_target_id,
             c.right_hand_visual_target_id,
-            c.left_hand_bone_id,
-            c.right_hand_bone_id,
+            c.left_hand_aim_correction,
+            c.right_hand_aim_correction,
         )
     };
-
-    if !enabled {
-        return false;
+    for (side, raw, visual, correction) in [
+        (ControllerHand::Left, left_raw, left_visual, left_correction),
+        (
+            ControllerHand::Right,
+            right_raw,
+            right_visual,
+            right_correction,
+        ),
+    ] {
+        let controller = world.children_of(avc_id).iter().find_map(|id| {
+            world
+                .get_component_by_id_as::<ControllerXRComponent>(*id)
+                .filter(|controller| controller.hand == side)
+        });
+        let source = controller
+            .map(|controller| controller.active_pose_source)
+            .unwrap_or(ControllerPoseSource::None);
+        let applied = if source == ControllerPoseSource::ControllerGripAim {
+            correction.unwrap_or([0.0, 0.0, 0.0, 1.0])
+        } else {
+            [0.0, 0.0, 0.0, 1.0]
+        };
+        if let (Some(raw), Some(visual)) = (raw, visual) {
+            if raw != visual {
+                update_local_rotation(world, emit, visual, applied);
+            }
+        }
+        if log_alignment && source != ControllerPoseSource::None {
+            log_hand_alignment(avc_id, side, controller, source, correction, applied);
+        }
     }
+}
 
-    let (
-        Some(left_raw),
-        Some(right_raw),
-        Some(left_visual),
-        Some(right_visual),
-        Some(left_hand),
-        Some(right_hand),
-    ) = (
-        left_raw,
-        right_raw,
-        left_visual,
-        right_visual,
-        left_hand,
-        right_hand,
-    )
-    else {
-        println!(
-            "[AVC][calibrate] AVC {:?} is enabled for hand calibration but arm targets are not initialized yet.",
-            avc_id
-        );
-        return true;
+fn log_hand_alignment(
+    avc_id: ComponentId,
+    hand: ControllerHand,
+    controller: Option<&ControllerXRComponent>,
+    source: ControllerPoseSource,
+    correction: Option<[f32; 4]>,
+    applied: [f32; 4],
+) {
+    let aim = controller.and_then(|controller| controller.raw_aim_rotation);
+    let grip = controller.and_then(|controller| controller.raw_grip_rotation);
+    let basis_mode = controller.map_or("none", |controller| {
+        if controller.avatar_hand_up.is_some() {
+            "forward+thumb-up"
+        } else if controller.avatar_finger.is_some() {
+            "forward-only"
+        } else {
+            "none"
+        }
+    });
+    let grip_to_aim = match (grip, aim) {
+        (Some(grip), Some(aim)) => Some(quat_to_axis_angle(quat_mul(quat_conjugate(grip), aim))),
+        _ => None,
     };
-
-    let left_offset = quat_mul(
-        quat_conjugate(tc_world_rot(world, left_raw)),
-        tc_world_rot(world, left_hand),
+    let mount = correction.map(quat_conjugate);
+    let predicted = if source == ControllerPoseSource::ControllerGripAim {
+        mount.map(|mount| quat_to_axis_angle(quat_mul(applied, mount)))
+    } else {
+        None
+    };
+    let calibration = if source == ControllerPoseSource::WristPalm {
+        "identity/unretargeted"
+    } else if source == ControllerPoseSource::ControllerGripAim {
+        "aim-calibrated"
+    } else {
+        "identity"
+    };
+    eprintln!(
+        "[AVC][hand-alignment] avc={avc_id:?} hand={hand:?} aim_valid={} grip_valid={} aim_q={aim:?} grip_q={grip:?} source={source:?} mode={calibration} avatar_basis={basis_mode} grip_to_aim_axis_angle={grip_to_aim:?} canonical_to_hand_q={mount:?} applied_correction_q={applied:?} final_basis_to_aim_axis_angle={predicted:?}",
+        aim.is_some(),
+        grip.is_some(),
     );
-    let right_offset = quat_mul(
-        quat_conjugate(tc_world_rot(world, right_raw)),
-        tc_world_rot(world, right_hand),
-    );
+}
 
-    if let Some(c) = world.get_component_by_id_as_mut::<AvatarControlComponent>(avc_id) {
-        c.hand_grip_rotation_left = Some(left_offset);
-        c.hand_grip_rotation_right = Some(right_offset);
-    }
-
-    if left_visual != left_raw {
-        update_local_rotation(world, emit, left_visual, left_offset);
-    }
-    if right_visual != right_raw {
-        update_local_rotation(world, emit, right_visual, right_offset);
-    }
-
-    println!(
-        "[AVC][calibrate] captured hand grip offsets for AVC {:?}:",
-        avc_id
-    );
-    println!(
-        "  hand_grip_rotation_left([{:.7}, {:.7}, {:.7}, {:.7}])",
-        left_offset[0], left_offset[1], left_offset[2], left_offset[3]
-    );
-    println!(
-        "  hand_grip_rotation_right([{:.7}, {:.7}, {:.7}, {:.7}])",
-        right_offset[0], right_offset[1], right_offset[2], right_offset[3]
-    );
-
-    true
+fn hand_alignment_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("CAT_DEBUG_XR_HAND_ALIGNMENT")
+            .ok()
+            .is_some_and(|value| value == "1")
+    })
 }
 
 fn update_local_rotation(
@@ -1095,10 +1152,14 @@ fn update_local_rotation(
     component_id: ComponentId,
     rotation: [f32; 4],
 ) {
-    let (translation, scale) = world
-        .get_component_by_id_as::<TransformComponent>(component_id)
-        .map(|t| (t.transform.translation, t.transform.scale))
-        .unwrap_or(([0.0; 3], [1.0, 1.0, 1.0]));
+    let Some(transform) = world.get_component_by_id_as::<TransformComponent>(component_id) else {
+        return;
+    };
+    if transform.transform.rotation == rotation {
+        return;
+    }
+    let translation = transform.transform.translation;
+    let scale = transform.transform.scale;
     emit.push_intent_now(
         component_id,
         IntentValue::UpdateTransform {
@@ -1189,11 +1250,78 @@ fn rest_model_relative_to(
     }))
 }
 
-fn tc_world_rot(world: &World, id: ComponentId) -> [f32; 4] {
-    world
-        .get_component_by_id_as::<TransformComponent>(id)
-        .map(|t| mat_to_quat(t.transform.matrix_world))
-        .unwrap_or([0.0, 0.0, 0.0, 1.0])
+#[cfg(test)]
+mod hand_pose_correction_tests {
+    use super::*;
+    use crate::engine::ecs::{EventSignal, IntentSignal};
+
+    #[derive(Default)]
+    struct RecordingEmitter(Vec<[f32; 4]>);
+
+    impl SignalEmitter for RecordingEmitter {
+        fn push_event(&mut self, _scope: ComponentId, _event: EventSignal) {}
+
+        fn push_intent(&mut self, _scope: ComponentId, intent: IntentSignal) {
+            if let IntentValue::UpdateTransform {
+                rotation_quat_xyzw, ..
+            } = intent.value
+            {
+                self.0.push(rotation_quat_xyzw);
+            }
+        }
+    }
+
+    #[test]
+    fn automatic_source_switches_apply_absolute_non_accumulating_corrections() {
+        let mut world = World::default();
+        let avc_id = world.add_component(AvatarControlComponent::new());
+        let controller_id = world.add_component(ControllerXRComponent::new(
+            true,
+            ControllerHand::Left,
+            crate::engine::ecs::component::ControllerPoseKind::GripAim,
+        ));
+        let raw = world.add_component(TransformComponent::new());
+        let visual = world.add_component(TransformComponent::new());
+        world.add_child(avc_id, controller_id).unwrap();
+        world.add_child(controller_id, raw).unwrap();
+        world.add_child(raw, visual).unwrap();
+        let correction = [0.0, 0.70710677, 0.0, 0.70710677];
+        {
+            let avc = world
+                .get_component_by_id_as_mut::<AvatarControlComponent>(avc_id)
+                .unwrap();
+            avc.left_hand_raw_target_id = Some(raw);
+            avc.left_hand_visual_target_id = Some(visual);
+            avc.left_hand_aim_correction = Some(correction);
+        }
+        let mut emitted = RecordingEmitter::default();
+        for (source, expected_rotation) in [
+            (ControllerPoseSource::ControllerGripAim, correction),
+            (ControllerPoseSource::WristPalm, [0.0, 0.0, 0.0, 1.0]),
+            (ControllerPoseSource::ControllerGripAim, correction),
+            (ControllerPoseSource::None, [0.0, 0.0, 0.0, 1.0]),
+        ] {
+            world
+                .get_component_by_id_as_mut::<ControllerXRComponent>(controller_id)
+                .unwrap()
+                .active_pose_source = source;
+            update_hand_pose_corrections(avc_id, &world, &mut emitted, false);
+            let transform = world
+                .get_component_by_id_as_mut::<TransformComponent>(visual)
+                .unwrap();
+            transform.transform.rotation = expected_rotation;
+            transform.transform.recompute_model();
+        }
+        assert_eq!(
+            emitted.0,
+            vec![
+                correction,
+                [0.0, 0.0, 0.0, 1.0],
+                correction,
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        );
+    }
 }
 
 #[cfg(test)]

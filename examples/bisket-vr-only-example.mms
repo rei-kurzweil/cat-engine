@@ -233,11 +233,6 @@ ED {
                 hand_rotation_smoothing(220.0)
                 // Trial: yaw inward 90 degrees, then apply the opposite
                 // mirrored pitch branch in the post-yaw local frame.
-                // Keep the near-correct left/right branches, then add a shared
-                // post-correction twist back toward the thumb by ~40 degrees.
-                hand_grip_rotation_left([-0.6408564, 0.29883623, 0.29883623, 0.6408564])
-                hand_grip_rotation_right([-0.6408564, -0.29883623, -0.29883623, 0.6408564])
-
                 T {
                     GLTF.new("assets/models/bisket.glb") {
                         EM.on() 
@@ -262,11 +257,11 @@ ED {
                 
                 // Tracked Grip controllers — re-parented to lower-arm bones
                 // by AVC, drive J_Bip_{L,R}_Hand via TwoBoneIK.
-                XRHand.new(true, Left, Grip)
+                XRHand.new(true, Left, GripAim)
                     .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
                     T { Pointer {} }
                 }
-                XRHand.new(true, Right, Grip)
+                XRHand.new(true, Right, GripAim)
                     .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
                     T { Pointer {} }
                 }

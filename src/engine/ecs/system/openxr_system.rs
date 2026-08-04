@@ -1,6 +1,7 @@
 use crate::engine::ecs::component::CameraXRComponent;
 use crate::engine::ecs::component::{
-    ControllerHand, ControllerPoseKind, InputXRComponent, XRHandComponent, XrComponent,
+    ControllerHand, ControllerPoseKind, ControllerPoseSource, InputXRComponent, XRHandComponent,
+    XrComponent,
 };
 use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformSystem;
@@ -35,6 +36,79 @@ fn openxr_debug_enabled() -> bool {
             })
             .unwrap_or(false)
     })
+}
+
+#[cfg(test)]
+mod grip_aim_tests {
+    use super::*;
+
+    fn pose(position: [f32; 3], rotation: [f32; 4], generation: u64) -> ControllerPoseSample {
+        ControllerPoseSample {
+            pose: openxr::Posef {
+                orientation: openxr::Quaternionf {
+                    x: rotation[0],
+                    y: rotation[1],
+                    z: rotation[2],
+                    w: rotation[3],
+                },
+                position: openxr::Vector3f {
+                    x: position[0],
+                    y: position[1],
+                    z: position[2],
+                },
+            },
+            generation,
+        }
+    }
+
+    #[test]
+    fn grip_aim_uses_grip_translation_and_aim_rotation_from_one_frame() {
+        let grip = pose([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 7);
+        let aim = pose([9.0, 8.0, 7.0], [0.1, 0.2, 0.3, 0.9], 7);
+        let combined = grip_aim_pose(Some(grip), Some(aim)).unwrap();
+        assert_eq!(
+            [
+                combined.position.x,
+                combined.position.y,
+                combined.position.z
+            ],
+            [1.0, 2.0, 3.0]
+        );
+        assert_eq!(
+            [
+                combined.orientation.x,
+                combined.orientation.y,
+                combined.orientation.z,
+                combined.orientation.w,
+            ],
+            [0.1, 0.2, 0.3, 0.9]
+        );
+        assert!(grip_aim_pose(None, Some(aim)).is_none());
+        assert!(grip_aim_pose(Some(grip), None).is_none());
+        assert!(grip_aim_pose(Some(grip), Some(pose([0.0; 3], [0.0, 0.0, 0.0, 1.0], 8))).is_none());
+    }
+
+    #[test]
+    fn controller_pose_wins_and_hand_root_is_only_a_fallback() {
+        let controller = pose([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], 1).pose;
+        let hand_root = pose([4.0, 5.0, 6.0], [0.0, 0.0, 0.0, 1.0], 1).pose;
+
+        let (selected, source) = prefer_controller_pose(
+            Some(controller),
+            ControllerPoseSource::ControllerGripAim,
+            Some(hand_root),
+        );
+        assert_eq!(source, ControllerPoseSource::ControllerGripAim);
+        assert_eq!(selected.unwrap().position.x, 1.0);
+
+        let (selected, source) = prefer_controller_pose(
+            None,
+            ControllerPoseSource::ControllerGripAim,
+            Some(hand_root),
+        );
+        assert_eq!(source, ControllerPoseSource::WristPalm);
+        assert_eq!(selected.unwrap().position.x, 4.0);
+    }
 }
 
 fn log_xr_gamepad_changes(prev: XrGamepadState, next: XrGamepadState) {
@@ -496,7 +570,7 @@ pub struct OpenXRSystem {
 
     input_xr_components: HashSet<ComponentId>,
     controller_components: HashSet<ComponentId>,
-    controller_pose_source_last_logged: HashMap<ComponentId, &'static str>,
+    controller_pose_source_last_logged: HashMap<ComponentId, ControllerPoseSource>,
 
     xr_input_state: XrInputState,
     xr_gamepad_state: XrGamepadState,
@@ -559,6 +633,7 @@ struct OpenXRSessionState {
     head_pose_cache: Option<openxr::Posef>,
     controller_input: Option<ControllerInput>,
     controller_pose_cache: ControllerPoseCache,
+    controller_pose_generation: u64,
 }
 
 impl Drop for OpenXRSessionState {
@@ -576,10 +651,45 @@ impl Drop for OpenXRSessionState {
 
 #[derive(Debug, Default, Clone, Copy)]
 struct ControllerPoseCache {
-    left_aim: Option<openxr::Posef>,
-    right_aim: Option<openxr::Posef>,
-    left_grip: Option<openxr::Posef>,
-    right_grip: Option<openxr::Posef>,
+    left_aim: Option<ControllerPoseSample>,
+    right_aim: Option<ControllerPoseSample>,
+    left_grip: Option<ControllerPoseSample>,
+    right_grip: Option<ControllerPoseSample>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ControllerPoseSample {
+    pose: openxr::Posef,
+    generation: u64,
+}
+
+fn grip_aim_pose(
+    grip: Option<ControllerPoseSample>,
+    aim: Option<ControllerPoseSample>,
+) -> Option<openxr::Posef> {
+    let grip = grip?;
+    let aim = aim?;
+    if grip.generation != aim.generation {
+        return None;
+    }
+    Some(openxr::Posef {
+        orientation: aim.pose.orientation,
+        position: grip.pose.position,
+    })
+}
+
+fn prefer_controller_pose(
+    controller_pose: Option<openxr::Posef>,
+    controller_source: ControllerPoseSource,
+    hand_root: Option<openxr::Posef>,
+) -> (Option<openxr::Posef>, ControllerPoseSource) {
+    if let Some(pose) = controller_pose {
+        return (Some(pose), controller_source);
+    }
+    if let Some(pose) = hand_root {
+        return (Some(pose), ControllerPoseSource::WristPalm);
+    }
+    (None, ControllerPoseSource::None)
 }
 
 struct HandTrackingState {
@@ -1326,33 +1436,44 @@ impl OpenXRSystem {
         sess: &OpenXRSessionState,
         hand: ControllerHand,
         pose: ControllerPoseKind,
-    ) -> (Option<openxr::Posef>, &'static str) {
+    ) -> (Option<openxr::Posef>, ControllerPoseSource) {
         let hand_root = match hand {
             ControllerHand::Left => sess.hand_root_pose_cache.left_root,
             ControllerHand::Right => sess.hand_root_pose_cache.right_root,
         };
-        if let Some(pose) = hand_root {
-            return (Some(pose), "hand_root");
-        }
-
         let controller_pose = match (hand, pose) {
-            (ControllerHand::Left, ControllerPoseKind::Aim) => sess.controller_pose_cache.left_aim,
-            (ControllerHand::Right, ControllerPoseKind::Aim) => {
-                sess.controller_pose_cache.right_aim
-            }
-            (ControllerHand::Left, ControllerPoseKind::Grip) => {
-                sess.controller_pose_cache.left_grip
-            }
-            (ControllerHand::Right, ControllerPoseKind::Grip) => {
-                sess.controller_pose_cache.right_grip
-            }
+            (ControllerHand::Left, ControllerPoseKind::Aim) => sess
+                .controller_pose_cache
+                .left_aim
+                .map(|sample| sample.pose),
+            (ControllerHand::Right, ControllerPoseKind::Aim) => sess
+                .controller_pose_cache
+                .right_aim
+                .map(|sample| sample.pose),
+            (ControllerHand::Left, ControllerPoseKind::Grip) => sess
+                .controller_pose_cache
+                .left_grip
+                .map(|sample| sample.pose),
+            (ControllerHand::Right, ControllerPoseKind::Grip) => sess
+                .controller_pose_cache
+                .right_grip
+                .map(|sample| sample.pose),
+            (ControllerHand::Left, ControllerPoseKind::GripAim) => grip_aim_pose(
+                sess.controller_pose_cache.left_grip,
+                sess.controller_pose_cache.left_aim,
+            ),
+            (ControllerHand::Right, ControllerPoseKind::GripAim) => grip_aim_pose(
+                sess.controller_pose_cache.right_grip,
+                sess.controller_pose_cache.right_aim,
+            ),
         };
 
-        if controller_pose.is_some() {
-            (controller_pose, "controller_action")
-        } else {
-            (None, "none")
-        }
+        let source = match pose {
+            ControllerPoseKind::Aim => ControllerPoseSource::ControllerAim,
+            ControllerPoseKind::Grip => ControllerPoseSource::ControllerGrip,
+            ControllerPoseKind::GripAim => ControllerPoseSource::ControllerGripAim,
+        };
+        prefer_controller_pose(controller_pose, source, hand_root)
     }
 
     fn transform_child_of(world: &World, component: ComponentId) -> Option<ComponentId> {
@@ -1670,6 +1791,9 @@ impl OpenXRSystem {
             if let Some(controller) = world.get_component_by_id_as_mut::<XRHandComponent>(component)
             {
                 controller.pose_valid = false;
+                controller.active_pose_source = ControllerPoseSource::None;
+                controller.raw_aim_rotation = None;
+                controller.raw_grip_rotation = None;
             }
         }
 
@@ -1769,17 +1893,43 @@ impl OpenXRSystem {
             }
 
             let (pose, pose_source) = Self::preferred_pose(sess, cfg.hand, cfg.pose);
+            let (raw_aim, raw_grip) = match cfg.hand {
+                ControllerHand::Left => (
+                    sess.controller_pose_cache
+                        .left_aim
+                        .map(|sample| sample.pose),
+                    sess.controller_pose_cache
+                        .left_grip
+                        .map(|sample| sample.pose),
+                ),
+                ControllerHand::Right => (
+                    sess.controller_pose_cache
+                        .right_aim
+                        .map(|sample| sample.pose),
+                    sess.controller_pose_cache
+                        .right_grip
+                        .map(|sample| sample.pose),
+                ),
+            };
             let last_pose_source = self
                 .controller_pose_source_last_logged
                 .get(&controller_cid)
                 .copied();
             if openxr_debug_enabled() && last_pose_source != Some(pose_source) {
                 eprintln!(
-                    "[OpenXR][ctlxr] component={controller_cid:?} hand={:?} pose={:?} source={pose_source}",
+                    "[OpenXR][ctlxr] component={controller_cid:?} hand={:?} pose={:?} source={pose_source:?}",
                     cfg.hand, cfg.pose
                 );
                 self.controller_pose_source_last_logged
                     .insert(controller_cid, pose_source);
+            }
+
+            if let Some(controller) =
+                world.get_component_by_id_as_mut::<XRHandComponent>(controller_cid)
+            {
+                controller.active_pose_source = pose_source;
+                controller.raw_aim_rotation = raw_aim.map(Self::quat_from_posef);
+                controller.raw_grip_rotation = raw_grip.map(Self::quat_from_posef);
             }
 
             let Some(pose) = pose else {
@@ -2283,6 +2433,7 @@ If this fails with Vulkan extension errors, the Vulkan instance/device created b
             head_pose_cache: None,
             controller_input,
             controller_pose_cache: ControllerPoseCache::default(),
+            controller_pose_generation: 0,
         });
 
         println!("[OpenXR] Session created (Vulkan)");
@@ -2932,6 +3083,8 @@ impl OpenXRSystem {
         }
 
         // Update controller pose cache at the same predicted time as views.
+        sess.controller_pose_generation = sess.controller_pose_generation.wrapping_add(1);
+        let controller_pose_generation = sess.controller_pose_generation;
         if let Some(ci) = sess.controller_input.as_mut() {
             // Sync actions (best-effort).
             let active = openxr::ActiveActionSet::new(&ci.action_set);
@@ -2941,6 +3094,26 @@ impl OpenXRSystem {
                     eprintln!("[OpenXR] sync_actions failed: {e:?}");
                 }
             }
+            // A locatable action space is not sufficient evidence that its action is active.
+            // Some runtimes continue to expose controller-derived hand joints and action-space
+            // locations at the same time, so use action activity to decide whether the explicit
+            // controller pose may take priority over the wrist/palm fallback.
+            let left_aim_active = ci
+                .aim_pose
+                .is_active(&sess.session, ci.left)
+                .unwrap_or(false);
+            let right_aim_active = ci
+                .aim_pose
+                .is_active(&sess.session, ci.right)
+                .unwrap_or(false);
+            let left_grip_active = ci
+                .grip_pose
+                .is_active(&sess.session, ci.left)
+                .unwrap_or(false);
+            let right_grip_active = ci
+                .grip_pose
+                .is_active(&sess.session, ci.right)
+                .unwrap_or(false);
             let should_poll_profiles =
                 ci.profile_poll_counter == 0 || ci.profile_poll_counter >= 89;
             ci.profile_poll_counter = if should_poll_profiles {
@@ -2976,6 +3149,7 @@ impl OpenXRSystem {
                 &sess.reference_space,
                 frame_state.predicted_display_time,
             )
+            .filter(|_| left_aim_active)
             .filter(|loc| {
                 loc.location_flags
                     .contains(openxr::SpaceLocationFlags::POSITION_VALID)
@@ -2983,12 +3157,16 @@ impl OpenXRSystem {
                         .location_flags
                         .contains(openxr::SpaceLocationFlags::ORIENTATION_VALID)
             })
-            .map(|loc| loc.pose);
+            .map(|loc| ControllerPoseSample {
+                pose: loc.pose,
+                generation: controller_pose_generation,
+            });
             sess.controller_pose_cache.right_aim = update_pose(
                 &ci.right_aim_space,
                 &sess.reference_space,
                 frame_state.predicted_display_time,
             )
+            .filter(|_| right_aim_active)
             .filter(|loc| {
                 loc.location_flags
                     .contains(openxr::SpaceLocationFlags::POSITION_VALID)
@@ -2996,13 +3174,17 @@ impl OpenXRSystem {
                         .location_flags
                         .contains(openxr::SpaceLocationFlags::ORIENTATION_VALID)
             })
-            .map(|loc| loc.pose);
+            .map(|loc| ControllerPoseSample {
+                pose: loc.pose,
+                generation: controller_pose_generation,
+            });
 
             sess.controller_pose_cache.left_grip = update_pose(
                 &ci.left_grip_space,
                 &sess.reference_space,
                 frame_state.predicted_display_time,
             )
+            .filter(|_| left_grip_active)
             .filter(|loc| {
                 loc.location_flags
                     .contains(openxr::SpaceLocationFlags::POSITION_VALID)
@@ -3010,12 +3192,16 @@ impl OpenXRSystem {
                         .location_flags
                         .contains(openxr::SpaceLocationFlags::ORIENTATION_VALID)
             })
-            .map(|loc| loc.pose);
+            .map(|loc| ControllerPoseSample {
+                pose: loc.pose,
+                generation: controller_pose_generation,
+            });
             sess.controller_pose_cache.right_grip = update_pose(
                 &ci.right_grip_space,
                 &sess.reference_space,
                 frame_state.predicted_display_time,
             )
+            .filter(|_| right_grip_active)
             .filter(|loc| {
                 loc.location_flags
                     .contains(openxr::SpaceLocationFlags::POSITION_VALID)
@@ -3023,7 +3209,10 @@ impl OpenXRSystem {
                         .location_flags
                         .contains(openxr::SpaceLocationFlags::ORIENTATION_VALID)
             })
-            .map(|loc| loc.pose);
+            .map(|loc| ControllerPoseSample {
+                pose: loc.pose,
+                generation: controller_pose_generation,
+            });
 
             let left_select = action_state_bool(&ci.select, &sess.session, ci.left);
             let right_select = action_state_bool(&ci.select, &sess.session, ci.right);

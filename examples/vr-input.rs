@@ -483,7 +483,7 @@ fn main() {
     // AvatarControlSystem discovers them by topology. Each needs a TransformComponent
     // child (driven_t) that OpenXRSystem writes each tick.
     let left_grip = universe.world.add_component(
-        ControllerXRComponent::new(true, ControllerHand::Left, ControllerPoseKind::Grip)
+        ControllerXRComponent::new(true, ControllerHand::Left, ControllerPoseKind::GripAim)
             .laser_from_avatar_finger(
                 component_query("J_Bip_L_Middle1"),
                 component_query("J_Bip_L_Middle2"),
@@ -497,7 +497,7 @@ fn main() {
     let _ = universe.attach(avatar_control, left_grip);
 
     let right_grip = universe.world.add_component(
-        ControllerXRComponent::new(true, ControllerHand::Right, ControllerPoseKind::Grip)
+        ControllerXRComponent::new(true, ControllerHand::Right, ControllerPoseKind::GripAim)
             .laser_from_avatar_finger(
                 component_query("J_Bip_R_Middle1"),
                 component_query("J_Bip_R_Middle2"),

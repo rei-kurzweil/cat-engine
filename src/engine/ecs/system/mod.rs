@@ -11,6 +11,7 @@ pub mod audio_system;
 pub(crate) mod audio_system_fundsp;
 pub mod avatar_body_yaw_system;
 pub mod avatar_control_system;
+pub mod avatar_hand_pose_basis;
 pub mod bone_mapping_system;
 pub mod bounds_system;
 pub mod bvh_system;

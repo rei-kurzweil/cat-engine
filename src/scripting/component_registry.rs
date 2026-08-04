@@ -1705,6 +1705,7 @@ fn create_component(
                 let pose = match arg_str(args, 2)? {
                     "Aim" => ControllerPoseKind::Aim,
                     "Grip" => ControllerPoseKind::Grip,
+                    "GripAim" => ControllerPoseKind::GripAim,
                     s => return Err(format!("unknown ControllerPoseKind: {s}")),
                 };
                 add!(XRHandComponent::new(enabled, hand, pose))
@@ -2396,14 +2397,24 @@ fn apply_call(
         return Ok(());
     }
 
-    let avatar_finger = if method == "laser_from_avatar_finger" {
-        Some([
-            arg_component_ref(world, args, 0)?,
-            arg_component_ref(world, args, 1)?,
-            arg_component_ref(world, args, 2)?,
-        ])
-    } else {
-        None
+    let (avatar_finger, avatar_hand_up) = match method {
+        "laser_from_avatar_finger" => (
+            Some([
+                arg_component_ref(world, args, 0)?,
+                arg_component_ref(world, args, 1)?,
+                arg_component_ref(world, args, 2)?,
+            ]),
+            None,
+        ),
+        "laser_from_avatar_hand" => (
+            Some([
+                arg_component_ref(world, args, 0)?,
+                arg_component_ref(world, args, 1)?,
+                arg_component_ref(world, args, 2)?,
+            ]),
+            Some(arg_component_ref(world, args, 3)?),
+        ),
+        _ => (None, None),
     };
     if let Some(hand) = world.get_component_by_id_as_mut::<XRHandComponent>(id) {
         if method == "laser" {
@@ -2411,6 +2422,7 @@ fn apply_call(
         } else if let Some(finger) = avatar_finger {
             hand.laser = true;
             hand.avatar_finger = Some(finger);
+            hand.avatar_hand_up = avatar_hand_up;
         }
         return Ok(());
     }
@@ -3211,7 +3223,6 @@ fn apply_call(
             "ik_debug" => *avc = avc.clone().with_ik_debug(),
             "collision_disabled" => *avc = avc.clone().with_collision_disabled(),
             "capsule_radius" => *avc = avc.clone().with_capsule_radius(arg_f32(args, 0)?),
-            "calibrate_hand_transforms" => *avc = avc.clone().with_calibrate_hand_transforms(),
             "body_yaw_threshold" => *avc = avc.clone().with_body_yaw_threshold(arg_f32(args, 0)?),
             "body_yaw_rate" => *avc = avc.clone().with_body_yaw_rate(arg_f32(args, 0)?),
             "hand_rotation_smoothing" => {
@@ -3225,16 +3236,6 @@ fn apply_call(
                     .with_eye_height_from_head_bone(arg_f32(args, 0)?)
             }
             "head_ik_eye_height" => *avc = avc.clone().with_head_ik_eye_height(arg_f32(args, 0)?),
-            "hand_grip_rotation_left" => {
-                *avc = avc
-                    .clone()
-                    .with_hand_grip_rotation_left(arg_f32_arr::<4>(args, 0)?)
-            }
-            "hand_grip_rotation_right" => {
-                *avc = avc
-                    .clone()
-                    .with_hand_grip_rotation_right(arg_f32_arr::<4>(args, 0)?)
-            }
             "hips_bone" => *avc = avc.clone().with_hips_bone(arg_str(args, 0)?),
             _ => {}
         }

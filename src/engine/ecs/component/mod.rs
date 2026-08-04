@@ -139,7 +139,9 @@ pub use component_ref::{
     ComponentRef, QueryRootMode, ScopedQuery, parse_scoped_query, resolve_component_ref,
     resolve_scoped_query,
 };
-pub use controller_xr::{ControllerHand, ControllerPoseKind, ControllerXRComponent};
+pub use controller_xr::{
+    ControllerHand, ControllerPoseKind, ControllerPoseSource, ControllerXRComponent,
+};
 pub use data::{DataComponent, DataEntry, DataValue};
 pub use directional_light::DirectionalLightComponent;
 pub use draggable::{DraggableComponent, DraggablePlane, DraggableTarget};

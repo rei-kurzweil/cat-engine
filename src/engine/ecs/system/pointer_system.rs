@@ -1,16 +1,13 @@
 use crate::engine::ecs::component::{
-    AvatarControlComponent, BoneRestPoseComponent, ColorComponent, ComponentRef, ControllerHand,
-    ControllerXRComponent, EmissiveComponent, GLTFComponent, InputComponent, InputXRComponent,
-    OpacityComponent, PointerComponent, RayCastComponent, RenderableComponent, SelectableComponent,
-    SerializeComponent, TransformComponent,
+    AvatarControlComponent, ColorComponent, ComponentRef, ControllerHand, ControllerXRComponent,
+    EmissiveComponent, InputComponent, InputXRComponent, OpacityComponent, PointerComponent,
+    RayCastComponent, RenderableComponent, SelectableComponent, SerializeComponent,
+    TransformComponent,
 };
 use crate::engine::ecs::system::XrInputState;
+use crate::engine::ecs::system::avatar_hand_pose_basis::resolve_avatar_hand_pose_basis;
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
-use crate::engine::graphics::primitives::Transform;
 use crate::engine::user_input::InputState;
-use crate::utils::math::{
-    mat4_identity, mat4_mul, shortest_arc_quat, vec3_len, vec3_normalize, vec3_sub,
-};
 use std::collections::HashMap;
 use winit::event::MouseButton;
 
@@ -36,6 +33,7 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
         return;
     }
     let avatar_finger = config.avatar_finger.clone();
+    let avatar_hand_up = config.avatar_hand_up.clone();
     let mut stack = world.children_of(hand).to_vec();
     let mut pointer = None;
     while let Some(node) = stack.pop() {
@@ -62,7 +60,7 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
         return;
     };
     if let Some(finger) = avatar_finger {
-        match avatar_finger_mount(world, hand, pointer, &finger) {
+        match avatar_finger_mount(world, hand, pointer, &finger, avatar_hand_up.as_ref()) {
             Ok(Some(mount)) => driver = mount,
             Ok(None) => return, // AVC/GLTF initialization is still in flight.
             Err(message) => {
@@ -126,6 +124,7 @@ fn avatar_finger_mount(
     hand: ComponentId,
     pointer: Option<ComponentId>,
     finger: &[ComponentRef; 3],
+    hand_up: Option<&ComponentRef>,
 ) -> Result<Option<ComponentId>, String> {
     let mut current = world.parent_of(hand);
     let avc_id = loop {
@@ -176,62 +175,17 @@ fn avatar_finger_mount(
     {
         return Ok(Some(existing));
     }
-    let gltf_id = find_descendant_gltf(world, model_root).ok_or("avatar GLTF was not found")?;
-    let gltf = world
-        .get_component_by_id_as::<GLTFComponent>(gltf_id)
-        .ok_or("avatar GLTF disappeared")?;
-    if gltf.spawned_node_transforms.is_empty() {
+    let Some(basis) =
+        resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up)?
+    else {
         return Ok(None);
-    }
-    let resolve = |reference: &ComponentRef| -> Result<ComponentId, String> {
-        let matches: Vec<_> = gltf
-            .spawned_node_transforms
-            .iter()
-            .copied()
-            .filter(|id| match reference {
-                ComponentRef::Guid(guid) => world.component_id_by_guid(*guid) == Some(*id),
-                ComponentRef::Query(query) => world.component_matches_selector(*id, query),
-            })
-            .collect();
-        if matches.len() != 1 {
-            return Err(format!(
-                "finger selector {} matched {} avatar nodes (expected exactly one)",
-                component_ref_surface(reference),
-                matches.len()
-            ));
-        }
-        Ok(matches[0])
     };
-    let root = resolve(&finger[0])?;
-    let middle = resolve(&finger[1])?;
-    let tip = resolve(&finger[2])?;
-    if !is_descendant(world, middle, root) || !is_descendant(world, tip, middle) {
-        return Err("configured finger joints are not an ancestral root/middle/tip chain".into());
-    }
-    let middle_model = rest_model_relative(world, hand_bone, middle)
-        .ok_or("middle finger joint is not beneath the AVC hand bone")?;
-    let tip_model = rest_model_relative(world, hand_bone, tip)
-        .ok_or("tip finger joint is not beneath the AVC hand bone")?;
-    // Resolving the root is intentional even though the final segment alone
-    // determines the ray: it validates the complete configured chain.
-    rest_model_relative(world, hand_bone, root)
-        .ok_or("root finger joint is not beneath the AVC hand bone")?;
-    let middle_position = [middle_model[3][0], middle_model[3][1], middle_model[3][2]];
-    let tip_position = [tip_model[3][0], tip_model[3][1], tip_model[3][2]];
-    let final_segment = vec3_sub(tip_position, middle_position);
-    if vec3_len(final_segment) <= 1e-6 {
-        return Err("finger's final rest-space segment has zero length".into());
-    }
-    let direction = vec3_normalize(final_segment);
-    // The configured tip joint is the emission anchor. Extending by another
-    // complete joint segment places the ray visibly beyond the fingertip.
-    let rotation = shortest_arc_quat([0.0, 0.0, -1.0], direction);
     let mount = world.add_component_boxed_named(
         "xr_avatar_finger_laser_mount",
         Box::new(
             TransformComponent::new()
-                .with_position(tip_position[0], tip_position[1], tip_position[2])
-                .with_rotation_quat(rotation),
+                .with_position(basis.position[0], basis.position[1], basis.position[2])
+                .with_rotation_quat(basis.rotation),
         ),
     );
     let serialize = world.add_component(SerializeComponent::off());
@@ -247,80 +201,6 @@ fn avatar_finger_mount(
             .map_err(|_| "could not move pointer ray source to the fingertip mount")?;
     }
     Ok(Some(mount))
-}
-
-fn component_ref_surface(reference: &ComponentRef) -> String {
-    match reference {
-        ComponentRef::Guid(guid) => format!("@uuid:{guid}"),
-        ComponentRef::Query(query) => query.clone(),
-    }
-}
-
-fn find_descendant_gltf(world: &World, root: ComponentId) -> Option<ComponentId> {
-    let mut stack = vec![root];
-    while let Some(id) = stack.pop() {
-        if world.get_component_by_id_as::<GLTFComponent>(id).is_some() {
-            return Some(id);
-        }
-        stack.extend_from_slice(world.children_of(id));
-    }
-    None
-}
-
-fn is_descendant(world: &World, mut id: ComponentId, ancestor: ComponentId) -> bool {
-    for _ in 0..64 {
-        if id == ancestor {
-            return true;
-        }
-        let Some(parent) = world.parent_of(id) else {
-            return false;
-        };
-        id = parent;
-    }
-    false
-}
-
-fn rest_model_relative(
-    world: &World,
-    ancestor: ComponentId,
-    descendant: ComponentId,
-) -> Option<[[f32; 4]; 4]> {
-    let mut ids = Vec::new();
-    let mut current = Some(descendant);
-    while let Some(id) = current {
-        if id == ancestor {
-            ids.reverse();
-            return Some(ids.into_iter().fold(mat4_identity(), |model, id| {
-                let local = world
-                    .children_of(id)
-                    .iter()
-                    .find_map(|child| world.get_component_by_id_as::<BoneRestPoseComponent>(*child))
-                    .map(|rest| {
-                        let mut transform = Transform::default();
-                        transform.translation = rest.translation;
-                        transform.rotation = rest.rotation;
-                        transform.scale = rest.scale;
-                        transform.recompute_model();
-                        transform.model
-                    })
-                    .or_else(|| {
-                        world
-                            .get_component_by_id_as::<TransformComponent>(id)
-                            .map(|transform| transform.transform.model)
-                    })
-                    .unwrap_or_else(mat4_identity);
-                mat4_mul(model, local)
-            }));
-        }
-        if world
-            .get_component_by_id_as::<TransformComponent>(id)
-            .is_some()
-        {
-            ids.push(id);
-        }
-        current = world.parent_of(id);
-    }
-    None
 }
 
 impl PointerSystem {
@@ -541,7 +421,9 @@ fn controller_hand_index(world: &World, start: ComponentId) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::engine::ecs::CommandQueue;
-    use crate::engine::ecs::component::{ControllerHand, ControllerPoseKind};
+    use crate::engine::ecs::component::{
+        BoneRestPoseComponent, ControllerHand, ControllerPoseKind, GLTFComponent,
+    };
 
     #[test]
     fn controller_grip_edges_are_exposed_separately_from_trigger_edges() {
@@ -654,7 +536,7 @@ mod tests {
         }));
     }
 
-    fn assert_avatar_finger_mount(hand_side: ControllerHand) {
+    fn assert_avatar_finger_mount(hand_side: ControllerHand, direction: [f32; 3]) {
         let mut world = World::default();
         let avc = world.add_component(AvatarControlComponent::new());
         let model_root = world.add_component(TransformComponent::new());
@@ -663,15 +545,27 @@ mod tests {
             world.add_component_boxed_named("hand_bone", Box::new(TransformComponent::new()));
         let root = world.add_component_boxed_named(
             "middle_root",
-            Box::new(TransformComponent::new().with_position(0.1, 0.0, 0.0)),
+            Box::new(TransformComponent::new().with_position(
+                direction[0],
+                direction[1],
+                direction[2],
+            )),
         );
         let middle = world.add_component_boxed_named(
             "middle_joint",
-            Box::new(TransformComponent::new().with_position(0.1, 0.0, 0.0)),
+            Box::new(TransformComponent::new().with_position(
+                direction[0],
+                direction[1],
+                direction[2],
+            )),
         );
         let tip = world.add_component_boxed_named(
             "middle_tip",
-            Box::new(TransformComponent::new().with_position(0.1, 0.0, 0.0)),
+            Box::new(TransformComponent::new().with_position(
+                direction[0],
+                direction[1],
+                direction[2],
+            )),
         );
         world.add_child(avc, model_root).unwrap();
         world.add_child(model_root, gltf).unwrap();
@@ -681,9 +575,9 @@ mod tests {
         world.add_child(middle, tip).unwrap();
         for (bone, translation) in [
             (hand_bone, [0.0, 0.0, 0.0]),
-            (root, [0.1, 0.0, 0.0]),
-            (middle, [0.1, 0.0, 0.0]),
-            (tip, [0.1, 0.0, 0.0]),
+            (root, direction),
+            (middle, direction),
+            (tip, direction),
         ] {
             let rest = world.add_component(BoneRestPoseComponent::new(
                 translation,
@@ -701,7 +595,7 @@ mod tests {
         }
 
         let hand = world.add_component(
-            ControllerXRComponent::new(true, hand_side, ControllerPoseKind::Grip)
+            ControllerXRComponent::new(true, hand_side, ControllerPoseKind::GripAim)
                 .laser_from_avatar_finger(
                     ComponentRef::Query("#middle_root".into()),
                     ComponentRef::Query("#middle_joint".into()),
@@ -709,9 +603,17 @@ mod tests {
                 ),
         );
         let driver = world.add_component(TransformComponent::new());
-        let correction = world.add_component(
-            TransformComponent::new().with_rotation_quat([0.0, 0.0, 0.70710677, 0.70710677]),
-        );
+        let finger_basis =
+            crate::engine::ecs::system::avatar_hand_pose_basis::derive_avatar_hand_pose_basis(
+                &world,
+                hand_bone,
+                [root, middle, tip],
+                None,
+            )
+            .unwrap();
+        let correction_rotation = crate::utils::math::quat_conjugate(finger_basis.rotation);
+        let correction =
+            world.add_component(TransformComponent::new().with_rotation_quat(correction_rotation));
         let pointer = world.add_component(PointerComponent::new());
         world.add_child(avc, hand).unwrap();
         world.add_child(hand, driver).unwrap();
@@ -746,7 +648,11 @@ mod tests {
         let mount_transform = world
             .get_component_by_id_as::<TransformComponent>(mount)
             .unwrap();
-        assert!((mount_transform.transform.translation[0] - 0.3).abs() < 1e-5);
+        for axis in 0..3 {
+            assert!(
+                (mount_transform.transform.translation[axis] - 3.0 * direction[axis]).abs() < 1e-5
+            );
+        }
         assert!(world.children_of(mount).iter().any(|c| {
             world
                 .get_component_by_id_as::<SelectableComponent>(*c)
@@ -763,8 +669,14 @@ mod tests {
                 .unwrap()
                 .transform
                 .rotation,
-            [0.0, 0.0, 0.70710677, 0.70710677]
+            correction_rotation
         );
+        let final_rotation =
+            crate::utils::math::quat_mul(correction_rotation, mount_transform.transform.rotation);
+        let final_forward = crate::utils::math::quat_rotate_vec3(final_rotation, [0.0, 0.0, -1.0]);
+        for axis in 0..3 {
+            assert!((final_forward[axis] - [0.0, 0.0, -1.0][axis]).abs() < 1e-5);
+        }
         let laser = world
             .children_of(mount)
             .iter()
@@ -805,7 +717,7 @@ mod tests {
 
     #[test]
     fn avatar_finger_lasers_mount_both_hands_beneath_corrected_targets() {
-        assert_avatar_finger_mount(ControllerHand::Left);
-        assert_avatar_finger_mount(ControllerHand::Right);
+        assert_avatar_finger_mount(ControllerHand::Left, [1.0, 0.0, 0.0]);
+        assert_avatar_finger_mount(ControllerHand::Right, [0.0, 1.0, 0.0]);
     }
 }

@@ -4893,12 +4893,12 @@ fn roundtrip_xr_off() {
 #[test]
 fn roundtrip_xr_hand() {
     use crate::engine::ecs::component::{ControllerHand, ControllerPoseKind, XRHandComponent};
-    let original = XRHandComponent::new(true, ControllerHand::Right, ControllerPoseKind::Grip);
+    let original = XRHandComponent::new(true, ControllerHand::Right, ControllerPoseKind::GripAim);
     let (world, id) = roundtrip_component(original);
     let got = world.get_component_by_id_as::<XRHandComponent>(id).unwrap();
     assert!(got.enabled);
     assert_eq!(got.hand, ControllerHand::Right);
-    assert_eq!(got.pose, ControllerPoseKind::Grip);
+    assert_eq!(got.pose, ControllerPoseKind::GripAim);
 }
 
 #[test]
@@ -4919,7 +4919,7 @@ fn roundtrip_xr_hand_avatar_finger_laser() {
     use crate::engine::ecs::component::{
         ComponentRef, ControllerHand, ControllerPoseKind, XRHandComponent,
     };
-    let original = XRHandComponent::new(true, ControllerHand::Left, ControllerPoseKind::Grip)
+    let original = XRHandComponent::new(true, ControllerHand::Left, ControllerPoseKind::GripAim)
         .laser_from_avatar_finger(
             ComponentRef::Query("[name='root']".into()),
             ComponentRef::Query("[name='middle']".into()),
@@ -4934,6 +4934,27 @@ fn roundtrip_xr_hand_avatar_finger_laser() {
             if root == "[name='root']"
                 && middle == "[name='middle']"
                 && tip == "[name='tip']"
+    ));
+}
+
+#[test]
+fn roundtrip_xr_hand_avatar_hand_laser() {
+    use crate::engine::ecs::component::{
+        ComponentRef, ControllerHand, ControllerPoseKind, XRHandComponent,
+    };
+    let original = XRHandComponent::new(true, ControllerHand::Right, ControllerPoseKind::GripAim)
+        .laser_from_avatar_hand(
+            ComponentRef::Query("[name='root']".into()),
+            ComponentRef::Query("[name='middle']".into()),
+            ComponentRef::Query("[name='tip']".into()),
+            ComponentRef::Query("[name='thumb']".into()),
+        );
+    let (world, id) = roundtrip_component(original);
+    let got = world.get_component_by_id_as::<XRHandComponent>(id).unwrap();
+    assert!(got.laser);
+    assert!(matches!(
+        &got.avatar_hand_up,
+        Some(ComponentRef::Query(thumb)) if thumb == "[name='thumb']"
     ));
 }
 
