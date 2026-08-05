@@ -118,5 +118,6 @@ Useful validation poses are:
   switch occurs;
 - left and right hands together: both use little-to-index `+Y` without authored
   mirrored corrections;
-- controller actions becoming inactive: wrist/palm fallback applies identity
-  until articulated-hand basis retargeting is implemented.
+- controller actions becoming inactive: wrist/palm fallback synthesizes the same
+  middle-forward and little-to-index canonical basis from tracked joint positions,
+  then applies the retained avatar correction.

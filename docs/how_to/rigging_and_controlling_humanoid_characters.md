@@ -127,7 +127,7 @@ By default locomotion reads the left thumbstick when it is available, applies a 
 
 They serve different purposes and can be used together:
 
-- `XRHand` consumes a tracked controller or hand pose. Under `AVC`, `GripAim` hands prefer active, valid controller actions and use grip position with aim rotation; wrist/palm tracking takes over automatically when those actions are inactive or unavailable.
+- `XRHand` consumes a tracked controller or hand pose. Under `AVC`, `GripAim` hands prefer active, valid controller actions and use grip position with aim rotation. When wrist/palm tracking takes over, the engine derives the same canonical middle-forward and little-to-index basis from tracked joint positions before applying the avatar's retained correction.
 - `InputXRGamepad` consumes controller buttons and analog axes. With `locomotion()`, it moves the rig transform. It can also emit XR button and axis events to MMS handlers.
 - `InputXR` owns the HMD/controller input context. Both components must be descendants of the relevant `InputXR`.
 

@@ -197,17 +197,18 @@ This means the `VRHandComponent` acts like a pose source/driver node, and the ch
 The current hand-tracking path uses `XR_EXT_hand_tracking` as a raw joint input source, but reduces it to a single per-hand root pose for now.
 
 **Selection policy:**
-1. Use `WRIST` if position and orientation are both valid
-2. Otherwise use `PALM` if position and orientation are both valid
-3. Otherwise treat hand root as unavailable
+1. Use `WRIST` position when valid, otherwise `PALM` position
+2. Derive canonical `-Z` forward from `MIDDLE_PROXIMAL → MIDDLE_DISTAL`
+3. Derive canonical `+Y` up from `LITTLE_PROXIMAL → INDEX_PROXIMAL`
+4. Reject the root pose when those landmark positions are missing or degenerate
 
 **Important distinction:**
 - A controller `grip` pose is an interaction/runtime-defined holding pose
-- A hand `palm` or `wrist` pose is anatomical joint data from hand tracking
+- A hand `palm` or `wrist` position is anatomical joint data from hand tracking
 
-So current hand-root behavior is:
-- "Use a stable tracked hand-root-ish pose to drive a transform"
-- Not "pretend OpenXR hand tracking already gives a canonical grip pose"
+The runtime joint quaternion is not treated as a canonical Aim or Grip frame. The engine synthesizes
+the same two-axis canonical hand basis consumed by `JointRetargetBasis`, then AVC applies the
+avatar's retained target-rest correction.
 
 For per-finger/per-joint hand tracking, see `docs/spec/hand-tracking-armature.md`.
 

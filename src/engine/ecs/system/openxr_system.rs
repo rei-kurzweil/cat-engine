@@ -109,6 +109,74 @@ mod grip_aim_tests {
         assert_eq!(source, ControllerPoseSource::WristPalm);
         assert_eq!(selected.unwrap().position.x, 4.0);
     }
+
+    fn tracked_joint(position: [f32; 3], orientation: [f32; 4]) -> openxr::HandJointLocationEXT {
+        openxr::HandJointLocationEXT {
+            location_flags: openxr::SpaceLocationFlags::POSITION_VALID
+                | openxr::SpaceLocationFlags::ORIENTATION_VALID,
+            pose: openxr::Posef {
+                orientation: openxr::Quaternionf {
+                    x: orientation[0],
+                    y: orientation[1],
+                    z: orientation[2],
+                    w: orientation[3],
+                },
+                position: openxr::Vector3f {
+                    x: position[0],
+                    y: position[1],
+                    z: position[2],
+                },
+            },
+            radius: 0.01,
+        }
+    }
+
+    #[test]
+    fn hand_root_orientation_is_synthesized_in_the_shared_canonical_basis() {
+        let mut joints = [openxr::HandJointLocationEXT::default(); openxr::HAND_JOINT_COUNT];
+        let arbitrary_joint_orientation = [0.0, 0.70710677, 0.0, 0.70710677];
+        joints[openxr::HandJointEXT::WRIST] =
+            tracked_joint([3.0, 4.0, 5.0], arbitrary_joint_orientation);
+        joints[openxr::HandJointEXT::MIDDLE_PROXIMAL] =
+            tracked_joint([0.0, 0.0, 0.0], arbitrary_joint_orientation);
+        joints[openxr::HandJointEXT::MIDDLE_DISTAL] =
+            tracked_joint([0.0, 0.0, -1.0], arbitrary_joint_orientation);
+        joints[openxr::HandJointEXT::LITTLE_PROXIMAL] =
+            tracked_joint([-1.0, 0.0, 0.0], arbitrary_joint_orientation);
+        joints[openxr::HandJointEXT::INDEX_PROXIMAL] =
+            tracked_joint([1.0, 0.0, 0.0], arbitrary_joint_orientation);
+
+        let (pose, root) = OpenXRSystem::select_hand_root_pose(&joints).unwrap();
+        assert_eq!(root, openxr::HandJointEXT::WRIST);
+        assert_eq!(
+            [pose.position.x, pose.position.y, pose.position.z],
+            [3.0, 4.0, 5.0]
+        );
+        let q = [
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        ];
+        let forward = math::quat_rotate_vec3(q, [0.0, 0.0, -1.0]);
+        let up = math::quat_rotate_vec3(q, [0.0, 1.0, 0.0]);
+        assert!(math::vec3_dot(forward, [0.0, 0.0, -1.0]) > 0.9999);
+        assert!(math::vec3_dot(up, [1.0, 0.0, 0.0]) > 0.9999);
+
+        joints[openxr::HandJointEXT::WRIST] = openxr::HandJointLocationEXT::default();
+        joints[openxr::HandJointEXT::PALM] =
+            tracked_joint([6.0, 7.0, 8.0], arbitrary_joint_orientation);
+        let (pose, root) = OpenXRSystem::select_hand_root_pose(&joints).unwrap();
+        assert_eq!(root, openxr::HandJointEXT::PALM);
+        assert_eq!(
+            [pose.position.x, pose.position.y, pose.position.z],
+            [6.0, 7.0, 8.0]
+        );
+
+        joints[openxr::HandJointEXT::MIDDLE_DISTAL] =
+            joints[openxr::HandJointEXT::MIDDLE_PROXIMAL];
+        assert!(OpenXRSystem::select_hand_root_pose(&joints).is_none());
+    }
 }
 
 fn log_xr_gamepad_changes(prev: XrGamepadState, next: XrGamepadState) {
@@ -2051,16 +2119,82 @@ impl OpenXRSystem {
         }
     }
 
+    fn valid_position_from_hand_joint(joint: &openxr::HandJointLocationEXT) -> Option<[f32; 3]> {
+        joint
+            .location_flags
+            .contains(openxr::SpaceLocationFlags::POSITION_VALID)
+            .then_some([
+                joint.pose.position.x,
+                joint.pose.position.y,
+                joint.pose.position.z,
+            ])
+            .filter(|position| position.iter().all(|value| value.is_finite()))
+    }
+
+    fn canonical_hand_orientation(
+        joints: &openxr::HandJointLocations,
+    ) -> Option<openxr::Quaternionf> {
+        let position = |joint| Self::valid_position_from_hand_joint(&joints[joint]);
+        let forward_raw = math::vec3_sub(
+            position(openxr::HandJointEXT::MIDDLE_DISTAL)?,
+            position(openxr::HandJointEXT::MIDDLE_PROXIMAL)?,
+        );
+        if math::vec3_len(forward_raw) <= 1e-6 {
+            return None;
+        }
+        let forward = math::vec3_normalize(forward_raw);
+        let up_raw = math::vec3_sub(
+            position(openxr::HandJointEXT::INDEX_PROXIMAL)?,
+            position(openxr::HandJointEXT::LITTLE_PROXIMAL)?,
+        );
+        if math::vec3_len(up_raw) <= 1e-6 {
+            return None;
+        }
+        let projected_up = math::vec3_sub(
+            up_raw,
+            math::vec3_scale(forward, math::vec3_dot(up_raw, forward)),
+        );
+        if math::vec3_len(projected_up) <= 1e-6 {
+            return None;
+        }
+        let up = math::vec3_normalize(projected_up);
+        let z = math::vec3_scale(forward, -1.0);
+        let right = math::vec3_normalize(math::vec3_cross(up, z));
+        let up = math::vec3_normalize(math::vec3_cross(z, right));
+        let q = math::mat_to_quat([
+            [right[0], right[1], right[2], 0.0],
+            [up[0], up[1], up[2], 0.0],
+            [z[0], z[1], z[2], 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]);
+        Some(openxr::Quaternionf {
+            x: q[0],
+            y: q[1],
+            z: q[2],
+            w: q[3],
+        })
+    }
+
     fn select_hand_root_pose(
         joints: &openxr::HandJointLocations,
     ) -> Option<(openxr::Posef, openxr::HandJointEXT)> {
-        let wrist = &joints[openxr::HandJointEXT::WRIST];
-        if let Some(pose) = Self::valid_pose_from_hand_joint(wrist) {
-            return Some((pose, openxr::HandJointEXT::WRIST));
+        let orientation = Self::canonical_hand_orientation(joints)?;
+        for joint in [openxr::HandJointEXT::WRIST, openxr::HandJointEXT::PALM] {
+            if let Some(position) = Self::valid_position_from_hand_joint(&joints[joint]) {
+                return Some((
+                    openxr::Posef {
+                        orientation,
+                        position: openxr::Vector3f {
+                            x: position[0],
+                            y: position[1],
+                            z: position[2],
+                        },
+                    },
+                    joint,
+                ));
+            }
         }
-
-        let palm = &joints[openxr::HandJointEXT::PALM];
-        Self::valid_pose_from_hand_joint(palm).map(|pose| (pose, openxr::HandJointEXT::PALM))
+        None
     }
 
     fn wrist_palm_delta_deg(joints: &openxr::HandJointLocations) -> Option<u16> {

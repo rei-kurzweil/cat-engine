@@ -1096,7 +1096,13 @@ fn update_hand_pose_corrections(
         let source = controller
             .map(|controller| controller.active_pose_source)
             .unwrap_or(ControllerPoseSource::None);
-        let applied = if source == ControllerPoseSource::ControllerGripAim {
+        let uses_canonical_hand_basis = matches!(
+            source,
+            ControllerPoseSource::ControllerAim
+                | ControllerPoseSource::ControllerGripAim
+                | ControllerPoseSource::WristPalm
+        );
+        let applied = if uses_canonical_hand_basis {
             correction.unwrap_or([0.0, 0.0, 0.0, 1.0])
         } else {
             [0.0, 0.0, 0.0, 1.0]
@@ -1133,17 +1139,22 @@ fn log_hand_alignment(
         _ => None,
     };
     let mount = correction.map(quat_conjugate);
-    let predicted = if source == ControllerPoseSource::ControllerGripAim {
+    let predicted = if matches!(
+        source,
+        ControllerPoseSource::ControllerAim
+            | ControllerPoseSource::ControllerGripAim
+            | ControllerPoseSource::WristPalm
+    ) {
         mount.map(|mount| quat_to_axis_angle(quat_mul(applied, mount)))
     } else {
         None
     };
-    let calibration = if source == ControllerPoseSource::WristPalm {
-        "identity/unretargeted"
-    } else if source == ControllerPoseSource::ControllerGripAim {
-        "aim-calibrated"
-    } else {
-        "identity"
+    let calibration = match source {
+        ControllerPoseSource::WristPalm => "synthesized-hand-calibrated",
+        ControllerPoseSource::ControllerAim | ControllerPoseSource::ControllerGripAim => {
+            "aim-calibrated"
+        }
+        _ => "identity",
     };
     eprintln!(
         "[AVC][hand-alignment] avc={avc_id:?} hand={hand:?} aim_valid={} grip_valid={} aim_q={aim:?} grip_q={grip:?} source={source:?} mode={calibration} avatar_basis={basis_mode} grip_to_aim_axis_angle={grip_to_aim:?} canonical_to_hand_q={mount:?} applied_correction_q={applied:?} final_basis_to_aim_axis_angle={predicted:?}",
@@ -1313,9 +1324,11 @@ mod hand_pose_correction_tests {
         let mut emitted = RecordingEmitter::default();
         for (source, expected_rotation) in [
             (ControllerPoseSource::ControllerGripAim, correction),
-            (ControllerPoseSource::WristPalm, [0.0, 0.0, 0.0, 1.0]),
+            (ControllerPoseSource::WristPalm, correction),
+            (ControllerPoseSource::ControllerAim, correction),
             (ControllerPoseSource::ControllerGripAim, correction),
             (ControllerPoseSource::None, [0.0, 0.0, 0.0, 1.0]),
+            (ControllerPoseSource::WristPalm, correction),
         ] {
             world
                 .get_component_by_id_as_mut::<ControllerXRComponent>(controller_id)
@@ -1330,12 +1343,7 @@ mod hand_pose_correction_tests {
         }
         assert_eq!(
             emitted.0,
-            vec![
-                correction,
-                [0.0, 0.0, 0.0, 1.0],
-                correction,
-                [0.0, 0.0, 0.0, 1.0],
-            ]
+            vec![correction, [0.0, 0.0, 0.0, 1.0], correction,]
         );
     }
 

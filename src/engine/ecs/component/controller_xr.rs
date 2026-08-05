@@ -34,6 +34,8 @@ impl Default for ControllerPoseKind {
 pub enum ControllerPoseSource {
     #[default]
     None,
+    /// Wrist/palm position with orientation synthesized from tracked hand landmarks in the
+    /// engine's canonical hand basis.
     WristPalm,
     ControllerAim,
     ControllerGrip,

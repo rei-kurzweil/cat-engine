@@ -1,5 +1,6 @@
 use crate::engine::ecs::component::{
     BoneRestPoseComponent, ComponentRef, GLTFComponent, JointRetargetBasisComponent,
+    TransformComponent,
 };
 use crate::engine::ecs::{
     ComponentId, EventSignal, IntentValue, RxWorld, Signal, SignalEmitter, SignalKind, World,
@@ -508,15 +509,38 @@ fn rest_local(world: &World, id: ComponentId) -> Result<[[f32; 4]; 4], String> {
     Ok(transform.model)
 }
 
-fn rest_model_from_owner(
+fn imported_rest_space_root(world: &World, owner: ComponentId, member: ComponentId) -> ComponentId {
+    let mut member_ancestor = world.parent_of(member);
+    while let Some(node) = member_ancestor {
+        if node == owner {
+            return owner;
+        }
+        member_ancestor = world.parent_of(node);
+    }
+
+    let mut current = world.parent_of(owner);
+    while let Some(node) = current {
+        if world
+            .get_component_by_id_as::<TransformComponent>(node)
+            .is_some()
+        {
+            return node;
+        }
+        current = world.parent_of(node);
+    }
+    // Hand-built armatures may place joints directly below GLTF without a transform host.
+    owner
+}
+
+fn rest_model_from_root(
     world: &World,
-    owner: ComponentId,
+    root: ComponentId,
     id: ComponentId,
 ) -> Result<[[f32; 4]; 4], String> {
     let mut chain = Vec::new();
     let mut current = Some(id);
     while let Some(node) = current {
-        if node == owner {
+        if node == root {
             chain.reverse();
             return chain.into_iter().try_fold(mat4_identity(), |model, joint| {
                 Ok(mat4_mul(model, rest_local(world, joint)?))
@@ -525,7 +549,7 @@ fn rest_model_from_owner(
         chain.push(node);
         current = world.parent_of(node);
     }
-    Err("joint is not beneath its owning GLTF".into())
+    Err("joint is not beneath the owning GLTF's rest-space root".into())
 }
 
 fn compute_basis(
@@ -545,10 +569,11 @@ fn compute_basis(
     {
         return Err("definition contains a joint outside the owning GLTF armature".into());
     }
-    let target_model = rest_model_from_owner(world, owner, definition.target)?;
+    let rest_root = imported_rest_space_root(world, owner, definition.target);
+    let target_model = rest_model_from_root(world, rest_root, definition.target)?;
     let target_inverse = mat4_inverse(target_model).ok_or("target rest transform is singular")?;
     let position = |joint| -> Result<[f32; 3], String> {
-        let model = rest_model_from_owner(world, owner, joint)?;
+        let model = rest_model_from_root(world, rest_root, joint)?;
         let p = mat4_mul_vec4(target_inverse, [model[3][0], model[3][1], model[3][2], 1.0]);
         if !p.iter().all(|v| v.is_finite()) {
             return Err("rest landmark produced a non-finite position".into());
@@ -613,7 +638,9 @@ fn gltf_initialized_handler(_world: &mut World, emit: &mut dyn SignalEmitter, si
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ecs::component::TransformComponent;
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::system::{GLTFSystem, SkinnedMeshSystem};
+    use crate::engine::graphics::VisualWorld;
     use crate::utils::math::mat4_mul_vec4;
 
     struct Fixture {
@@ -672,6 +699,60 @@ mod tests {
                 end: f.up_end,
             },
         }
+    }
+
+    #[test]
+    fn imported_bisket_definition_publishes_from_the_gltf_transform_host() {
+        let mut world = World::default();
+        let anchor = world.add_component(TransformComponent::new());
+        let gltf = world.add_component(GLTFComponent::new("assets/models/bisket.glb"));
+        world.add_child(anchor, gltf).unwrap();
+        let source = world.add_component(JointRetargetBasisComponent::new(
+            ComponentRef::Query("#J_Bip_L_Hand".into()),
+            ComponentRef::Query("#J_Bip_L_Middle1".into()),
+            ComponentRef::Query("#J_Bip_L_Middle3".into()),
+            ComponentRef::Query("#J_Bip_L_Little1".into()),
+            ComponentRef::Query("#J_Bip_L_Index1".into()),
+        ));
+        world.add_child(gltf, source).unwrap();
+
+        let mut system = JointBasisRetargetingSystem::default();
+        system.register_component(&world, source);
+        assert_eq!(
+            system.status_for_source(source),
+            Some(RetargetBasisStatus::WaitingForGltf)
+        );
+
+        let mut gltf_system = GLTFSystem::new();
+        gltf_system.register_component(gltf);
+        let mut visuals = VisualWorld::default();
+        let mut skinned_mesh = SkinnedMeshSystem::new();
+        let mut queue = CommandQueue::new();
+        gltf_system.tick_with_queue(&mut world, &mut visuals, &mut skinned_mesh, &mut queue, 0.0);
+        system.gltf_initialized(&world, gltf);
+
+        assert_eq!(
+            system.status_for_source(source),
+            Some(RetargetBasisStatus::Ready)
+        );
+        let hand = world
+            .find_component(anchor, "#J_Bip_L_Hand")
+            .expect("Bisket left hand joint");
+        let basis = system.basis_for(hand).expect("ready Bisket hand basis");
+        let forward = mat4_mul_vec4(
+            basis.target_rest_to_canonical,
+            [basis.forward[0], basis.forward[1], basis.forward[2], 0.0],
+        );
+        let up = mat4_mul_vec4(
+            basis.target_rest_to_canonical,
+            [basis.up[0], basis.up[1], basis.up[2], 0.0],
+        );
+        assert!(forward[0].abs() < 1e-4);
+        assert!(forward[1].abs() < 1e-4);
+        assert!((forward[2] + 1.0).abs() < 1e-4);
+        assert!(up[0].abs() < 1e-4);
+        assert!((up[1] - 1.0).abs() < 1e-4);
+        assert!(up[2].abs() < 1e-4);
     }
 
     #[test]

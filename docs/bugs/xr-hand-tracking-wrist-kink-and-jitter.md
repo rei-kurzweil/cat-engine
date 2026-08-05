@@ -2,7 +2,7 @@
 
 ## Status
 
-Open bug / investigation note.
+Partially mitigated; runtime validation and forearm-twist work remain open.
 
 Focused follow-up task:
 
@@ -54,29 +54,26 @@ Observed behavior:
 The current engine hand-tracking path does **not** yet use full per-finger/per-joint armature
 driving. It reduces hand tracking to a single per-hand root pose.
 
-Current root-pose selection in
+Current root-pose construction in
 [src/engine/ecs/system/openxr_system.rs](../../src/engine/ecs/system/openxr_system.rs):
 
-- prefer `WRIST`
-- fall back to `PALM`
+- prefer `WRIST` position and fall back to `PALM` position
+- synthesize orientation from middle-finger forward and little-to-index across the palm
+- pass that canonical frame through the same retained avatar-basis correction as controller Aim
 
 That means the visible hand-tracked `CTLXR` result is currently driven by a simplified root pose,
-not by a stabilized full skeletal hand solve.
+not by a stabilized full skeletal hand solve. This removes dependence on runtime-specific wrist
+joint quaternion axes, but it does not distribute forearm twist or provide temporal filtering.
 
 ## Why this may be happening
 
 Likely contributors include:
 
-- the current wrist-first hand-root reduction may not provide a stable or semantically correct
-  orientation for authored avatar wrist targets
+- tracked landmark positions may still require temporal filtering before basis construction
 - the engine may need smoothing/filtering for hand-tracked orientation before applying it to the
   avatar
-- the current AVC builder/wrist rotation defaults may make the neutral pose look correct while
-  still being wrong for pronation/supination extremes
 - the forearm may need to participate in the rotation chain more explicitly instead of treating the
   hand target as an isolated endpoint
-- the chosen root joint (`WRIST` vs `PALM`) may be the wrong orientation source for avatar wrist
-  semantics
 
 ## Investigation targets
 
