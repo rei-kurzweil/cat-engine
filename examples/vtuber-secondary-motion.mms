@@ -66,13 +66,17 @@ ED {
                     }
 
                     XRHand.new(true, Left, GripAim).laser() {
-                        RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
-                            T { Pointer {} }
+                        T {
+                            RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+                                Pointer {}
+                            }
                         }
                     }
                     XRHand.new(true, Right, GripAim).laser() {
-                        RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
-                            T { Pointer {} }
+                        T {
+                            RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
+                                Pointer {}
+                            }
                         }
                     }
                 }

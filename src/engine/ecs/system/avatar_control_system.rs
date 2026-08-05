@@ -11,10 +11,10 @@ use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule
 use crate::engine::ecs::system::input_xr_gamepad_system::xr_locomotion_target_transform;
 use crate::engine::ecs::system::{JointBasisRetargetingSystem, RetargetBasisStatus};
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
-use crate::engine::graphics::{RenderAssets, primitives::Transform};
+use crate::engine::graphics::{primitives::Transform, RenderAssets};
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
-    mat_to_quat, mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3,
+    mat4_identity, mat4_mul, mat_to_quat, quat_conjugate, quat_mul, quat_rotate_vec3,
     quat_rotation_y, quat_to_axis_angle,
 };
 use std::collections::HashSet;
@@ -992,16 +992,11 @@ fn resolve_hand_splice(
     let bone_parent = world.parent_of(bone)?;
 
     let driver = if let Some(ctrl) = controller {
-        world
-            .children_of(ctrl)
-            .iter()
-            .copied()
-            .find(|&ch| {
-                world
-                    .get_component_by_id_as::<TransformComponent>(ch)
-                    .is_some()
-            })
-            .unwrap_or_else(|| world.add_component(TransformComponent::new()))
+        world.children_of(ctrl).iter().copied().find(|&ch| {
+            world
+                .get_component_by_id_as::<TransformComponent>(ch)
+                .is_some()
+        })?
     } else {
         world.add_component(TransformComponent::new())
     };
@@ -1273,6 +1268,7 @@ fn rest_model_relative_to(
 #[cfg(test)]
 mod hand_pose_correction_tests {
     use super::*;
+    use crate::engine::ecs::component::{ComponentRef, RestAttachmentComponent};
     use crate::engine::ecs::{EventSignal, IntentSignal};
 
     #[derive(Default)]
@@ -1342,14 +1338,73 @@ mod hand_pose_correction_tests {
             ]
         );
     }
+
+    #[test]
+    fn rest_attachment_keeps_the_tracked_transform_as_xr_hand_direct_child() {
+        let mut world = World::default();
+        let model_root = world.add_component(TransformComponent::new());
+        let bone_parent = world.add_component(TransformComponent::new());
+        let bone = world.add_component_boxed_named("hand", Box::new(TransformComponent::new()));
+        world.add_child(model_root, bone_parent).unwrap();
+        world.add_child(bone_parent, bone).unwrap();
+
+        let controller = world.add_component(ControllerXRComponent::new(
+            true,
+            ControllerHand::Left,
+            crate::engine::ecs::component::ControllerPoseKind::GripAim,
+        ));
+        let tracked = world.add_component(TransformComponent::new());
+        let attachment = world.add_component(RestAttachmentComponent::new(
+            ComponentRef::Query("#hand".into()),
+            ComponentRef::Query("#tip".into()),
+        ));
+        let pointer = world.add_component(crate::engine::ecs::component::PointerComponent::new());
+        world.add_child(controller, tracked).unwrap();
+        world.add_child(tracked, attachment).unwrap();
+        world.add_child(attachment, pointer).unwrap();
+
+        let (_, raw_driver, _, resolved_bone) =
+            resolve_hand_splice(&mut world, model_root, Some("hand"), Some(controller), None)
+                .expect("valid XR hand topology");
+        assert_eq!(raw_driver, tracked);
+        assert_eq!(resolved_bone, bone);
+        assert_eq!(world.parent_of(tracked), Some(controller));
+    }
+
+    #[test]
+    fn missing_direct_tracked_transform_does_not_create_an_origin_target() {
+        let mut world = World::default();
+        let model_root = world.add_component(TransformComponent::new());
+        let bone_parent = world.add_component(TransformComponent::new());
+        let bone = world.add_component_boxed_named("hand", Box::new(TransformComponent::new()));
+        world.add_child(model_root, bone_parent).unwrap();
+        world.add_child(bone_parent, bone).unwrap();
+        let controller = world.add_component(ControllerXRComponent::new(
+            true,
+            ControllerHand::Left,
+            crate::engine::ecs::component::ControllerPoseKind::GripAim,
+        ));
+        let wrapper = world.add_component(RestAttachmentComponent::new(
+            ComponentRef::Query("#hand".into()),
+            ComponentRef::Query("#tip".into()),
+        ));
+        let nested = world.add_component(TransformComponent::new());
+        world.add_child(controller, wrapper).unwrap();
+        world.add_child(wrapper, nested).unwrap();
+
+        assert!(
+            resolve_hand_splice(&mut world, model_root, Some("hand"), Some(controller), None)
+                .is_none()
+        );
+    }
 }
 
 #[cfg(test)]
 mod capsule_tests {
     use super::*;
-    use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::component::{CollisionShape, MeshComponent, RenderableComponent};
     use crate::engine::ecs::system::TransformStreamSystem;
+    use crate::engine::ecs::CommandQueue;
     use crate::engine::graphics::mesh::MeshFactory;
 
     fn attach(world: &mut World, parent: ComponentId, child: ComponentId) {
@@ -1476,13 +1531,11 @@ mod capsule_tests {
         let model = disabled_world.add_component(TransformComponent::new());
         attach(&mut disabled_world, avc, model);
         try_init_or_route_capsule(avc, &mut disabled_world, &assets, &mut queue);
-        assert!(
-            disabled_world
-                .get_component_by_id_as::<AvatarControlComponent>(avc)
-                .unwrap()
-                .capsule_transform_id
-                .is_none()
-        );
+        assert!(disabled_world
+            .get_component_by_id_as::<AvatarControlComponent>(avc)
+            .unwrap()
+            .capsule_transform_id
+            .is_none());
 
         let mut world = World::default();
         let avc = world.add_component(AvatarControlComponent::new().with_avatar_height(1.4));
@@ -1491,25 +1544,21 @@ mod capsule_tests {
         attach(&mut world, avc, model);
         attach(&mut world, model, gltf);
         try_init_or_route_capsule(avc, &mut world, &assets, &mut queue);
-        assert!(
-            world
-                .get_component_by_id_as::<AvatarControlComponent>(avc)
-                .unwrap()
-                .capsule_transform_id
-                .is_none()
-        );
+        assert!(world
+            .get_component_by_id_as::<AvatarControlComponent>(avc)
+            .unwrap()
+            .capsule_transform_id
+            .is_none());
         world
             .get_component_by_id_as_mut::<GLTFComponent>(gltf)
             .unwrap()
             .spawned = true;
         try_init_or_route_capsule(avc, &mut world, &assets, &mut queue);
-        assert!(
-            world
-                .get_component_by_id_as::<AvatarControlComponent>(avc)
-                .unwrap()
-                .capsule_transform_id
-                .is_some()
-        );
+        assert!(world
+            .get_component_by_id_as::<AvatarControlComponent>(avc)
+            .unwrap()
+            .capsule_transform_id
+            .is_some());
     }
 
     #[test]

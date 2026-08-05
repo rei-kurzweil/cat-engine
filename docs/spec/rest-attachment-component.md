@@ -5,14 +5,20 @@ retargeting:
 
 ```mms
 XRHand.new(true, Left, GripAim).laser() {
-  RestAttachment.new(
-    "[name='J_Bip_L_Hand']",
-    "[name='J_Bip_L_Middle3']"
-  ) {
-    T { Pointer {} }
+  T {
+    RestAttachment.new(
+      "[name='J_Bip_L_Hand']",
+      "[name='J_Bip_L_Middle3']"
+    ) {
+      Pointer {}
+    }
   }
 }
 ```
+
+The driven `T` must remain the direct child of `XRHand`; OpenXR and AVC use that topology as the
+tracked pose target. `RestAttachment` wraps pointer content beneath the driven transform and must
+not be inserted between `XRHand` and that transform.
 
 The first reference is the rest-space anchor and the second is the attachment target. Both accept
 MMQ selectors or `@uuid:` references and round-trip in the same two-argument expression.

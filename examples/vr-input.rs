@@ -4,16 +4,16 @@ use mittens_engine::engine::ecs::component::{
     ControllerHand, ControllerPoseKind, ControllerXRComponent, DirectionalLightComponent,
     EditorComponent, EmissiveComponent, EmissivePassComponent, GLTFComponent, InputComponent,
     InputTransformModeComponent, InputXRComponent, JointRetargetBasisComponent, PointerComponent,
-    QuatTemporalFilterComponent, RestAttachmentComponent,
-    RaycastableComponent, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RendererStatsComponent, SecondaryMotionComponent, SpringBoneComponent, SpringColliderComponent,
+    QuatTemporalFilterComponent, RaycastableComponent, RenderGraphComponent, RenderableComponent,
+    RendererSettingsComponent, RendererStatsComponent, RestAttachmentComponent,
+    SecondaryMotionComponent, SpringBoneComponent, SpringColliderComponent,
     SpringCollidersComponent, TransformComponent, TransformForkTRSComponent,
     TransformMapRotationComponent, TransformMapScaleComponent, TransformMapTranslationComponent,
     XrComponent,
 };
+use mittens_engine::engine::graphics::primitives::{MaterialHandle, Renderable};
 use mittens_engine::engine::graphics::BuiltinMeshType;
 use mittens_engine::engine::graphics::CameraTarget;
-use mittens_engine::engine::graphics::primitives::{MaterialHandle, Renderable};
 use mittens_engine::{engine, utils};
 
 #[path = "example_util/mod.rs"]
@@ -491,10 +491,10 @@ fn main() {
         component_query("J_Bip_L_Middle3"),
     ));
     let left_grip_t = universe.world.add_component(TransformComponent::new());
-    let _ = universe.attach(left_grip, left_attachment);
-    let _ = universe.attach(left_attachment, left_grip_t);
+    let _ = universe.attach(left_grip, left_grip_t);
+    let _ = universe.attach(left_grip_t, left_attachment);
     let left_pointer = universe.world.add_component(PointerComponent::new());
-    let _ = universe.attach(left_grip_t, left_pointer);
+    let _ = universe.attach(left_attachment, left_pointer);
     let _ = universe.attach(avatar_control, left_grip);
 
     let right_grip = universe.world.add_component(
@@ -506,10 +506,10 @@ fn main() {
         component_query("J_Bip_R_Middle3"),
     ));
     let right_grip_t = universe.world.add_component(TransformComponent::new());
-    let _ = universe.attach(right_grip, right_attachment);
-    let _ = universe.attach(right_attachment, right_grip_t);
+    let _ = universe.attach(right_grip, right_grip_t);
+    let _ = universe.attach(right_grip_t, right_attachment);
     let right_pointer = universe.world.add_component(PointerComponent::new());
-    let _ = universe.attach(right_grip_t, right_pointer);
+    let _ = universe.attach(right_attachment, right_pointer);
     let _ = universe.attach(avatar_control, right_grip);
 
     // model_root: no explicit Y offset — AvatarControlSystem calibrates it from J_Bip_C_Head.

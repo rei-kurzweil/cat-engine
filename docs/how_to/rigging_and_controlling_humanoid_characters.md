@@ -146,8 +146,10 @@ GLTF.new("avatar.glb") {
 }
 
 XRHand.new(true, Left, GripAim).laser() {
-    RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
-        T { Pointer {} }
+    T {
+        RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+            Pointer {}
+        }
     }
 }
 ```
@@ -156,6 +158,8 @@ AVC and PointerSystem both query the retained basis for the resolved hand joint.
 computes only the fingertip origin from immutable rest data. Missing, invalid, or conflicting
 bases remain visible and do not fall back to inferred XR landmark geometry. Wrist/palm takeover
 currently uses identity correction until articulated-hand retargeting has its own basis path.
+Keep the driven `T` directly beneath `XRHand`; wrapping that transform in `RestAttachment` prevents
+OpenXR and AVC from finding the tracked target.
 
 For a seated experience, omit `InputXRGamepad` or disable locomotion. For head tracking without avatar arms, omit `XRHand`. `XR.on()` is still required to initialize the OpenXR runtime.
 

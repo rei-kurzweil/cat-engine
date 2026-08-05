@@ -458,12 +458,12 @@ fn controller_hand_index(world: &World, start: ComponentId) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::component::{
         BoneRestPoseComponent, ComponentRef, ControllerHand, ControllerPoseKind, GLTFComponent,
         RestAttachmentComponent,
     };
     use crate::engine::ecs::system::{LandmarkDirection, RetargetBasisDefinition};
+    use crate::engine::ecs::CommandQueue;
 
     #[test]
     fn controller_grip_edges_are_exposed_separately_from_trigger_edges() {
@@ -681,10 +681,10 @@ mod tests {
             world.add_component(TransformComponent::new().with_rotation_quat(correction_rotation));
         let pointer = world.add_component(PointerComponent::new());
         world.add_child(avc, hand).unwrap();
-        world.add_child(hand, attachment).unwrap();
-        world.add_child(attachment, driver).unwrap();
+        world.add_child(hand, driver).unwrap();
+        world.add_child(driver, attachment).unwrap();
         world.add_child(driver, correction).unwrap();
-        world.add_child(driver, pointer).unwrap();
+        world.add_child(attachment, pointer).unwrap();
         {
             let component = world
                 .get_component_by_id_as_mut::<AvatarControlComponent>(avc)

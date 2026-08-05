@@ -76,16 +76,17 @@ behavior.
 Design and implement a generic way to attach runtime or authored content to an imported transform
 using immutable rest data. The API should not mention XR, hands, fingers, or lasers.
 
-Possible surface shapes include a component such as:
+The chosen surface keeps the pose-driver transform directly beneath its source:
 
 ```mms
-RestAttachment.new("#J_Bip_L_Middle3") {
-  Pointer.new()
+XRHand.new(true, Left, GripAim).laser() {
+  T {
+    RestAttachment.new("#J_Bip_L_Hand", "#J_Bip_L_Middle3") {
+      Pointer.new()
+    }
+  }
 }
 ```
-
-or an equivalent explicit attachment configuration on `Pointer`. Choose the form that composes
-best with existing transform and pose-driver topology.
 
 The attachment contract must specify:
 
