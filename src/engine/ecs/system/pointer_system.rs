@@ -1,10 +1,10 @@
 use crate::engine::ecs::component::{
-    AvatarControlComponent, ColorComponent, ComponentRef, ControllerHand, ControllerXRComponent,
+    AvatarControlComponent, ColorComponent, ControllerHand, ControllerXRComponent,
     EmissiveComponent, InputComponent, InputXRComponent, OpacityComponent, PointerComponent,
-    RayCastComponent, RenderableComponent, SelectableComponent, SerializeComponent,
-    TransformComponent,
+    RayCastComponent, RenderableComponent, RestAttachmentComponent, SelectableComponent,
+    SerializeComponent, TransformComponent,
 };
-use crate::engine::ecs::system::avatar_hand_pose_basis::resolve_avatar_hand_pose_basis;
+use crate::engine::ecs::system::rest_attachment::{find_descendant_gltf, resolve_rest_attachment};
 use crate::engine::ecs::system::{JointBasisRetargetingSystem, RetargetBasisStatus, XrInputState};
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 use crate::engine::user_input::InputState;
@@ -37,12 +37,16 @@ pub fn ensure_xr_hand_laser(
     if !config.enabled || !config.laser {
         return;
     }
-    let avatar_finger = config.avatar_finger.clone();
-    let avatar_hand_up = config.avatar_hand_up.clone();
-    let avatar_palm_width = config.avatar_palm_width.clone();
     let mut stack = world.children_of(hand).to_vec();
     let mut pointer = None;
+    let mut attachment = None;
     while let Some(node) = stack.pop() {
+        if world
+            .get_component_by_id_as::<RestAttachmentComponent>(node)
+            .is_some()
+        {
+            attachment = Some(node);
+        }
         if world
             .get_component_by_id_as::<PointerComponent>(node)
             .is_some()
@@ -65,16 +69,8 @@ pub fn ensure_xr_hand_laser(
     let Some(mut driver) = legacy_driver else {
         return;
     };
-    if let Some(finger) = avatar_finger {
-        match avatar_finger_mount(
-            world,
-            retargeting,
-            hand,
-            pointer,
-            &finger,
-            avatar_hand_up.as_ref(),
-            avatar_palm_width.as_ref(),
-        ) {
+    if let Some(attachment) = attachment {
+        match rest_attachment_mount(world, retargeting, hand, pointer, attachment) {
             Ok(Some(mount)) => driver = mount,
             Ok(None) => return, // AVC/GLTF initialization is still in flight.
             Err(message) => {
@@ -82,15 +78,14 @@ pub fn ensure_xr_hand_laser(
                     .get_component_by_id_as::<ControllerXRComponent>(hand)
                     .is_some_and(|component| !component.avatar_laser_warned);
                 if warn {
-                    eprintln!(
-                        "[XRHand] avatar-finger laser for {hand:?} could not bind: {message}; falling back to controller-space laser"
-                    );
+                    eprintln!("[XRHand] rest attachment for {hand:?} could not bind: {message}");
                     if let Some(component) =
                         world.get_component_by_id_as_mut::<ControllerXRComponent>(hand)
                     {
                         component.avatar_laser_warned = true;
                     }
                 }
+                return;
             }
         }
     }
@@ -133,14 +128,12 @@ pub fn ensure_xr_hand_laser(
     }
 }
 
-fn avatar_finger_mount(
+fn rest_attachment_mount(
     world: &mut World,
     retargeting: &mut JointBasisRetargetingSystem,
     hand: ComponentId,
     pointer: Option<ComponentId>,
-    finger: &[ComponentRef; 3],
-    hand_up: Option<&ComponentRef>,
-    palm_width: Option<&[ComponentRef; 2]>,
+    attachment_id: ComponentId,
 ) -> Result<Option<ComponentId>, String> {
     let mut current = world.parent_of(hand);
     let avc_id = loop {
@@ -187,20 +180,22 @@ fn avatar_finger_mount(
         .children_of(target)
         .iter()
         .copied()
-        .find(|id| world.component_label(*id) == Some("xr_avatar_finger_laser_mount"))
+        .find(|id| world.component_label(*id) == Some("rest_attachment_mount"))
     {
         return Ok(Some(existing));
     }
-    // Fingertip attachment position remains an independent one-time rest-space calculation.
-    let Some(legacy_attachment) =
-        resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up, palm_width)?
+    let attachment = world
+        .get_component_by_id_as::<RestAttachmentComponent>(attachment_id)
+        .ok_or("rest attachment disappeared")?;
+    let owner = find_descendant_gltf(world, model_root).ok_or("avatar GLTF was not found")?;
+    let Some(resolved) =
+        resolve_rest_attachment(world, owner, &attachment.anchor, &attachment.target)?
     else {
         return Ok(None);
     };
-    if hand_up.is_some() || palm_width.is_some() {
-        // HumanoidBoneMap will resolve pointer landmarks before entering this same path.
-        retargeting
-            .register_xr_compatibility(world, hand, hand_bone, finger, hand_up, palm_width)?;
+    // HumanoidBoneMap will provide this same anchor ID through semantic slots.
+    if resolved.anchor != hand_bone {
+        return Err("rest attachment anchor is not the AVC target hand joint".into());
     }
     let rotation = match retargeting.status_for(hand_bone) {
         Some(RetargetBasisStatus::Ready) => {
@@ -217,16 +212,16 @@ fn avatar_finger_mount(
         Some(RetargetBasisStatus::ConflictingDefinition { .. }) => {
             return Err("retained joint basis has conflicting definitions".into());
         }
-        None => legacy_attachment.rotation,
+        None => return Err("target hand joint has no JointRetargetBasis definition".into()),
     };
     let mount = world.add_component_boxed_named(
-        "xr_avatar_finger_laser_mount",
+        "rest_attachment_mount",
         Box::new(
             TransformComponent::new()
                 .with_position(
-                    legacy_attachment.position[0],
-                    legacy_attachment.position[1],
-                    legacy_attachment.position[2],
+                    resolved.anchor_to_target_rest[3][0],
+                    resolved.anchor_to_target_rest[3][1],
+                    resolved.anchor_to_target_rest[3][2],
                 )
                 .with_rotation_quat(rotation),
         ),
@@ -465,8 +460,10 @@ mod tests {
     use super::*;
     use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::component::{
-        BoneRestPoseComponent, ControllerHand, ControllerPoseKind, GLTFComponent,
+        BoneRestPoseComponent, ComponentRef, ControllerHand, ControllerPoseKind, GLTFComponent,
+        RestAttachmentComponent,
     };
+    use crate::engine::ecs::system::{LandmarkDirection, RetargetBasisDefinition};
 
     #[test]
     fn controller_grip_edges_are_exposed_separately_from_trigger_edges() {
@@ -580,7 +577,7 @@ mod tests {
         }));
     }
 
-    fn assert_avatar_finger_mount(hand_side: ControllerHand, direction: [f32; 3]) {
+    fn assert_rest_attachment_mount(hand_side: ControllerHand, direction: [f32; 3]) {
         let mut world = World::default();
         let avc = world.add_component(AvatarControlComponent::new());
         let model_root = world.add_component(TransformComponent::new());
@@ -611,17 +608,28 @@ mod tests {
                 direction[2],
             )),
         );
+        let up = if direction[0].abs() > 0.5 {
+            [0.0, 1.0, 0.0]
+        } else {
+            [1.0, 0.0, 0.0]
+        };
+        let up_end = world.add_component_boxed_named(
+            "hand_up",
+            Box::new(TransformComponent::new().with_position(up[0], up[1], up[2])),
+        );
         world.add_child(avc, model_root).unwrap();
         world.add_child(model_root, gltf).unwrap();
         world.add_child(gltf, hand_bone).unwrap();
         world.add_child(hand_bone, root).unwrap();
         world.add_child(root, middle).unwrap();
         world.add_child(middle, tip).unwrap();
+        world.add_child(hand_bone, up_end).unwrap();
         for (bone, translation) in [
             (hand_bone, [0.0, 0.0, 0.0]),
             (root, direction),
             (middle, direction),
             (tip, direction),
+            (up_end, up),
         ] {
             let rest = world.add_component(BoneRestPoseComponent::new(
                 translation,
@@ -634,34 +642,47 @@ mod tests {
             let component = world
                 .get_component_by_id_as_mut::<GLTFComponent>(gltf)
                 .unwrap();
-            component.spawned_node_transforms = vec![hand_bone, root, middle, tip];
-            component.armature_joint_transforms = vec![hand_bone, root, middle, tip];
+            component.spawned_node_transforms = vec![hand_bone, root, middle, tip, up_end];
+            component.armature_joint_transforms = vec![hand_bone, root, middle, tip, up_end];
         }
+        let mut retargeting = JointBasisRetargetingSystem::default();
+        let source = world.add_component(TransformComponent::new());
+        retargeting.replace_definition(
+            &world,
+            source,
+            RetargetBasisDefinition {
+                target: hand_bone,
+                forward: LandmarkDirection {
+                    start: root,
+                    end: tip,
+                },
+                up: LandmarkDirection {
+                    start: hand_bone,
+                    end: up_end,
+                },
+            },
+        );
 
         let hand = world.add_component(
-            ControllerXRComponent::new(true, hand_side, ControllerPoseKind::GripAim)
-                .laser_from_avatar_finger(
-                    ComponentRef::Query("#middle_root".into()),
-                    ComponentRef::Query("#middle_joint".into()),
-                    ComponentRef::Query("#middle_tip".into()),
-                ),
+            ControllerXRComponent::new(true, hand_side, ControllerPoseKind::GripAim).laser(),
         );
+        let attachment = world.add_component(RestAttachmentComponent::new(
+            ComponentRef::Query("#hand_bone".into()),
+            ComponentRef::Query("#middle_tip".into()),
+        ));
         let driver = world.add_component(TransformComponent::new());
-        let finger_basis =
-            crate::engine::ecs::system::avatar_hand_pose_basis::derive_avatar_hand_pose_basis(
-                &world,
-                hand_bone,
-                [root, middle, tip],
-                None,
-                None,
-            )
-            .unwrap();
-        let correction_rotation = crate::utils::math::quat_conjugate(finger_basis.rotation);
+        let correction_rotation = crate::utils::math::mat_to_quat(
+            retargeting
+                .basis_for(hand_bone)
+                .unwrap()
+                .target_rest_to_canonical,
+        );
         let correction =
             world.add_component(TransformComponent::new().with_rotation_quat(correction_rotation));
         let pointer = world.add_component(PointerComponent::new());
         world.add_child(avc, hand).unwrap();
-        world.add_child(hand, driver).unwrap();
+        world.add_child(hand, attachment).unwrap();
+        world.add_child(attachment, driver).unwrap();
         world.add_child(driver, correction).unwrap();
         world.add_child(driver, pointer).unwrap();
         {
@@ -682,13 +703,12 @@ mod tests {
         }
 
         let mut queue = CommandQueue::new();
-        let mut retargeting = JointBasisRetargetingSystem::default();
         ensure_xr_hand_laser(&mut world, &mut retargeting, hand, &mut queue);
         let mount = world
             .children_of(correction)
             .iter()
             .copied()
-            .find(|id| world.component_label(*id) == Some("xr_avatar_finger_laser_mount"))
+            .find(|id| world.component_label(*id) == Some("rest_attachment_mount"))
             .expect("avatar fingertip mount");
         assert_eq!(world.parent_of(pointer), Some(mount));
         let mount_transform = world
@@ -762,8 +782,8 @@ mod tests {
     }
 
     #[test]
-    fn avatar_finger_lasers_mount_both_hands_beneath_corrected_targets() {
-        assert_avatar_finger_mount(ControllerHand::Left, [1.0, 0.0, 0.0]);
-        assert_avatar_finger_mount(ControllerHand::Right, [0.0, 1.0, 0.0]);
+    fn rest_attached_lasers_mount_both_hands_beneath_corrected_targets() {
+        assert_rest_attachment_mount(ControllerHand::Left, [1.0, 0.0, 0.0]);
+        assert_rest_attachment_mount(ControllerHand::Right, [0.0, 1.0, 0.0]);
     }
 }

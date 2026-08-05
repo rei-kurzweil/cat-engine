@@ -80,6 +80,8 @@ ED.active() {
 
                     T {
                         GLTF.new("assets/models/bisket.glb") {
+                            JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
+                            JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                             // Establish a relaxed lower-body/rest posture before XR
                             // head and hand tracking take ownership of tracked joints.
                             relaxed_pose_factory()
@@ -94,13 +96,15 @@ ED.active() {
                         CXR { Pointer {} }
                     }
 
-                    XRHand.new(true, Left, GripAim)
-                        .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
-                        T { Pointer {} }
+                    XRHand.new(true, Left, GripAim).laser() {
+                        RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+                            T { Pointer {} }
+                        }
                     }
-                    XRHand.new(true, Right, GripAim)
-                        .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
-                        T { Pointer {} }
+                    XRHand.new(true, Right, GripAim).laser() {
+                        RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
+                            T { Pointer {} }
+                        }
                     }
                 }
             }

@@ -235,6 +235,8 @@ ED {
                 // mirrored pitch branch in the post-yaw local frame.
                 T {
                     GLTF.new("assets/models/bisket.glb") {
+                        JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
+                        JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                         EM.on() 
                         PoseCapture { label("Bisket") asset_name("bisket") }
                         bisket_colliders()
@@ -257,13 +259,15 @@ ED {
                 
                 // Tracked Grip controllers — re-parented to lower-arm bones
                 // by AVC, drive J_Bip_{L,R}_Hand via TwoBoneIK.
-                XRHand.new(true, Left, GripAim)
-                    .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
-                    T { Pointer {} }
+                XRHand.new(true, Left, GripAim).laser() {
+                    RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+                        T { Pointer {} }
+                    }
                 }
-                XRHand.new(true, Right, GripAim)
-                    .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
-                    T { Pointer {} }
+                XRHand.new(true, Right, GripAim).laser() {
+                    RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
+                        T { Pointer {} }
+                    }
                 }
             }
             

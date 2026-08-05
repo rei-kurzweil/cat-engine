@@ -1,5 +1,5 @@
 use crate::engine::ecs::ComponentId;
-use crate::engine::ecs::component::{Component, ComponentRef};
+use crate::engine::ecs::component::Component;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ControllerHand {
@@ -58,12 +58,6 @@ pub struct ControllerXRComponent {
     pub hand: ControllerHand,
     pub pose: ControllerPoseKind,
     pub laser: bool,
-    /// Optional avatar middle-finger chain used to place and orient the ray.
-    pub avatar_finger: Option<[ComponentRef; 3]>,
-    /// Optional thumb-root landmark used to resolve hand roll around the finger axis.
-    pub avatar_hand_up: Option<ComponentRef>,
-    /// Optional index/little proximal landmarks used to derive anatomical palm roll.
-    pub avatar_palm_width: Option<[ComponentRef; 2]>,
     pub(crate) avatar_laser_warned: bool,
 
     // Cached ECS id (runtime-only). Filled during init.
@@ -81,9 +75,6 @@ impl ControllerXRComponent {
             hand,
             pose,
             laser: false,
-            avatar_finger: None,
-            avatar_hand_up: None,
-            avatar_palm_width: None,
             avatar_laser_warned: false,
             component_id: None,
         }
@@ -91,39 +82,6 @@ impl ControllerXRComponent {
 
     pub fn laser(mut self) -> Self {
         self.laser = true;
-        self
-    }
-
-    pub fn laser_from_avatar_finger(
-        mut self,
-        root: ComponentRef,
-        middle: ComponentRef,
-        tip: ComponentRef,
-    ) -> Self {
-        self.laser = true;
-        self.avatar_finger = Some([root, middle, tip]);
-        self
-    }
-
-    pub fn laser_from_avatar_hand(
-        mut self,
-        root: ComponentRef,
-        middle: ComponentRef,
-        tip: ComponentRef,
-        thumb_root: ComponentRef,
-    ) -> Self {
-        self.laser = true;
-        self.avatar_finger = Some([root, middle, tip]);
-        self.avatar_hand_up = Some(thumb_root);
-        self
-    }
-
-    pub fn palm_from_avatar_knuckles(
-        mut self,
-        index_root: ComponentRef,
-        little_root: ComponentRef,
-    ) -> Self {
-        self.avatar_palm_width = Some([index_root, little_root]);
         self
     }
 
@@ -191,39 +149,8 @@ impl Component for ControllerXRComponent {
             ControllerPoseKind::GripAim => "GripAim",
         };
         let mut expression = ce_call("XRHand", "new", vec![b(self.enabled), s(hand), s(pose)]);
-        if let Some([root, middle, tip]) = &self.avatar_finger {
-            let reference = |value: &ComponentRef| match value {
-                ComponentRef::Guid(guid) => s(&format!("@uuid:{guid}")),
-                ComponentRef::Query(query) => s(query),
-            };
-            expression = if let Some(thumb_root) = &self.avatar_hand_up {
-                expression.with_call(
-                    "laser_from_avatar_hand",
-                    vec![
-                        reference(root),
-                        reference(middle),
-                        reference(tip),
-                        reference(thumb_root),
-                    ],
-                )
-            } else {
-                expression.with_call(
-                    "laser_from_avatar_finger",
-                    vec![reference(root), reference(middle), reference(tip)],
-                )
-            };
-        } else if self.laser {
+        if self.laser {
             expression = expression.with_call("laser", vec![]);
-        }
-        if let Some([index_root, little_root]) = &self.avatar_palm_width {
-            let reference = |value: &ComponentRef| match value {
-                ComponentRef::Guid(guid) => s(&format!("@uuid:{guid}")),
-                ComponentRef::Query(query) => s(query),
-            };
-            expression = expression.with_call(
-                "palm_from_avatar_knuckles",
-                vec![reference(index_root), reference(little_root)],
-            );
         }
         expression
     }

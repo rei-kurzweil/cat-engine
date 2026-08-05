@@ -307,26 +307,13 @@ For each target joint, diagnostics should report:
 Diagnostics inspect retained entries. Enabling them must not change basis
 selection or trigger continuous recomputation.
 
-## Migration from the current hand helper
+## Hand-helper migration
 
-The current `avatar_hand_pose_basis.rs` combines three transitional concerns:
-
-- resolving `XRHand` landmark selectors;
-- deriving the anatomical basis;
-- returning a fingertip position used by pointer mounting.
-
-Migration should preserve the proven hand math while separating those concerns:
-
-1. humanoid bone mapping resolves semantic landmark IDs;
-2. a hand recipe registers one generic definition per mapped hand joint;
-3. the retargeting system derives and caches the basis;
-4. AVC and PointerSystem request it by hand-joint `ComponentId`;
-5. pointer attachment position is resolved separately;
-6. `avatar_hand_pose_basis.rs` becomes private derivation math or is folded into
-   the retained retargeting system.
-
-Existing explicit `XRHand` selectors can remain as a compatibility source that
-constructs a definition until shared humanoid mapping is implemented.
+The 0.8 migration is complete. `XRHand` no longer resolves anatomical landmark selectors or
+constructs definitions. Explicit `JointRetargetBasis` declarations register through the generic
+retained path; AVC and PointerSystem query them by target `ComponentId`. `RestAttachment` resolves
+the fingertip offset separately, and the former `avatar_hand_pose_basis.rs` compatibility helper
+has been removed.
 
 ## Required tests
 
@@ -352,4 +339,3 @@ constructs a definition until shared humanoid mapping is implemented.
 - [current bone-mapping review](../review/current-humanoid-bone-mapping-and-avatar-slot-resolution.md)
 - [humanoid bone-map task](../task/humanoid-bone-map-automapping-and-mms-presets.md)
 - [pose-basis review](../review/imported-humanoid-pose-basis-detection-and-conversion.md)
-

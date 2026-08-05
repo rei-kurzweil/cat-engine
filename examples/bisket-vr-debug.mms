@@ -58,7 +58,10 @@ ED {
                 right_lower_arm_bone("J_Bip_R_LowerArm")
                 initial_yaw(3.14159)
                 T {
-                    GLTF.new("assets/models/bisket.glb")
+                    GLTF.new("assets/models/bisket.glb") {
+                        JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
+                        JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
+                    }
                 }
 
                 // Eye-offset T-wrapper, mirroring bisket-vr-demo.  The
@@ -69,13 +72,15 @@ ED {
                     C3D {}
                 }
 
-                XRHand.new(true, Left, GripAim)
-                    .laser_from_avatar_finger("[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle2']", "[name='J_Bip_L_Middle3']") {
-                    T { Pointer {} }
+                XRHand.new(true, Left, GripAim).laser() {
+                    RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+                        T { Pointer {} }
+                    }
                 }
-                XRHand.new(true, Right, GripAim)
-                    .laser_from_avatar_finger("[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle2']", "[name='J_Bip_R_Middle3']") {
-                    T { Pointer {} }
+                XRHand.new(true, Right, GripAim).laser() {
+                    RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
+                        T { Pointer {} }
+                    }
                 }
             }
         }

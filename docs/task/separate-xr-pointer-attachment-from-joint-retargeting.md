@@ -1,5 +1,9 @@
 # Separate XR pointer attachment from joint-basis retargeting
 
+Status: implemented for the 0.8 breaking-change window. `RestAttachment(anchor, target)` is the
+chosen Phase 1 surface; Phase 2 removes the XR landmark fields, builder methods, compatibility
+registration, and shortest-arc fallback.
+
 ## Summary
 
 The current `XRHand` avatar-laser configuration combines two independent concerns:

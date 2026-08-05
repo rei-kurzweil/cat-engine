@@ -548,7 +548,8 @@ XRHand.new(true, "Left", "Aim").laser()
 ```
 
 `.laser()` adds one runtime-only, noninteractive cyan direction laser along local `-Z`.
-`.laser_from_avatar_finger(root, middle, tip)` aligns forward to an avatar finger beneath AVC's corrected hand target but leaves roll unconstrained. `.laser_from_avatar_hand(root, middle, tip, thumb_root)` also derives thumbward/up from the imported rest pose, fully constraining hand roll. Both use controller-space fallback when binding fails.
+Avatar alignment is intentionally separate: author `JointRetargetBasis` beneath the avatar GLTF
+and a `RestAttachment` around the pointer content.
 
 ### `XrComponent`
 <!-- catalog:component source="XrComponent" mms="direct" names="XR" -->
@@ -606,6 +607,15 @@ Declares a canonical two-axis rest basis for one joint in the nearest ancestor G
 **Directly constructible** as `JointRetargetBasis`. Sources: [Rust implementation](../../../src/engine/ecs/component/joint_retarget_basis.rs), [retained runtime](../../../src/engine/ecs/system/joint_basis_retargeting_system.rs), and [MMS registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 JointRetargetBasis.new("#hand", "#middle1", "#middle3", "#little1", "#index1")
+```
+
+### `RestAttachmentComponent`
+<!-- catalog:component source="RestAttachmentComponent" mms="direct" names="RestAttachment" -->
+Declares an imported target's immutable rest transform relative to an imported anchor. Resolution
+is scoped to the owning GLTF supplied by the consumer and is independent from basis correction.
+**Directly constructible** as `RestAttachment`. Sources: [Rust implementation](../../../src/engine/ecs/component/rest_attachment.rs), [runtime resolution](../../../src/engine/ecs/system/rest_attachment.rs), and [MMS registry](../../../src/scripting/component_registry.rs).
+```mms parse-only
+RestAttachment.new("#hand", "#middle3")
 ```
 
 ### `SpringBoneComponent`

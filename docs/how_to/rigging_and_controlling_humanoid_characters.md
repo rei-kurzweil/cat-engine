@@ -131,19 +131,31 @@ They serve different purposes and can be used together:
 - `InputXRGamepad` consumes controller buttons and analog axes. With `locomotion()`, it moves the rig transform. It can also emit XR button and axis events to MMS handlers.
 - `InputXR` owns the HMD/controller input context. Both components must be descendants of the relevant `InputXR`.
 
-Use `.laser()` for a legacy controller-space ray. For a fully avatar-aligned hand and ray, configure the three middle-finger joints plus a thumb-root landmark; the ray and visible beam are mounted under AVC's corrected hand target:
+Use `.laser()` for a controller-space ray. For an avatar-aligned hand and ray, declare the basis
+beneath the avatar GLTF and the fingertip attachment independently beneath `XRHand`:
 
 ```mms
-XRHand.new(true, Left, GripAim)
-    .laser_from_avatar_hand(
+GLTF.new("avatar.glb") {
+    JointRetargetBasis.new(
+        "[name='J_Bip_L_Hand']",
         "[name='J_Bip_L_Middle1']",
-        "[name='J_Bip_L_Middle2']",
         "[name='J_Bip_L_Middle3']",
-        "[name='J_Bip_L_Thumb1']",
-    ) { T { Pointer {} } }
+        "[name='J_Bip_L_Little1']",
+        "[name='J_Bip_L_Index1']",
+    )
+}
+
+XRHand.new(true, Left, GripAim).laser() {
+    RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+        T { Pointer {} }
+    }
+}
 ```
 
-AVC derives the hand correction once from the immutable avatar rest pose. The middle-finger chain defines forward; the projected direction from its root toward the thumb root defines thumbward/up and therefore hand roll. This aligns the configured hand basis and laser with controller aim without sampling the user's pose. The older `.laser_from_avatar_finger(root, middle, tip)` remains available when only forward alignment is needed, but its roll is intentionally unconstrained. If the landmarks cannot be resolved uniquely inside the avatar GLTF, XRHand warns once and falls back to controller-space laser behavior. Wrist/palm takeover currently uses identity correction until articulated-hand retargeting has its own basis implementation.
+AVC and PointerSystem both query the retained basis for the resolved hand joint. The attachment
+computes only the fingertip origin from immutable rest data. Missing, invalid, or conflicting
+bases remain visible and do not fall back to inferred XR landmark geometry. Wrist/palm takeover
+currently uses identity correction until articulated-hand retargeting has its own basis path.
 
 For a seated experience, omit `InputXRGamepad` or disable locomotion. For head tracking without avatar arms, omit `XRHand`. `XR.on()` is still required to initialize the OpenXR runtime.
 

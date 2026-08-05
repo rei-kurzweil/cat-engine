@@ -50,19 +50,16 @@ remaining definition. Rust code may atomically replace a source with
 so an invalid replacement cannot leave a stale usable basis. A future component mutation
 API must emit `RetargetBasisConfigurationChanged` and follow this same path.
 
-## Boundaries and compatibility
+## Boundaries
 
 This component does not infer humanoid slots, contain body-part enums, choose tracking
 sources, define pointer positions, solve IK, apply transforms, carry per-avatar correction
 angles, or define multiple bases for one target.
 
-Full legacy `XRHand` configurations are translated to the same internal definition. The
-knuckle recipe uses `Middle1 -> Middle3` and `Little1 -> Index1`; the thumb recipe preserves
-the distal-middle direction and `Middle1 -> Thumb1`. Forward-only XR configuration remains
-on its shortest-arc compatibility helper because it cannot define two axes. Compatibility
-fallback is allowed only when no generic definition exists; it cannot hide `Invalid` or
-`ConflictingDefinition`. An authored declaration and a full XR recipe for the same target
-therefore intentionally conflict.
+Mittens Engine 0.8 removes the legacy XR landmark definitions and their forward-only shortest-arc
+fallback. XR is a pose source, not a retarget-definition source. Avatar scenes that need basis
+correction must author a complete two-axis `JointRetargetBasis`; pointer placement is authored
+separately with `RestAttachment`.
 
 The future `HumanoidBoneMap` integration will resolve semantic slots and construct the same
 `RetargetBasisDefinition`. It does not change this component's geometry or cache contract.

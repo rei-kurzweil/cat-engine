@@ -3,7 +3,8 @@ use mittens_engine::engine::ecs::component::{
     BlurPassComponent, Camera3DComponent, CameraXRComponent, ColorComponent, ComponentRef,
     ControllerHand, ControllerPoseKind, ControllerXRComponent, DirectionalLightComponent,
     EditorComponent, EmissiveComponent, EmissivePassComponent, GLTFComponent, InputComponent,
-    InputTransformModeComponent, InputXRComponent, PointerComponent, QuatTemporalFilterComponent,
+    InputTransformModeComponent, InputXRComponent, JointRetargetBasisComponent, PointerComponent,
+    QuatTemporalFilterComponent, RestAttachmentComponent,
     RaycastableComponent, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
     RendererStatsComponent, SecondaryMotionComponent, SpringBoneComponent, SpringColliderComponent,
     SpringCollidersComponent, TransformComponent, TransformForkTRSComponent,
@@ -483,29 +484,30 @@ fn main() {
     // AvatarControlSystem discovers them by topology. Each needs a TransformComponent
     // child (driven_t) that OpenXRSystem writes each tick.
     let left_grip = universe.world.add_component(
-        ControllerXRComponent::new(true, ControllerHand::Left, ControllerPoseKind::GripAim)
-            .laser_from_avatar_finger(
-                component_query("J_Bip_L_Middle1"),
-                component_query("J_Bip_L_Middle2"),
-                component_query("J_Bip_L_Middle3"),
-            ),
+        ControllerXRComponent::new(true, ControllerHand::Left, ControllerPoseKind::GripAim).laser(),
     );
+    let left_attachment = universe.world.add_component(RestAttachmentComponent::new(
+        component_query("J_Bip_L_Hand"),
+        component_query("J_Bip_L_Middle3"),
+    ));
     let left_grip_t = universe.world.add_component(TransformComponent::new());
-    let _ = universe.attach(left_grip, left_grip_t);
+    let _ = universe.attach(left_grip, left_attachment);
+    let _ = universe.attach(left_attachment, left_grip_t);
     let left_pointer = universe.world.add_component(PointerComponent::new());
     let _ = universe.attach(left_grip_t, left_pointer);
     let _ = universe.attach(avatar_control, left_grip);
 
     let right_grip = universe.world.add_component(
         ControllerXRComponent::new(true, ControllerHand::Right, ControllerPoseKind::GripAim)
-            .laser_from_avatar_finger(
-                component_query("J_Bip_R_Middle1"),
-                component_query("J_Bip_R_Middle2"),
-                component_query("J_Bip_R_Middle3"),
-            ),
+            .laser(),
     );
+    let right_attachment = universe.world.add_component(RestAttachmentComponent::new(
+        component_query("J_Bip_R_Hand"),
+        component_query("J_Bip_R_Middle3"),
+    ));
     let right_grip_t = universe.world.add_component(TransformComponent::new());
-    let _ = universe.attach(right_grip, right_grip_t);
+    let _ = universe.attach(right_grip, right_attachment);
+    let _ = universe.attach(right_attachment, right_grip_t);
     let right_pointer = universe.world.add_component(PointerComponent::new());
     let _ = universe.attach(right_grip_t, right_pointer);
     let _ = universe.attach(avatar_control, right_grip);
@@ -515,6 +517,18 @@ fn main() {
     let model = universe
         .world
         .add_component(GLTFComponent::new("assets/models/pc-rei.hoodie.glb"));
+    for side in ["L", "R"] {
+        let basis = universe
+            .world
+            .add_component(JointRetargetBasisComponent::new(
+                component_query(&format!("J_Bip_{side}_Hand")),
+                component_query(&format!("J_Bip_{side}_Middle1")),
+                component_query(&format!("J_Bip_{side}_Middle3")),
+                component_query(&format!("J_Bip_{side}_Little1")),
+                component_query(&format!("J_Bip_{side}_Index1")),
+            ));
+        let _ = universe.attach(model, basis);
+    }
     let emissive = universe.world.add_component(EmissiveComponent::on());
     let _ = universe.attach(model, emissive);
 

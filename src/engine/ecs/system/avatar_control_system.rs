@@ -6,9 +6,6 @@ use crate::engine::ecs::component::{
     TransformDropComponent, TransformForkTRSComponent, TransformMapRotationComponent,
     TransformMapScaleComponent, TransformMapTranslationComponent,
 };
-use crate::engine::ecs::system::avatar_hand_pose_basis::{
-    resolve_avatar_hand_pose_basis, resolve_avatar_palm_diagnostics,
-};
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
 use crate::engine::ecs::system::input_xr_gamepad_system::xr_locomotion_target_transform;
@@ -18,7 +15,7 @@ use crate::engine::graphics::{RenderAssets, primitives::Transform};
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
     mat_to_quat, mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3,
-    quat_rotation_y, quat_to_axis_angle, vec3_cross, vec3_len, vec3_normalize,
+    quat_rotation_y, quat_to_axis_angle,
 };
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -512,7 +509,6 @@ fn try_init_splices(
         retargeting,
         model_root_id,
         left_hand_bone.as_deref(),
-        left_ctrl,
         "left",
     ) else {
         return;
@@ -522,7 +518,6 @@ fn try_init_splices(
         retargeting,
         model_root_id,
         right_hand_bone.as_deref(),
-        right_ctrl,
         "right",
     ) else {
         return;
@@ -1024,45 +1019,21 @@ fn resolve_hand_splice(
     Some((bone_parent, driver, hand_driver, bone))
 }
 
-/// Returns `None` only while the imported skeleton is still in flight. The
-/// inner option is absent when this controller has no avatar-finger basis.
+/// Returns `None` only while the imported skeleton or its retained basis is still in flight.
+/// The inner option is absent when this target has no usable authored basis.
 fn derive_hand_aim_correction(
     world: &World,
-    retargeting: &mut JointBasisRetargetingSystem,
+    retargeting: &JointBasisRetargetingSystem,
     model_root: ComponentId,
     bone_name: Option<&str>,
-    controller: Option<ComponentId>,
     side: &str,
 ) -> Option<Option<[f32; 4]>> {
-    let (Some(bone_name), Some(controller)) = (bone_name, controller) else {
+    let Some(bone_name) = bone_name else {
         return Some(None);
     };
-    let controller_id = controller;
-    let controller = world.get_component_by_id_as::<ControllerXRComponent>(controller_id);
-    let finger = controller.and_then(|controller| controller.avatar_finger.as_ref());
-    let Some(finger) = finger else {
-        return Some(None);
-    };
-    let hand_up = controller.and_then(|controller| controller.avatar_hand_up.as_ref());
-    let palm_width = controller.and_then(|controller| controller.avatar_palm_width.as_ref());
     let Some(hand_bone) = world.find_component(model_root, &format!("#{bone_name}")) else {
         return Some(None);
     };
-    if hand_up.is_some() || palm_width.is_some() {
-        if let Err(error) = retargeting.register_xr_compatibility(
-            world,
-            controller_id,
-            hand_bone,
-            finger,
-            hand_up,
-            palm_width,
-        ) {
-            eprintln!(
-                "[AVC][hand-basis] {side} compatibility definition could not resolve: {error}"
-            );
-            return Some(None);
-        }
-    }
     match retargeting.status_for(hand_bone) {
         Some(RetargetBasisStatus::Ready) => {
             // HumanoidBoneMap will provide this same target hand ID through semantic slots.
@@ -1081,17 +1052,7 @@ fn derive_hand_aim_correction(
         Some(RetargetBasisStatus::WaitingForGltf) => return None,
         None => {}
     }
-    // Forward-only XR authoring cannot satisfy a generic two-axis definition.
-    match resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, None, None) {
-        Ok(Some(basis)) => Some(Some(quat_conjugate(basis.rotation))),
-        Ok(None) => None,
-        Err(error) => {
-            eprintln!(
-                "[AVC][hand-basis] {side} hand could not derive its avatar finger basis: {error}; using identity"
-            );
-            Some(None)
-        }
-    }
+    Some(None)
 }
 
 fn emit_attach(emit: &mut dyn SignalEmitter, parent: ComponentId, child: ComponentId) {
@@ -1158,7 +1119,7 @@ fn update_hand_pose_corrections(
 
 fn log_hand_alignment(
     avc_id: ComponentId,
-    world: &World,
+    _world: &World,
     hand: ControllerHand,
     controller: Option<&ControllerXRComponent>,
     source: ControllerPoseSource,
@@ -1167,17 +1128,11 @@ fn log_hand_alignment(
 ) {
     let aim = controller.and_then(|controller| controller.raw_aim_rotation);
     let grip = controller.and_then(|controller| controller.raw_grip_rotation);
-    let basis_mode = controller.map_or("none", |controller| {
-        if controller.avatar_palm_width.is_some() {
-            "whole-forward+knuckle-up"
-        } else if controller.avatar_hand_up.is_some() {
-            "forward+thumb-up"
-        } else if controller.avatar_finger.is_some() {
-            "forward-only"
-        } else {
-            "none"
-        }
-    });
+    let basis_mode = if correction.is_some() {
+        "retained"
+    } else {
+        "none"
+    };
     let grip_to_aim = match (grip, aim) {
         (Some(grip), Some(aim)) => Some(quat_to_axis_angle(quat_mul(quat_conjugate(grip), aim))),
         _ => None,
@@ -1199,69 +1154,6 @@ fn log_hand_alignment(
         "[AVC][hand-alignment] avc={avc_id:?} hand={hand:?} aim_valid={} grip_valid={} aim_q={aim:?} grip_q={grip:?} source={source:?} mode={calibration} avatar_basis={basis_mode} grip_to_aim_axis_angle={grip_to_aim:?} canonical_to_hand_q={mount:?} applied_correction_q={applied:?} final_basis_to_aim_axis_angle={predicted:?}",
         aim.is_some(),
         grip.is_some(),
-    );
-    if source == ControllerPoseSource::ControllerGripAim {
-        log_avatar_palm_diagnostics(avc_id, world, hand, controller, applied);
-    }
-}
-
-fn log_avatar_palm_diagnostics(
-    avc_id: ComponentId,
-    world: &World,
-    hand: ControllerHand,
-    controller: Option<&ControllerXRComponent>,
-    applied_correction: [f32; 4],
-) {
-    let Some(controller) = controller else { return };
-    let (Some(finger), Some(thumb), Some(palm)) = (
-        controller.avatar_finger.as_ref(),
-        controller.avatar_hand_up.as_ref(),
-        controller.avatar_palm_width.as_ref(),
-    ) else {
-        return;
-    };
-    let Some(avc) = world.get_component_by_id_as::<AvatarControlComponent>(avc_id) else {
-        return;
-    };
-    let Some(model_root) = avc.model_root_id else {
-        return;
-    };
-    let hand_bone = match hand {
-        ControllerHand::Left => avc.left_hand_bone_id,
-        ControllerHand::Right => avc.right_hand_bone_id,
-    };
-    let Some(hand_bone) = hand_bone else { return };
-    let diagnostics =
-        match resolve_avatar_palm_diagnostics(world, model_root, hand_bone, finger, thumb, palm) {
-            Ok(Some(diagnostics)) => diagnostics,
-            Ok(None) => return,
-            Err(error) => {
-                eprintln!(
-                    "[AVC][hand-palm] avc={avc_id:?} hand={hand:?} diagnostic_error={error:?}"
-                );
-                return;
-            }
-        };
-    let aim_local = |direction| quat_rotate_vec3(applied_correction, direction);
-    let distal = aim_local(diagnostics.distal_forward);
-    let whole_middle = aim_local(diagnostics.whole_middle_forward);
-    let palm_longitudinal = aim_local(diagnostics.palm_longitudinal);
-    let thumbward = aim_local(diagnostics.thumbward);
-    let little_to_index = aim_local(diagnostics.little_to_index);
-    let palm_normal_raw = vec3_cross(palm_longitudinal, little_to_index);
-    let palm_normal = if vec3_len(palm_normal_raw) > 1e-6 {
-        Some(vec3_normalize(palm_normal_raw))
-    } else {
-        None
-    };
-    let roll_degrees = |direction: [f32; 3]| {
-        let plane_len = (direction[0] * direction[0] + direction[1] * direction[1]).sqrt();
-        (plane_len > 1e-6).then(|| direction[0].atan2(direction[1]).to_degrees())
-    };
-    eprintln!(
-        "[AVC][hand-palm] avc={avc_id:?} hand={hand:?} frame=aim-local desired_forward=[0,0,-1] desired_up=[0,1,0] distal_middle={distal:?} whole_middle={whole_middle:?} hand_to_middle_root={palm_longitudinal:?} middle_to_thumb={thumbward:?} little_to_index={little_to_index:?} middle_to_thumb_roll_deg={:?} little_to_index_roll_deg={:?} palm_normal={palm_normal:?}",
-        roll_degrees(thumbward),
-        roll_degrees(little_to_index),
     );
 }
 

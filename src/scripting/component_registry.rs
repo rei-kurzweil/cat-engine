@@ -32,16 +32,16 @@ use crate::engine::ecs::component::{
     PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
     QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
     RaycastableShapeType, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RendererStatsComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
-    SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
-    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
-    SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
-    SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
-    TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
-    ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
-    TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
-    TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoRotateComponent,
-    TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    RendererStatsComponent, RestAttachmentComponent, RouterComponent, ScrollingComponent,
+    SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
+    SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
+    SkinnedMeshComponent, SpotLightComponent, SpringBoneComponent, SpringColliderComponent,
+    SpringCollidersComponent, SpringJointComponent, StencilClipComponent, StyleComponent,
+    TextAlign, TextComponent, TextInputComponent, TextShadowComponent, TextureComponent,
+    TextureFilteringComponent, ToggleComponent, TransformCameraSpecificComponent,
+    TransformComponent, TransformDropComponent, TransformForkTRSComponent, TransformGizmoAxis,
+    TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
+    TransformGizmoRotateComponent, TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
     TransformGizmoTranslatePlaneComponent, TransformMapRotationComponent,
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
@@ -134,6 +134,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "Overlay",
     "PointLight",
     "Pointer",
+    "RestAttachment",
     "PoseCapture",
     "PoseCaptureLibrary",
     "PoseCapturePose",
@@ -1758,6 +1759,13 @@ fn create_component(
             )),
             _ => Err("JointRetargetBasis requires .new(target, forward_start, forward_end, up_start, up_end)".into()),
         },
+        "RestAttachment" => match ctor {
+            Some("new") if args.len() == 2 => add!(RestAttachmentComponent::new(
+                arg_component_ref(world, args, 0)?,
+                arg_component_ref(world, args, 1)?,
+            )),
+            _ => Err("RestAttachment requires .new(anchor, target)".into()),
+        },
         "SecondaryMotion" => add!(SecondaryMotionComponent::new()),
         "SpringColliders" => add!(SpringCollidersComponent::new()),
         "SpringCollider" => match ctor {
@@ -2408,42 +2416,9 @@ fn apply_call(
         return Ok(());
     }
 
-    let (avatar_finger, avatar_hand_up) = match method {
-        "laser_from_avatar_finger" => (
-            Some([
-                arg_component_ref(world, args, 0)?,
-                arg_component_ref(world, args, 1)?,
-                arg_component_ref(world, args, 2)?,
-            ]),
-            None,
-        ),
-        "laser_from_avatar_hand" => (
-            Some([
-                arg_component_ref(world, args, 0)?,
-                arg_component_ref(world, args, 1)?,
-                arg_component_ref(world, args, 2)?,
-            ]),
-            Some(arg_component_ref(world, args, 3)?),
-        ),
-        _ => (None, None),
-    };
-    let avatar_palm_width = if method == "palm_from_avatar_knuckles" {
-        Some([
-            arg_component_ref(world, args, 0)?,
-            arg_component_ref(world, args, 1)?,
-        ])
-    } else {
-        None
-    };
     if let Some(hand) = world.get_component_by_id_as_mut::<XRHandComponent>(id) {
         if method == "laser" {
             hand.laser = true;
-        } else if let Some(finger) = avatar_finger {
-            hand.laser = true;
-            hand.avatar_finger = Some(finger);
-            hand.avatar_hand_up = avatar_hand_up;
-        } else if let Some(palm) = avatar_palm_width {
-            hand.avatar_palm_width = Some(palm);
         }
         return Ok(());
     }

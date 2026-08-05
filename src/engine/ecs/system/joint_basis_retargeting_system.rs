@@ -241,69 +241,6 @@ impl JointBasisRetargetingSystem {
         }
     }
 
-    /// Convert a complete legacy XR landmark recipe into the shared retained definition.
-    /// This is also the integration seam where `HumanoidBoneMap` will supply resolved slots.
-    pub fn register_xr_compatibility(
-        &mut self,
-        world: &World,
-        source: ComponentId,
-        target: ComponentId,
-        finger: &[ComponentRef; 3],
-        hand_up: Option<&ComponentRef>,
-        palm_width: Option<&[ComponentRef; 2]>,
-    ) -> Result<(), String> {
-        if hand_up.is_none() && palm_width.is_none() {
-            return Ok(());
-        }
-        let owner = world
-            .all_components()
-            .find(|id| {
-                world
-                    .get_component_by_id_as::<GLTFComponent>(*id)
-                    .is_some_and(|gltf| gltf.armature_joint_transforms.contains(&target))
-            })
-            .ok_or("XR hand target has no owning GLTF armature")?;
-        let gltf = world
-            .get_component_by_id_as::<GLTFComponent>(owner)
-            .ok_or("XR hand owning GLTF disappeared")?;
-        if gltf.armature_joint_transforms.is_empty() {
-            return Ok(());
-        }
-        let root = resolve_in_armature(world, gltf, &finger[0])?;
-        let middle = resolve_in_armature(world, gltf, &finger[1])?;
-        let tip = resolve_in_armature(world, gltf, &finger[2])?;
-        let definition = if let Some([index, little]) = palm_width {
-            RetargetBasisDefinition {
-                target,
-                forward: LandmarkDirection {
-                    start: root,
-                    end: tip,
-                },
-                up: LandmarkDirection {
-                    start: resolve_in_armature(world, gltf, little)?,
-                    end: resolve_in_armature(world, gltf, index)?,
-                },
-            }
-        } else {
-            RetargetBasisDefinition {
-                target,
-                forward: LandmarkDirection {
-                    start: middle,
-                    end: tip,
-                },
-                up: LandmarkDirection {
-                    start: root,
-                    end: resolve_in_armature(world, gltf, hand_up.unwrap())?,
-                },
-            }
-        };
-        if self.sources.get(&source).and_then(|entry| entry.definition) == Some(definition) {
-            return Ok(());
-        }
-        self.replace_definition(world, source, definition);
-        Ok(())
-    }
-
     fn replace_definition_with_owner(
         &mut self,
         world: &World,
@@ -899,53 +836,5 @@ mod tests {
         assert!(
             matches!(system.status_for_source(source), Some(RetargetBasisStatus::Invalid(message)) if message.contains("singular"))
         );
-    }
-
-    #[test]
-    fn xr_knuckle_recipe_uses_middle_and_little_to_index_without_fixed_correction() {
-        let mut f = fixture();
-        let source = f.world.add_component(TransformComponent::new());
-        let finger = [
-            ComponentRef::Query("#middle1".into()),
-            ComponentRef::Query("#middle1".into()),
-            ComponentRef::Query("#middle3".into()),
-        ];
-        let palm = [
-            ComponentRef::Query("#index1".into()),
-            ComponentRef::Query("#little1".into()),
-        ];
-        let mut system = JointBasisRetargetingSystem::default();
-        system
-            .register_xr_compatibility(&f.world, source, f.target, &finger, None, Some(&palm))
-            .unwrap();
-        let basis = system.basis_for(f.target).unwrap();
-        assert_eq!(basis.forward, [0.0, 0.0, -1.0]);
-        assert_eq!(basis.up, [1.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn authored_and_full_xr_definitions_intentionally_conflict() {
-        let mut f = fixture();
-        let authored = f.world.add_component(TransformComponent::new());
-        let xr = f.world.add_component(TransformComponent::new());
-        let mut system = JointBasisRetargetingSystem::default();
-        system.replace_definition(&f.world, authored, definition(&f));
-        let finger = [
-            ComponentRef::Query("#middle1".into()),
-            ComponentRef::Query("#middle1".into()),
-            ComponentRef::Query("#middle3".into()),
-        ];
-        let palm = [
-            ComponentRef::Query("#index1".into()),
-            ComponentRef::Query("#little1".into()),
-        ];
-        system
-            .register_xr_compatibility(&f.world, xr, f.target, &finger, None, Some(&palm))
-            .unwrap();
-        assert!(system.basis_for(f.target).is_none());
-        assert!(matches!(
-            system.status_for(f.target),
-            Some(RetargetBasisStatus::ConflictingDefinition { .. })
-        ));
     }
 }

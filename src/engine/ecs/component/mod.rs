@@ -88,6 +88,7 @@ pub mod raycastable_shape;
 pub mod renderable;
 pub mod renderer_settings;
 pub mod renderer_stats;
+pub mod rest_attachment;
 pub mod spot_light;
 pub mod text;
 pub mod text_input;
@@ -198,6 +199,7 @@ pub use render_graph::RenderGraphComponent;
 pub use renderable::RenderableComponent;
 pub use renderer_settings::RendererSettingsComponent;
 pub use renderer_stats::RendererStatsComponent;
+pub use rest_attachment::RestAttachmentComponent;
 pub use router::RouterComponent;
 pub use scrolling::ScrollingComponent;
 pub use secondary_motion::{
