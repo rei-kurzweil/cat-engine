@@ -600,6 +600,14 @@ Carries secondary motion state used when that engine feature is present in a com
 SecondaryMotion {}
 ```
 
+### `JointRetargetBasisComponent`
+<!-- catalog:component source="JointRetargetBasisComponent" mms="direct" names="JointRetargetBasis" -->
+Declares a canonical two-axis rest basis for one joint in the nearest ancestor GLTF armature. All five references resolve uniquely within that imported armature; runtime matrices and diagnostics are retained by `JointBasisRetargetingSystem`.
+**Directly constructible** as `JointRetargetBasis`. Sources: [Rust implementation](../../../src/engine/ecs/component/joint_retarget_basis.rs), [retained runtime](../../../src/engine/ecs/system/joint_basis_retargeting_system.rs), and [MMS registry](../../../src/scripting/component_registry.rs).
+```mms parse-only
+JointRetargetBasis.new("#hand", "#middle1", "#middle3", "#little1", "#index1")
+```
+
 ### `SpringBoneComponent`
 <!-- catalog:component source="SpringBoneComponent" mms="direct" names="SpringBone" -->
 Carries spring bone state used when that engine feature is present in a component tree. Use it when a tree needs this state or behavior. glTF, animation, avatar, IK, or pose systems; lifecycle intents and `GltfInitialized` are relevant.

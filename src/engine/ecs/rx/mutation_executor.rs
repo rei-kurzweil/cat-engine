@@ -388,6 +388,22 @@ impl RxMutationExecutor {
                 let component = *component_id;
                 systems.secondary_motion.register(world, component);
             }
+            IntentValue::RegisterJointRetargetBasis { component_id }
+            | IntentValue::RetargetBasisConfigurationChanged { component_id } => {
+                systems
+                    .joint_basis_retargeting
+                    .register_component(world, *component_id);
+            }
+            IntentValue::JointRetargetBasisGltfInitialized { component_id } => {
+                systems
+                    .joint_basis_retargeting
+                    .gltf_initialized(world, *component_id);
+            }
+            IntentValue::UnregisterJointRetargetBasis { component_id } => {
+                systems
+                    .joint_basis_retargeting
+                    .remove_definition(world, *component_id);
+            }
             IntentValue::SecondaryMotionConfigurationChanged { component_id } => {
                 let component = *component_id;
                 systems

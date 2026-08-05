@@ -1121,6 +1121,22 @@ SecondaryMotion {}
 <!-- catalog:signal source="SecondaryMotionConfigurationChanged" kind="intent" mms="component-lifecycle" -->
 **Intent — Emitted by engine/editor mutation paths.** Announces an in-place `SpringBone` or `SpringJoint` field edit. The mutation executor uses retained reverse ownership to rebind only the affected chain. Builder calls made before component initialization require no notification. Direct unsignaled mutation is outside the runtime contract. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs) and [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs).
 
+#### `RegisterJointRetargetBasis`
+<!-- catalog:signal source="RegisterJointRetargetBasis" kind="intent" mms="component-lifecycle" -->
+**Intent — Indirectly emitted by component lifecycle.** Registers an authored `JointRetargetBasis` source with the retained cache and resolves it only within its owning GLTF armature. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [component lifecycle](../../../src/engine/ecs/component/joint_retarget_basis.rs).
+
+#### `RetargetBasisConfigurationChanged`
+<!-- catalog:signal source="RetargetBasisConfigurationChanged" kind="intent" mms="component-lifecycle" -->
+**Intent — Emitted by future engine/editor mutation paths.** Replaces a source definition atomically through the retained system. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs) and [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs).
+
+#### `JointRetargetBasisGltfInitialized`
+<!-- catalog:signal source="JointRetargetBasisGltfInitialized" kind="intent" mms="component-lifecycle" -->
+**Intent — Indirectly emitted by GLTF lifecycle.** Resolves only retained basis sources waiting on the initialized GLTF. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs) and [retained runtime](../../../src/engine/ecs/system/joint_basis_retargeting_system.rs).
+
+#### `UnregisterJointRetargetBasis`
+<!-- catalog:signal source="UnregisterJointRetargetBasis" kind="intent" mms="component-lifecycle" -->
+**Intent — Emitted by component teardown.** Removes a definition source and republishes a surviving non-conflicting definition for its target when possible. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs) and [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs).
+
 #### `SecondaryMotionTopologyChanged`
 <!-- catalog:signal source="SecondaryMotionTopologyChanged" kind="intent" mms="component-lifecycle" -->
 **Intent — Indirectly emitted by topology lifecycle.** The global `ParentChanged` handler targets the affected retained root, chain, joint configuration, or imported transform. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs) and [retained runtime](../../../src/engine/ecs/system/secondary_motion_system.rs).

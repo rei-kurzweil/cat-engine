@@ -120,6 +120,7 @@ pub struct SystemWorld {
     pub head_pose_body_xz_follow: HeadPoseBodyXzFollowSystem,
     pub ik: IKSystem,
     pub secondary_motion: SecondaryMotionSystem,
+    pub joint_basis_retargeting: crate::engine::ecs::system::JointBasisRetargetingSystem,
 
     pub gesture: GestureSystem,
     pub transform_gizmo: TransformGizmoSystem,
@@ -1073,6 +1074,7 @@ impl SystemWorld {
             // Retained secondary-motion indexes cover roots, chains, joint
             // configurations, owning GLTFs, and imported transforms.
             self.secondary_motion.component_removed(world, n);
+            self.joint_basis_retargeting.component_removed(world, n);
             if world
                 .get_component_by_id_as::<PointerComponent>(n)
                 .is_some()
@@ -1130,6 +1132,7 @@ impl SystemWorld {
         let mut systems = Self::default();
         systems.grid.install_handlers(&mut systems.rx);
         SecondaryMotionSystem::install_handlers(&mut systems.rx);
+        crate::engine::ecs::system::JointBasisRetargetingSystem::install_handlers(&mut systems.rx);
         let asset_dir = Path::new("assets/components/");
         if let Err(error) = systems.asset_system.scan_assets_dir(asset_dir) {
             eprintln!("[SystemWorld] failed to scan assets dir: {error}");
@@ -2224,7 +2227,12 @@ impl SystemWorld {
         emit: &mut dyn crate::engine::ecs::SignalEmitter,
     ) {
         self.xr.register_controller_xr(world, visuals, component);
-        crate::engine::ecs::system::pointer_system::ensure_xr_hand_laser(world, component, emit);
+        crate::engine::ecs::system::pointer_system::ensure_xr_hand_laser(
+            world,
+            &mut self.joint_basis_retargeting,
+            component,
+            emit,
+        );
     }
 
     pub fn register_input_xr_gamepad(
@@ -2243,6 +2251,8 @@ impl SystemWorld {
         visuals: &mut VisualWorld,
         component: ComponentId,
     ) {
+        self.joint_basis_retargeting
+            .component_removed(world, component);
         self.xr.remove_controller_xr(world, visuals, component);
     }
 
@@ -2739,6 +2749,7 @@ impl SystemWorld {
         // (Per-gizmo scoped handlers are installed when the gizmo is registered.)
         self.rx.begin_frame();
         SecondaryMotionSystem::install_handlers(&mut self.rx);
+        crate::engine::ecs::system::JointBasisRetargetingSystem::install_handlers(&mut self.rx);
         self.gesture.install_handlers(&mut self.rx);
         self.gesture.begin_frame();
         self.text_input.install_handlers(&mut self.rx);
@@ -2947,8 +2958,14 @@ impl SystemWorld {
         // Runs after OpenXR + raycasts + gestures so avatar_driven_t.matrix_world is current.
         let phase_started = profile_systems.then(Instant::now);
         self.avatar_body_yaw.tick(world, queue, dt_sec);
-        self.avatar_control
-            .tick(world, input, render_assets, queue, dt_sec);
+        self.avatar_control.tick(
+            world,
+            input,
+            render_assets,
+            &mut self.joint_basis_retargeting,
+            queue,
+            dt_sec,
+        );
         // AVC can queue head-restoration and first-tick splice transforms. Commit
         // them before body-follow samples the displaced head: body-follow must
         // never consume queued/stale AVC transforms.

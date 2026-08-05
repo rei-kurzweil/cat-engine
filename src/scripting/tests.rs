@@ -4902,6 +4902,28 @@ fn roundtrip_xr_hand() {
 }
 
 #[test]
+fn roundtrip_joint_retarget_basis_preserves_five_references() {
+    use crate::engine::ecs::component::{ComponentRef, JointRetargetBasisComponent};
+    let query = |value: &str| ComponentRef::Query(value.into());
+    let original = JointRetargetBasisComponent::new(
+        query("#hand"),
+        query("#middle1"),
+        query("#middle3"),
+        query("#little1"),
+        query("#index1"),
+    );
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<JointRetargetBasisComponent>(id)
+        .unwrap();
+    assert_eq!(got.target, query("#hand"));
+    assert_eq!(got.forward_start, query("#middle1"));
+    assert_eq!(got.forward_end, query("#middle3"));
+    assert_eq!(got.up_start, query("#little1"));
+    assert_eq!(got.up_end, query("#index1"));
+}
+
+#[test]
 fn roundtrip_xr_hand_laser() {
     use crate::engine::ecs::component::{ControllerHand, ControllerPoseKind, XRHandComponent};
     let (world, id) = roundtrip_component(

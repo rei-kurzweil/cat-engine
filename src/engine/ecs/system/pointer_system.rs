@@ -4,8 +4,8 @@ use crate::engine::ecs::component::{
     RayCastComponent, RenderableComponent, SelectableComponent, SerializeComponent,
     TransformComponent,
 };
-use crate::engine::ecs::system::XrInputState;
 use crate::engine::ecs::system::avatar_hand_pose_basis::resolve_avatar_hand_pose_basis;
+use crate::engine::ecs::system::{JointBasisRetargetingSystem, RetargetBasisStatus, XrInputState};
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 use crate::engine::user_input::InputState;
 use std::collections::HashMap;
@@ -25,7 +25,12 @@ pub struct PointerSystem {
 }
 
 /// Spawn the optional runtime-only controller laser under the transform driving its pointer.
-pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn SignalEmitter) {
+pub fn ensure_xr_hand_laser(
+    world: &mut World,
+    retargeting: &mut JointBasisRetargetingSystem,
+    hand: ComponentId,
+    emit: &mut dyn SignalEmitter,
+) {
     let Some(config) = world.get_component_by_id_as::<ControllerXRComponent>(hand) else {
         return;
     };
@@ -63,6 +68,7 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
     if let Some(finger) = avatar_finger {
         match avatar_finger_mount(
             world,
+            retargeting,
             hand,
             pointer,
             &finger,
@@ -129,6 +135,7 @@ pub fn ensure_xr_hand_laser(world: &mut World, hand: ComponentId, emit: &mut dyn
 
 fn avatar_finger_mount(
     world: &mut World,
+    retargeting: &mut JointBasisRetargetingSystem,
     hand: ComponentId,
     pointer: Option<ComponentId>,
     finger: &[ComponentRef; 3],
@@ -184,17 +191,44 @@ fn avatar_finger_mount(
     {
         return Ok(Some(existing));
     }
-    let Some(basis) =
+    // Fingertip attachment position remains an independent one-time rest-space calculation.
+    let Some(legacy_attachment) =
         resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up, palm_width)?
     else {
         return Ok(None);
+    };
+    if hand_up.is_some() || palm_width.is_some() {
+        // HumanoidBoneMap will resolve pointer landmarks before entering this same path.
+        retargeting
+            .register_xr_compatibility(world, hand, hand_bone, finger, hand_up, palm_width)?;
+    }
+    let rotation = match retargeting.status_for(hand_bone) {
+        Some(RetargetBasisStatus::Ready) => {
+            let retained = retargeting
+                .basis_for(hand_bone)
+                .ok_or("ready basis disappeared")?;
+            let _generation = retained.generation;
+            crate::utils::math::mat_to_quat(retained.canonical_to_target_rest)
+        }
+        Some(RetargetBasisStatus::WaitingForGltf) => return Ok(None),
+        Some(RetargetBasisStatus::Invalid(error)) => {
+            return Err(format!("retained joint basis is invalid: {error}"));
+        }
+        Some(RetargetBasisStatus::ConflictingDefinition { .. }) => {
+            return Err("retained joint basis has conflicting definitions".into());
+        }
+        None => legacy_attachment.rotation,
     };
     let mount = world.add_component_boxed_named(
         "xr_avatar_finger_laser_mount",
         Box::new(
             TransformComponent::new()
-                .with_position(basis.position[0], basis.position[1], basis.position[2])
-                .with_rotation_quat(basis.rotation),
+                .with_position(
+                    legacy_attachment.position[0],
+                    legacy_attachment.position[1],
+                    legacy_attachment.position[2],
+                )
+                .with_rotation_quat(rotation),
         ),
     );
     let serialize = world.add_component(SerializeComponent::off());
@@ -472,8 +506,9 @@ mod tests {
         world.add_child(hand, driver).unwrap();
         world.add_child(driver, pointer).unwrap();
         let mut queue = CommandQueue::new();
-        ensure_xr_hand_laser(&mut world, hand, &mut queue);
-        ensure_xr_hand_laser(&mut world, hand, &mut queue);
+        let mut retargeting = JointBasisRetargetingSystem::default();
+        ensure_xr_hand_laser(&mut world, &mut retargeting, hand, &mut queue);
+        ensure_xr_hand_laser(&mut world, &mut retargeting, hand, &mut queue);
         let lasers: Vec<_> = world
             .children_of(driver)
             .iter()
@@ -647,7 +682,8 @@ mod tests {
         }
 
         let mut queue = CommandQueue::new();
-        ensure_xr_hand_laser(&mut world, hand, &mut queue);
+        let mut retargeting = JointBasisRetargetingSystem::default();
+        ensure_xr_hand_laser(&mut world, &mut retargeting, hand, &mut queue);
         let mount = world
             .children_of(correction)
             .iter()

@@ -48,6 +48,7 @@ pub mod ik;
 pub mod ik_system;
 pub mod input_system;
 pub mod input_xr_gamepad_system;
+pub mod joint_basis_retargeting_system;
 pub mod layout;
 pub mod light_system;
 pub mod mirror_system;
@@ -119,6 +120,10 @@ pub use ik::HeadPoseBodyXzFollowSystem;
 pub use ik_system::IKSystem;
 pub use input_system::InputSystem;
 pub use input_xr_gamepad_system::InputXRGamepadSystem;
+pub use joint_basis_retargeting_system::{
+    JointBasisRetargetingSystem, LandmarkDirection, ResolvedRetargetBasis, RetargetBasisDefinition,
+    RetargetBasisDiagnosticSnapshot, RetargetBasisProvenance, RetargetBasisStatus,
+};
 pub use layout::LayoutSystem;
 pub use light_system::LightSystem;
 pub use mirror_system::MirrorSystem;

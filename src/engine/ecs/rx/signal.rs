@@ -713,6 +713,18 @@ pub enum IntentValue {
     RegisterSecondaryMotion {
         component_id: ComponentId,
     },
+    RegisterJointRetargetBasis {
+        component_id: ComponentId,
+    },
+    RetargetBasisConfigurationChanged {
+        component_id: ComponentId,
+    },
+    JointRetargetBasisGltfInitialized {
+        component_id: ComponentId,
+    },
+    UnregisterJointRetargetBasis {
+        component_id: ComponentId,
+    },
     SecondaryMotionConfigurationChanged {
         component_id: ComponentId,
     },
@@ -953,6 +965,14 @@ impl IntentValue {
             IntentValue::RegisterAvatarBodyYaw { .. } => "register_avatar_body_yaw",
             IntentValue::RegisterIkChain { .. } => "register_ik_chain",
             IntentValue::RegisterSecondaryMotion { .. } => "register_secondary_motion",
+            IntentValue::RegisterJointRetargetBasis { .. } => "register_joint_retarget_basis",
+            IntentValue::RetargetBasisConfigurationChanged { .. } => {
+                "retarget_basis_configuration_changed"
+            }
+            IntentValue::JointRetargetBasisGltfInitialized { .. } => {
+                "joint_retarget_basis_gltf_initialized"
+            }
+            IntentValue::UnregisterJointRetargetBasis { .. } => "unregister_joint_retarget_basis",
             IntentValue::SecondaryMotionConfigurationChanged { .. } => {
                 "secondary_motion_configuration_changed"
             }

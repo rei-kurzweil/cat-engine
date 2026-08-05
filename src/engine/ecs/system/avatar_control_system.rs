@@ -12,12 +12,13 @@ use crate::engine::ecs::system::avatar_hand_pose_basis::{
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
 use crate::engine::ecs::system::input_xr_gamepad_system::xr_locomotion_target_transform;
+use crate::engine::ecs::system::{JointBasisRetargetingSystem, RetargetBasisStatus};
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
 use crate::engine::graphics::{RenderAssets, primitives::Transform};
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
-    mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3, quat_rotation_y,
-    quat_to_axis_angle, vec3_cross, vec3_len, vec3_normalize,
+    mat_to_quat, mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3,
+    quat_rotation_y, quat_to_axis_angle, vec3_cross, vec3_len, vec3_normalize,
 };
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -39,6 +40,7 @@ impl AvatarControlSystem {
         world: &mut World,
         _input: &InputState,
         render_assets: &RenderAssets,
+        retargeting: &mut JointBasisRetargetingSystem,
         emit: &mut dyn SignalEmitter,
         dt_sec: f32,
     ) {
@@ -54,7 +56,15 @@ impl AvatarControlSystem {
             let capsule_before = world
                 .get_component_by_id_as::<AvatarControlComponent>(id)
                 .and_then(|avc| avc.capsule_transform_id);
-            tick_one(id, world, render_assets, emit, dt_sec, log_alignment);
+            tick_one(
+                id,
+                world,
+                render_assets,
+                retargeting,
+                emit,
+                dt_sec,
+                log_alignment,
+            );
             let capsule_after = world
                 .get_component_by_id_as::<AvatarControlComponent>(id)
                 .and_then(|avc| avc.capsule_transform_id);
@@ -78,6 +88,7 @@ fn tick_one(
     id: ComponentId,
     world: &mut World,
     render_assets: &RenderAssets,
+    retargeting: &mut JointBasisRetargetingSystem,
     emit: &mut dyn SignalEmitter,
     _dt_sec: f32,
     log_alignment: bool,
@@ -98,7 +109,7 @@ fn tick_one(
         if !ancestor_input_xr_is_ready(world, id) {
             return;
         }
-        try_init_splices(id, world, emit);
+        try_init_splices(id, world, retargeting, emit);
     }
 
     try_init_or_route_capsule(id, world, render_assets, emit);
@@ -378,7 +389,12 @@ fn ancestor_input_xr_is_ready(world: &World, start: ComponentId) -> bool {
 ///
 /// Body pipeline created here reads `driven_t`'s world matrix, strips pitch/roll via `YawFollow`,
 /// and writes the result to `model_root` (which is re-parented under the pipeline output).
-fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmitter) {
+fn try_init_splices(
+    id: ComponentId,
+    world: &mut World,
+    retargeting: &mut JointBasisRetargetingSystem,
+    emit: &mut dyn SignalEmitter,
+) {
     let (
         head_bone_name,
         left_hand_bone,
@@ -493,6 +509,7 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
     // through a rotated child target that compensates for grip-vs-palm framing.
     let Some(left_aim_correction) = derive_hand_aim_correction(
         world,
+        retargeting,
         model_root_id,
         left_hand_bone.as_deref(),
         left_ctrl,
@@ -502,6 +519,7 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
     };
     let Some(right_aim_correction) = derive_hand_aim_correction(
         world,
+        retargeting,
         model_root_id,
         right_hand_bone.as_deref(),
         right_ctrl,
@@ -690,7 +708,12 @@ fn try_init_splices(id: ComponentId, world: &mut World, emit: &mut dyn SignalEmi
     // cached above. Controller registration happens earlier, so retry their
     // runtime mount now that AVC and the imported skeleton are both ready.
     for controller in [left_ctrl, right_ctrl].into_iter().flatten() {
-        crate::engine::ecs::system::pointer_system::ensure_xr_hand_laser(world, controller, emit);
+        crate::engine::ecs::system::pointer_system::ensure_xr_hand_laser(
+            world,
+            retargeting,
+            controller,
+            emit,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1005,6 +1028,7 @@ fn resolve_hand_splice(
 /// inner option is absent when this controller has no avatar-finger basis.
 fn derive_hand_aim_correction(
     world: &World,
+    retargeting: &mut JointBasisRetargetingSystem,
     model_root: ComponentId,
     bone_name: Option<&str>,
     controller: Option<ComponentId>,
@@ -1013,7 +1037,8 @@ fn derive_hand_aim_correction(
     let (Some(bone_name), Some(controller)) = (bone_name, controller) else {
         return Some(None);
     };
-    let controller = world.get_component_by_id_as::<ControllerXRComponent>(controller);
+    let controller_id = controller;
+    let controller = world.get_component_by_id_as::<ControllerXRComponent>(controller_id);
     let finger = controller.and_then(|controller| controller.avatar_finger.as_ref());
     let Some(finger) = finger else {
         return Some(None);
@@ -1023,8 +1048,41 @@ fn derive_hand_aim_correction(
     let Some(hand_bone) = world.find_component(model_root, &format!("#{bone_name}")) else {
         return Some(None);
     };
-    match resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, hand_up, palm_width)
-    {
+    if hand_up.is_some() || palm_width.is_some() {
+        if let Err(error) = retargeting.register_xr_compatibility(
+            world,
+            controller_id,
+            hand_bone,
+            finger,
+            hand_up,
+            palm_width,
+        ) {
+            eprintln!(
+                "[AVC][hand-basis] {side} compatibility definition could not resolve: {error}"
+            );
+            return Some(None);
+        }
+    }
+    match retargeting.status_for(hand_bone) {
+        Some(RetargetBasisStatus::Ready) => {
+            // HumanoidBoneMap will provide this same target hand ID through semantic slots.
+            return retargeting
+                .basis_for(hand_bone)
+                .map(|basis| Some(mat_to_quat(basis.target_rest_to_canonical)));
+        }
+        Some(RetargetBasisStatus::Invalid(error)) => {
+            eprintln!("[AVC][hand-basis] {side} retained definition is invalid: {error}");
+            return Some(None);
+        }
+        Some(RetargetBasisStatus::ConflictingDefinition { .. }) => {
+            eprintln!("[AVC][hand-basis] {side} has conflicting retained definitions");
+            return Some(None);
+        }
+        Some(RetargetBasisStatus::WaitingForGltf) => return None,
+        None => {}
+    }
+    // Forward-only XR authoring cannot satisfy a generic two-axis definition.
+    match resolve_avatar_hand_pose_basis(world, model_root, hand_bone, finger, None, None) {
         Ok(Some(basis)) => Some(Some(quat_conjugate(basis.rotation))),
         Ok(None) => None,
         Err(error) => {

@@ -113,6 +113,10 @@ impl SignalPipelineProcessor {
             | IntentValue::RegisterAvatarBodyYaw { component_id }
             | IntentValue::RegisterIkChain { component_id }
             | IntentValue::RegisterSecondaryMotion { component_id }
+            | IntentValue::RegisterJointRetargetBasis { component_id }
+            | IntentValue::RetargetBasisConfigurationChanged { component_id }
+            | IntentValue::JointRetargetBasisGltfInitialized { component_id }
+            | IntentValue::UnregisterJointRetargetBasis { component_id }
             | IntentValue::SecondaryMotionConfigurationChanged { component_id }
             | IntentValue::SecondaryMotionTopologyChanged { component_id }
             | IntentValue::SecondaryMotionGltfInitialized { component_id }
@@ -246,6 +250,10 @@ impl SignalPipelineProcessor {
             | IntentValue::RegisterAvatarBodyYaw { component_id }
             | IntentValue::RegisterIkChain { component_id }
             | IntentValue::RegisterSecondaryMotion { component_id }
+            | IntentValue::RegisterJointRetargetBasis { component_id }
+            | IntentValue::RetargetBasisConfigurationChanged { component_id }
+            | IntentValue::JointRetargetBasisGltfInitialized { component_id }
+            | IntentValue::UnregisterJointRetargetBasis { component_id }
             | IntentValue::SecondaryMotionConfigurationChanged { component_id }
             | IntentValue::SecondaryMotionTopologyChanged { component_id }
             | IntentValue::SecondaryMotionGltfInitialized { component_id }
