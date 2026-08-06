@@ -9,6 +9,10 @@ Related review:
 - [current-humanoid-bone-mapping-and-avatar-slot-resolution.md](../review/current-humanoid-bone-mapping-and-avatar-slot-resolution.md)
 - [imported-humanoid-pose-basis-detection-and-conversion.md](../review/imported-humanoid-pose-basis-detection-and-conversion.md)
 
+Optional inference draft:
+
+- [Local LLM-assisted humanoid bone mapping](../draft/llm-assisted-humanoid-bone-mapping.md)
+
 ## Problem
 
 Mittens currently asks `AvatarControlComponent` and `XRHand` to carry separate
@@ -55,6 +59,11 @@ This task does not initially require:
 - guessing through ambiguous rigs;
 - replacing pose libraries or secondary motion;
 - treating a bone name as a portable local-axis convention.
+
+It also does not depend on an LLM or general AI-harness primitives. Local LLM
+inference may later propose mappings for unresolved or ambiguous slots, but it
+must consume the same deterministic inventory, preserve explicit decisions,
+and pass the same scoped validation described here.
 
 ## Proposed ownership model
 
