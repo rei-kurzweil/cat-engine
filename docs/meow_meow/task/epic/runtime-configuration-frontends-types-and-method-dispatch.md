@@ -59,10 +59,17 @@ The recommended order is:
 8. route collection, string, numeric, and component receiver calls through
    the shared method resolver; and
 9. add typed syntax, inference, static checking, and strict mode on top of
-   the same catalog and resolver; then
-10. bump `meow-meow-script` and `mittens-engine` together to `0.8.0` and
-    release them, unless the ownership cutover required that synchronized
-    version change earlier.
+   the same catalog and resolver.
+
+Release staging is independent of the complete language roadmap:
+
+- the first supported catalog/configuration foundation targets
+  `mittens-engine 0.7.2`; and
+- deletion of the duplicated engine-side evaluator/runtime model targets
+  `mittens-engine 0.8.0`.
+
+`meow-meow-script` is versioned from its actual published history whenever its
+direct-embedder API changes; it is not forced to a stale synchronized number.
 
 This separates three things that are easy to conflate:
 
@@ -110,7 +117,7 @@ Phase 7: canonical receiver-method dispatch
 Phase 8: typed syntax, inference, checker, and strict mode
                         |
                         v
-Release gate: meow-meow-script 0.8.0 + mittens-engine 0.8.0
+Release staging: catalog foundation in Mittens 0.7.2; legacy deletion in 0.8.0
 ```
 
 Phases 2a and 2b can proceed in parallel after the Phase 1 interfaces are
@@ -460,13 +467,17 @@ they are not prerequisites for the examples motivating this epic.
 - The static checker reuses the runtime's catalog and resolver.
 - No engine-local vocabulary list, capability catalog, evaluator, heap, or
   method-support match remains as a competing source of truth.
-- `meow-meow-script` and `mittens-engine` share the `0.8.0` release target;
-  their manifests remain unchanged until this epic is ready unless the
-  ownership cutover requires a synchronized earlier bump.
+- the supported catalog/configuration foundation can ship with
+  `mittens-engine 0.7.2` before the whole epic is complete;
+- `mittens-engine 0.8.0` is gated on removal of the duplicate engine-side MMS
+  evaluator/runtime; and
+- `meow-meow-script` versions and migration notes reflect its actual
+  direct-embedder API changes.
 
 ## Related documents
 
-- [Mittens MMS ownership cutover and 0.8 release](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md)
+- [Mittens release roadmap](../../../task/release-roadmap-0.7.1-0.7.2-0.8.0.md)
+- [Mittens MMS ownership cutover](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md)
 - [Mittens host and MMS runtime boundary](../../spec/mittens-host-and-runtime-boundary.md)
 - [Host API](../../spec/host-call-api.md)
 - [Generic runner and REPL boundary](../../analysis/generic-runner-and-repl-boundary.md)

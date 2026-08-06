@@ -1,8 +1,9 @@
 # Grid + Gizmo + Paint End-to-End UX and Test Matrix
 
-Date: 2026-07-28
+Date: 2026-08-06
 
-Status: investigation / implementation tracker
+Status: active detailed tracker for the
+[`mittens-engine 0.7.1` editor grid and paint release gate](editor-grid-paint-0.7.1-release-gate.md)
 
 Primary demo: `examples/bisket-vr-demo.mms`
 

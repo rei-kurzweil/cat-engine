@@ -1,8 +1,8 @@
 # Asset Selection and Paint Runtime Regression Follow-up
 
-Date: 2026-06-12
+Date: 2026-08-06
 
-Status: planned follow-up
+Status: active `mittens-engine 0.7.1` paint regression gate
 
 ## Problem
 
@@ -125,6 +125,7 @@ Current:
 
 ## Related docs
 
-- [selection-root-target-subtree-and-direct-option-payloads.md](/home/rei/_/cat-engine/docs/task/selection-root-target-subtree-and-direct-option-payloads.md:1)
-- [option-direct-data-payload-refactor.md](/home/rei/_/cat-engine/docs/task/option-direct-data-payload-refactor.md:1)
-- [paint-panel-selection-and-panel-focus.md](/home/rei/_/cat-engine/docs/task/paint-panel-selection-and-panel-focus.md:1)
+- [Selection root targets and direct option payloads](selection-root-target-subtree-and-direct-option-payloads.md)
+- [Option direct data payload refactor](option-direct-data-payload-refactor.md)
+- [Paint panel selection and focus](paint-panel-selection-and-panel-focus.md)
+- [Editor grid and paint 0.7.1 release gate](editor-grid-paint-0.7.1-release-gate.md)

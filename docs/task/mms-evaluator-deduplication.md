@@ -1,8 +1,9 @@
 # MMS evaluator deduplication checklist
 
-Date: 2026-07-29
+Date: 2026-08-06
 
-Status: planned
+Status: active implementation checklist; catalog foundation targets
+`mittens-engine 0.7.2`, legacy deletion targets `0.8.0`
 
 Normative architecture:
 [Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md).
@@ -107,6 +108,11 @@ Exit gate: pure language results and typed errors agree, and known differences
 are explicit regression tests.
 
 ## Phase 1 — one `RuntimeSpec` builder and complete host
+
+The first supported catalog/configuration slice is intended to ship in
+`mittens-engine 0.7.2`. The legacy evaluator may remain behind that catalog
+until later phases, but Phase 1 must not introduce another independently
+maintained vocabulary.
 
 - [ ] Add crate-owned `RuntimeSpec` and nested builder types.
 - [ ] Complete the open/strict name-policy, component reflection, table dot,
@@ -346,14 +352,20 @@ the full workspace suite passes.
 
 ## Release and versioning
 
-- [ ] Treat the direct `meow-meow-script` API migration as breaking.
-- [ ] Target `0.8.0` as the next release of both `meow-meow-script` and
-      `mittens-engine`; do not publish an intermediate MMS `0.7.0` or Mittens
-      `0.7.1` release.
-- [ ] Leave the manifests unchanged until the later MMS work is ready unless
-      this cutover requires the version change. When a bump is required, set
-      both crates to `0.8.0` and update the dependency requirement and
-      lockfile in the same change.
+- [x] Treat ordinary Mittens applications and authored MMS scene behavior as a
+      compatibility target; adding the equivalent internal catalog is not by
+      itself a breaking Mittens experience.
+- [x] Treat the direct `meow-meow-script` embedder API independently. It is
+      pre-1.0 and may change with explicit migration guidance.
+- [x] Target `mittens-engine 0.7.2` for the first supported
+      catalog/configuration foundation.
+- [x] Target `mittens-engine 0.8.0` for removal of the duplicated engine-side
+      MMS evaluator/runtime model.
+- [ ] Choose the next `meow-meow-script` version from its actual latest
+      published version when each packaged API slice is ready; align with
+      Mittens when practical rather than forcing a stale synchronized number.
+- [ ] For every MMS crate bump consumed by Mittens, update the dependency
+      requirement and lockfile atomically.
 - [ ] Publish a direct-embedder migration guide covering:
   - construction through the one `RuntimeSpec` builder
   - removal of separate `HostCapabilities`
@@ -365,9 +377,9 @@ the full workspace suite passes.
 - [ ] Run the Mittens public API/source-compatibility fixtures.
 - [ ] Verify observable compatibility for runner outputs, errors, modules,
       template/live factories, handlers, and keyframes.
-- [ ] Classify the supported Mittens API changes precisely for the migration
-      guide; compatibility evidence no longer changes the shared `0.8.0`
-      release target.
+- [ ] Classify the supported Mittens Rust API changes precisely for the
+      `0.8.0` migration guide while preserving the intended ordinary runtime
+      and authored-scene behavior.
 
 Exit gate: crate versions communicate the actual compatibility impact and
 both direct embedders and Mittens users have an explicit migration story.
@@ -397,8 +409,8 @@ both direct embedders and Mittens users have an explicit migration story.
 - [ ] Typed errors and recovery behavior are covered.
 - [ ] `meow-meow-script` has a pre-1.0 breaking version bump and migration
       guide.
-- [ ] Mittens public API compatibility and deliberate breaks are documented
-      for the synchronized `0.8.0` release.
+- [ ] Mittens public API compatibility and deliberate Rust API changes are
+      documented for `mittens-engine 0.8.0`.
 - [ ] The full workspace test suite passes.
 
 ## Required test matrix

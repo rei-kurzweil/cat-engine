@@ -1,15 +1,18 @@
 # Mittens/MMS cutover resume checkpoint
 
-Date: 2026-08-01
+Date: 2026-08-06
 
-Status: paused checkpoint; resume after the UI-performance and XR-pose work
+Status: resumed and reframed; catalog foundation targets `0.7.2`, legacy
+deletion targets `0.8.0`
 
 ## Purpose
 
-Record the exact state of the Mittens/MMS ownership cutover before temporarily
-switching focus. This is the short re-entry document; the canonical release
-plan remains
-[Mittens MMS ownership cutover and 0.8 release](mittens-mms-ownership-cutover-and-0.8-release.md),
+Record the current state of the Mittens/MMS ownership cutover after the
+UI-performance and first XR-pose implementation slices landed. This is the
+short re-entry document; the release sequence is
+[Mittens 0.7.1, 0.7.2, and 0.8.0](release-roadmap-0.7.1-0.7.2-0.8.0.md), the
+canonical cutover plan remains
+[Mittens MMS ownership cutover](mittens-mms-ownership-cutover-and-0.8-release.md),
 and the detailed checklist remains
 [MMS evaluator deduplication](mms-evaluator-deduplication.md).
 
@@ -20,7 +23,10 @@ The boundary change is **not finished**. The first standalone
 evaluator, heap, closure, module, callback, and REPL paths. The remaining work
 is therefore not merely internal cleanup inside `meow-meow-script`.
 
-Do not release either crate as `0.8.0` from this checkpoint.
+Do not describe the ownership cutover as complete from this checkpoint.
+`mittens-engine 0.7.1` may ship its smaller avatar/editor reliability scope;
+`0.7.2` may ship the supported catalog foundation; `mittens-engine 0.8.0`
+remains gated on deletion of the duplicated engine-side MMS runtime.
 
 ## What works now
 
@@ -36,6 +42,9 @@ Do not release either crate as `0.8.0` from this checkpoint.
 - MMS user guides are being centralized under
   `crates/meow-meow-script/docs/`; historical tasks and analysis remain in the
   repository documentation tree.
+- Editor panel accordion/minimization and subtree suspension are implemented.
+- The controller Grip/Aim and joint-basis retargeting direction has landed;
+  headset acceptance and the shared humanoid-map ergonomics remain open.
 
 The last recorded smoke-test evidence was:
 
@@ -62,16 +71,17 @@ This evidence proves the standalone slice, not the engine cutover.
 - the crate has no host-independent `SessionClient` suitable for the engine to
   drive while borrowing short-lived ECS access.
 
-## Resume here
+## Resume MMS work here
 
 Work in this order unless new evidence changes a dependency:
 
 - [ ] Refresh the public API inventory and compile/behavior fixtures from
       Phase 0 of the canonical plan.
-- [ ] Confirm the synchronized `0.8.0` compatibility decision without bumping
-      manifests prematurely.
-- [ ] Finish the nested crate-owned `RuntimeSpec`, strict component policy,
-      and opaque binding IDs.
+- [x] Record the revised compatibility/release decision: ordinary Mittens
+      behavior is preserved, `0.7.2` introduces the supported catalog, and
+      engine-side legacy deletion gates `0.8.0`.
+- [ ] Finish the supported crate-owned `RuntimeSpec`, strict component policy,
+      and opaque binding IDs for the `0.7.2` foundation.
 - [ ] Make `MittensHost` implement every declared effect without consulting a
       second vocabulary or the legacy evaluator.
 - [ ] Introduce the host-independent persistent session/client boundary and
@@ -85,8 +95,14 @@ Work in this order unless new evidence changes a dependency:
 - [ ] Move REPL and live-inspection integration onto the crate protocol.
 - [ ] Delete engine-owned evaluator/runtime state only after all callers have
       moved.
-- [ ] Complete later MMS runtime/type work, satisfy the other `0.8` release
-      gates, then synchronize both manifests at `0.8.0`.
+- [ ] Delete duplicated engine runtime state, pass the cutover matrix, then
+      bump `mittens-engine` to `0.8.0`; version `meow-meow-script` from its
+      actual published history and API changes.
+
+The active `0.7.1` work proceeds independently:
+
+- [Shared humanoid bone map and AVC ergonomics](humanoid-bone-map-automapping-and-mms-presets.md)
+- [Editor grid and paint release gate](editor-grid-paint-0.7.1-release-gate.md)
 
 ## First smoke tests after resuming
 
@@ -115,8 +131,7 @@ callback, REPL, or live-ECS behavior.
 
 ## Related documents
 
-- [Mittens MMS ownership cutover and 0.8 release](mittens-mms-ownership-cutover-and-0.8-release.md)
+- [Mittens MMS ownership cutover](mittens-mms-ownership-cutover-and-0.8-release.md)
 - [MMS evaluator deduplication](mms-evaluator-deduplication.md)
 - [Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md)
 - [Move MMS documentation into the crate](move-meow-meow-documentation-into-crate.md)
-

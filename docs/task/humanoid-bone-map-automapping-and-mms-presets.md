@@ -1,8 +1,13 @@
 # Task: Shared humanoid bone map, conservative automapping, and MMS presets
 
-Date: 2026-08-04
+Date: 2026-08-06
 
-Status: proposed; documentation and design only
+Status: active `mittens-engine 0.7.1` release gate; design exists, shared map
+implementation not started
+
+Release roadmap:
+
+- [Mittens 0.7.1, 0.7.2, and 0.8.0](release-roadmap-0.7.1-0.7.2-0.8.0.md)
 
 Related review:
 
@@ -47,6 +52,83 @@ The first implementation should:
 7. use mapped finger landmarks to derive full hand orientation without
    avatar-specific quaternion calibration;
 8. migrate AVC without breaking existing scenes.
+
+## 0.7.1 product contract
+
+The `0.7.1` goal is not merely to add another mapping helper. It is to make a
+normal humanoid model practical to set up for desktop and VR control without
+copying a long list of consumer-specific bone strings or inventing per-avatar
+hand correction quaternions.
+
+The user-facing merge rule is an ordered union, not all-or-nothing auto versus
+explicit mapping:
+
+1. an explicit per-slot `Reference` or `Absent` is authoritative;
+2. during migration, existing explicit AVC bone fields are treated as
+   highest-precedence legacy references and reported as such;
+3. embedded humanoid metadata and a selected convention preset may fill only
+   `Unspecified` slots;
+4. conservative name/topology/rest-geometry inference may fill only the slots
+   still `Unspecified`; and
+5. an invalid explicit reference is an error, while ambiguous inference stays
+   unresolved and produces diagnostics.
+
+Consequently, callers can provide only the exceptional mappings for their rig
+and allow Auto to fill the remainder. Explicit choices are never discarded by
+later inference. This same rule applies whether an explicit map is authored
+inline, imported from an MMS preset, or generated from a reviewed inventory.
+
+The low-boilerplate path should be approximately one policy/preset declaration
+under a GLTF. Exact API spelling remains an implementation decision:
+
+```mms
+GLTF.new("avatar.glb") {
+  HumanoidBoneMap.auto() {
+    // Optional exceptions only; Auto fills other unspecified slots.
+    leftLowerArm = "#custom_forearm_l"
+    toes = absent
+  }
+}
+```
+
+Known avatars may instead import an exact preset. A broken or incomplete Auto
+result must not leave a partly mutated AVC armature: required slots validate
+before the corresponding splice/IK path activates, and the inventory report
+must explain how to add the smallest explicit override.
+
+### 0.7.1 fallback ladder
+
+For each consumer, fallback is explicit and observable:
+
+- full validated semantic map -> preferred AVC and hand-basis path;
+- partial map with the consumer's required slots -> activate only that
+  consumer/path and report optional gaps;
+- ambiguous or missing required Auto slots -> do not guess; keep the affected
+  path at rest/disabled and report candidates plus the needed override;
+- `Legacy` policy -> preserve the current AVC explicit-name/topology behavior;
+  and
+- nonhumanoid GLTF -> remain an ordinary model without repeated warnings or
+  frame polling.
+
+For VR hand orientation, prefer a full palm frame from mapped middle-finger and
+index/little landmarks. A forward-only landmark fallback may orient the finger
+direction while leaving roll unconstrained, but the diagnostic must say so.
+Controller-space fallback remains available when avatar binding is unavailable;
+it must not masquerade as a successfully mapped avatar hand.
+
+### 0.7.1 scope boundary
+
+Required:
+
+- data model, GLTF-scoped inventory, explicit union semantics, conservative
+  Auto, diagnostics, AVC head/neck/arm/hand consumption, hand-basis lookup,
+  Bisket and PC-Rei presets/fixtures, and headset validation.
+
+Deferred unless needed to meet those outcomes:
+
+- LLM proposals, a polished editor mapping UI, complete finger driving, leg
+  IK, general animation retargeting, and making Auto the default for existing
+  scenes.
 
 ## Non-goals
 
