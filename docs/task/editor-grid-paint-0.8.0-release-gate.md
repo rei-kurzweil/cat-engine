@@ -21,12 +21,19 @@ in
   slices and focused tests.
 - The running application reportedly no longer completes the basic
   asset-selection -> paint-state -> visible Free Draw workflow.
+- In `vtuber-mirror-example`, most temple geometry was not raycastable; only
+  the three emissive test cubes could produce paint/color scene hits. The main
+  floor and two placement platforms are now explicit paint targets.
 - Grid rendering, active-grid selection, paint snapping, and gizmo snapping do
   not yet share one authoritative frame/spacing/anchor contract.
 - Several grid panel, cursor routing, orientation, preview, and placement bugs
   remain open across overlapping task and bug documents.
 - `PaintTool::Line` is exposed by the panel but is deliberately rejected by the
   activity gate; the current test asserts that Line places nothing.
+- Color selection is shared paint state. Placement tools use it for new assets;
+  the Color tool uses it to modify an existing raycast hit. The former `Fill`
+  label is accepted as a compatibility alias, but this is object recoloring,
+  not a flood-fill or texture-paint operation.
 - The engine library suite currently contains deterministic catalog drift plus
   broader editor/paint failures, so a compiling workspace is not sufficient
   release evidence.
@@ -55,11 +62,15 @@ Tracked in detail by
 
 - [ ] Reproduce the current failure in the running application and record the
       exact click/focus sequence.
+- [x] Make the intended `vtuber-mirror-example` floor/platform targets
+      raycastable; a non-raycastable surface cannot start a paint gesture.
 - [ ] Trace asset row `Option -> Data(asset_key)` through shared paint state,
       template lookup, stroke start, spawn, attach, and render registration.
 - [ ] Make a selected asset remain visibly selected and available to the paint
       system when the Paint panel receives focus.
 - [ ] Make one Free Draw click place exactly one object.
+      Test this through `GestureSystem` (`DragStart -> DragEnd -> Click`); the
+      terminal `Click` handler must not create a duplicate.
 - [ ] Make a Free Draw drag remain active across adjacent compatible
       renderables instead of keying continuity to one raw renderable ID.
 - [ ] Keep preview geometry out of subsequent stroke raycasts.
@@ -67,6 +78,27 @@ Tracked in detail by
       is removed on commit.
 - [ ] Add an integration-style test that crosses selection, focus, paint state,
       template resolution, placement, and visible/render registration.
+
+## Gate A2: make object coloring explicit
+
+The Color panel selects an RGBA operand; it does not perform an action by
+itself. The selected color has two consumers:
+
+1. Free Draw, Line, and Spray Can apply it while creating a new asset; and
+2. the Color tool raycasts an existing scene object and updates the
+   `ColorComponent` values in the resolved target transform subtree.
+
+- [x] Expose `Color` as a Paint-panel tool and retain `Fill` as an input-label
+      compatibility alias.
+- [x] Do not require an asset selection to activate Color.
+- [x] Re-register changed color components so the visible render state updates.
+- [x] Cover recoloring an existing hit without placing a new asset in a focused
+      system test.
+- [ ] Verify desktop and XR Color clicks in the running application.
+- [ ] Show a precise inactive result when the resolved target has no
+      `ColorComponent` channel.
+- [ ] Decide a separate material/texture-paint design for textured GLTF assets;
+      the 0.8 object-color tool does not rewrite textures or material graphs.
 
 ## Gate B: make grids authoritative and usable
 
@@ -151,8 +183,7 @@ does not silently switch coordinate systems mid-stroke.
 
 ### Line acceptance tests
 
-- [ ] Replace `paint_tool_line_and_fill_noop` with Line lifecycle tests while
-      retaining Fill as explicitly unsupported.
+- [ ] Replace the Line no-op test with Line lifecycle tests.
 - [ ] Assert no duplicate grid cell or duplicate committed translation.
 - [ ] Assert reverse drags produce the same cell set in reverse order.
 - [ ] Assert repeated `DragMove` for the same endpoint does not respawn or

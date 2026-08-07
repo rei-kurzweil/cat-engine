@@ -63,15 +63,15 @@ ED {
         Collision.static() {
             CollisionShape.cube([60.0, 0.06, 60.0])
         }
-        R.cube() { C.rgba(0.75, 0.75, 0.75, 1.0) }
+        R.cube() { C.rgba(0.75, 0.75, 0.75, 1.0) Raycastable.enabled() }
     }
 
     T.position(0.0, -0.55, -0.2).scale(8.0, 0.18, 10.5) {
-        R.cube() { C.rgba(0.86, 0.84, 0.82, 1.0) }
+        R.cube() { C.rgba(0.86, 0.84, 0.82, 1.0) Raycastable.enabled() }
     }
 
     T.position(0.0, -1.28, 1.55).scale(4.4, 0.14, 1.3) {
-        R.cube() { C.rgba(0.90, 0.88, 0.86, 1.0) }
+        R.cube() { C.rgba(0.90, 0.88, 0.86, 1.0) Raycastable.enabled() }
     }
 
     

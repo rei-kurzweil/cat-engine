@@ -847,7 +847,13 @@ fn handle_free_draw_stroke_move(
     update_preview_pose(world, emit, session.preview_root_component_id, pose);
     session.last_valid_placement_frame = Some(frame);
     Some(match session.placement_kind {
-        PlacementKind::PaintAsset => format!("paint preview: {}", context.asset.title),
+        PlacementKind::PaintAsset => format!(
+            "paint preview: {}",
+            context
+                .asset
+                .map(|asset| asset.title.as_str())
+                .unwrap_or("asset")
+        ),
         PlacementKind::Grid => "grid preview".to_string(),
     })
 }
@@ -861,6 +867,7 @@ fn handle_spray_can_click(
     renderable: ComponentId,
     hit_point: [f32; 3],
 ) -> Option<String> {
+    let asset = context.asset?;
     let runtime = stroke_runtime?;
     let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
     if runtime.non_grid_placed {
@@ -882,7 +889,7 @@ fn handle_spray_can_click(
         context.destination_editor,
         renderable,
         offset_hit_point,
-        &context.asset,
+        asset,
         context.selected_color,
         None,
     ))
@@ -897,6 +904,7 @@ fn handle_spray_can_stroke_move(
     renderable: ComponentId,
     hit_point: [f32; 3],
 ) -> Option<String> {
+    let asset = context.asset?;
     let runtime = stroke_runtime?;
     let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
     if !runtime.active {
@@ -934,7 +942,7 @@ fn handle_spray_can_stroke_move(
             context.destination_editor,
             renderable,
             offset_hit_point,
-            &context.asset,
+            asset,
             context.selected_color,
             None,
         ))
@@ -1017,9 +1025,9 @@ fn handle_line_stroke_move(
     None
 }
 
-fn handle_fill_click(
+fn handle_color_click(
     world: &mut World,
-    _emit: &mut dyn SignalEmitter,
+    emit: &mut dyn SignalEmitter,
     _editor_root: ComponentId,
     context: &PaintContext<'_>,
     _stroke_runtime: Option<&Arc<Mutex<PaintStrokeRuntime>>>,
@@ -1028,14 +1036,20 @@ fn handle_fill_click(
 ) -> Option<String> {
     let hit =
         crate::engine::ecs::system::editor_scene_hit::resolve_world_scene_hit(world, renderable)?;
-    if apply_color_to_subtree(world, hit.target_transform, context.selected_color, false) {
-        Some("fill applied".to_string())
+    if apply_color_to_subtree(
+        world,
+        emit,
+        hit.target_transform,
+        context.selected_color,
+        false,
+    ) {
+        Some("color applied".to_string())
     } else {
-        Some("fill inactive: target has no color channel".to_string())
+        Some("color inactive: target has no Color component".to_string())
     }
 }
 
-fn handle_fill_stroke_move(
+fn handle_color_stroke_move(
     _world: &mut World,
     _emit: &mut dyn SignalEmitter,
     _editor_root: ComponentId,
@@ -1115,7 +1129,7 @@ fn handle_scene_click(
             renderable,
             hit_point,
         ),
-        PaintTool::Fill => handle_fill_click(
+        PaintTool::Color => handle_color_click(
             world,
             emit,
             editor_root,
@@ -1215,7 +1229,7 @@ fn handle_stroke_move(
             renderable,
             hit_point,
         ),
-        PaintTool::Fill => handle_fill_stroke_move(
+        PaintTool::Color => handle_color_stroke_move(
             world,
             emit,
             editor_root,
@@ -1241,7 +1255,7 @@ fn handle_stroke_move(
 
 #[derive(Debug, Clone)]
 struct PaintContext<'a> {
-    asset: &'a PaintAssetTemplate,
+    asset: Option<&'a PaintAssetTemplate>,
     destination_editor: ComponentId,
     selected_color: [f32; 4],
     grid_system: GridSystem,
@@ -1297,7 +1311,7 @@ fn resolve_paint_context<'a>(
         None => return None,
     };
     let asset = match paint_state.selected_tool {
-        PaintTool::GridTool | PaintTool::Erase => templates.first(),
+        PaintTool::GridTool | PaintTool::Erase | PaintTool::Color => None,
         _ => {
             let selected_asset = paint_state.selected_asset.as_ref()?;
             let payload = selected_asset.component?;
@@ -1312,9 +1326,13 @@ fn resolve_paint_context<'a>(
                 } else {
                     return None;
                 };
-            templates.iter().find(|template| template.key == asset_key)
+            Some(
+                templates
+                    .iter()
+                    .find(|template| template.key == asset_key)?,
+            )
         }
-    }?;
+    };
     let context = PaintContext {
         asset,
         destination_editor,
@@ -1325,8 +1343,9 @@ fn resolve_paint_context<'a>(
         "resolve_paint_context.active",
         start,
         format!(
-            "tool={:?} asset_key={}",
-            paint_state.selected_tool, asset.key,
+            "tool={:?} asset_key={:?}",
+            paint_state.selected_tool,
+            asset.map(|asset| asset.key.as_str()),
         ),
     );
     Some(context)
@@ -1377,9 +1396,9 @@ fn start_paint_preview_session(
     hit_point: [f32; 3],
     context: &PaintContext<'_>,
 ) -> Option<PlacementPreviewSession> {
+    let asset = context.asset?;
     let scene_parent = resolve_scene_parent(world, context.destination_editor);
-    let asset_root =
-        spawn_asset_subtree(world, emit, &context.asset, context.selected_color).ok()?;
+    let asset_root = spawn_asset_subtree(world, emit, asset, context.selected_color).ok()?;
     let preview_root =
         world.add_component_boxed_named("painted_asset_root", Box::new(TransformComponent::new()));
     let raycastable_root = world.add_component_boxed_named(
@@ -1464,7 +1483,7 @@ fn paint_activity_status(
 
     let asset_required = !matches!(
         paint_state.selected_tool,
-        PaintTool::Erase | PaintTool::GridTool
+        PaintTool::Erase | PaintTool::GridTool | PaintTool::Color
     );
     if asset_required
         && paint_state
@@ -1480,7 +1499,11 @@ fn paint_activity_status(
     }
 
     match paint_state.selected_tool {
-        PaintTool::FreeDraw | PaintTool::GridTool | PaintTool::SprayCan | PaintTool::Erase => {}
+        PaintTool::FreeDraw
+        | PaintTool::GridTool
+        | PaintTool::SprayCan
+        | PaintTool::Color
+        | PaintTool::Erase => {}
         _ => {
             return PaintActivityStatus {
                 active: false,
@@ -1586,7 +1609,7 @@ fn spawn_asset_subtree(
     )
     .map_err(|error| format!("paint failed: asset spawn error: {error}"))?;
     sanitize_painted_asset_subtree(world, asset_root);
-    apply_color_to_subtree(world, asset_root, selected_color, true);
+    apply_color_to_subtree(world, emit, asset_root, selected_color, true);
     Ok(asset_root)
 }
 
@@ -1719,7 +1742,7 @@ fn base_status_text(
 
     let asset_required = !matches!(
         paint_state.selected_tool,
-        PaintTool::Erase | PaintTool::GridTool
+        PaintTool::Erase | PaintTool::GridTool | PaintTool::Color
     );
     if asset_required
         && paint_state
@@ -1732,7 +1755,11 @@ fn base_status_text(
     }
 
     match paint_state.selected_tool {
-        PaintTool::FreeDraw | PaintTool::GridTool | PaintTool::SprayCan | PaintTool::Erase => {}
+        PaintTool::FreeDraw
+        | PaintTool::GridTool
+        | PaintTool::SprayCan
+        | PaintTool::Color
+        | PaintTool::Erase => {}
         _ => {
             return format!(
                 "paint inactive: tool is not supported ({:?})",
@@ -1749,6 +1776,7 @@ fn base_status_text(
         PaintTool::FreeDraw => "Free Draw",
         PaintTool::GridTool => "Grid Tool",
         PaintTool::SprayCan => "Spray Can",
+        PaintTool::Color => "Color",
         PaintTool::Erase => "Erase",
         _ => unreachable!(),
     };
@@ -1897,6 +1925,7 @@ fn update_last_scene_interacted_editor(
 
 fn apply_color_to_subtree(
     world: &mut World,
+    emit: &mut dyn SignalEmitter,
     root: ComponentId,
     rgba: [f32; 4],
     attach_if_missing: bool,
@@ -1917,6 +1946,7 @@ fn apply_color_to_subtree(
         {
             color.rgba = rgba;
             found_color = true;
+            emit.push_intent_now(node, IntentValue::RegisterColor { component_id: node });
         }
         for &child in world.children_of(node) {
             stack.push(child);
@@ -2602,7 +2632,7 @@ mod tests {
     }
 
     #[test]
-    fn paint_tool_line_and_fill_noop() {
+    fn paint_tool_line_is_explicitly_unsupported() {
         let (
             mut world,
             mut emit,
@@ -2615,7 +2645,6 @@ mod tests {
             _paint_panel_root,
         ) = init_editor_fixture();
 
-        // 1. Line tool
         {
             let mut state = systems.editor_paint.shared_state.lock().unwrap();
             state.selected_tool = PaintTool::Line;
@@ -2636,14 +2665,30 @@ mod tests {
             0,
             "Line tool should NOT place assets on click (NOOP)"
         );
+    }
 
-        // 2. Fill tool
+    #[test]
+    fn color_tool_recolors_hit_without_asset_selection() {
+        let (
+            mut world,
+            mut emit,
+            mut visuals,
+            mut systems,
+            mut render_assets,
+            editor_root,
+            _scene_root,
+            renderable,
+            _paint_panel_root,
+        ) = init_editor_fixture();
+
         {
             let mut state = systems.editor_paint.shared_state.lock().unwrap();
-            state.selected_tool = PaintTool::Fill;
+            state.selected_tool = PaintTool::Color;
+            state.selected_asset = None;
+            state.selected_color = Some([0.2, 0.4, 0.8, 1.0]);
         }
 
-        push_drag_place(&mut systems, renderable);
+        push_click(&mut systems, renderable);
         let _ = systems.process_signals(
             &mut world,
             &mut visuals,
@@ -2656,7 +2701,26 @@ mod tests {
         assert_eq!(
             count_named_descendants(&world, editor_root, "painted_asset_root"),
             0,
-            "Fill tool should NOT place assets on click (NOOP)"
+            "Color changes an existing target; it does not place an asset"
+        );
+        let color = world
+            .find_component(renderable, "Color")
+            .or_else(|| {
+                world
+                    .parent_of(renderable)
+                    .filter(|parent| {
+                        world
+                            .get_component_by_id_as::<ColorComponent>(*parent)
+                            .is_some()
+                    })
+            })
+            .expect("target color");
+        assert_eq!(
+            world
+                .get_component_by_id_as::<ColorComponent>(color)
+                .expect("color component")
+                .rgba,
+            [0.2, 0.4, 0.8, 1.0]
         );
     }
 

@@ -8,7 +8,8 @@ pub const COLOR_SWATCH_PAYLOAD_NAME: &str = "color_swatch_payload";
 const FREE_DRAW_LABEL: &str = "Free Draw";
 const LINE_LABEL: &str = "Line";
 const SPRAY_CAN_LABEL: &str = "Spray Can";
-const FILL_LABEL: &str = "Fill";
+const COLOR_LABEL: &str = "Color";
+const LEGACY_FILL_LABEL: &str = "Fill";
 const ERASE_LABEL: &str = "Erase";
 const GRID_TOOL_LABEL: &str = "Grid Tool";
 
@@ -43,7 +44,7 @@ pub enum PaintTool {
     GridTool,
     Line,
     SprayCan,
-    Fill,
+    Color,
     Erase,
     Unknown(Option<String>),
 }
@@ -168,7 +169,7 @@ pub fn paint_tool_from_item(item: Option<String>) -> PaintTool {
         Some(GRID_TOOL_LABEL) => PaintTool::GridTool,
         Some(LINE_LABEL) => PaintTool::Line,
         Some(SPRAY_CAN_LABEL) => PaintTool::SprayCan,
-        Some(FILL_LABEL) => PaintTool::Fill,
+        Some(COLOR_LABEL | LEGACY_FILL_LABEL) => PaintTool::Color,
         Some(ERASE_LABEL) => PaintTool::Erase,
         _ => PaintTool::Unknown(item),
     }
@@ -211,7 +212,10 @@ pub fn is_paint_active(
 ) -> bool {
     let focused = is_paint_workspace_focused(paint_panel_root, color_panel_root, editor_context);
     let tool_ok = !matches!(paint_state.selected_tool, PaintTool::Unknown(_));
-    let asset_ok = if paint_state.selected_tool == PaintTool::Erase {
+    let asset_ok = if matches!(
+        paint_state.selected_tool,
+        PaintTool::Erase | PaintTool::GridTool | PaintTool::Color
+    ) {
         true
     } else {
         paint_state
@@ -229,4 +233,21 @@ pub fn is_paint_active(
         editor_context.focused_panel
     );
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_and_legacy_fill_labels_select_color_tool() {
+        assert_eq!(
+            paint_tool_from_item(Some("Color".to_string())),
+            PaintTool::Color
+        );
+        assert_eq!(
+            paint_tool_from_item(Some("Fill".to_string())),
+            PaintTool::Color
+        );
+    }
 }

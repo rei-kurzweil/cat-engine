@@ -287,7 +287,7 @@ let PAINT_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + P
 let COLOR_PANEL_WIDTH_GU = 16.0
 let COLOR_PANEL_HEIGHT_GU = 18.5
 
-let tool_names = ["Free Draw", "Grid Tool", "Line", "Spray Can", "Fill", "Erase"]
+let tool_names = ["Free Draw", "Grid Tool", "Line", "Spray Can", "Color", "Erase"]
 
 fn tool_at_index(idx) {
     if idx == 0 { return pencil_icon() }

@@ -168,16 +168,19 @@ Relevant code:
 - `src/engine/ecs/system/grid_system.rs`
 - `src/engine/ecs/system/editor/context.rs`
 
-### 5. Free Draw is drag-only, and renderable continuity is too strict
+### 5. Free Draw commits through the gesture lifecycle, and renderable continuity is too strict
 
-`handle_free_draw_click(...)` is a no-op. A Free Draw result is only produced by:
+`handle_free_draw_click(...)` is a no-op, but a normal pointer click is not a
+bare `Click` event. `GestureSystem` emits:
 
-1. `DragStart` creating a preview
-2. zero or more accepted `DragMove` events updating it
-3. `DragEnd` committing it
+1. `DragStart`, which creates the preview;
+2. zero or more `DragMove` events;
+3. `DragEnd`, which commits the preview; and then
+4. `Click` when movement stayed below the click threshold.
 
-This makes a click or a pointer gesture that does not cross the drag threshold
-appear broken.
+The final `Click` must not place a second object. A focused acceptance test
+should therefore drive the real gesture stream and assert that a click commits
+exactly one object. A synthetic bare `Click` is not the creation lifecycle.
 
 During a drag, the system records the exact renderable hit at `DragStart`.
 Every later Free Draw move is discarded if its renderable differs. This is a
