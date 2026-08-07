@@ -31,9 +31,9 @@ in
 - `PaintTool::Line` is exposed by the panel but is deliberately rejected by the
   activity gate; the current test asserts that Line places nothing.
 - Color selection is shared paint state. Placement tools use it for new assets;
-  the Color tool uses it to modify an existing raycast hit. The former `Fill`
-  label is accepted as a compatibility alias, but this is object recoloring,
-  not a flood-fill or texture-paint operation.
+  the Color tool applies a renderable-local tint to only the raycast-hit
+  primitive. `Fill` remains a distinct, unsupported tool and is not exposed in
+  the 0.8 Paint panel.
 - The engine library suite currently contains deterministic catalog drift plus
   broader editor/paint failures, so a compiling workspace is not sufficient
   release evidence.
@@ -85,20 +85,41 @@ The Color panel selects an RGBA operand; it does not perform an action by
 itself. The selected color has two consumers:
 
 1. Free Draw, Line, and Spray Can apply it while creating a new asset; and
-2. the Color tool raycasts an existing scene object and updates the
-   `ColorComponent` values in the resolved target transform subtree.
+2. the Color tool updates or attaches the immediate `ColorComponent` on the
+   raycast-hit `RenderableComponent`.
 
-- [x] Expose `Color` as a Paint-panel tool and retain `Fill` as an input-label
-      compatibility alias.
+- [x] Expose `Color` as a Paint-panel tool with an RGB icon; retain `Fill` as a
+      distinct hidden tool value.
 - [x] Do not require an asset selection to activate Color.
+- [x] Do not require an active grid to use Color.
+- [x] Limit Color to the hit renderable so sibling primitives are unchanged.
+- [x] Attach a renderable-local tint when the hit has no immediate color.
 - [x] Re-register changed color components so the visible render state updates.
 - [x] Cover recoloring an existing hit without placing a new asset in a focused
       system test.
 - [ ] Verify desktop and XR Color clicks in the running application.
-- [ ] Show a precise inactive result when the resolved target has no
-      `ColorComponent` channel.
 - [ ] Decide a separate material/texture-paint design for textured GLTF assets;
       the 0.8 object-color tool does not rewrite textures or material graphs.
+
+## Deferred Fill contract
+
+Implement Line before beginning Fill. Fill also depends on an investigation
+and implementation of an accelerated spatial-query/index facility that can
+answer occupancy at grid-quantized world positions without persisting a second
+grid-sized occupancy map.
+
+Fill requires a selected asset, snapping enabled, and a selected enabled grid.
+A click begins at one grid-local cell and expands through four-connected empty
+cells. Occupied cells are walls, while grid edges do not count as enclosure.
+The implementation advances one Manhattan-distance frontier layer per
+`FrameTick`, keeping only transient frontier and visited state so the fill is
+visibly animated.
+
+Each explored cell queries current spatial occupancy, naturally reflecting
+moved and deleted objects, and spawns a preview asset. If the frontier escapes
+the enclosure or exceeds a safety limit, every preview is removed and nothing
+is committed. If the region is enclosed, all previews are committed together
+as one editor operation.
 
 ## Gate B: make grids authoritative and usable
 

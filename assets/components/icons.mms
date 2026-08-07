@@ -97,14 +97,18 @@ export fn spray_can_icon() {
     }
 }
 
-export fn fill_icon() {
+export fn color_icon() {
     return T {
-        name = "fill_icon"
-        // Tilted bucket-ish shape
-        T.rotation(0.0, 0.0, -0.4) {
-            T.scale(1.2, 1.0, 0.1) {
-                R.cube() { C.rgba(0.2, 0.6, 0.9, 1.0) }
-            }
+        name = "color_icon"
+        // Overlapping additive-primary swatches.
+        T.position(-0.45, 0.25, 0.00).scale(0.72, 0.72, 0.10) {
+            R.circle2d() { C.rgba(1.0, 0.12, 0.12, 0.90) }
+        }
+        T.position(0.45, 0.25, 0.01).scale(0.72, 0.72, 0.10) {
+            R.circle2d() { C.rgba(0.12, 0.95, 0.20, 0.90) }
+        }
+        T.position(0.0, -0.45, 0.02).scale(0.72, 0.72, 0.10) {
+            R.circle2d() { C.rgba(0.12, 0.35, 1.0, 0.90) }
         }
     }
 }

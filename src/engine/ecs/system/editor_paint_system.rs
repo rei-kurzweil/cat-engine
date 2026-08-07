@@ -1034,18 +1034,10 @@ fn handle_color_click(
     renderable: ComponentId,
     _hit_point: [f32; 3],
 ) -> Option<String> {
-    let hit =
-        crate::engine::ecs::system::editor_scene_hit::resolve_world_scene_hit(world, renderable)?;
-    if apply_color_to_subtree(
-        world,
-        emit,
-        hit.target_transform,
-        context.selected_color,
-        false,
-    ) {
+    if apply_color_to_renderable(world, emit, renderable, context.selected_color) {
         Some("color applied".to_string())
     } else {
-        Some("color inactive: target has no Color component".to_string())
+        Some("color inactive: hit target is not renderable".to_string())
     }
 }
 
@@ -1138,6 +1130,7 @@ fn handle_scene_click(
             renderable,
             hit_point,
         ),
+        PaintTool::Fill => None,
         PaintTool::Unknown(_) => None,
     };
     paint_perf(
@@ -1238,6 +1231,7 @@ fn handle_stroke_move(
             renderable,
             hit_point,
         ),
+        PaintTool::Fill => None,
         PaintTool::Unknown(_) => None,
     };
     paint_perf(
@@ -1964,15 +1958,240 @@ fn apply_color_to_subtree(
     found_color
 }
 
+/// Apply an explicit tint to exactly one raycast-hit renderable.
+///
+/// Immediate color children are renderable-local overrides. Creating one when
+/// absent intentionally shadows any inherited color without affecting sibling
+/// primitives in the same object.
+fn apply_color_to_renderable(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    renderable: ComponentId,
+    rgba: [f32; 4],
+) -> bool {
+    if world
+        .get_component_by_id_as::<crate::engine::ecs::component::RenderableComponent>(renderable)
+        .is_none()
+    {
+        return false;
+    }
+
+    let immediate_color = world.children_of(renderable).iter().copied().find(|child| {
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::ColorComponent>(*child)
+            .is_some()
+    });
+
+    let color = if let Some(color) = immediate_color {
+        world
+            .get_component_by_id_as_mut::<crate::engine::ecs::component::ColorComponent>(color)
+            .expect("immediate Color component disappeared")
+            .rgba = rgba;
+        color
+    } else {
+        let color = world.add_component(crate::engine::ecs::component::ColorComponent::rgba(
+            rgba[0], rgba[1], rgba[2], rgba[3],
+        ));
+        if world.add_child(renderable, color).is_err() {
+            return false;
+        }
+        color
+    };
+
+    emit.push_intent_now(
+        color,
+        IntentValue::RegisterColor {
+            component_id: color,
+        },
+    );
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::ecs::command_queue::CommandQueue;
     use crate::engine::ecs::component::{ColorComponent, GridComponent, RenderableComponent};
     use crate::engine::ecs::system::SystemWorld;
-    use crate::engine::graphics::{RenderAssets, VisualWorld};
+    use crate::engine::graphics::primitives::{MeshHandle, TextureHandle};
+    use crate::engine::graphics::{
+        CpuMesh, MeshUploader, RenderAssets, TextureUploader, VisualWorld,
+    };
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Default)]
+    struct TestUploader {
+        next_mesh: u32,
+        next_texture: u32,
+    }
+
+    impl MeshUploader for TestUploader {
+        fn upload_mesh(
+            &mut self,
+            _mesh: &CpuMesh,
+        ) -> Result<MeshHandle, Box<dyn std::error::Error>> {
+            let handle = MeshHandle(self.next_mesh);
+            self.next_mesh += 1;
+            Ok(handle)
+        }
+    }
+
+    impl TextureUploader for TestUploader {
+        fn upload_texture_rgba8(
+            &mut self,
+            _rgba: &[u8],
+            _width: u32,
+            _height: u32,
+        ) -> Result<TextureHandle, Box<dyn std::error::Error>> {
+            let handle = TextureHandle(self.next_texture);
+            self.next_texture += 1;
+            Ok(handle)
+        }
+
+        fn upload_texture_bc7(
+            &mut self,
+            _bc7_blocks: &[u8],
+            _width: u32,
+            _height: u32,
+            _srgb: bool,
+        ) -> Result<TextureHandle, Box<dyn std::error::Error>> {
+            let handle = TextureHandle(self.next_texture);
+            self.next_texture += 1;
+            Ok(handle)
+        }
+    }
+
+    fn visual_color(world: &World, visuals: &VisualWorld, renderable: ComponentId) -> [f32; 4] {
+        let handle = world
+            .get_component_by_id_as::<RenderableComponent>(renderable)
+            .and_then(RenderableComponent::get_handle)
+            .expect("registered renderable handle");
+        visuals.instance(handle).expect("visual instance").color
+    }
+
+    #[test]
+    fn color_updates_only_the_hit_renderable_and_visible_registration() {
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let mut visuals = VisualWorld::default();
+        let mut systems = SystemWorld::default();
+        let mut render_assets = RenderAssets::new();
+        let mut uploader = TestUploader::default();
+
+        let root = world.add_component(TransformComponent::new());
+        let hit = world.add_component(RenderableComponent::cube());
+        let hit_color = world.add_component(ColorComponent::rgba(0.8, 0.7, 0.6, 1.0));
+        let sibling = world.add_component(RenderableComponent::cube());
+        let sibling_color = world.add_component(ColorComponent::rgba(0.3, 0.4, 0.5, 1.0));
+        world.add_child(root, hit).unwrap();
+        world.add_child(hit, hit_color).unwrap();
+        world.add_child(root, sibling).unwrap();
+        world.add_child(sibling, sibling_color).unwrap();
+        world.init_component_tree(root, &mut emit);
+        systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut emit);
+        systems.prepare_render(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut uploader,
+            &mut emit,
+        );
+
+        assert!(apply_color_to_renderable(
+            &mut world,
+            &mut emit,
+            hit,
+            [0.1, 0.2, 0.9, 1.0],
+        ));
+        systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut emit);
+        systems.prepare_render(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut uploader,
+            &mut emit,
+        );
+
+        assert_eq!(
+            world
+                .get_component_by_id_as::<ColorComponent>(hit_color)
+                .unwrap()
+                .rgba,
+            [0.1, 0.2, 0.9, 1.0]
+        );
+        assert_eq!(
+            world
+                .get_component_by_id_as::<ColorComponent>(sibling_color)
+                .unwrap()
+                .rgba,
+            [0.3, 0.4, 0.5, 1.0]
+        );
+        assert_eq!(visual_color(&world, &visuals, hit), [0.1, 0.2, 0.9, 1.0]);
+        assert_eq!(
+            visual_color(&world, &visuals, sibling),
+            [0.3, 0.4, 0.5, 1.0]
+        );
+    }
+
+    #[test]
+    fn color_attaches_and_registers_renderable_local_tint_when_missing() {
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let mut visuals = VisualWorld::default();
+        let mut systems = SystemWorld::default();
+        let mut render_assets = RenderAssets::new();
+        let mut uploader = TestUploader::default();
+
+        let root = world.add_component(TransformComponent::new());
+        let inherited_color = world.add_component(ColorComponent::rgba(0.8, 0.7, 0.6, 1.0));
+        let hit = world.add_component(RenderableComponent::cube());
+        world.add_child(root, inherited_color).unwrap();
+        world.add_child(inherited_color, hit).unwrap();
+        world.init_component_tree(root, &mut emit);
+        systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut emit);
+        systems.prepare_render(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut uploader,
+            &mut emit,
+        );
+
+        assert!(apply_color_to_renderable(
+            &mut world,
+            &mut emit,
+            hit,
+            [0.9, 0.2, 0.1, 1.0],
+        ));
+        systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut emit);
+        systems.prepare_render(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut uploader,
+            &mut emit,
+        );
+
+        let local_color = world
+            .children_of(hit)
+            .iter()
+            .copied()
+            .find(|child| {
+                world
+                    .get_component_by_id_as::<ColorComponent>(*child)
+                    .is_some()
+            })
+            .expect("renderable-local Color component");
+        assert_eq!(
+            world
+                .get_component_by_id_as::<ColorComponent>(local_color)
+                .unwrap()
+                .rgba,
+            [0.9, 0.2, 0.1, 1.0]
+        );
+        assert_eq!(visual_color(&world, &visuals, hit), [0.9, 0.2, 0.1, 1.0]);
+    }
 
     fn temp_asset_directory() -> PathBuf {
         let now = SystemTime::now()
@@ -2706,13 +2925,11 @@ mod tests {
         let color = world
             .find_component(renderable, "Color")
             .or_else(|| {
-                world
-                    .parent_of(renderable)
-                    .filter(|parent| {
-                        world
-                            .get_component_by_id_as::<ColorComponent>(*parent)
-                            .is_some()
-                    })
+                world.parent_of(renderable).filter(|parent| {
+                    world
+                        .get_component_by_id_as::<ColorComponent>(*parent)
+                        .is_some()
+                })
             })
             .expect("target color");
         assert_eq!(

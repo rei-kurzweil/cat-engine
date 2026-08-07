@@ -9,7 +9,7 @@ const FREE_DRAW_LABEL: &str = "Free Draw";
 const LINE_LABEL: &str = "Line";
 const SPRAY_CAN_LABEL: &str = "Spray Can";
 const COLOR_LABEL: &str = "Color";
-const LEGACY_FILL_LABEL: &str = "Fill";
+const FILL_LABEL: &str = "Fill";
 const ERASE_LABEL: &str = "Erase";
 const GRID_TOOL_LABEL: &str = "Grid Tool";
 
@@ -45,6 +45,7 @@ pub enum PaintTool {
     Line,
     SprayCan,
     Color,
+    Fill,
     Erase,
     Unknown(Option<String>),
 }
@@ -169,7 +170,8 @@ pub fn paint_tool_from_item(item: Option<String>) -> PaintTool {
         Some(GRID_TOOL_LABEL) => PaintTool::GridTool,
         Some(LINE_LABEL) => PaintTool::Line,
         Some(SPRAY_CAN_LABEL) => PaintTool::SprayCan,
-        Some(COLOR_LABEL | LEGACY_FILL_LABEL) => PaintTool::Color,
+        Some(COLOR_LABEL) => PaintTool::Color,
+        Some(FILL_LABEL) => PaintTool::Fill,
         Some(ERASE_LABEL) => PaintTool::Erase,
         _ => PaintTool::Unknown(item),
     }
@@ -240,14 +242,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn color_and_legacy_fill_labels_select_color_tool() {
+    fn color_and_fill_labels_select_distinct_tools() {
         assert_eq!(
             paint_tool_from_item(Some("Color".to_string())),
             PaintTool::Color
         );
         assert_eq!(
             paint_tool_from_item(Some("Fill".to_string())),
-            PaintTool::Color
+            PaintTool::Fill
         );
+    }
+
+    #[test]
+    fn authored_paint_panel_exposes_color_but_not_fill() {
+        let panel = include_str!("../../../../../assets/components/panels.mms");
+        let icons = include_str!("../../../../../assets/components/icons.mms");
+
+        assert!(panel.contains(
+            "let tool_names = [\"Free Draw\", \"Grid Tool\", \"Line\", \"Spray Can\", \"Color\", \"Erase\"]"
+        ));
+        assert!(!panel.contains("\"Fill\""));
+        assert!(panel.contains("return color_icon()"));
+        let color_icon = icons
+            .split_once("export fn color_icon()")
+            .and_then(|(_, rest)| rest.split_once("export fn erase_icon()"))
+            .map(|(body, _)| body)
+            .expect("color icon factory before erase icon");
+        assert_eq!(color_icon.matches("R.circle2d()").count(), 3);
+        for primary in [
+            "C.rgba(1.0, 0.12, 0.12, 0.90)",
+            "C.rgba(0.12, 0.95, 0.20, 0.90)",
+            "C.rgba(0.12, 0.35, 1.0, 0.90)",
+        ] {
+            assert!(color_icon.contains(primary));
+        }
     }
 }

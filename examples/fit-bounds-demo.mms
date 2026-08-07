@@ -21,7 +21,7 @@ I {
 import { pencil_icon } from "../assets/components/icons.mms"
 import { line_icon } from "../assets/components/icons.mms"
 import { spray_can_icon } from "../assets/components/icons.mms"
-import { fill_icon } from "../assets/components/icons.mms"
+import { color_icon } from "../assets/components/icons.mms"
 import { erase_icon } from "../assets/components/icons.mms"
 
 let TEXT_SCALE = 0.08
@@ -142,7 +142,7 @@ let panel = T {
             fit_bounds_paint_panel_item("Free Draw", pencil_icon())
             fit_bounds_paint_panel_item("Line", line_icon())
             fit_bounds_paint_panel_item("Spray Can", spray_can_icon())
-            fit_bounds_paint_panel_item("Fill", fill_icon())
+            fit_bounds_paint_panel_item("Color", color_icon())
             fit_bounds_paint_panel_item("Erase", erase_icon())
         }
     }

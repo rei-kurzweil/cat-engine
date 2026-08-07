@@ -12,7 +12,7 @@ import {
     pencil_icon,
     line_icon,
     spray_can_icon,
-    fill_icon,
+    color_icon,
     erase_icon,
     grid_tool_icon,
     grid_visibility_icon,
@@ -294,7 +294,7 @@ fn tool_at_index(idx) {
     if idx == 1 { return grid_tool_icon() }
     if idx == 2 { return line_icon() }
     if idx == 3 { return spray_can_icon() }
-    if idx == 4 { return fill_icon() }
+    if idx == 4 { return color_icon() }
     if idx == 5 { return erase_icon() }
     return T {}
 }
