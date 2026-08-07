@@ -1,13 +1,13 @@
-# Editor grid and paint 0.7.1 release gate
+# Editor grid and paint 0.8.0 release gate
 
 Date: 2026-08-06
 
-Status: active release gate
+Status: active, untriaged `mittens-engine 0.8.0` release gate
 
 ## Purpose
 
 Restore the editor's object-creation workflow before publishing
-`mittens-engine 0.7.1`, and consolidate the release-critical parts of the
+`mittens-engine 0.8.0`, and consolidate the release-critical parts of the
 existing grid, cursor, gizmo, asset-selection, and paint investigations.
 
 This is the short gate. The detailed coordinate decisions and test cases remain

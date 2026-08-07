@@ -651,20 +651,18 @@ the appropriate breaking release is `0.7.0`, not a `0.6.x` release. A jump to
 `1.0.0` is warranted only if the project is also ready to promise a stable
 1.x API; it is not required merely to signal this break.
 
-`mittens-engine` is currently `0.7.0`. It stays on `0.7.x` only if the
-compatibility audit succeeds. Keeping it non-breaking requires more
-than preserving runner method signatures: all supported public Rust types and
-fields must remain source-compatible or gain a compatibility facade. In
-particular, the current public fields of `LoadedMmsModule` expose legacy
+`mittens-engine 0.8.0` is reserved for the preceding avatar/editor reliability
+release. The MMS ownership cutover therefore targets `mittens-engine 0.9.0`.
+That is also an appropriate pre-1.0 compatibility boundary because the current
+public fields of `LoadedMmsModule` and related surfaces expose legacy
 export/heap representation that the target session architecture cannot expose
 unchanged without violating the runtime boundary.
 
-Before release, Mittens must choose one of these outcomes:
+Before the 0.9 release, Mittens must choose one of these outcomes for each
+supported surface:
 
-1. preserve supported engine APIs with compatibility wrappers and release on
-   Mittens `0.7.x`; or
-2. deliberately change those APIs, document the migration, and make the
-   corresponding pre-1.0 breaking bump from `0.7` to `0.8`.
+1. preserve it through a boundary-safe compatibility wrapper; or
+2. deliberately change it and document the 0.9 migration.
 
 Changing observable error ordering, callback lifetime, module identity, or
 template/live behavior can also be breaking even when Rust signatures compile.
@@ -700,8 +698,8 @@ This audit should classify each item as one of:
 - previously public but explicitly unstable/internal
 - deliberately breaking
 
-The engine can avoid `0.8.0` only if every supported item is in one of the
-first two categories and its observable behavior remains compatible.
+The 0.9 migration guide must classify every supported item and its observable
+behavior, even when a boundary-safe compatibility facade is retained.
 
 ### Ordinary evaluation
 

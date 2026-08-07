@@ -34,7 +34,7 @@ This epic decides execution order and does not replace that specification or
 the focused task documents it links.
 
 The complementary engine-facing cutover and release gate is
-[Mittens MMS ownership cutover and 0.8 release](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md).
+[Mittens MMS ownership cutover for 0.9](../../../task/mittens-mms-ownership-cutover-and-0.9-release.md).
 
 The canonical typed-syntax and checker roadmap now lives in the crate at
 [MMS type-system epic](../../../../crates/meow-meow-script/docs/draft/type-system-epic.md).
@@ -61,12 +61,9 @@ The recommended order is:
 9. add typed syntax, inference, static checking, and strict mode on top of
    the same catalog and resolver.
 
-Release staging is independent of the complete language roadmap:
-
-- the first supported catalog/configuration foundation targets
-  `mittens-engine 0.7.2`; and
-- deletion of the duplicated engine-side evaluator/runtime model targets
-  `mittens-engine 0.8.0`.
+Release staging is independent of the complete language roadmap: the supported
+catalog/configuration foundation and deletion of the duplicated engine-side
+evaluator/runtime model ship together in `mittens-engine 0.9.0`.
 
 `meow-meow-script` is versioned from its actual published history whenever its
 direct-embedder API changes; it is not forced to a stale synchronized number.
@@ -117,7 +114,7 @@ Phase 7: canonical receiver-method dispatch
 Phase 8: typed syntax, inference, checker, and strict mode
                         |
                         v
-Release staging: catalog foundation in Mittens 0.7.2; legacy deletion in 0.8.0
+Release staging: catalog foundation and legacy deletion together in Mittens 0.9.0
 ```
 
 Phases 2a and 2b can proceed in parallel after the Phase 1 interfaces are
@@ -467,17 +464,15 @@ they are not prerequisites for the examples motivating this epic.
 - The static checker reuses the runtime's catalog and resolver.
 - No engine-local vocabulary list, capability catalog, evaluator, heap, or
   method-support match remains as a competing source of truth.
-- the supported catalog/configuration foundation can ship with
-  `mittens-engine 0.7.2` before the whole epic is complete;
-- `mittens-engine 0.8.0` is gated on removal of the duplicate engine-side MMS
-  evaluator/runtime; and
+- the supported catalog/configuration foundation and deletion of the duplicate
+  engine-side MMS evaluator/runtime gate `mittens-engine 0.9.0`; and
 - `meow-meow-script` versions and migration notes reflect its actual
   direct-embedder API changes.
 
 ## Related documents
 
-- [Mittens release roadmap](../../../task/release-roadmap-0.7.1-0.7.2-0.8.0.md)
-- [Mittens MMS ownership cutover](../../../task/mittens-mms-ownership-cutover-and-0.8-release.md)
+- [Mittens release roadmap](../../../task/release-roadmap-0.8.0-0.9.0.md)
+- [Mittens MMS ownership cutover](../../../task/mittens-mms-ownership-cutover-and-0.9-release.md)
 - [Mittens host and MMS runtime boundary](../../spec/mittens-host-and-runtime-boundary.md)
 - [Host API](../../spec/host-call-api.md)
 - [Generic runner and REPL boundary](../../analysis/generic-runner-and-repl-boundary.md)

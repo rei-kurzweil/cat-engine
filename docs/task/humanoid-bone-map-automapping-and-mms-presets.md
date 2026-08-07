@@ -2,7 +2,7 @@
 
 Date: 2026-08-06
 
-Status: implemented for the `mittens-engine 0.7.1` reliability gate
+Status: implemented for `mittens-engine 0.8.0`; release notes and final smoke checks remain
 
 ## Contract
 
@@ -67,7 +67,7 @@ Repository AVC examples use implicit Auto and no longer repeat bone-name strings
 
 ## Release gate and deferrals
 
-The 0.7.1 gate covers head, independent arms/hands, hand landmarks/bases, eyes, and camera anchoring,
+The 0.8 gate covers head, independent arms/hands, hand landmarks/bases, eyes, and camera anchoring,
 including two avatar instances without cross-resolution, incomplete/nonhumanoid rigs, respawn, map
 removal, late camera attachment, and controller/hand source switching. Lower-body inference is
 reported but leg IK is not a blocker.

@@ -1,4 +1,4 @@
-# Mittens MMS ownership cutover across 0.7.2 and 0.8.0
+# Mittens MMS ownership cutover for 0.9.0
 
 Date: 2026-08-06
 
@@ -22,19 +22,18 @@ the Mittens cutover sequence, compatibility decision, and release gate rather
 than duplicating every evaluator checklist item.
 
 The release-level sequence is now defined by
-[Mittens release roadmap: 0.7.1, 0.7.2, and 0.8.0](release-roadmap-0.7.1-0.7.2-0.8.0.md).
-This document covers the MMS portion: the first supported catalog/configuration
-slice in `0.7.2`, followed by completion and legacy deletion in `0.8.0`.
+[Mittens release roadmap: 0.8.0 and 0.9.0](release-roadmap-0.8.0-0.9.0.md).
+This document covers the `0.9.0` MMS milestone. The catalog/configuration
+foundation and the complete ownership cutover now ship together.
 
 ## Release and compatibility decision
 
-The cutover is split across releases:
+The release boundary is:
 
-- `mittens-engine 0.7.1` ships avatar mapping and editor grid/paint reliability
-  work and does not wait for this task;
-- `mittens-engine 0.7.2` ships the first supported crate-owned MMS
-  catalog/configuration foundation and its consistency tests; and
-- `mittens-engine 0.8.0` is reserved for the point where the duplicated
+- `mittens-engine 0.8.0` ships avatar mapping plus editor grid, paint, and
+  accordion-restoration reliability and does not wait for this task; and
+- `mittens-engine 0.9.0` ships the catalog foundation and is gated on the point
+  where the duplicated
   engine-side evaluator, heap, closure, module, callback, and REPL runtime
   model has been removed.
 
@@ -50,13 +49,13 @@ and host-owned `Session<H>` may change as the nested specification and
 host-independent session become supported. Publish a direct-embedder migration
 guide whenever that API changes.
 
-Do not force `meow-meow-script` to jump to `0.8.0` merely to match an earlier
+Do not force `meow-meow-script` to jump to `0.9.0` merely to match the Mittens
 plan. When its packaged API changes, bump it to the appropriate next pre-1.0
 version: align with the current Mittens version when practical, otherwise
 increment from its latest published version. Update the Mittens dependency
 requirement and lockfile atomically.
 
-`mittens-engine 0.8.0` remains appropriate even when ordinary application
+`mittens-engine 0.9.0` remains appropriate even when ordinary application
 behavior is preserved because public engine-local MMS values,
 `LoadedMmsModule` state, evaluator/worker protocol types, and closure-bearing
 ECS surfaces expose the architecture being removed. Compatibility façades are
@@ -119,17 +118,18 @@ not.
 
 ## Other release gates
 
-The earlier pause is over:
+The earlier pause is over, but these are independent `0.8.0` gates:
 
-- [x] [editor panel minimize and render suspension](editor-panel-minimize-and-render-suspension.md)
-      is implemented; and
+- [ ] [editor panel minimize and render suspension](editor-panel-minimize-and-render-suspension.md)
+      is implemented but has open Asset/World restoration regressions;
+- [ ] [editor grid and paint reliability](editor-grid-paint-0.8.0-release-gate.md)
+      remains untriaged and unresolved; and
 - [x] the implementation direction for
       [XR controller/hand pose basis and laser alignment](xr-controller-hand-pose-basis-and-laser-alignment.md)
       has landed, although headset validation remains open.
 
-Humanoid automapping/AVC ergonomics and editor grid/paint reliability are now
-`0.7.1` gates tracked by the release roadmap, not prerequisites for beginning
-the `0.7.2` MMS catalog work.
+Humanoid automapping/AVC cleanup is implemented for `0.8.0`. None of these
+editor/avatar gates is a prerequisite for beginning the `0.9.0` MMS work.
 
 ## Phase 0: compatibility audit and release-boundary commitment
 
@@ -157,8 +157,8 @@ This phase happens before the builder migration grows compatibility shims.
 - [ ] Reject any proposed facade that requires a second evaluator, heap,
       closure representation, or mutable module state outside the crate
       session.
-- [x] Record the release commitment: catalog/configuration begins in Mittens
-      `0.7.2`; legacy MMS deletion gates Mittens `0.8.0`.
+- [x] Record the release commitment: the catalog/configuration foundation and
+      legacy MMS deletion ship together in Mittens `0.9.0`.
 - [ ] Record the next `meow-meow-script` version from its actual latest
       published version when the supported builder API is ready.
 - [ ] Keep manifest/dependency/lockfile changes atomic for every MMS crate
@@ -173,9 +173,10 @@ choices are distorted by an unresolved compatibility promise.
 
 ## Phase 1: one Mittens runtime configuration and host
 
-The supported foundation of this phase is the `mittens-engine 0.7.2` release
-slice. It may land while the legacy evaluator remains operational, provided
-there is exactly one new catalog and ordinary script behavior is unchanged.
+This phase is the foundation of `mittens-engine 0.9.0`. It may land internally
+while the legacy evaluator remains operational, but it is not published as a
+separate Mittens milestone. There must be exactly one new catalog and ordinary
+script behavior must remain unchanged.
 
 - [ ] Replace independent component, constructor, property, method, signal,
       builtin, API, and parser-support lists with one nested crate-owned
@@ -198,7 +199,7 @@ effectful operation exactly once.
 
 ## Phase 2: ordinary runner cutover
 
-This phase and the phases after it continue toward `mittens-engine 0.8.0`.
+This phase and the phases after it continue toward `mittens-engine 0.9.0`.
 
 - [ ] Construct crate-owned persistent sessions from the configured runtime.
 - [ ] Drive the generic `Runner` by servicing correlated `HostRequest`s with
@@ -257,9 +258,9 @@ navigation semantics owned by MMS.
 - [ ] Remove dead vocabulary, capability, signal, and method-support lists.
 - [ ] Search outside `crates/meow-meow-script` for remaining MMS evaluator
       logic and remove it.
-- [ ] Confirm that the `0.7.2` catalog/configuration surface has no remaining
+- [ ] Confirm that the catalog/configuration surface has no remaining
       transitional duplicate that must survive deletion.
-- [ ] When the deletion gate is reached, bump `mittens-engine` to `0.8.0`.
+- [ ] When the deletion gate is reached, bump `mittens-engine` to `0.9.0`.
       Bump `meow-meow-script` according to its actual latest published version
       and cutover API changes; update the Mittens dependency requirement and
       lockfile in the same change.
@@ -269,13 +270,13 @@ navigation semantics owned by MMS.
       test suites.
 
 Exit gate: no legacy language implementation remains in the engine, Mittens
-depends on the new crate boundary, and `mittens-engine 0.8.0` is ready to
+depends on the new crate boundary, and `mittens-engine 0.9.0` is ready to
 publish with the corresponding released MMS dependency.
 
 ## Release policy after the cutover
 
 MMS runtime-type, receiver-intrinsic, and static-checking work does not
-automatically gate `mittens-engine 0.8.0`. It may land before or after the
+automatically gate `mittens-engine 0.9.0`. It may land before or after the
 ownership cutover when it remains opaque to the engine and does not destabilize
 the supported `RuntimeSpec` or boundary DTOs.
 
@@ -287,13 +288,13 @@ only if that work changes one of Mittens' actual surfaces:
 - engine-facing runner/module/callback APIs; or
 - observable behavior that Mittens has promised to preserve.
 
-This keeps `0.7.2` useful as the first catalog/configuration release and makes
-`0.8.0` the precise legacy-deletion boundary.
+This makes `0.9.0` the combined catalog/configuration and precise
+legacy-deletion boundary.
 
 ## Completion criteria
 
-- The release sequence records `0.7.2` as the configuration foundation and
-  `0.8.0` as the ownership/deletion boundary.
+- The release sequence records `0.9.0` as both the configuration foundation
+  and ownership/deletion boundary.
 - Mittens constructs one strict `RuntimeSpec` and owns no parallel catalog.
 - All engine effects are reached through opaque, specification-bound host
   operations.
@@ -305,13 +306,13 @@ This keeps `0.7.2` useful as the first catalog/configuration release and makes
   Mittens changes.
 - `meow-meow-script` is versioned from its actual published history and every
   direct-embedder API change has migration guidance.
-- `mittens-engine 0.8.0` contains no duplicated engine-side MMS runtime and
+- `mittens-engine 0.9.0` contains no duplicated engine-side MMS runtime and
   documents any deliberate Rust API changes while preserving the intended
   ordinary application and authored-scene behavior.
 
 ## Related documents
 
-- [Release roadmap: 0.7.1, 0.7.2, and 0.8.0](release-roadmap-0.7.1-0.7.2-0.8.0.md)
+- [Release roadmap: 0.8.0 and 0.9.0](release-roadmap-0.8.0-0.9.0.md)
 - [Mittens/MMS cutover resume checkpoint](mittens-mms-cutover-resume-checkpoint.md)
 - [Editor panel minimize and render suspension](editor-panel-minimize-and-render-suspension.md)
 - [XR controller/hand pose basis and laser alignment](xr-controller-hand-pose-basis-and-laser-alignment.md)

@@ -2,8 +2,8 @@
 
 Date: 2026-08-06
 
-Status: active detailed tracker for the
-[`mittens-engine 0.7.1` editor grid and paint release gate](editor-grid-paint-0.7.1-release-gate.md)
+Status: active, untriaged detailed tracker for the
+[`mittens-engine 0.8.0` editor grid and paint release gate](editor-grid-paint-0.8.0-release-gate.md)
 
 Primary demo: `examples/bisket-vr-demo.mms`
 

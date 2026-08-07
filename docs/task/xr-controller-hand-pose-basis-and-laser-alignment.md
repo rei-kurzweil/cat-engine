@@ -155,4 +155,4 @@ into the generic pointer or laser presentation.
 - [OpenXR interaction-profile default bindings](openxr-interaction-profile-default-bindings.md)
 - [Controller XR armature targeting](refactor/controller-xr-armature-targeting.md)
 - [OpenXR input refactor](refactor/openxr-input.md)
-- [Mittens MMS ownership cutover and 0.8 release](mittens-mms-ownership-cutover-and-0.8-release.md)
+- [Mittens MMS ownership cutover for 0.9](mittens-mms-ownership-cutover-and-0.9-release.md)

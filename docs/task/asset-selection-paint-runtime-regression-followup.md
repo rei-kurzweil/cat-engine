@@ -2,7 +2,7 @@
 
 Date: 2026-08-06
 
-Status: active `mittens-engine 0.7.1` paint regression gate
+Status: active `mittens-engine 0.8.0` paint regression gate
 
 ## Problem
 
@@ -128,4 +128,4 @@ Current:
 - [Selection root targets and direct option payloads](selection-root-target-subtree-and-direct-option-payloads.md)
 - [Option direct data payload refactor](option-direct-data-payload-refactor.md)
 - [Paint panel selection and focus](paint-panel-selection-and-panel-focus.md)
-- [Editor grid and paint 0.7.1 release gate](editor-grid-paint-0.7.1-release-gate.md)
+- [Editor grid and paint 0.8 release gate](editor-grid-paint-0.8.0-release-gate.md)

@@ -2,7 +2,7 @@
 
 Date: 2026-08-01
 
-Status: implemented pre-0.8 performance task (2026-08-03)
+Status: implemented foundation; Asset/World restoration regressions gate 0.8.0
 
 ## Goal
 
@@ -450,9 +450,22 @@ investigation rather than considering this task a complete performance fix.
 - [ ] Existing panel dragging, focus, close behavior, selection, and layout
       still work.
 
+## Open 0.8 restoration regression
+
+The initial minimize path landed, but restoration is not release-ready:
+
+- restoring the Asset panel can fail to render its body content; and
+- restoring the World or Asset panel can create or enlarge a bright
+  emissive-yellow background quad far beyond the intended panel bounds.
+
+Track reproduction, diagnosis, and focused acceptance coverage in
+[Accordion panel restoration loses content and corrupts backgrounds](../bugs/accordion-panel-restore-content-and-background-corruption.md).
+The implementation status above does not mark the restoration lifecycle or
+the original repeated-cycle acceptance contract complete.
+
 ## Related documents
 
 - [Panel system](panel-system.md)
 - [World/inspector panel selection refresh slowness](editor-panel-selection-refresh-perf-investigation.md)
 - [Editor UI rerender audit and clean reducer boundary](editor-ui-rerender-audit-and-clean-reducer-boundary.md)
-- [Mittens MMS ownership cutover and 0.8 release](mittens-mms-ownership-cutover-and-0.8-release.md)
+- [Mittens 0.8 and 0.9 release roadmap](release-roadmap-0.8.0-0.9.0.md)

@@ -2,7 +2,7 @@
 
 Date: 2026-08-06
 
-Status: deferred beyond 0.7.1
+Status: deferred beyond 0.8.0
 
 Build an editor panel over the retained `HumanoidBoneMapReport`. It should show the owning GLTF's
 joint inventory; resolved values, provenance, confidence, and diagnostics; ambiguous candidates for

@@ -2,8 +2,7 @@
 
 Date: 2026-08-06
 
-Status: active implementation checklist; catalog foundation targets
-`mittens-engine 0.7.2`, legacy deletion targets `0.8.0`
+Status: active implementation checklist for `mittens-engine 0.9.0`
 
 Normative architecture:
 [Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md).
@@ -109,10 +108,10 @@ are explicit regression tests.
 
 ## Phase 1 — one `RuntimeSpec` builder and complete host
 
-The first supported catalog/configuration slice is intended to ship in
-`mittens-engine 0.7.2`. The legacy evaluator may remain behind that catalog
-until later phases, but Phase 1 must not introduce another independently
-maintained vocabulary.
+The catalog/configuration foundation and completed cutover ship together in
+`mittens-engine 0.9.0`. The legacy evaluator may remain behind the new catalog
+during internal migration, but Phase 1 must not introduce another independently
+maintained vocabulary and the transitional state is not a release milestone.
 
 - [ ] Add crate-owned `RuntimeSpec` and nested builder types.
 - [ ] Complete the open/strict name-policy, component reflection, table dot,
@@ -357,10 +356,9 @@ the full workspace suite passes.
       itself a breaking Mittens experience.
 - [x] Treat the direct `meow-meow-script` embedder API independently. It is
       pre-1.0 and may change with explicit migration guidance.
-- [x] Target `mittens-engine 0.7.2` for the first supported
-      catalog/configuration foundation.
-- [x] Target `mittens-engine 0.8.0` for removal of the duplicated engine-side
-      MMS evaluator/runtime model.
+- [x] Target `mittens-engine 0.9.0` for both the supported
+      catalog/configuration foundation and removal of the duplicated
+      engine-side MMS evaluator/runtime model.
 - [ ] Choose the next `meow-meow-script` version from its actual latest
       published version when each packaged API slice is ready; align with
       Mittens when practical rather than forcing a stale synchronized number.
@@ -378,7 +376,7 @@ the full workspace suite passes.
 - [ ] Verify observable compatibility for runner outputs, errors, modules,
       template/live factories, handlers, and keyframes.
 - [ ] Classify the supported Mittens Rust API changes precisely for the
-      `0.8.0` migration guide while preserving the intended ordinary runtime
+      `0.9.0` migration guide while preserving the intended ordinary runtime
       and authored-scene behavior.
 
 Exit gate: crate versions communicate the actual compatibility impact and
@@ -410,7 +408,7 @@ both direct embedders and Mittens users have an explicit migration story.
 - [ ] `meow-meow-script` has a pre-1.0 breaking version bump and migration
       guide.
 - [ ] Mittens public API compatibility and deliberate Rust API changes are
-      documented for `mittens-engine 0.8.0`.
+      documented for `mittens-engine 0.9.0`.
 - [ ] The full workspace test suite passes.
 
 ## Required test matrix
