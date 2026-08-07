@@ -514,22 +514,9 @@ fn resolve_spine_bones(
 }
 
 fn resolve_arm_chains(world: &World, avc_id: ComponentId) -> Vec<ArmChainRuntime> {
-    let avc = world
-        .get_component_by_id_as::<AvatarControlComponent>(avc_id)
-        .expect("avc missing");
     let hand_map = [
-        (
-            ArmSide::Left,
-            avc.left_hand_bone
-                .as_deref()
-                .expect("left_hand_bone config missing"),
-        ),
-        (
-            ArmSide::Right,
-            avc.right_hand_bone
-                .as_deref()
-                .expect("right_hand_bone config missing"),
-        ),
+        (ArmSide::Left, "J_Bip_L_Hand"),
+        (ArmSide::Right, "J_Bip_R_Hand"),
     ];
 
     hand_map

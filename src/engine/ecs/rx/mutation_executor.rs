@@ -376,6 +376,26 @@ impl RxMutationExecutor {
                 let component = *component_id;
                 systems.register_avatar_control(component);
             }
+            IntentValue::RegisterHumanoidBoneMap { component_id } => {
+                systems
+                    .humanoid_bone_map
+                    .register_component(world, *component_id);
+            }
+            IntentValue::UnregisterHumanoidBoneMap { component_id } => {
+                systems
+                    .humanoid_bone_map
+                    .unregister_component(world, *component_id);
+            }
+            IntentValue::HumanoidBoneMapGltfInitialized { component_id } => {
+                systems
+                    .humanoid_bone_map
+                    .gltf_initialized(world, *component_id);
+            }
+            IntentValue::HumanoidBoneMapTopologyChanged { component_id } => {
+                systems
+                    .humanoid_bone_map
+                    .topology_changed(world, *component_id);
+            }
             IntentValue::RegisterAvatarBodyYaw { component_id } => {
                 let component = *component_id;
                 systems.avatar_body_yaw.register(component);

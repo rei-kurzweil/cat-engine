@@ -609,6 +609,20 @@ Declares a canonical two-axis rest basis for one joint in the nearest ancestor G
 JointRetargetBasis.new("#hand", "#middle1", "#middle3", "#little1", "#index1")
 ```
 
+### `HumanoidBoneMapComponent`
+<!-- catalog:component source="HumanoidBoneMapComponent" mms="direct" names="HumanoidBoneMap" -->
+
+**Directly constructible** as `HumanoidBoneMap`. It declares GLTF-owned semantic humanoid slots;
+Auto is enabled by default, explicit references and absences take precedence, and runtime reports
+are retained outside authored serialization.
+
+```mms
+HumanoidBoneMap.new()
+  .slot("left_hand", "[name='J_Bip_L_Hand']")
+  .absent("neck")
+  .automap_disable()
+```
+
 ### `RestAttachmentComponent`
 <!-- catalog:component source="RestAttachmentComponent" mms="direct" names="RestAttachment" -->
 Declares an imported target's immutable rest transform relative to an imported anchor. Resolution

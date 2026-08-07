@@ -68,7 +68,7 @@ ED {
 //                       └── [sys] head_mount  (TC injected above neck)
 //                                   └── IKChain { AimConstraint }
 //
-// head_bone: VRM convention. Verify with the bisket skeleton — if the .glb
+// Head mapping: VRM convention. Verify with the bisket skeleton — if the .glb
 // uses different naming, swap to whatever sits one parent above the head mesh
 // origin.
 ED {
@@ -79,7 +79,6 @@ ED {
         }
         T {
             AVC {
-                head_bone("J_Bip_C_Head")
                 initial_yaw(0.0)
                 body_yaw_threshold(3.14 / 7.5)
 

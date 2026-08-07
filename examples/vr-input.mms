@@ -87,7 +87,7 @@ BG {
 //
 // InputXR drives body translation and head rotation via AvatarControlSystem.
 // XRHand and CameraXR children are discovered by topology.
-// camera_bone triggers two things at AVC init:
+// The resolved humanoid camera anchor triggers two things at AVC init:
 //   1. model_root.y is auto-calibrated to -J_Bip_C_Head_local_y (no hardcoded constant).
 //   2. CXR is re-parented under J_Bip_C_Head for first-person XR alignment.
 //
@@ -119,11 +119,7 @@ ED {
             }
             T {
                 AVC {
-                head_bone("J_Bip_C_Head")
                 //avatar_height(1.85)
-                camera_bone("J_Bip_C_Head")
-                left_hand_bone("J_Bip_L_Hand")
-                right_hand_bone("J_Bip_R_Hand")
                 
                 initial_yaw(3.14159)
                 
@@ -133,8 +129,6 @@ ED {
                 hand_rotation_smoothing(220.0)
                 T {
                     GLTF.new("assets/models/pc-rei.hoodie.glb") {
-                        JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
-                        JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                         EM.on()
                         pc_rei_colliders()
                         pc_rei_secondary_motion()

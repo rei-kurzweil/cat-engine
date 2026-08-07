@@ -121,6 +121,7 @@ pub struct SystemWorld {
     pub ik: IKSystem,
     pub secondary_motion: SecondaryMotionSystem,
     pub joint_basis_retargeting: crate::engine::ecs::system::JointBasisRetargetingSystem,
+    pub humanoid_bone_map: crate::engine::ecs::system::HumanoidBoneMapSystem,
 
     pub gesture: GestureSystem,
     pub transform_gizmo: TransformGizmoSystem,
@@ -1075,6 +1076,7 @@ impl SystemWorld {
             // configurations, owning GLTFs, and imported transforms.
             self.secondary_motion.component_removed(world, n);
             self.joint_basis_retargeting.component_removed(world, n);
+            self.humanoid_bone_map.component_removed(world, n);
             if world
                 .get_component_by_id_as::<PointerComponent>(n)
                 .is_some()
@@ -1133,6 +1135,7 @@ impl SystemWorld {
         systems.grid.install_handlers(&mut systems.rx);
         SecondaryMotionSystem::install_handlers(&mut systems.rx);
         crate::engine::ecs::system::JointBasisRetargetingSystem::install_handlers(&mut systems.rx);
+        crate::engine::ecs::system::HumanoidBoneMapSystem::install_handlers(&mut systems.rx);
         let asset_dir = Path::new("assets/components/");
         if let Err(error) = systems.asset_system.scan_assets_dir(asset_dir) {
             eprintln!("[SystemWorld] failed to scan assets dir: {error}");
@@ -2750,6 +2753,7 @@ impl SystemWorld {
         self.rx.begin_frame();
         SecondaryMotionSystem::install_handlers(&mut self.rx);
         crate::engine::ecs::system::JointBasisRetargetingSystem::install_handlers(&mut self.rx);
+        crate::engine::ecs::system::HumanoidBoneMapSystem::install_handlers(&mut self.rx);
         self.gesture.install_handlers(&mut self.rx);
         self.gesture.begin_frame();
         self.text_input.install_handlers(&mut self.rx);
@@ -2963,6 +2967,7 @@ impl SystemWorld {
             input,
             render_assets,
             &mut self.joint_basis_retargeting,
+            &mut self.humanoid_bone_map,
             queue,
             dt_sec,
         );

@@ -11,7 +11,6 @@ pub mod audio_system;
 pub(crate) mod audio_system_fundsp;
 pub mod avatar_body_yaw_system;
 pub mod avatar_control_system;
-pub mod bone_mapping_system;
 pub mod bounds_system;
 pub mod bvh_system;
 pub mod camera_system;
@@ -43,6 +42,7 @@ pub mod grabbable_system;
 pub mod grid_system;
 pub mod http_client_system;
 pub mod http_server_system;
+pub mod humanoid_bone_map_system;
 pub mod ik;
 pub mod ik_system;
 pub mod input_system;
@@ -116,6 +116,10 @@ pub use grabbable_system::GrabbableSystem;
 pub use grid_system::GridSystem;
 pub use http_client_system::HttpClientSystem;
 pub use http_server_system::HttpServerSystem;
+pub use humanoid_bone_map_system::{
+    HumanoidBoneMapReport, HumanoidBoneMapSystem, HumanoidSlotProvenance, HumanoidSlotReport,
+    HumanoidSlotStatus, ResolvedHumanoidTarget, ResolvedHumanoidTargetKind,
+};
 pub use ik::HeadPoseBodyXzFollowSystem;
 pub use ik_system::IKSystem;
 pub use input_system::InputSystem;

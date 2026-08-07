@@ -47,7 +47,6 @@ ED {
         }
         T {
             AVC {
-                head_bone("J_Bip_C_Head")
                 forward_plus_z()
                 initial_yaw(0.0)
 

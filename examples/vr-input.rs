@@ -3,17 +3,16 @@ use mittens_engine::engine::ecs::component::{
     BlurPassComponent, Camera3DComponent, CameraXRComponent, ColorComponent, ComponentRef,
     ControllerHand, ControllerPoseKind, ControllerXRComponent, DirectionalLightComponent,
     EditorComponent, EmissiveComponent, EmissivePassComponent, GLTFComponent, InputComponent,
-    InputTransformModeComponent, InputXRComponent, JointRetargetBasisComponent, PointerComponent,
-    QuatTemporalFilterComponent, RaycastableComponent, RenderGraphComponent, RenderableComponent,
-    RendererSettingsComponent, RendererStatsComponent, RestAttachmentComponent,
-    SecondaryMotionComponent, SpringBoneComponent, SpringColliderComponent,
-    SpringCollidersComponent, TransformComponent, TransformForkTRSComponent,
-    TransformMapRotationComponent, TransformMapScaleComponent, TransformMapTranslationComponent,
-    XrComponent,
+    InputTransformModeComponent, InputXRComponent, PointerComponent, QuatTemporalFilterComponent,
+    RaycastableComponent, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
+    RendererStatsComponent, RestAttachmentComponent, SecondaryMotionComponent, SpringBoneComponent,
+    SpringColliderComponent, SpringCollidersComponent, TransformComponent,
+    TransformForkTRSComponent, TransformMapRotationComponent, TransformMapScaleComponent,
+    TransformMapTranslationComponent, XrComponent,
 };
-use mittens_engine::engine::graphics::primitives::{MaterialHandle, Renderable};
 use mittens_engine::engine::graphics::BuiltinMeshType;
 use mittens_engine::engine::graphics::CameraTarget;
+use mittens_engine::engine::graphics::primitives::{MaterialHandle, Renderable};
 use mittens_engine::{engine, utils};
 
 #[path = "example_util/mod.rs"]
@@ -461,14 +460,9 @@ fn main() {
     let _ = universe.attach(avatar_input_xr, avatar_xr_gamepad);
 
     // AvatarControlComponent: -Z forward (OpenXR default), body starts facing -Z (π yaw).
-    // camera_bone triggers auto-calibration of model_root.y from J_Bip_C_Head rest pose height,
-    // and causes any CameraXR/Camera3D direct children of AVC to be re-parented to that bone.
+    // The implicit humanoid Auto map resolves the head, camera anchor, arms, and hands.
     let avatar_control = universe.world.add_component(
         AvatarControlComponent::new()
-            .with_head_bone("J_Bip_C_Head")
-            .with_camera_bone("J_Bip_C_Head")
-            .with_left_hand_bone("J_Bip_L_Hand")
-            .with_right_hand_bone("J_Bip_R_Hand")
             .with_initial_yaw(std::f32::consts::PI)
             .with_hand_rotation_smoothing(220.0),
     );
@@ -517,18 +511,6 @@ fn main() {
     let model = universe
         .world
         .add_component(GLTFComponent::new("assets/models/pc-rei.hoodie.glb"));
-    for side in ["L", "R"] {
-        let basis = universe
-            .world
-            .add_component(JointRetargetBasisComponent::new(
-                component_query(&format!("J_Bip_{side}_Hand")),
-                component_query(&format!("J_Bip_{side}_Middle1")),
-                component_query(&format!("J_Bip_{side}_Middle3")),
-                component_query(&format!("J_Bip_{side}_Little1")),
-                component_query(&format!("J_Bip_{side}_Index1")),
-            ));
-        let _ = universe.attach(model, basis);
-    }
     let emissive = universe.world.add_component(EmissiveComponent::on());
     let _ = universe.attach(model, emissive);
 

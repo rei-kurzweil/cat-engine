@@ -3737,6 +3737,28 @@ fn call_mms_module_fn_invokes_exported_factory_function() {
 }
 
 #[test]
+fn humanoid_bone_map_factories_load_and_return_components() {
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (file, factory) in [
+        ("vroid.mms", "vroid_humanoid_bone_map"),
+        ("bisket.mms", "bisket_humanoid_bone_map"),
+        ("pc-rei.mms", "pc_rei_humanoid_bone_map"),
+    ] {
+        let module_path = workspace_root
+            .join("assets/components/humanoid_bone_maps")
+            .join(file);
+        let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
+            .unwrap_or_else(|error| panic!("failed to load {file}: {error}"));
+        let value = MeowMeowRunner::call_mms_module_fn(&module, factory, vec![], None, None, None)
+            .unwrap_or_else(|error| panic!("failed to call {factory}: {error}"));
+        assert!(
+            matches!(value, Value::ComponentExpr(_)),
+            "{factory} returned {value:?}"
+        );
+    }
+}
+
+#[test]
 fn materialize_mms_module_component_keeps_factory_return_as_component_expr_in_live_mode() {
     let module = MeowMeowRunner::load_module_source(
         r#"
@@ -6345,28 +6367,49 @@ fn roundtrip_raycast() {
 fn roundtrip_avatar_control() {
     use crate::engine::ecs::component::AvatarControlComponent;
     let original = AvatarControlComponent::new()
-        .with_head_bone("J_Bip_C_Neck")
-        .with_left_hand_bone("J_Bip_L_Hand")
-        .with_right_hand_bone("J_Bip_R_Hand")
         .with_forward_plus_z()
         .with_hand_rotation_smoothing(220.0)
-        .with_camera_bone("J_Bip_C_Head")
         .with_avatar_height(1.7)
         .with_capsule_radius(0.31)
+        .without_neck_pin()
         .with_collision_disabled();
     let (world, id) = roundtrip_component(original);
     let got = world
         .get_component_by_id_as::<AvatarControlComponent>(id)
         .unwrap();
-    assert_eq!(got.head_bone, "J_Bip_C_Neck");
-    assert_eq!(got.left_hand_bone.as_deref(), Some("J_Bip_L_Hand"));
-    assert_eq!(got.right_hand_bone.as_deref(), Some("J_Bip_R_Hand"));
     assert!(got.forward_plus_z);
     assert_eq!(got.hand_rotation_smoothing, Some(220.0));
-    assert_eq!(got.camera_bone.as_deref(), Some("J_Bip_C_Head"));
     assert_eq!(got.avatar_height, Some(1.7));
     assert_eq!(got.capsule_radius, 0.31);
+    assert!(!got.neck_pin_enabled);
     assert!(!got.collision_enabled);
+}
+
+#[test]
+fn roundtrip_humanoid_bone_map_preserves_authored_policy() {
+    use crate::engine::ecs::component::{
+        AuthoredSlot, ComponentRef, HumanoidBoneMapComponent, HumanoidSlot,
+    };
+    let original = HumanoidBoneMapComponent::new()
+        .with_slot(
+            HumanoidSlot::LeftHand,
+            ComponentRef::Query("[name='hand_l']".into()),
+        )
+        .with_absent(HumanoidSlot::Neck)
+        .with_automap_disabled();
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<HumanoidBoneMapComponent>(id)
+        .unwrap();
+    assert!(!got.automap);
+    assert!(matches!(
+        got.authored(HumanoidSlot::Neck),
+        AuthoredSlot::Absent
+    ));
+    assert_eq!(
+        got.authored(HumanoidSlot::LeftHand),
+        AuthoredSlot::Reference(ComponentRef::Query("[name='hand_l']".into()))
+    );
 }
 
 #[test]

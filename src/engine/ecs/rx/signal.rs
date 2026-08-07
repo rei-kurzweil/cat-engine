@@ -704,6 +704,18 @@ pub enum IntentValue {
     RegisterAvatarControl {
         component_id: ComponentId,
     },
+    RegisterHumanoidBoneMap {
+        component_id: ComponentId,
+    },
+    UnregisterHumanoidBoneMap {
+        component_id: ComponentId,
+    },
+    HumanoidBoneMapGltfInitialized {
+        component_id: ComponentId,
+    },
+    HumanoidBoneMapTopologyChanged {
+        component_id: ComponentId,
+    },
     RegisterAvatarBodyYaw {
         component_id: ComponentId,
     },
@@ -962,6 +974,14 @@ impl IntentValue {
             IntentValue::RegisterCollisionResponse { .. } => "register_collision_response",
             IntentValue::RemoveCollisionResponse { .. } => "remove_collision_response",
             IntentValue::RegisterAvatarControl { .. } => "register_avatar_control",
+            IntentValue::RegisterHumanoidBoneMap { .. } => "register_humanoid_bone_map",
+            IntentValue::UnregisterHumanoidBoneMap { .. } => "unregister_humanoid_bone_map",
+            IntentValue::HumanoidBoneMapGltfInitialized { .. } => {
+                "humanoid_bone_map_gltf_initialized"
+            }
+            IntentValue::HumanoidBoneMapTopologyChanged { .. } => {
+                "humanoid_bone_map_topology_changed"
+            }
             IntentValue::RegisterAvatarBodyYaw { .. } => "register_avatar_body_yaw",
             IntentValue::RegisterIkChain { .. } => "register_ik_chain",
             IntentValue::RegisterSecondaryMotion { .. } => "register_secondary_motion",

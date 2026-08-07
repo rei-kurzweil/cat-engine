@@ -1,3 +1,4 @@
+use crate::engine::ecs::component::HumanoidSlot;
 use crate::engine::ecs::component::{
     AvatarControlComponent, BoneRestPoseComponent, Camera3DComponent, CameraXRComponent,
     CollisionComponent, CollisionResponseComponent, CollisionShape, CollisionShapeComponent,
@@ -9,12 +10,15 @@ use crate::engine::ecs::component::{
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
 use crate::engine::ecs::system::input_xr_gamepad_system::xr_locomotion_target_transform;
-use crate::engine::ecs::system::{JointBasisRetargetingSystem, RetargetBasisStatus};
+use crate::engine::ecs::system::{
+    HumanoidBoneMapReport, HumanoidBoneMapSystem, JointBasisRetargetingSystem, LandmarkDirection,
+    RetargetBasisDefinition, RetargetBasisStatus,
+};
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
-use crate::engine::graphics::{primitives::Transform, RenderAssets};
+use crate::engine::graphics::{RenderAssets, primitives::Transform};
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
-    mat4_identity, mat4_mul, mat_to_quat, quat_conjugate, quat_mul, quat_rotate_vec3,
+    mat_to_quat, mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3,
     quat_rotation_y, quat_to_axis_angle,
 };
 use std::collections::HashSet;
@@ -38,6 +42,7 @@ impl AvatarControlSystem {
         _input: &InputState,
         render_assets: &RenderAssets,
         retargeting: &mut JointBasisRetargetingSystem,
+        humanoid_maps: &mut HumanoidBoneMapSystem,
         emit: &mut dyn SignalEmitter,
         dt_sec: f32,
     ) {
@@ -58,6 +63,7 @@ impl AvatarControlSystem {
                 world,
                 render_assets,
                 retargeting,
+                humanoid_maps,
                 emit,
                 dt_sec,
                 log_alignment,
@@ -86,6 +92,7 @@ fn tick_one(
     world: &mut World,
     render_assets: &RenderAssets,
     retargeting: &mut JointBasisRetargetingSystem,
+    humanoid_maps: &mut HumanoidBoneMapSystem,
     emit: &mut dyn SignalEmitter,
     _dt_sec: f32,
     log_alignment: bool,
@@ -106,8 +113,19 @@ fn tick_one(
         if !ancestor_input_xr_is_ready(world, id) {
             return;
         }
-        try_init_splices(id, world, retargeting, emit);
+        let Some(gltf) = humanoid_maps.request_for_avc(world, id) else {
+            return;
+        };
+        let Some(report) = humanoid_maps.report(gltf).cloned() else {
+            return;
+        };
+        if !report.head_ready() {
+            return;
+        }
+        try_init_splices(id, world, retargeting, &report, emit);
     }
+
+    refresh_map_camera_anchor(id, world, humanoid_maps, emit);
 
     try_init_or_route_capsule(id, world, render_assets, emit);
 
@@ -134,6 +152,64 @@ fn tick_one(
     }
 
     update_hand_pose_corrections(id, world, emit, log_alignment);
+}
+
+fn refresh_map_camera_anchor(
+    avc_id: ComponentId,
+    world: &mut World,
+    humanoid_maps: &mut HumanoidBoneMapSystem,
+    emit: &mut dyn SignalEmitter,
+) {
+    let Some(gltf) = humanoid_maps.request_for_avc(world, avc_id) else {
+        return;
+    };
+    let Some(report) = humanoid_maps.report(gltf) else {
+        return;
+    };
+    let (old_anchor, seen_generation) = world
+        .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+        .map(|avc| (avc.splice_camera_bone, avc.humanoid_map_generation))
+        .unwrap_or((None, 0));
+    if seen_generation == report.generation {
+        return;
+    }
+    let new_anchor = map_target(report, HumanoidSlot::CameraAnchor)
+        .or_else(|| map_target(report, HumanoidSlot::Head));
+    if let (Some(old), Some(new)) = (old_anchor, new_anchor) {
+        if old != new {
+            let camera_paths: Vec<_> = world
+                .children_of(old)
+                .iter()
+                .copied()
+                .filter(|child| subtree_has_camera(world, *child))
+                .collect();
+            for path in camera_paths {
+                emit_attach(emit, new, path);
+            }
+        }
+    }
+    if let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(avc_id) {
+        avc.splice_camera_bone = new_anchor;
+        avc.humanoid_map_gltf = Some(gltf);
+        avc.humanoid_map_generation = report.generation;
+    }
+}
+
+fn subtree_has_camera(world: &World, root: ComponentId) -> bool {
+    let mut pending = vec![root];
+    while let Some(component) = pending.pop() {
+        if world
+            .get_component_by_id_as::<Camera3DComponent>(component)
+            .is_some()
+            || world
+                .get_component_by_id_as::<CameraXRComponent>(component)
+                .is_some()
+        {
+            return true;
+        }
+        pending.extend(world.children_of(component).iter().copied());
+    }
+    false
 }
 
 fn try_init_or_route_capsule(
@@ -352,8 +428,7 @@ fn fallback_avatar_height(
     if let Some(height) = avc.avatar_height {
         return Some(height.max(0.0));
     }
-    let bone_name = avc.camera_bone.as_deref().unwrap_or(&avc.head_bone);
-    let bone = world.find_component(model_root_id, &format!("#{bone_name}"))?;
+    let bone = avc.splice_camera_bone.or(avc.displaced_head)?;
     let root_y = world
         .get_component_by_id_as::<TransformComponent>(model_root_id)?
         .transform
@@ -390,16 +465,10 @@ fn try_init_splices(
     id: ComponentId,
     world: &mut World,
     retargeting: &mut JointBasisRetargetingSystem,
+    humanoid_map: &HumanoidBoneMapReport,
     emit: &mut dyn SignalEmitter,
 ) {
     let (
-        head_bone_name,
-        left_hand_bone,
-        right_hand_bone,
-        left_upper_arm_bone,
-        left_lower_arm_bone,
-        right_upper_arm_bone,
-        right_lower_arm_bone,
         left_arm_pole_direction,
         right_arm_pole_direction,
         body_yaw_threshold,
@@ -409,23 +478,15 @@ fn try_init_splices(
         authored_initial_body_yaw,
         initial_body_yaw_overridden,
         skip_body_pipeline,
-        camera_bone_name,
         avatar_height_override,
         eye_height_from_head_bone,
         head_ik_eye_height,
-        neck_bone_name,
+        neck_pin_enabled,
     ) = {
         let Some(c) = world.get_component_by_id_as::<AvatarControlComponent>(id) else {
             return;
         };
         (
-            c.head_bone.clone(),
-            c.left_hand_bone.clone(),
-            c.right_hand_bone.clone(),
-            c.left_upper_arm_bone.clone(),
-            c.left_lower_arm_bone.clone(),
-            c.right_upper_arm_bone.clone(),
-            c.right_lower_arm_bone.clone(),
             c.left_arm_pole_direction,
             c.right_arm_pole_direction,
             c.body_yaw_threshold,
@@ -435,11 +496,10 @@ fn try_init_splices(
             c.initial_body_yaw,
             c.initial_body_yaw_overridden,
             c.skip_body_pipeline,
-            c.camera_bone.clone(),
             c.avatar_height,
             c.eye_height_from_head_bone,
             c.head_ik_eye_height,
-            c.neck_bone.clone(),
+            c.neck_pin_enabled,
         )
     };
 
@@ -487,8 +547,7 @@ fn try_init_splices(
     };
 
     // Head bone is required — retry next tick if GLTF hasn't spawned yet.
-    let head_selector = format!("#{}", head_bone_name);
-    let Some(head_bone_id) = world.find_component(model_root_id, &head_selector) else {
+    let Some(head_bone_id) = map_target(humanoid_map, HumanoidSlot::Head) else {
         return;
     };
     // Read head_bone's true bind-pose local TRS via the `BoneRestPoseComponent`
@@ -504,11 +563,13 @@ fn try_init_splices(
     // The hand bone stays in the armature; IKSystem rotates UpperArm + LowerArm
     // each tick so the hand reaches the controller world pose, optionally
     // through a rotated child target that compensates for grip-vs-palm framing.
+    ensure_map_hand_basis(world, retargeting, humanoid_map, true);
+    ensure_map_hand_basis(world, retargeting, humanoid_map, false);
     let Some(left_aim_correction) = derive_hand_aim_correction(
         world,
         retargeting,
         model_root_id,
-        left_hand_bone.as_deref(),
+        map_target(humanoid_map, HumanoidSlot::LeftHand),
         "left",
     ) else {
         return;
@@ -517,7 +578,7 @@ fn try_init_splices(
         world,
         retargeting,
         model_root_id,
-        right_hand_bone.as_deref(),
+        map_target(humanoid_map, HumanoidSlot::RightHand),
         "right",
     ) else {
         return;
@@ -525,14 +586,14 @@ fn try_init_splices(
     let left = resolve_hand_splice(
         world,
         model_root_id,
-        left_hand_bone.as_deref(),
+        map_target(humanoid_map, HumanoidSlot::LeftHand),
         left_ctrl,
         left_aim_correction,
     );
     let right = resolve_hand_splice(
         world,
         model_root_id,
-        right_hand_bone.as_deref(),
+        map_target(humanoid_map, HumanoidSlot::RightHand),
         right_ctrl,
         right_aim_correction,
     );
@@ -546,12 +607,8 @@ fn try_init_splices(
     //
     // Any Camera3D or CameraXR direct children of AVC are re-parented under the
     // camera bone so they inherit its world transform each tick.
-    let actual_camera_bone_name = camera_bone_name.as_deref().or(Some(&head_bone_name));
-    let camera_bone_id: Option<ComponentId> = actual_camera_bone_name.and_then(|name| {
-        let sel = format!("#{}", name);
-        let found = world.find_component(model_root_id, &sel);
-        found
-    });
+    let camera_bone_id =
+        map_target(humanoid_map, HumanoidSlot::CameraAnchor).or(Some(head_bone_id));
 
     // Discover camera children + derive eye_offset_head_local FIRST — the
     // model_root xz compensation below needs the offset, and the eye_offset
@@ -648,24 +705,16 @@ fn try_init_splices(
     // translation from the `BoneRestPoseComponent` sidecar — same reasoning
     // as the head_rest read above: the live `TransformComponent` would
     // already carry whatever animation wrote this tick.
-    let (neck_bone_id, neck_rest_t) = match neck_bone_name.as_deref() {
-        Some(name) => {
-            let sel = format!("#{}", name);
-            match world.find_component(model_root_id, &sel) {
-                Some(nid) => {
-                    let (rest_t, _, _) = read_bone_rest_pose(world, nid);
-                    (Some(nid), Some(rest_t))
-                }
-                None => {
-                    println!(
-                        "[AVC] neck bone '{}' not found under model_root — neck pin disabled",
-                        name
-                    );
-                    (None, None)
-                }
+    let (neck_bone_id, neck_rest_t) = if neck_pin_enabled {
+        match map_target(humanoid_map, HumanoidSlot::Neck) {
+            Some(nid) => {
+                let (rest_t, _, _) = read_bone_rest_pose(world, nid);
+                (Some(nid), Some(rest_t))
             }
+            None => (None, None),
         }
-        None => (None, None),
+    } else {
+        (None, None)
     };
 
     // Y component of model_root.local stashed for the body-follow system's
@@ -678,6 +727,8 @@ fn try_init_splices(
     if let Some(c) = world.get_component_by_id_as_mut::<AvatarControlComponent>(id) {
         c.displaced_head = Some(head_bone_id);
         c.splice_camera_bone = camera_bone_id;
+        c.humanoid_map_gltf = Some(humanoid_map.owning_gltf);
+        c.humanoid_map_generation = humanoid_map.generation;
         c.model_root_id = Some(model_root_id);
         c.model_root_local_y = model_root_local_y;
         c.neck_bone_id = neck_bone_id;
@@ -806,18 +857,18 @@ fn try_init_splices(
     //   - else fall back to `parent_of` walk-up from the hand bone (works for
     //     clean VRM-style rigs with no twist bones).
     // -----------------------------------------------------------------------
-    for (hand_opt, upper_name, lower_name, pole_dir, side_label) in [
+    for (hand_opt, upper_arm, lower_arm, pole_dir, side_label) in [
         (
             left,
-            left_upper_arm_bone.as_deref(),
-            left_lower_arm_bone.as_deref(),
+            map_target(humanoid_map, HumanoidSlot::LeftUpperArm),
+            map_target(humanoid_map, HumanoidSlot::LeftLowerArm),
             left_arm_pole_direction,
             "left",
         ),
         (
             right,
-            right_upper_arm_bone.as_deref(),
-            right_lower_arm_bone.as_deref(),
+            map_target(humanoid_map, HumanoidSlot::RightUpperArm),
+            map_target(humanoid_map, HumanoidSlot::RightLowerArm),
             right_arm_pole_direction,
             "right",
         ),
@@ -826,38 +877,7 @@ fn try_init_splices(
             continue;
         };
 
-        let upper_arm = match upper_name {
-            Some(name) => {
-                let sel = format!("#{}", name);
-                let res = world.find_component(model_root_id, &sel);
-                if res.is_none() {
-                    println!(
-                        "[AVC] explicit {}_upper_arm_bone \"{}\" not found under model_root — {} arm IK disabled",
-                        side_label, name, side_label
-                    );
-                }
-                res
-            }
-            None => world
-                .parent_of(hand_bone)
-                .and_then(|lower| world.parent_of(lower)),
-        };
         let Some(upper_arm) = upper_arm else { continue };
-
-        let lower_arm = match lower_name {
-            Some(name) => {
-                let sel = format!("#{}", name);
-                let res = world.find_component(model_root_id, &sel);
-                if res.is_none() {
-                    println!(
-                        "[AVC] explicit {}_lower_arm_bone \"{}\" not found under model_root — {} arm IK disabled",
-                        side_label, name, side_label
-                    );
-                }
-                res
-            }
-            None => world.parent_of(hand_bone),
-        };
         let Some(lower_arm) = lower_arm else { continue };
 
         let bone_name =
@@ -886,8 +906,7 @@ fn try_init_splices(
         if looks_suspicious(&upper_name_s) || looks_suspicious(&lower_name_s) {
             println!(
                 "[AVC] WARNING: {} arm IK resolved to a helper/cloth/collider bone — \
-                set explicit {}_upper_arm_bone(\"...\") and {}_lower_arm_bone(\"...\") \
-                in your AvatarControl block.",
+                override the {}_upper_arm and {}_lower_arm slots in HumanoidBoneMap.",
                 side_label, side_label, side_label
             );
         }
@@ -951,7 +970,7 @@ fn try_init_splices(
         }
     } else if !camera_children.is_empty() {
         println!(
-            "[AVC] WARNING: camera children found but camera_bone not resolved — no re-parenting"
+            "[AVC] WARNING: camera children found but camera_anchor not resolved — no re-parenting"
         );
     }
 }
@@ -981,14 +1000,12 @@ fn find_xr_pose_driver(world: &World, start: ComponentId) -> Option<ComponentId>
 /// wasn't found (model may not have this joint — silently skip).
 fn resolve_hand_splice(
     world: &mut World,
-    model_root: ComponentId,
-    bone_name: Option<&str>,
+    _model_root: ComponentId,
+    bone: Option<ComponentId>,
     controller: Option<ComponentId>,
     rotation_offset: Option<[f32; 4]>,
 ) -> Option<(ComponentId, ComponentId, ComponentId, ComponentId)> {
-    let bone_name = bone_name?;
-    let sel = format!("#{}", bone_name);
-    let bone = world.find_component(model_root, &sel)?;
+    let bone = bone?;
     let bone_parent = world.parent_of(bone)?;
 
     let driver = if let Some(ctrl) = controller {
@@ -1017,16 +1034,13 @@ fn resolve_hand_splice(
 /// Returns `None` only while the imported skeleton or its retained basis is still in flight.
 /// The inner option is absent when this target has no usable authored basis.
 fn derive_hand_aim_correction(
-    world: &World,
+    _world: &World,
     retargeting: &JointBasisRetargetingSystem,
-    model_root: ComponentId,
-    bone_name: Option<&str>,
+    _model_root: ComponentId,
+    hand_bone: Option<ComponentId>,
     side: &str,
 ) -> Option<Option<[f32; 4]>> {
-    let Some(bone_name) = bone_name else {
-        return Some(None);
-    };
-    let Some(hand_bone) = world.find_component(model_root, &format!("#{bone_name}")) else {
+    let Some(hand_bone) = hand_bone else {
         return Some(None);
     };
     match retargeting.status_for(hand_bone) {
@@ -1048,6 +1062,69 @@ fn derive_hand_aim_correction(
         None => {}
     }
     Some(None)
+}
+
+fn map_target(report: &HumanoidBoneMapReport, slot: HumanoidSlot) -> Option<ComponentId> {
+    report.target(slot).map(|target| target.component)
+}
+
+fn ensure_map_hand_basis(
+    world: &World,
+    retargeting: &mut JointBasisRetargetingSystem,
+    report: &HumanoidBoneMapReport,
+    left: bool,
+) {
+    let (hand, middle_start, middle_end, little, index) = if left {
+        (
+            HumanoidSlot::LeftHand,
+            HumanoidSlot::LeftMiddleProximal,
+            HumanoidSlot::LeftMiddleDistal,
+            HumanoidSlot::LeftLittleProximal,
+            HumanoidSlot::LeftIndexProximal,
+        )
+    } else {
+        (
+            HumanoidSlot::RightHand,
+            HumanoidSlot::RightMiddleProximal,
+            HumanoidSlot::RightMiddleDistal,
+            HumanoidSlot::RightLittleProximal,
+            HumanoidSlot::RightIndexProximal,
+        )
+    };
+    let Some(target) = map_target(report, hand) else {
+        return;
+    };
+    // An authored definition is the expert override and is never replaced.
+    if retargeting.status_for(target).is_some() {
+        return;
+    }
+    let Some(forward_start) = map_target(report, middle_start) else {
+        return;
+    };
+    let Some(forward_end) = map_target(report, middle_end) else {
+        return;
+    };
+    let Some(up_start) = map_target(report, little) else {
+        return;
+    };
+    let Some(up_end) = map_target(report, index) else {
+        return;
+    };
+    retargeting.replace_definition(
+        world,
+        target,
+        RetargetBasisDefinition {
+            target,
+            forward: LandmarkDirection {
+                start: forward_start,
+                end: forward_end,
+            },
+            up: LandmarkDirection {
+                start: up_start,
+                end: up_end,
+            },
+        },
+    );
 }
 
 fn emit_attach(emit: &mut dyn SignalEmitter, parent: ComponentId, child: ComponentId) {
@@ -1372,7 +1449,7 @@ mod hand_pose_correction_tests {
         world.add_child(attachment, pointer).unwrap();
 
         let (_, raw_driver, _, resolved_bone) =
-            resolve_hand_splice(&mut world, model_root, Some("hand"), Some(controller), None)
+            resolve_hand_splice(&mut world, model_root, Some(bone), Some(controller), None)
                 .expect("valid XR hand topology");
         assert_eq!(raw_driver, tracked);
         assert_eq!(resolved_bone, bone);
@@ -1401,7 +1478,7 @@ mod hand_pose_correction_tests {
         world.add_child(wrapper, nested).unwrap();
 
         assert!(
-            resolve_hand_splice(&mut world, model_root, Some("hand"), Some(controller), None)
+            resolve_hand_splice(&mut world, model_root, Some(bone), Some(controller), None)
                 .is_none()
         );
     }
@@ -1410,9 +1487,9 @@ mod hand_pose_correction_tests {
 #[cfg(test)]
 mod capsule_tests {
     use super::*;
+    use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::component::{CollisionShape, MeshComponent, RenderableComponent};
     use crate::engine::ecs::system::TransformStreamSystem;
-    use crate::engine::ecs::CommandQueue;
     use crate::engine::graphics::mesh::MeshFactory;
 
     fn attach(world: &mut World, parent: ComponentId, child: ComponentId) {
@@ -1539,11 +1616,13 @@ mod capsule_tests {
         let model = disabled_world.add_component(TransformComponent::new());
         attach(&mut disabled_world, avc, model);
         try_init_or_route_capsule(avc, &mut disabled_world, &assets, &mut queue);
-        assert!(disabled_world
-            .get_component_by_id_as::<AvatarControlComponent>(avc)
-            .unwrap()
-            .capsule_transform_id
-            .is_none());
+        assert!(
+            disabled_world
+                .get_component_by_id_as::<AvatarControlComponent>(avc)
+                .unwrap()
+                .capsule_transform_id
+                .is_none()
+        );
 
         let mut world = World::default();
         let avc = world.add_component(AvatarControlComponent::new().with_avatar_height(1.4));
@@ -1552,21 +1631,25 @@ mod capsule_tests {
         attach(&mut world, avc, model);
         attach(&mut world, model, gltf);
         try_init_or_route_capsule(avc, &mut world, &assets, &mut queue);
-        assert!(world
-            .get_component_by_id_as::<AvatarControlComponent>(avc)
-            .unwrap()
-            .capsule_transform_id
-            .is_none());
+        assert!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(avc)
+                .unwrap()
+                .capsule_transform_id
+                .is_none()
+        );
         world
             .get_component_by_id_as_mut::<GLTFComponent>(gltf)
             .unwrap()
             .spawned = true;
         try_init_or_route_capsule(avc, &mut world, &assets, &mut queue);
-        assert!(world
-            .get_component_by_id_as::<AvatarControlComponent>(avc)
-            .unwrap()
-            .capsule_transform_id
-            .is_some());
+        assert!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(avc)
+                .unwrap()
+                .capsule_transform_id
+                .is_some()
+        );
     }
 
     #[test]

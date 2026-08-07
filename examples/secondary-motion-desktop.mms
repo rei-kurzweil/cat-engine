@@ -124,7 +124,6 @@ ED.active() {
         T.position(0.0, 1.6, 1.0) {
             name = "avatar_head_driver"
             AVC {
-                head_bone("J_Bip_C_Head")
                 initial_yaw(3.14159)
                 T { avatar_gltf }
             }

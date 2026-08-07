@@ -31,7 +31,6 @@ let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
     bisket_secondary_motion(false)
 }
 let avatar_control = AVC {
-    head_bone("J_Bip_C_Head")
     initial_yaw(3.14159)
     T { avatar_gltf }
 }

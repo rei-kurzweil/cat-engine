@@ -1125,6 +1125,29 @@ SecondaryMotion {}
 <!-- catalog:signal source="RegisterJointRetargetBasis" kind="intent" mms="component-lifecycle" -->
 **Intent — Indirectly emitted by component lifecycle.** Registers an authored `JointRetargetBasis` source with the retained cache and resolves it only within its owning GLTF armature. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [component lifecycle](../../../src/engine/ecs/component/joint_retarget_basis.rs).
 
+#### `RegisterHumanoidBoneMap`
+<!-- catalog:signal source="RegisterHumanoidBoneMap" kind="intent" mms="component-lifecycle" -->
+
+**Intent — Indirectly emitted by component lifecycle.** Registers and resolves a GLTF-owned
+humanoid map without frame polling.
+
+#### `UnregisterHumanoidBoneMap`
+<!-- catalog:signal source="UnregisterHumanoidBoneMap" kind="intent" mms="component-lifecycle" -->
+
+**Intent — Indirectly emitted by component lifecycle.** Removes the authored source and invalidates
+its retained report.
+
+#### `HumanoidBoneMapGltfInitialized`
+<!-- catalog:signal source="HumanoidBoneMapGltfInitialized" kind="intent" mms="component-lifecycle" -->
+
+**Intent — Indirectly emitted from `GltfInitialized`.** Re-resolves only the affected GLTF report.
+
+#### `HumanoidBoneMapTopologyChanged`
+<!-- catalog:signal source="HumanoidBoneMapTopologyChanged" kind="intent" mms="component-lifecycle" -->
+
+**Intent — Indirectly emitted from relevant parent changes.** Refreshes a retained report for late
+camera anchors or armature topology changes.
+
 #### `RetargetBasisConfigurationChanged`
 <!-- catalog:signal source="RetargetBasisConfigurationChanged" kind="intent" mms="component-lifecycle" -->
 **Intent — Emitted by future engine/editor mutation paths.** Replaces a source definition atomically through the retained system. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs) and [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs).

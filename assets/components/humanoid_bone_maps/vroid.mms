@@ -1,0 +1,21 @@
+// Shared VRoid/VRM-style humanoid landmark convention.
+export fn vroid_humanoid_bone_map() {
+    return HumanoidBoneMap.new()
+        .slot("hips", "[name='J_Bip_C_Hips']")
+        .slot("neck", "[name='J_Bip_C_Neck']")
+        .slot("head", "[name='J_Bip_C_Head']")
+        .slot("left_upper_arm", "[name='J_Bip_L_UpperArm']")
+        .slot("left_lower_arm", "[name='J_Bip_L_LowerArm']")
+        .slot("left_hand", "[name='J_Bip_L_Hand']")
+        .slot("right_upper_arm", "[name='J_Bip_R_UpperArm']")
+        .slot("right_lower_arm", "[name='J_Bip_R_LowerArm']")
+        .slot("right_hand", "[name='J_Bip_R_Hand']")
+        .slot("left_middle_proximal", "[name='J_Bip_L_Middle1']")
+        .slot("left_middle_distal", "[name='J_Bip_L_Middle3']")
+        .slot("left_index_proximal", "[name='J_Bip_L_Index1']")
+        .slot("left_little_proximal", "[name='J_Bip_L_Little1']")
+        .slot("right_middle_proximal", "[name='J_Bip_R_Middle1']")
+        .slot("right_middle_distal", "[name='J_Bip_R_Middle3']")
+        .slot("right_index_proximal", "[name='J_Bip_R_Index1']")
+        .slot("right_little_proximal", "[name='J_Bip_R_Little1']")
+}

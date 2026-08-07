@@ -162,8 +162,7 @@ ED {
 //             name = "desktop_camera_rig"
 //             T {
 //                 AVC {
-//                     head_bone("J_Bip_C_Head")
-//                     camera_bone("J_Bip_C_Head")
+//                     // Humanoid slots are supplied by Auto or HumanoidBoneMap.
 
 //                     T {
 //                         GLTF.new("assets/models/bisket.glb") {
@@ -191,10 +190,6 @@ T {
         T {
             name = "xr_pose"
             AVC {
-                    head_bone("J_Bip_C_Head")
-                    camera_bone("J_Bip_C_Head")
-                    left_hand_bone("J_Bip_L_Hand")
-                    right_hand_bone("J_Bip_R_Hand")
                     ik_debug()
 
                     // Match bisket-vr-demo: body-local elbow hints that bias the
@@ -206,8 +201,6 @@ T {
                     T {
                         GLTF.new("assets/models/bisket.glb") {
                             EM.on()
-                            JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
-                            JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                             PoseCapture { label("Bisket") asset_name("bisket") }
                             bisket_colliders()
                             bisket_shirt_physics(false)

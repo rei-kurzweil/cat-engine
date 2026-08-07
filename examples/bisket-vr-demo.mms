@@ -14,7 +14,7 @@ let bisket_terrain_palette = [
 //
 // Shared VR room-scale demo using the canonical bisket avatar (bisket.glb).
 // Mirrors examples/vr-input.{rs,mms} topology but with the head-driven
-// AVC convention (head_bone="J_Bip_C_Head") and the bisket model.
+// The humanoid map resolves J_Bip_C_Head on the bisket model.
 //
 // Drivers:
 //   - InputXR.on(): HMD pose → driven_t (translation + rotation)
@@ -200,7 +200,7 @@ BG.occlusion_and_lighting() {
 // --- bisket avatar — VR single-input topology ---
 //
 // initial_yaw(π): body starts facing -Z to match OpenXR HMD rest-forward.
-// camera_bone == head_bone: head bone is the eye anchor (CXR re-parented here;
+// Camera-anchor fallback uses the head bone (CXR re-parented here;
 //   model_root.y auto-calibrated so head bone sits at HMD height).
 ED {
     T {
@@ -211,10 +211,6 @@ ED {
         }
         T {
             AVC {
-                head_bone("J_Bip_C_Head")
-                camera_bone("J_Bip_C_Head")
-                left_hand_bone("J_Bip_L_Hand")
-                right_hand_bone("J_Bip_R_Hand")
 
                 initial_yaw(3.14159)
 
@@ -232,8 +228,6 @@ ED {
                 T {
                     GLTF.new("assets/models/bisket.glb") {
                         EM.on() 
-                        JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
-                        JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                         PoseCapture { label("Bisket") asset_name("bisket") }
                         bisket_colliders()
                         bisket_shirt_physics(false)

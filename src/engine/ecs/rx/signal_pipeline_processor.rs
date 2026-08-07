@@ -110,6 +110,10 @@ impl SignalPipelineProcessor {
             | IntentValue::RegisterCollisionResponse { component_id }
             | IntentValue::RemoveCollisionResponse { component_id }
             | IntentValue::RegisterAvatarControl { component_id }
+            | IntentValue::RegisterHumanoidBoneMap { component_id }
+            | IntentValue::UnregisterHumanoidBoneMap { component_id }
+            | IntentValue::HumanoidBoneMapGltfInitialized { component_id }
+            | IntentValue::HumanoidBoneMapTopologyChanged { component_id }
             | IntentValue::RegisterAvatarBodyYaw { component_id }
             | IntentValue::RegisterIkChain { component_id }
             | IntentValue::RegisterSecondaryMotion { component_id }
@@ -247,6 +251,10 @@ impl SignalPipelineProcessor {
             | IntentValue::RegisterCollisionResponse { component_id }
             | IntentValue::RemoveCollisionResponse { component_id }
             | IntentValue::RegisterAvatarControl { component_id }
+            | IntentValue::RegisterHumanoidBoneMap { component_id }
+            | IntentValue::UnregisterHumanoidBoneMap { component_id }
+            | IntentValue::HumanoidBoneMapGltfInitialized { component_id }
+            | IntentValue::HumanoidBoneMapTopologyChanged { component_id }
             | IntentValue::RegisterAvatarBodyYaw { component_id }
             | IntentValue::RegisterIkChain { component_id }
             | IntentValue::RegisterSecondaryMotion { component_id }

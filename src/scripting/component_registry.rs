@@ -23,25 +23,26 @@ use crate::engine::ecs::component::{
     ElementType, EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode,
     FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent,
     GrabbableComponent, GravityComponent, GridComponent, HtmlElementComponent, HttpClientComponent,
-    HttpServerComponent, IKChainComponent, IKSolver, InputComponent, InputTransformModeComponent,
-    InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent,
-    JustifyContent, KeyframeComponent, LayoutBoundsComponent, LayoutComponent,
-    LightQuantizationComponent, MeshComponent, MirrorComponent, MusicNote, MusicNoteComponent,
-    NormalVisualisationComponent, OpacityComponent, OptionComponent, OscillatorType, Overflow,
-    OverlayComponent, PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
-    PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
-    QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
-    RaycastableShapeType, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RendererStatsComponent, RestAttachmentComponent, RouterComponent, ScrollingComponent,
-    SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
-    SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
-    SkinnedMeshComponent, SpotLightComponent, SpringBoneComponent, SpringColliderComponent,
-    SpringCollidersComponent, SpringJointComponent, StencilClipComponent, StyleComponent,
-    TextAlign, TextComponent, TextInputComponent, TextShadowComponent, TextureComponent,
-    TextureFilteringComponent, ToggleComponent, TransformCameraSpecificComponent,
-    TransformComponent, TransformDropComponent, TransformForkTRSComponent, TransformGizmoAxis,
-    TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
-    TransformGizmoRotateComponent, TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver, InputComponent,
+    InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent,
+    JointRetargetBasisComponent, JustifyContent, KeyframeComponent, LayoutBoundsComponent,
+    LayoutComponent, LightQuantizationComponent, MeshComponent, MirrorComponent, MusicNote,
+    MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
+    OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
+    PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
+    Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
+    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RenderGraphComponent,
+    RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
+    RestAttachmentComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
+    SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
+    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
+    SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
+    SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
+    TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
+    ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
+    TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
+    TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoRotateComponent,
+    TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
     TransformGizmoTranslatePlaneComponent, TransformMapRotationComponent,
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
@@ -112,6 +113,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "HtmlElement",
     "HttpClient",
     "HttpServer",
+    "HumanoidBoneMap",
     "IKChain",
     "Input",
     "InputTransformMode",
@@ -1759,6 +1761,14 @@ fn create_component(
             )),
             _ => Err("JointRetargetBasis requires .new(target, forward_start, forward_end, up_start, up_end)".into()),
         },
+        "HumanoidBoneMap" => {
+            let id = world.add_component(HumanoidBoneMapComponent::new());
+            if let Some(method) = ctor {
+                if method != "new" { apply_call(world, id, method, args)?; }
+                else if !args.is_empty() { return Err("HumanoidBoneMap.new() takes no arguments".into()); }
+            }
+            Ok(id)
+        }
         "RestAttachment" => match ctor {
             Some("new") if args.len() == 2 => add!(RestAttachmentComponent::new(
                 arg_component_ref(world, args, 0)?,
@@ -3193,17 +3203,6 @@ fn apply_call(
     }
     if let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(id) {
         match method {
-            "head_bone" => *avc = avc.clone().with_head_bone(arg_str(args, 0)?),
-            "left_hand_bone" => *avc = avc.clone().with_left_hand_bone(arg_str(args, 0)?),
-            "right_hand_bone" => *avc = avc.clone().with_right_hand_bone(arg_str(args, 0)?),
-            "left_upper_arm_bone" => *avc = avc.clone().with_left_upper_arm_bone(arg_str(args, 0)?),
-            "left_lower_arm_bone" => *avc = avc.clone().with_left_lower_arm_bone(arg_str(args, 0)?),
-            "right_upper_arm_bone" => {
-                *avc = avc.clone().with_right_upper_arm_bone(arg_str(args, 0)?)
-            }
-            "right_lower_arm_bone" => {
-                *avc = avc.clone().with_right_lower_arm_bone(arg_str(args, 0)?)
-            }
             "left_arm_pole_direction" => {
                 *avc = avc
                     .clone()
@@ -3224,7 +3223,6 @@ fn apply_call(
             "hand_rotation_smoothing" => {
                 *avc = avc.clone().with_hand_rotation_smoothing(arg_f32(args, 0)?)
             }
-            "camera_bone" => *avc = avc.clone().with_camera_bone(arg_str(args, 0)?),
             "avatar_height" => *avc = avc.clone().with_avatar_height(arg_f32(args, 0)?),
             "eye_height_from_head_bone" => {
                 *avc = avc
@@ -3232,9 +3230,31 @@ fn apply_call(
                     .with_eye_height_from_head_bone(arg_f32(args, 0)?)
             }
             "head_ik_eye_height" => *avc = avc.clone().with_head_ik_eye_height(arg_f32(args, 0)?),
-            "hips_bone" => *avc = avc.clone().with_hips_bone(arg_str(args, 0)?),
+            "neck_pin_disabled" => *avc = avc.clone().without_neck_pin(),
+            "neck_pin_enabled" => *avc = avc.clone().with_neck_pin_enabled(arg_bool(args, 0)?),
             _ => {}
         }
+        return Ok(());
+    }
+    if world
+        .get_component_by_id_as::<HumanoidBoneMapComponent>(id)
+        .is_some()
+    {
+        let updated = {
+            let map = world
+                .get_component_by_id_as::<HumanoidBoneMapComponent>(id)
+                .unwrap()
+                .clone();
+            match method {
+                "slot" => map.slot(arg_str(args, 0)?, arg_component_ref(world, args, 1)?)?,
+                "absent" => map.absent(arg_str(args, 0)?)?,
+                "automap_disable" => map.automap_disable(),
+                _ => return Err(format!("unknown HumanoidBoneMap builder '.{method}'")),
+            }
+        };
+        *world
+            .get_component_by_id_as_mut::<HumanoidBoneMapComponent>(id)
+            .unwrap() = updated;
         return Ok(());
     }
 

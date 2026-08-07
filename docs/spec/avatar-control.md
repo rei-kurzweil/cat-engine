@@ -29,21 +29,15 @@ input-broadcast problem that causes body rotation when only the head should move
 InputXR
   └── driven_t  (TC — written each tick by OpenXRSystem)
         └── AvatarControlComponent {
-              head_bone:               "J_Bip_C_Neck"
-              camera_bone:             "J_Bip_C_Head"   // optional
-              left_hand_bone:          "J_Bip_L_Hand"   // optional
-              right_hand_bone:         "J_Bip_R_Hand"   // optional
-              left_upper_arm_bone:     None              // optional; topology if None
-              left_lower_arm_bone:     None
-              right_upper_arm_bone:    None
-              right_lower_arm_bone:    None
               body_yaw_threshold:      π/4
               body_yaw_rate:           3.0
               initial_body_yaw:        π                 // VR: π (model faces -Z)
               hand_rotation_smoothing: Some(220.0)       // None = no smoothing
+              neck_pin_enabled:        true
             }
-              ├── model_root  (TC — Y offset auto-calibrated from camera_bone)
+              ├── model_root  (TC — Y offset calibrated from resolved camera anchor)
               │     └── GLTFComponent → [armature]
+              │           └── HumanoidBoneMap (optional; implicit Auto when omitted)
               ├── ControllerXR (Left,  Grip) { T {} }   // discovered by topology
               └── ControllerXR (Right, Grip) { T {} }
 ```
@@ -65,7 +59,7 @@ InputXR
               │               │     └── QuatYawFollow { threshold, rate, initial_yaw }
               │               └── MergeTRS
               │         PipelineOutput
-              │               └── model_root  (TC, y = -camera_bone_height)
+              │               └── model_root  (TC, y = -camera_anchor_height)
               │                     └── GLTFComponent
               │                           └── [armature]
               │                                 │
@@ -115,7 +109,7 @@ TransformPipeline  (input = driven_t world matrix, via nearest TC ancestor)
     model_root  (re-parented here; inherits shaped body yaw, no pitch/roll)
 ```
 
-Stripping pitch and roll before `model_root` means the model Y offset (`-camera_bone_height`)
+Stripping pitch and roll before `model_root` means the model Y offset (the negative camera-anchor height)
 is only ever rotated by a pure-Y quaternion — feet cannot arc when looking up.
 
 **No transform pipeline or AimConstraint for the head.** AVC creates a fixed
@@ -152,16 +146,13 @@ then `end_effector_id` directly). Bone lengths are measured from FK world positi
 time (stable since only rotations are modified by IK). The controller stays under AVC —
 `OpenXRSystem` correctly converts world→local regardless of parent hierarchy.
 
-**Arm IK vs simple splice selection:** `BoneMappingSystem::resolve_arm_chain` is called
-during `try_init_splices` for any hand bone that has a controller. If the arm chain resolves
-(topology walk finds upper/lower arm ≥ 3 cm apart), arm IK mode is used and the hand bone
-stays in the FK skeleton. If resolution fails, simple splice mode is used: controller
-re-parented under bone's original parent, hand bone displaced under controller (with optional
-smoothing pipeline).
+**Arm activation:** AVC consumes the owning GLTF's retained `HumanoidBoneMapReport`. A side is
+enabled only when its upper-arm, lower-arm, and hand slots validate. The other side remains
+independent. AVC does not perform name lookup or topology inference itself.
 
 ### Simple splice mode (no arm IK / fallback)
 
-Used when `BoneMappingSystem` cannot resolve the arm chain, or when no controller is present.
+Used for non-controller/static hand routing after semantic map validation.
 
 ```
 bone_original_parent  (e.g. J_Bip_L_LowerArm)
@@ -181,18 +172,26 @@ bone_original_parent  (e.g. J_Bip_L_LowerArm)
 
 ---
 
-## Camera bone auto-calibration
+## Humanoid map and camera calibration
 
-When `camera_bone` is set:
-1. On init, `model_root.y` is set to `-(camera_bone_world_y - model_root_world_y)` so the
-   camera bone sits exactly at `driven_t`'s world Y.
+AVC requests the owning GLTF's retained `HumanoidBoneMapReport`. It waits until the required
+head slot resolves before changing topology. An authored map overrides Auto inference; when no
+map is authored, AVC requests an implicit Auto map. Each arm is enabled independently only when
+its upper arm, lower arm, and hand resolve. Missing neck merely disables the neck rest pin.
+
+For the resolved camera anchor:
+1. On init, `model_root.y` is set from the anchor's rest/world height so the anchor sits at
+   `driven_t`'s world Y.
 2. Any `Camera3DComponent` or `CameraXRComponent` direct children of AVC are re-parented
-   under the camera bone so they inherit its world transform each tick.
+   under the anchor so they inherit its world transform each tick.
 3. `Camera3D` paths receive an extra local `Y = π` correction so the desktop render camera
    keeps the engine's `-Z` camera-forward convention while the visible head path preserves the
    authored avatar-facing basis. `CameraXR` does not receive this correction.
 
-`avatar_height` overrides step 1 if set; step 2 still uses `camera_bone`.
+`avatar_height` overrides step 1 if set; step 2 still uses the resolved anchor. Resolution
+prefers an explicit arbitrary transform, then a validated central eye/camera transform, then a
+generated eye midpoint, and finally the head. A missing explicit selector remains diagnosed even
+when a fallback keeps the camera operational.
 
 ---
 
@@ -210,9 +209,9 @@ driver and final camera consumer are still different.
 | Head-target convention | Yes | Shared XR-style default | Shared XR-style default |
 | Default `head_target` yaw / head IK offset yaw | Yes | `π` | `π` |
 | Head bone restore after reparent | Yes | restore authored `head_rest_rot`, zero translation, preserve scale | same |
-| Camera-bone auto-calibration | Yes | same `model_root.y` calibration from `camera_bone` | same |
+| Camera-anchor auto-calibration | Yes | same `model_root.y` calibration from the resolved anchor | same |
 | Camera discovery by topology | Yes | direct AVC camera child discovered and re-parented | same |
-| Camera anchor parent | Yes | same `camera_bone` anchor | same `camera_bone` anchor |
+| Camera anchor parent | Yes | same mapped/generated anchor | same mapped/generated anchor |
 | Primary pose driver | No | `InputComponent` | `InputXRComponent` |
 | Hand/controller drivers | No | usually none | optional `ControllerXRComponent` children |
 | Body-yaw authored override support | Yes | supported | supported |
@@ -226,7 +225,7 @@ What is the same:
 - The avatar rigging topology created by AVC.
 - The head-target math and authored eye-offset sign convention.
 - The way the visible head bone is restored and mounted.
-- The camera-bone calibration and camera discovery/reparent flow.
+- The mapped camera-anchor calibration and camera discovery/reparent flow.
 
 What is not the same:
 - Desktop is driven by `InputComponent`; XR is driven by `InputXRComponent`.
@@ -239,18 +238,14 @@ What is not the same:
 
 ## AvatarControlSystem responsibilities
 
-### Init phase (lazy — retries each tick until `head_mount` is set)
+### Init phase (event-backed lazy handoff)
 
-1. Find `model_root` (first TC child of AVC).
-2. Find `head_bone` by name under `model_root`; **retry silently if GLTF not yet spawned**.
-3. Create `head_mount` beneath `driven_t`; displace the head bone beneath it.
+1. Find `model_root` and request the first skinned GLTF's retained humanoid report.
+2. Wait without topology mutation until the mapped head validates.
+3. Create `head_mount` beneath `driven_t`; displace the mapped head beneath it.
 4. Create body pipeline as child of AVC; re-parent `model_root` under its output.
-5. For each configured hand bone with a controller:
-   - Call `BoneMappingSystem::resolve_arm_chain` (topology, `min_bone_length = 0.03`).
-   - **Arm IK mode**: create `IKChain { TwoBoneIK }` under `upper_arm`; bone stays in skeleton.
-   - **Simple splice mode**: re-parent controller under bone's original parent; displace bone.
-6. If `camera_bone` set: measure bone height; emit `UpdateTransform(model_root, y=-height)`;
-   re-parent camera children under camera bone.
+5. Independently create each arm IK chain whose mapped upper arm, lower arm, and hand validate.
+6. Calibrate and attach cameras to the report's operational `camera_anchor` target.
 7. Store all runtime IDs on `AvatarControlComponent`; `head_mount` being `Some` stops retries.
 
 ### Tick (after init)
@@ -279,5 +274,5 @@ All per-frame pose work is handled by:
 4. **Spine IK** — FABRIK chain from hips to neck driven by head offset from body.
    Requires `TranslationFollow` pipeline op first (body XZ lags head XZ).
 
-5. **VRM naming preset** — `BoneMappingSystem::vrm_names()` tier-1 resolver that fills
-   all standard VRM bone names in one call, with topology fallback for missing bones.
+5. **Convention presets** — MMS factories under `assets/components/humanoid_bone_maps/`
+   provide shared VRoid naming and discoverable Bisket/PC-Rei presets.

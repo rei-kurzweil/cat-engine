@@ -16,7 +16,7 @@
 //   - Per pose, samples world Y/Z of hips → spine → chest → upper_chest →
 //     neck → head bones on both avatars, and prints a diff table.
 //
-// No camera renders are required, but a C3D is kept so AVC's camera_bone
+// No camera renders are required, but a C3D is kept so AVC's camera anchor
 // reparent logic doesn't emit warnings.
 //
 // To run:
@@ -47,20 +47,9 @@ ED {
     T.position(1.2, 0.0, 0.0) {
         T.position(0.0, 1.55, 0.0) {
             AVC {
-                head_bone("J_Bip_C_Head")
-                camera_bone("J_Bip_C_Head")
-                hips_bone("J_Bip_C_Hips")
-                left_hand_bone("J_Bip_L_Hand")
-                right_hand_bone("J_Bip_R_Hand")
-                left_upper_arm_bone("J_Bip_L_UpperArm")
-                left_lower_arm_bone("J_Bip_L_LowerArm")
-                right_upper_arm_bone("J_Bip_R_UpperArm")
-                right_lower_arm_bone("J_Bip_R_LowerArm")
                 initial_yaw(3.14159)
                 T {
                     GLTF.new("assets/models/bisket.glb") {
-                        JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
-                        JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                     }
                 }
 

@@ -41,10 +41,6 @@ ED {
             T {
                 name = "secondary_motion_xr_pose"
                 AVC {
-                    head_bone("J_Bip_C_Head")
-                    camera_bone("J_Bip_C_Head")
-                    left_hand_bone("J_Bip_L_Hand")
-                    right_hand_bone("J_Bip_R_Hand")
                     initial_yaw(3.14159)
                     left_arm_pole_direction([1, -0.35, 1])
                     right_arm_pole_direction([-1, -0.35, 1])
@@ -52,8 +48,6 @@ ED {
 
                     T {
                         GLTF.new("assets/models/bisket.glb") {
-                            JointRetargetBasis.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle1']", "[name='J_Bip_L_Middle3']", "[name='J_Bip_L_Little1']", "[name='J_Bip_L_Index1']")
-                            JointRetargetBasis.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle1']", "[name='J_Bip_R_Middle3']", "[name='J_Bip_R_Little1']", "[name='J_Bip_R_Index1']")
                             EM.on()
                             bisket_colliders()
                             bisket_shirt_physics(false)
