@@ -378,8 +378,10 @@ impl PointerActivations {
     pub(crate) fn raycast_active(&self, pointer: ComponentId) -> bool {
         self.down.contains(&pointer)
             || self.pressed.contains(&pointer)
+            || self.released.contains(&pointer)
             || self.grip_down.contains(&pointer)
             || self.grip_pressed.contains(&pointer)
+            || self.grip_released.contains(&pointer)
     }
 }
 
@@ -458,12 +460,12 @@ fn controller_hand_index(world: &World, start: ComponentId) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::component::{
         BoneRestPoseComponent, ComponentRef, ControllerHand, ControllerPoseKind, GLTFComponent,
         RestAttachmentComponent,
     };
     use crate::engine::ecs::system::{LandmarkDirection, RetargetBasisDefinition};
-    use crate::engine::ecs::CommandQueue;
 
     #[test]
     fn controller_grip_edges_are_exposed_separately_from_trigger_edges() {
@@ -490,6 +492,23 @@ mod tests {
         assert_eq!(activations.grip_down, vec![pointer]);
         assert_eq!(activations.grip_released, vec![pointer]);
         assert!(activations.raycast_active(pointer));
+    }
+
+    #[test]
+    fn release_edges_activate_event_driven_raycasting() {
+        let mut world = World::default();
+        let pointer = world.add_component(PointerComponent::new());
+        let trigger_release = PointerActivations {
+            released: vec![pointer],
+            ..Default::default()
+        };
+        assert!(trigger_release.raycast_active(pointer));
+
+        let grip_release = PointerActivations {
+            grip_released: vec![pointer],
+            ..Default::default()
+        };
+        assert!(grip_release.raycast_active(pointer));
     }
 
     #[test]

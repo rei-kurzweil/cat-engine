@@ -1684,12 +1684,13 @@ fn create_component(
         },
         "Pointer" => match ctor {
             Some("disabled") => add!(PointerComponent::disabled()),
-            Some("min_grab_distance") => {
-                let distance = val_as_f32(arg(args, 0)?)?;
-                if !distance.is_finite() || distance < 0.0 {
-                    return Err("Pointer.min_grab_distance must be finite and non-negative".into());
-                }
-                add!(PointerComponent::new().min_grab_distance(distance))
+            Some(method @ ("min_grab_distance"
+            | "click_max_screen_distance_px"
+            | "click_max_ray_angle_deg"
+            | "click_max_origin_distance")) => {
+                let id = world.add_component(PointerComponent::new());
+                apply_call(world, id, method, args)?;
+                Ok(id)
             }
             _ => add!(PointerComponent::new()),
         },
@@ -2415,13 +2416,37 @@ fn apply_call(
         return Ok(());
     }
 
-    if let Some(pointer) = world.get_component_by_id_as_mut::<PointerComponent>(id) {
-        if method == "min_grab_distance" {
-            let distance = val_as_f32(arg(args, 0)?)?;
-            if !distance.is_finite() || distance < 0.0 {
-                return Err("Pointer.min_grab_distance must be finite and non-negative".into());
+    if world
+        .get_component_by_id_as::<PointerComponent>(id)
+        .is_some()
+    {
+        let value = val_as_f32(arg(args, 0)?)?;
+        let pointer = world
+            .get_component_by_id_as_mut::<PointerComponent>(id)
+            .expect("pointer checked above");
+        match method {
+            "min_grab_distance" if value.is_finite() && value >= 0.0 => {
+                pointer.min_grab_distance = Some(value)
             }
-            pointer.min_grab_distance = Some(distance);
+            "click_max_screen_distance_px" if value.is_finite() && value >= 0.0 => {
+                pointer.click_max_screen_distance_px = value
+            }
+            "click_max_ray_angle_deg" if value.is_finite() && (0.0..=180.0).contains(&value) => {
+                pointer.click_max_ray_angle_deg = value
+            }
+            "click_max_origin_distance" if value.is_finite() && value >= 0.0 => {
+                pointer.click_max_origin_distance = value
+            }
+            "click_max_ray_angle_deg" => {
+                return Err(
+                    "Pointer.click_max_ray_angle_deg must be finite and between 0 and 180 degrees"
+                        .into(),
+                );
+            }
+            "min_grab_distance" | "click_max_screen_distance_px" | "click_max_origin_distance" => {
+                return Err(format!("Pointer.{method} must be finite and non-negative"));
+            }
+            _ => {}
         }
         return Ok(());
     }

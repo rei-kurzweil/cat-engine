@@ -6246,6 +6246,31 @@ fn roundtrip_pointer_min_grab_distance() {
 }
 
 #[test]
+fn roundtrip_pointer_click_thresholds() {
+    use crate::engine::ecs::component::PointerComponent;
+    let pointer = PointerComponent::new()
+        .click_max_screen_distance_px(14.0)
+        .click_max_ray_angle_deg(4.5)
+        .click_max_origin_distance(0.08);
+    let (world, id) = roundtrip_component(pointer);
+    let got = world
+        .get_component_by_id_as::<PointerComponent>(id)
+        .unwrap();
+    assert_eq!(got.click_max_screen_distance_px, 14.0);
+    assert_eq!(got.click_max_ray_angle_deg, 4.5);
+    assert_eq!(got.click_max_origin_distance, 0.08);
+}
+
+#[test]
+fn pointer_click_threshold_defaults() {
+    use crate::engine::ecs::component::PointerComponent;
+    let pointer = PointerComponent::default();
+    assert_eq!(pointer.click_max_screen_distance_px, 8.0);
+    assert_eq!(pointer.click_max_ray_angle_deg, 2.0);
+    assert_eq!(pointer.click_max_origin_distance, 0.03);
+}
+
+#[test]
 fn roundtrip_skinned_mesh() {
     use crate::engine::ecs::component::SkinnedMeshComponent;
     let (world, id) = roundtrip_component(SkinnedMeshComponent::new(7));

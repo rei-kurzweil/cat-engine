@@ -11,15 +11,28 @@ pub struct PointerComponent {
     pub enabled: bool,
     /// Override for the clearance between a held object's ray-facing surface and pointer origin.
     pub min_grab_distance: Option<f32>,
+    /// Maximum desktop cursor displacement that can still qualify as a click.
+    pub click_max_screen_distance_px: f32,
+    /// Maximum spatial pointer ray-direction change that can still qualify as a click.
+    pub click_max_ray_angle_deg: f32,
+    /// Maximum spatial pointer-origin displacement that can still qualify as a click, in metres.
+    pub click_max_origin_distance: f32,
 
     component: Option<ComponentId>,
 }
 
 impl PointerComponent {
+    pub const DEFAULT_CLICK_MAX_SCREEN_DISTANCE_PX: f32 = 8.0;
+    pub const DEFAULT_CLICK_MAX_RAY_ANGLE_DEG: f32 = 2.0;
+    pub const DEFAULT_CLICK_MAX_ORIGIN_DISTANCE: f32 = 0.03;
+
     pub fn new() -> Self {
         Self {
             enabled: true,
             min_grab_distance: None,
+            click_max_screen_distance_px: Self::DEFAULT_CLICK_MAX_SCREEN_DISTANCE_PX,
+            click_max_ray_angle_deg: Self::DEFAULT_CLICK_MAX_RAY_ANGLE_DEG,
+            click_max_origin_distance: Self::DEFAULT_CLICK_MAX_ORIGIN_DISTANCE,
             component: None,
         }
     }
@@ -28,6 +41,9 @@ impl PointerComponent {
         Self {
             enabled: false,
             min_grab_distance: None,
+            click_max_screen_distance_px: Self::DEFAULT_CLICK_MAX_SCREEN_DISTANCE_PX,
+            click_max_ray_angle_deg: Self::DEFAULT_CLICK_MAX_RAY_ANGLE_DEG,
+            click_max_origin_distance: Self::DEFAULT_CLICK_MAX_ORIGIN_DISTANCE,
             component: None,
         }
     }
@@ -43,6 +59,33 @@ impl PointerComponent {
             "minimum grab distance must be finite and non-negative"
         );
         self.min_grab_distance = Some(meters);
+        self
+    }
+
+    pub fn click_max_screen_distance_px(mut self, px: f32) -> Self {
+        assert!(
+            px.is_finite() && px >= 0.0,
+            "maximum click screen distance must be finite and non-negative"
+        );
+        self.click_max_screen_distance_px = px;
+        self
+    }
+
+    pub fn click_max_ray_angle_deg(mut self, degrees: f32) -> Self {
+        assert!(
+            degrees.is_finite() && (0.0..=180.0).contains(&degrees),
+            "maximum click ray angle must be finite and between 0 and 180 degrees"
+        );
+        self.click_max_ray_angle_deg = degrees;
+        self
+    }
+
+    pub fn click_max_origin_distance(mut self, metres: f32) -> Self {
+        assert!(
+            metres.is_finite() && metres >= 0.0,
+            "maximum click origin distance must be finite and non-negative"
+        );
+        self.click_max_origin_distance = metres;
         self
     }
 }
@@ -90,9 +133,34 @@ impl Component for PointerComponent {
         } else {
             ce_call("Pointer", "disabled", vec![])
         };
-        match self.min_grab_distance {
+        let expression = match self.min_grab_distance {
             Some(distance) => expression.with_call("min_grab_distance", vec![num(distance as f64)]),
             None => expression,
+        };
+        let expression =
+            if self.click_max_screen_distance_px != Self::DEFAULT_CLICK_MAX_SCREEN_DISTANCE_PX {
+                expression.with_call(
+                    "click_max_screen_distance_px",
+                    vec![num(self.click_max_screen_distance_px as f64)],
+                )
+            } else {
+                expression
+            };
+        let expression = if self.click_max_ray_angle_deg != Self::DEFAULT_CLICK_MAX_RAY_ANGLE_DEG {
+            expression.with_call(
+                "click_max_ray_angle_deg",
+                vec![num(self.click_max_ray_angle_deg as f64)],
+            )
+        } else {
+            expression
+        };
+        if self.click_max_origin_distance != Self::DEFAULT_CLICK_MAX_ORIGIN_DISTANCE {
+            expression.with_call(
+                "click_max_origin_distance",
+                vec![num(self.click_max_origin_distance as f64)],
+            )
+        } else {
+            expression
         }
     }
 }
