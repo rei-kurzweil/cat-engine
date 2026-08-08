@@ -1,7 +1,7 @@
 # XR captured drags and gizmo mapping
 
-Status: design draft. This describes the current runtime and an incremental direction; it is not
-yet an implemented API contract.
+Status: Stages 1-3 implemented internally. Direct gizmo mappings and any serialized configuration
+remain design work; the internal types described here are not an API contract.
 
 ## Problem
 
@@ -379,15 +379,15 @@ Potential authored concepts, if use cases demand them:
 - Debug visualization matches the exact plane stored in active mapping state.
 - Constraint visualization, if enabled separately, matches the gizmo's captured world-space basis.
 
-## Recommended next step
+## Implemented slice and next step
 
-Implement Stages 1 and 2 as the smallest behavioral slice:
+The first behavioral slice now implements Stages 1-3:
 
 - add a hit-independent current-ray snapshot;
 - model captured continuation separately inside active gesture state;
-- use the existing start-ray-plane math for XR gizmo translation.
+- use the existing start-ray-plane math for desktop and XR gizmos;
+- label and render the gizmo diagnostic as the gesture mapping surface.
 
 This is a focused refactor around ray availability and active-drag state, not a prerequisite rewrite
 of the entire pointer/gesture/gizmo stack. It fixes the immediate XR interaction problem while
-leaving direct handle-aware mappings as an independently testable follow-up.
-
+leaving Stage 4's direct handle-aware mappings as an independently testable follow-up.

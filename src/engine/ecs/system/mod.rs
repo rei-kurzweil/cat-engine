@@ -136,7 +136,7 @@ pub use openxr_system::OpenXRSystem as XrSystem;
 pub use pipeline_system::PipelineSystem;
 pub use pointer_system::{PointerActivations, PointerSystem, PointerTopologyContext};
 pub use pose_capture_system::PoseCaptureSystem;
-pub use raycast_system::RayCastSystem;
+pub use raycast_system::{PointerRaySnapshot, RayCastSystem};
 pub use render_to_texture_system::RenderToTextureSystem;
 pub use renderable_system::RenderableSystem;
 pub use renderer_stats_system::RendererStatsSystem;

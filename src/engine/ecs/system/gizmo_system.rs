@@ -160,10 +160,12 @@ impl TransformGizmoSystem {
         rx.add_handler(SignalKind::DragEnd, gizmo_root, Self::on_drag_end);
     }
 
-    fn debug_drag_plane_enabled() -> bool {
+    fn debug_mapping_surface_enabled() -> bool {
         static ENABLED: OnceLock<bool> = OnceLock::new();
         *ENABLED.get_or_init(|| {
-            let v = std::env::var("CAT_DEBUG_GIZMO_DRAG_PLANE").unwrap_or_default();
+            let v = std::env::var("CAT_DEBUG_GIZMO_MAPPING_SURFACE")
+                .or_else(|_| std::env::var("CAT_DEBUG_GIZMO_DRAG_PLANE"))
+                .unwrap_or_default();
             let v = v.trim().to_ascii_lowercase();
             matches!(v.as_str(), "1" | "true" | "yes" | "on")
         })
@@ -676,7 +678,7 @@ impl TransformGizmoSystem {
         math::quat_from_axis_angle(axis_n, angle)
     }
 
-    fn spawn_debug_drag_plane(
+    fn spawn_debug_mapping_surface(
         world: &mut World,
         emit: &mut dyn SignalEmitter,
         hit_point: [f32; 3],
@@ -695,7 +697,7 @@ impl TransformGizmoSystem {
         let thickness = 0.005_f32;
 
         let t = world.add_component_boxed_named(
-            "gizmo_drag_plane_t",
+            "gizmo_mapping_surface_t",
             Box::new(
                 TransformComponent::new()
                     .with_position(hit_point[0], hit_point[1], hit_point[2])
@@ -704,18 +706,18 @@ impl TransformGizmoSystem {
             ),
         );
         let r = world.add_component_boxed_named(
-            "gizmo_drag_plane_r",
+            "gizmo_mapping_surface_r",
             Box::new(RenderableComponent::new(Renderable::new(
                 CpuMeshHandle::CUBE,
                 MaterialHandle::UNLIT_MESH,
             ))),
         );
         let c = world.add_component_boxed_named(
-            "gizmo_drag_plane_color",
+            "gizmo_mapping_surface_color",
             Box::new(ColorComponent::rgba(1.0, 0.0, 1.0, 0.35)),
         );
         let o = world.add_component_boxed_named(
-            "gizmo_drag_plane_opacity",
+            "gizmo_mapping_surface_opacity",
             Box::new(
                 OpacityComponent::new()
                     .with_opacity(0.35)
@@ -723,7 +725,7 @@ impl TransformGizmoSystem {
             ),
         );
         let e = world.add_component_boxed_named(
-            "gizmo_drag_plane_emissive",
+            "gizmo_mapping_surface_emissive",
             Box::new(EmissiveComponent::on()),
         );
 
@@ -865,8 +867,8 @@ impl TransformGizmoSystem {
             g.active_drag_start_hit_point_world = Some(*hit_point);
             g.active_drag_start_target_translation = drag_start_target_translation;
             g.active_drag_plane_axes_world = active_drag_plane_axes_world;
-            if Self::debug_drag_plane_enabled() {
-                old_debug_root = g.debug_drag_plane_root.take();
+            if Self::debug_mapping_surface_enabled() {
+                old_debug_root = g.debug_mapping_surface_root.take();
             }
         }
 
@@ -874,20 +876,15 @@ impl TransformGizmoSystem {
             emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
         }
 
-        if Self::debug_drag_plane_enabled() {
-            let plane_normal = active_drag_plane_axes_world
-                .map(|axes| {
-                    [
-                        axes[0][1] * axes[1][2] - axes[0][2] * axes[1][1],
-                        axes[0][2] * axes[1][0] - axes[0][0] * axes[1][2],
-                        axes[0][0] * axes[1][1] - axes[0][1] * axes[1][0],
-                    ]
-                })
-                .unwrap_or(*ray_dir_world);
-            let plane_root = Self::spawn_debug_drag_plane(world, emit, *hit_point, plane_normal);
+        if Self::debug_mapping_surface_enabled() {
+            // GestureSystem maps every captured gizmo drag on the plane through the initial hit
+            // whose normal is the normalized drag-start ray. The handle's axis/plane basis is a
+            // later gizmo constraint and is intentionally not visualized as this surface.
+            let plane_root =
+                Self::spawn_debug_mapping_surface(world, emit, *hit_point, *ray_dir_world);
             if let Some(g) = world.get_component_by_id_as_mut::<TransformGizmoComponent>(gizmo_cid)
             {
-                g.debug_drag_plane_root = Some(plane_root);
+                g.debug_mapping_surface_root = Some(plane_root);
             }
         }
     }
@@ -1368,8 +1365,8 @@ impl TransformGizmoSystem {
             g.active_drag_start_target_translation = None;
             g.active_drag_plane_axes_world = None;
 
-            if Self::debug_drag_plane_enabled() {
-                if let Some(root) = g.debug_drag_plane_root.take() {
+            if Self::debug_mapping_surface_enabled() {
+                if let Some(root) = g.debug_mapping_surface_root.take() {
                     emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
                 }
             }

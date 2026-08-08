@@ -21,6 +21,8 @@ use winit::event::MouseButton;
 pub struct RayCastSystem {
     raycasters: HashSet<ComponentId>,
     last_hit: HashMap<ComponentId, Option<ComponentId>>,
+    /// Rays cast during the current frame, independent of whether they hit anything.
+    current_rays: HashMap<ComponentId, PointerRaySnapshot>,
 
     /// Renderables eligible for raycasting, maintained incrementally on renderable add/remove.
     ///
@@ -32,6 +34,13 @@ pub struct RayCastSystem {
     profile_fallbacks: u64,
     profile_fallback_candidates: u64,
     profile_query_time: Duration,
+}
+
+/// The normalized world-space ray produced by a raycaster during the current frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointerRaySnapshot {
+    pub origin_world: [f32; 3],
+    pub direction_world: [f32; 3],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,6 +59,20 @@ enum RaySourceKind {
 use crate::engine::ecs::system::pointer_system::pointer_topology_context;
 
 impl RayCastSystem {
+    /// Returns the ray produced by `raycaster` during the current frame, even when it had no hits.
+    pub fn current_ray(&self, raycaster: ComponentId) -> Option<PointerRaySnapshot> {
+        self.current_rays.get(&raycaster).copied()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_current_ray_for_test(
+        &mut self,
+        raycaster: ComponentId,
+        snapshot: PointerRaySnapshot,
+    ) {
+        self.current_rays.insert(raycaster, snapshot);
+    }
+
     fn debug_raycast_enabled() -> bool {
         static ENABLED: OnceLock<bool> = OnceLock::new();
         *ENABLED.get_or_init(|| {
@@ -433,6 +456,7 @@ impl RayCastSystem {
     ) {
         self.raycasters.remove(&component);
         self.last_hit.remove(&component);
+        self.current_rays.remove(&component);
     }
 
     pub fn notify_renderable_added(&mut self, world: &World, renderable_cid: ComponentId) {
@@ -829,6 +853,63 @@ impl RayCastSystem {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::RayCastSystem;
+    use crate::engine::ecs::component::{CameraXRComponent, PointerComponent, TransformComponent};
+    use crate::engine::ecs::system::BvhSystem;
+    use crate::engine::ecs::system::pointer_system::{PointerActivations, PointerSystem};
+    use crate::engine::ecs::{RxWorld, World};
+    use crate::engine::graphics::VisualWorld;
+    use crate::engine::user_input::InputState;
+
+    #[test]
+    fn active_spatial_pointer_retains_current_ray_without_hits() {
+        let mut world = World::default();
+        let mut pose_component = TransformComponent::new().with_position(1.0, 2.0, 3.0);
+        pose_component.transform.matrix_world = pose_component.transform.model;
+        let pose = world.add_component(pose_component);
+        let camera = world.add_component(CameraXRComponent::on());
+        let pointer = world.add_component(PointerComponent::new());
+        world.add_child(pose, camera).unwrap();
+        world.add_child(camera, pointer).unwrap();
+
+        let mut rx = RxWorld::default();
+        let mut pointers = PointerSystem::default();
+        pointers.register_pointer(&mut world, pointer, &mut rx);
+        let raycaster = pointers.raycast_for_pointer(pointer).unwrap();
+
+        let mut raycasts = RayCastSystem::default();
+        let mut visuals = VisualWorld::default();
+        raycasts.register_raycast(&mut world, &mut visuals, raycaster);
+        raycasts.tick_with_queue(
+            &mut world,
+            &mut visuals,
+            &InputState::default(),
+            &mut rx,
+            &BvhSystem::default(),
+            &PointerActivations {
+                down: vec![pointer],
+                ..Default::default()
+            },
+            &pointers,
+            0.016,
+        );
+
+        assert_eq!(
+            raycasts.current_ray(raycaster),
+            Some(super::PointerRaySnapshot {
+                origin_world: [1.0, 2.0, 3.0],
+                direction_world: [0.0, 0.0, -1.0],
+            })
+        );
+        assert!(
+            rx.drain_ready_events().is_empty(),
+            "the ray should hit nothing"
+        );
+    }
+}
+
 impl System for RayCastSystem {
     fn tick(
         &mut self,
@@ -841,13 +922,12 @@ impl System for RayCastSystem {
         // integrate with RxWorld for events. If this gets called directly, we can still do hit
         // testing and prints.
 
+        self.current_rays.clear();
         if self.raycasters.is_empty() {
             return;
         }
 
-        let Some(ray) = Self::ray_from_cursor(visuals, input) else {
-            return;
-        };
+        let cursor_ray = Self::ray_from_cursor(visuals, input);
 
         // Iterate over a stable snapshot so removal during iteration is safe.
         let raycasters: Vec<ComponentId> = self.raycasters.iter().copied().collect();
@@ -862,11 +942,34 @@ impl System for RayCastSystem {
 
             let source = Self::inferred_source_kind(world, rcid);
 
+            let (origin, dir) = match source {
+                RaySourceKind::CursorThroughActiveCamera => {
+                    let Some(ray) = cursor_ray else {
+                        continue;
+                    };
+                    (ray.origin, ray.dir)
+                }
+                RaySourceKind::ParentForward => {
+                    let Some(ray) = Self::ray_from_parent_forward(world, rcid) else {
+                        continue;
+                    };
+                    ray
+                }
+            };
+
             if !Self::should_cast(rc.mode, input, cast_requested, source, false) {
                 continue;
             }
 
-            let hits = self.cast_against_renderables(world, ray.origin, ray.dir, rc.max_distance);
+            self.current_rays.insert(
+                rcid,
+                PointerRaySnapshot {
+                    origin_world: origin,
+                    direction_world: dir,
+                },
+            );
+
+            let hits = self.cast_against_renderables(world, origin, dir, rc.max_distance);
             let best = hits.first().copied();
 
             match rc.mode {
@@ -898,6 +1001,7 @@ impl RayCastSystem {
         pointer_system: &crate::engine::ecs::system::pointer_system::PointerSystem,
         _dt_sec: f32,
     ) {
+        self.current_rays.clear();
         let profile = Self::profile_spatial_enabled();
         if profile {
             self.profile_frames += 1;
@@ -948,6 +1052,14 @@ impl RayCastSystem {
                 if !Self::should_cast(mode, input, cast_requested, source, pointer_action_active) {
                     continue;
                 }
+
+                self.current_rays.insert(
+                    rcid,
+                    PointerRaySnapshot {
+                        origin_world: origin,
+                        direction_world: dir,
+                    },
+                );
 
                 let query_started = profile.then(Instant::now);
                 let mut hits =

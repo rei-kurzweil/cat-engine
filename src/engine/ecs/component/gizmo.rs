@@ -238,11 +238,11 @@ pub struct TransformGizmoComponent {
     /// Root TransformComponent id of the gizmo visual subtree (spawned on init).
     pub visual_root: Option<ComponentId>,
 
-    /// Runtime: optional debug plane subtree root.
+    /// Runtime: optional drag-mapping surface debug subtree root.
     ///
-    /// When enabled, GizmoSystem spawns a thin quad/cube aligned to the drag plane captured at
-    /// DragStart to visualize the projection surface used by screen-space dragging.
-    pub debug_drag_plane_root: Option<ComponentId>,
+    /// When enabled, GizmoSystem spawns a thin cube aligned to the start-ray plane captured at
+    /// DragStart. This is the gesture mapping surface, not the gizmo's operation constraint.
+    pub debug_mapping_surface_root: Option<ComponentId>,
 
     component: Option<ComponentId>,
 }
@@ -261,7 +261,7 @@ impl TransformGizmoComponent {
             active_drag_start_target_translation: None,
             active_drag_plane_axes_world: None,
             visual_root: None,
-            debug_drag_plane_root: None,
+            debug_mapping_surface_root: None,
             component: None,
         }
     }
@@ -327,7 +327,7 @@ impl Component for TransformGizmoComponent {
             );
         }
 
-        if let Some(root) = self.debug_drag_plane_root.take() {
+        if let Some(root) = self.debug_mapping_surface_root.take() {
             emit.push_intent_now(
                 root,
                 crate::engine::ecs::IntentValue::RemoveSubtree { component_id: root },

@@ -106,7 +106,7 @@ pub enum EventSignal {
         /// World-space ray direction at the time the drag started.
         ///
         /// This makes DragStart self-contained for consumers that need a stable plane normal
-        /// (e.g. gizmo debug drag plane / plane-projection drags) without also observing
+        /// (e.g. gizmo mapping-surface diagnostics / plane-projection drags) without observing
         /// RayIntersected events.
         ray_dir_world: [f32; 3],
 

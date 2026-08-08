@@ -2928,10 +2928,10 @@ impl SystemWorld {
         // Gestures interpret ray hits + input into drag events.
         self.gesture.tick_with_rx(
             world,
-            visuals,
             input,
             &activations,
             &self.pointer,
+            &self.raycast,
             &mut self.rx,
         );
 
