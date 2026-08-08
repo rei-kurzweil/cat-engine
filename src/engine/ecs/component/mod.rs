@@ -43,6 +43,7 @@ pub mod gltf;
 pub mod grabbable;
 pub mod gravity;
 pub mod grid;
+pub mod grid_binding;
 pub mod html_element;
 pub mod http_client;
 pub mod http_server;
@@ -166,6 +167,7 @@ pub use gizmo::{
 pub use grabbable::GrabbableComponent;
 pub use gravity::GravityComponent;
 pub use grid::GridComponent;
+pub use grid_binding::GridBindingComponent;
 pub use html_element::{ElementType, HtmlElementComponent};
 pub use http_client::HttpClientComponent;
 pub use http_server::HttpServerComponent;

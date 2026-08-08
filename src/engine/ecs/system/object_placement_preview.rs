@@ -32,6 +32,7 @@ pub struct PlacementPreviewSession {
     pub preview_root_component_id: ComponentId,
     pub target_renderable: Option<ComponentId>,
     pub last_valid_placement_frame: Option<SurfacePlacementFrame>,
+    pub grid_owner_transform: Option<ComponentId>,
     pub local_min_z: f32,
 }
 

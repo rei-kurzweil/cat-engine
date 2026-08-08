@@ -13,6 +13,11 @@ Related:
 
 ## Summary
 
+Grid selection is now independently persisted by `GridBinding.grid(...)` on
+the manipulated transform. `GridBinding` resolves the grid frame first;
+`GridSnapMode` remains responsible only for choosing origin-versus-bounds
+anchor behavior within that frame.
+
 Add a serializable `GridSnapMode` component with two MMS forms:
 
 ```mms

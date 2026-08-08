@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use crate::engine::ecs::component::{
     ColorComponent, DataComponent, DataValue, Display, EdgeInsets, EditorComponent,
     OptionComponent, RaycastableComponent, SelectionEntry, SizeDimension, StyleComponent,
-    TextAlign, TextComponent, TransformComponent, style::VerticalAlign,
+    TextAlign, TextComponent, TransformComponent, TransformGizmoComponent, style::VerticalAlign,
 };
 use crate::engine::ecs::system::GridSystem;
 use crate::engine::ecs::system::data_renderer_system::{
@@ -31,6 +31,7 @@ pub(crate) const GRID_PANEL_ITEM_PREFIX: &str = "grid_item_";
 pub(crate) const GRID_PANEL_ROW_PAYLOAD_NAME: &str = "grid_panel_row_payload";
 pub(crate) const GRID_PANEL_VISIBILITY_PAYLOAD_NAME: &str = "grid_panel_visibility_payload";
 pub(crate) const GRID_PANEL_ENABLED_PAYLOAD_NAME: &str = "grid_panel_enabled_payload";
+pub(crate) const GRID_PANEL_BINDING_PAYLOAD_NAME: &str = "grid_panel_binding_payload";
 pub(crate) const GRID_PANEL_DELETE_PAYLOAD_NAME: &str = "grid_panel_delete_payload";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -58,6 +59,7 @@ pub(crate) struct GridPanelEntry {
     pub(crate) shown: bool,
     pub(crate) enabled: bool,
     pub(crate) selected: bool,
+    pub(crate) bound: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +97,7 @@ pub(crate) fn build_grid_panel_model(
     editor_root: ComponentId,
     active_grid_owner_transform: Option<ComponentId>,
 ) -> GridPanelModel {
+    let manipulation_target = selected_manipulation_target(world, editor_root);
     let rows = grids
         .enumerate_grids_for_editor(world, editor_root)
         .into_iter()
@@ -105,6 +108,9 @@ pub(crate) fn build_grid_panel_model(
             shown: !entry.hidden,
             enabled: entry.enabled,
             selected: active_grid_owner_transform == Some(entry.owner_transform),
+            bound: manipulation_target
+                .and_then(|target| GridSystem::bound_grid_transform(world, target))
+                == Some(entry.owner_transform),
         })
         .collect();
 
@@ -113,6 +119,21 @@ pub(crate) fn build_grid_panel_model(
         rows,
         active_editor: Some(editor_root),
     }
+}
+
+fn selected_manipulation_target(world: &World, editor_root: ComponentId) -> Option<ComponentId> {
+    let selected = world
+        .get_component_by_id_as::<EditorComponent>(editor_root)?
+        .selected?;
+    world
+        .children_of(selected)
+        .iter()
+        .find_map(|&child| {
+            world
+                .get_component_by_id_as::<TransformGizmoComponent>(child)
+                .and_then(|gizmo| gizmo.target_transform)
+        })
+        .or(Some(selected))
 }
 
 pub(crate) fn grid_panel_items(model: &GridPanelModel) -> Vec<UiItem> {
@@ -143,6 +164,9 @@ fn grid_panel_row_render_fn(
         return Err("grid row missing grid entry".to_string());
     };
     let (shown, enabled) = (!entry.hidden, entry.enabled);
+    let bound = selected_manipulation_target(world, entry.editor_root)
+        .and_then(|target| GridSystem::bound_grid_transform(world, target))
+        == Some(owner_transform);
     Ok(spawn_grid_panel_row_tree(
         world,
         emit,
@@ -153,6 +177,7 @@ fn grid_panel_row_render_fn(
         item.selected,
         shown,
         enabled,
+        bound,
     ))
 }
 
@@ -171,6 +196,7 @@ fn spawn_grid_panel_row_tree(
     selected: bool,
     shown: bool,
     enabled: bool,
+    bound: bool,
 ) -> ComponentId {
     let row_root = world.add_component_boxed_named(row_name, Box::new(TransformComponent::new()));
     let row_option = world.add_component_boxed_named(
@@ -294,6 +320,23 @@ fn spawn_grid_panel_row_tree(
         None,
         Some(3.5),
     );
+    let binding = spawn_grid_icon_button(
+        world,
+        emit,
+        row_name,
+        "binding",
+        GRID_PANEL_BINDING_PAYLOAD_NAME,
+        owner_transform,
+        row_name,
+        if bound { "Unbind" } else { "Bind" },
+        if bound {
+            [0.58, 0.18, 0.58, 1.0]
+        } else {
+            [0.20, 0.42, 0.36, 1.0]
+        },
+        None,
+        Some(4.5),
+    );
     let delete = spawn_grid_icon_button(
         world,
         emit,
@@ -309,6 +352,7 @@ fn spawn_grid_panel_row_tree(
     );
     let _ = world.add_child(row_root, visibility);
     let _ = world.add_child(row_root, enabled_toggle);
+    let _ = world.add_child(row_root, binding);
     let _ = world.add_child(row_root, delete);
 
     row_root
@@ -618,13 +662,6 @@ pub(crate) fn handle_grid_panel_click(
     ) && let Some(owner_transform) = action.target_component
     {
         let _ = GridSystem::new().toggle_grid_hidden(world, emit, owner_transform);
-        clear_active_grid_selection_if_matches(
-            world,
-            emit,
-            panel_query_root,
-            editor_context_state,
-            owner_transform,
-        );
         emit.push_event(
             panel_query_root,
             EventSignal::DataEvent {
@@ -653,13 +690,6 @@ pub(crate) fn handle_grid_panel_click(
     ) && let Some(owner_transform) = action.target_component
     {
         let _ = GridSystem::new().toggle_grid_enabled(world, emit, owner_transform);
-        clear_active_grid_selection_if_matches(
-            world,
-            emit,
-            panel_query_root,
-            editor_context_state,
-            owner_transform,
-        );
         emit.push_event(
             panel_query_root,
             EventSignal::DataEvent {
@@ -667,6 +697,45 @@ pub(crate) fn handle_grid_panel_click(
                 payload: Some(owner_transform),
             },
         );
+        rerender_grid_panel_from_context(
+            world,
+            emit,
+            panel_query_root,
+            &editor_context,
+            data_renderer,
+        );
+        return GridPanelClickOutcome::Handled;
+    }
+
+    if let Some(action) = decode_panel_action_payload(
+        world,
+        renderable,
+        GRID_PANEL_BINDING_PAYLOAD_NAME,
+        PanelKind::Grid,
+        PanelActionKind::Toggle,
+        None,
+        None,
+    ) && let Some(owner_transform) = action.target_component
+    {
+        let target = selected_manipulation_target(world, editor_root);
+        if let Some(target) = target
+            && target != editor_root
+            && world
+                .get_component_by_id_as::<TransformComponent>(target)
+                .is_some()
+            && world
+                .get_component_by_id_as::<EditorComponent>(target)
+                .is_none()
+            && GridSystem::new()
+                .grid_owned_by_transform(world, target)
+                .is_none()
+        {
+            if GridSystem::bound_grid_transform(world, target) == Some(owner_transform) {
+                GridSystem::unbind_transform(world, target);
+            } else {
+                GridSystem::bind_transform_to_grid(world, target, owner_transform);
+            }
+        }
         rerender_grid_panel_from_context(
             world,
             emit,
@@ -757,5 +826,29 @@ mod tests {
         assert!(model.rows[0].shown);
         assert!(model.rows[0].enabled);
         assert!(model.rows[0].selected);
+        assert!(!model.rows[0].bound);
+    }
+
+    #[test]
+    fn build_grid_panel_model_marks_grid_bound_to_selected_manipulation_target() {
+        let mut world = World::default();
+        let grids = GridSystem::new();
+        let editor = world.add_component(EditorComponent::new());
+        let grid_transform = world.add_component(TransformComponent::new());
+        let grid = world.add_component(GridComponent::new(0.5));
+        let target = world.add_component(TransformComponent::new());
+        world.add_child(editor, grid_transform).unwrap();
+        world.add_child(grid_transform, grid).unwrap();
+        world.add_child(editor, target).unwrap();
+        world
+            .get_component_by_id_as_mut::<EditorComponent>(editor)
+            .unwrap()
+            .selected = Some(target);
+        GridSystem::bind_transform_to_grid(&mut world, target, grid_transform);
+
+        let model = build_grid_panel_model(&world, &grids, editor, None);
+        assert_eq!(model.rows.len(), 1);
+        assert!(model.rows[0].bound);
+        assert!(!model.rows[0].selected);
     }
 }

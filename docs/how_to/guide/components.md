@@ -1026,6 +1026,16 @@ Carries grid state used when that engine feature is present in a component tree.
 Grid {}
 ```
 
+### `GridBindingComponent`
+<!-- catalog:component source="GridBindingComponent" mms="direct" names="GridBinding" -->
+Persists the grid used to snap a manipulated transform. Place it directly under
+that transform and pass a grid owner transform handle or selector. Live handles
+serialize as GUID references, preserving the association across save and load.
+**Directly constructible** as `GridBinding`. Sources: [Rust implementation](../../../src/engine/ecs/component/grid_binding.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
+```mms parse-only
+GridBinding.grid("#grid_transform")
+```
+
 ## Other engine components
 
 ### `AmbientLightComponent`

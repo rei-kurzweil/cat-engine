@@ -22,27 +22,27 @@ use crate::engine::ecs::component::{
     EditorInteractionMode, EditorPanel, EditorUIComponent, EditorUIPanelConfig, EditorUIPanelSpec,
     ElementType, EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode,
     FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent,
-    GrabbableComponent, GravityComponent, GridComponent, HtmlElementComponent, HttpClientComponent,
-    HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver, InputComponent,
-    InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent,
-    JointRetargetBasisComponent, JustifyContent, KeyframeComponent, LayoutBoundsComponent,
-    LayoutComponent, LightQuantizationComponent, MeshComponent, MirrorComponent, MusicNote,
-    MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
-    OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
-    PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
-    Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
-    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RenderGraphComponent,
-    RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
-    RestAttachmentComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
-    SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
-    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
-    SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
-    SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
-    TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
-    ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
-    TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
-    TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoRotateComponent,
-    TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    GrabbableComponent, GravityComponent, GridBindingComponent, GridComponent,
+    HtmlElementComponent, HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent,
+    IKChainComponent, IKSolver, InputComponent, InputTransformModeComponent, InputXRComponent,
+    InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent,
+    KeyframeComponent, LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent,
+    MeshComponent, MirrorComponent, MusicNote, MusicNoteComponent, NormalVisualisationComponent,
+    OpacityComponent, OptionComponent, OscillatorType, Overflow, OverlayComponent,
+    PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
+    PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
+    QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
+    RaycastableShapeType, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
+    RendererStatsComponent, RestAttachmentComponent, RouterComponent, ScrollingComponent,
+    SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
+    SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
+    SkinnedMeshComponent, SpotLightComponent, SpringBoneComponent, SpringColliderComponent,
+    SpringCollidersComponent, SpringJointComponent, StencilClipComponent, StyleComponent,
+    TextAlign, TextComponent, TextInputComponent, TextShadowComponent, TextureComponent,
+    TextureFilteringComponent, ToggleComponent, TransformCameraSpecificComponent,
+    TransformComponent, TransformDropComponent, TransformForkTRSComponent, TransformGizmoAxis,
+    TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
+    TransformGizmoRotateComponent, TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
     TransformGizmoTranslatePlaneComponent, TransformMapRotationComponent,
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
@@ -110,6 +110,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "Gravity",
     "Grabbable",
     "Grid",
+    "GridBinding",
     "HtmlElement",
     "HttpClient",
     "HttpServer",
@@ -531,7 +532,9 @@ fn collect_referenced_guids_filtered(
     node: ComponentId,
     out: &mut std::collections::HashSet<uuid::Uuid>,
 ) {
-    use crate::engine::ecs::component::{ComponentRef, IKChainComponent, TransformParentComponent};
+    use crate::engine::ecs::component::{
+        ComponentRef, GridBindingComponent, IKChainComponent, TransformParentComponent,
+    };
 
     let visible = filtered_save_visibility(world, node);
     if visible {
@@ -556,6 +559,11 @@ fn collect_referenced_guids_filtered(
                     out.insert(*u);
                 }
             }
+        }
+        if let Some(binding) = world.get_component_by_id_as::<GridBindingComponent>(node)
+            && let ComponentRef::Guid(guid) = &binding.grid
+        {
+            out.insert(*guid);
         }
     }
 
@@ -629,7 +637,9 @@ fn collect_referenced_guids_limited(
     max_depth: usize,
     out: &mut std::collections::HashSet<uuid::Uuid>,
 ) {
-    use crate::engine::ecs::component::{ComponentRef, IKChainComponent, TransformParentComponent};
+    use crate::engine::ecs::component::{
+        ComponentRef, GridBindingComponent, IKChainComponent, TransformParentComponent,
+    };
     if let Some(ik) = world.get_component_by_id_as::<IKChainComponent>(node) {
         for src in [&ik.target_source, &ik.end_effector_source]
             .iter()
@@ -651,6 +661,11 @@ fn collect_referenced_guids_limited(
                 out.insert(*u);
             }
         }
+    }
+    if let Some(binding) = world.get_component_by_id_as::<GridBindingComponent>(node)
+        && let ComponentRef::Guid(guid) = &binding.grid
+    {
+        out.insert(*guid);
     }
     let children: Vec<ComponentId> = world
         .get_component_record(node)
@@ -1531,6 +1546,11 @@ fn create_component(
             }
             add!(c)
         }
+        "GridBinding" => match ctor {
+            Some("grid") => add!(GridBindingComponent::new(arg_component_ref(world, args, 0)?)),
+            Some(method) => Err(format!("GridBinding: unknown constructor '{method}'")),
+            None => Err("GridBinding requires .grid(reference)".to_string()),
+        },
         "HttpClient" => {
             let mut c = HttpClientComponent::new();
             if let Some(method) = ctor {

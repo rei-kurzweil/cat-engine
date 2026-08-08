@@ -137,6 +137,13 @@ as one editor operation.
       scene target.
 - [ ] Make show/hide, enable/disable, delete, selected state, and snap
       participation distinct and visible.
+- [x] Persist an object's chosen grid with `GridBinding`, prefer it over the
+      workspace-selected grid, and remove dependent bindings when a grid is
+      deleted.
+- [x] Keep hidden enabled grids snap-active, preserve grid selection across
+      hide/disable, and pause authoritative bindings while disabled.
+- [x] Retain the exact grid used by a snapped paint preview on the committed
+      object's manipulation wrapper.
 - [ ] Make the 3D cursor and grid placement resolve the correct editor root and
       work without first selecting a GLTF bone marker.
 - [ ] Quantize only the degrees of freedom manipulated by a gizmo or paint

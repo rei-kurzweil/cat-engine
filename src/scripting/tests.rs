@@ -5944,6 +5944,89 @@ fn roundtrip_grid_component_with_dimensions() {
 }
 
 #[test]
+fn grid_binding_live_handle_materializes_as_guid_reference() {
+    use crate::engine::ecs::component::{ComponentRef, GridBindingComponent, GridComponent};
+
+    let module = MeowMeowRunner::load_module_source(
+        r#"
+export fn scene() {
+    let grid_transform = T {
+        Grid.spacing(0.5)
+    }
+    return T {
+        grid_transform
+        T {
+            GridBinding.grid(grid_transform)
+        }
+    }
+}
+"#,
+        None,
+    )
+    .expect("load binding module");
+    let mut world = World::default();
+    let mut emit = CommandQueue::new();
+    let root = MeowMeowRunner::spawn_mms_module_component_uninitialized(
+        &module,
+        "scene",
+        vec![],
+        &mut world,
+        &mut emit,
+    )
+    .expect("spawn binding scene");
+    let grid_component = find_first::<GridComponent>(&world, root).expect("grid component");
+    let grid_transform = world.parent_of(grid_component).expect("grid transform");
+    let binding_id = find_first::<GridBindingComponent>(&world, root).expect("binding");
+    let binding = world
+        .get_component_by_id_as::<GridBindingComponent>(binding_id)
+        .unwrap();
+    assert_eq!(
+        binding.grid,
+        ComponentRef::Guid(world.get_component_record(grid_transform).unwrap().guid)
+    );
+}
+
+#[test]
+fn grid_binding_roundtrip_preserves_referenced_grid_guid() {
+    use crate::engine::ecs::component::{ComponentRef, GridBindingComponent, GridComponent};
+
+    let mut world = World::default();
+    let root = world.add_component(TransformComponent::new());
+    let grid_transform = world.add_component(TransformComponent::new());
+    let grid = world.add_component(GridComponent::new(0.5));
+    world.add_child(root, grid_transform).unwrap();
+    world.add_child(grid_transform, grid).unwrap();
+    let grid_guid = world.get_component_record(grid_transform).unwrap().guid;
+    let target = world.add_component(TransformComponent::new());
+    let binding = world.add_component(GridBindingComponent::new(ComponentRef::Guid(grid_guid)));
+    world.add_child(root, target).unwrap();
+    world.add_child(target, binding).unwrap();
+
+    let ce = crate::scripting::component_registry::subtree_to_ce_ast(&world, root)
+        .expect("serialize binding subtree");
+    let text = crate::scripting::unparser::unparse_component(&ce);
+    let parsed = parse(&text);
+    let parsed_ce = as_component!(parsed.into_iter().next().unwrap());
+    let materialized = crate::scripting::component_registry::ce_ast_to_materialized(&parsed_ce)
+        .expect("materialize binding subtree");
+    let mut loaded = World::default();
+    let mut emit = CommandQueue::new();
+    let loaded_root = crate::scripting::component_registry::spawn_tree_uninitialized(
+        &materialized,
+        &mut loaded,
+        &mut emit,
+    )
+    .expect("load binding subtree");
+    let loaded_binding_id =
+        find_first::<GridBindingComponent>(&loaded, loaded_root).expect("loaded binding");
+    let loaded_binding = loaded
+        .get_component_by_id_as::<GridBindingComponent>(loaded_binding_id)
+        .unwrap();
+    assert_eq!(loaded_binding.grid, ComponentRef::Guid(grid_guid));
+    assert!(loaded.component_id_by_guid(grid_guid).is_some());
+}
+
+#[test]
 fn roundtrip_bloom() {
     use crate::engine::ecs::component::BloomComponent;
     let original = BloomComponent::new()

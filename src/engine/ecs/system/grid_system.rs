@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::engine::ecs::component::{
-    ColorComponent, EditorComponent, GridComponent, OpacityComponent, RaycastableComponent,
-    RenderableComponent, SelectableComponent, SerializeComponent, TransformComponent,
+    ColorComponent, ComponentRef, EditorComponent, GridBindingComponent, GridComponent,
+    OpacityComponent, RaycastableComponent, RenderableComponent, SelectableComponent,
+    SerializeComponent, TransformComponent,
 };
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::{
@@ -26,6 +27,7 @@ pub struct GridEntry {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActiveGrid {
     pub component: ComponentId,
+    pub owner_transform: ComponentId,
     pub spacing: f32,
     pub origin_world: [f32; 3],
     pub normal_world: [f32; 3],
@@ -40,6 +42,7 @@ pub struct GridStep {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridSnapResult {
+    pub grid_owner_transform: ComponentId,
     pub point_world: [f32; 3],
     pub normal_world: [f32; 3],
     pub step: GridStep,
@@ -123,14 +126,8 @@ impl GridSystem {
         world: &World,
         editor_root: ComponentId,
     ) -> Option<ActiveGrid> {
-        let selected = self
-            .selected_grid_for_editor(world, editor_root)
-            .or_else(|| {
-                self.enumerate_grids_for_editor(world, editor_root)
-                    .into_iter()
-                    .next()
-            })?;
-        if !selected.selectable || !selected.enabled || selected.hidden {
+        let selected = self.selected_grid_for_editor(world, editor_root)?;
+        if !selected.enabled {
             return None;
         }
         self.active_grid_from_entry(world, selected)
@@ -193,7 +190,7 @@ impl GridSystem {
         owner_transform: ComponentId,
     ) -> Option<ActiveGrid> {
         let entry = self.grid_owned_by_transform(world, owner_transform)?;
-        if !entry.enabled || entry.hidden || !entry.selectable {
+        if !entry.enabled {
             return None;
         }
         self.active_grid_from_entry(world, entry)
@@ -207,6 +204,113 @@ impl GridSystem {
             .get(&grid_component)
             .copied()
             .map(|entry| refresh_grid_entry(world, entry))
+    }
+
+    pub fn direct_binding_component(
+        world: &World,
+        target_transform: ComponentId,
+    ) -> Option<ComponentId> {
+        world
+            .children_of(target_transform)
+            .iter()
+            .copied()
+            .find(|child| {
+                world
+                    .get_component_by_id_as::<GridBindingComponent>(*child)
+                    .is_some()
+            })
+    }
+
+    /// Returns `Some(None)` for an authoritative but unresolved/disabled binding.
+    /// `None` means the target has no binding and callers may use workspace policy.
+    pub fn active_grid_for_binding(
+        &self,
+        world: &World,
+        target_transform: ComponentId,
+    ) -> Option<Option<ActiveGrid>> {
+        let binding_id = Self::direct_binding_component(world, target_transform)?;
+        let owner_transform = world
+            .get_component_by_id_as::<GridBindingComponent>(binding_id)
+            .and_then(|binding| binding.resolve_grid_transform(world, Some(binding_id)));
+        Some(owner_transform.and_then(|owner| self.active_grid_for_owner_transform(world, owner)))
+    }
+
+    pub fn bound_grid_transform(
+        world: &World,
+        target_transform: ComponentId,
+    ) -> Option<ComponentId> {
+        let binding_id = Self::direct_binding_component(world, target_transform)?;
+        world
+            .get_component_by_id_as::<GridBindingComponent>(binding_id)?
+            .resolve_grid_transform(world, Some(binding_id))
+    }
+
+    pub fn bind_transform_to_grid(
+        world: &mut World,
+        target_transform: ComponentId,
+        grid_owner_transform: ComponentId,
+    ) -> bool {
+        if world
+            .get_component_by_id_as::<TransformComponent>(target_transform)
+            .is_none()
+            || Self::new()
+                .grid_owned_by_transform(world, grid_owner_transform)
+                .is_none()
+        {
+            return false;
+        }
+        let Some(guid) = world
+            .get_component_record(grid_owner_transform)
+            .map(|record| record.guid)
+        else {
+            return false;
+        };
+
+        let binding_ids: Vec<_> = world
+            .children_of(target_transform)
+            .iter()
+            .copied()
+            .filter(|child| {
+                world
+                    .get_component_by_id_as::<GridBindingComponent>(*child)
+                    .is_some()
+            })
+            .collect();
+        if let Some(&binding_id) = binding_ids.first() {
+            if let Some(binding) =
+                world.get_component_by_id_as_mut::<GridBindingComponent>(binding_id)
+            {
+                binding.grid = ComponentRef::Guid(guid);
+            }
+            for duplicate in binding_ids.into_iter().skip(1) {
+                let _ = world.remove_component_leaf(duplicate);
+            }
+        } else {
+            let binding_id = world.add_component_boxed_named(
+                "grid_binding",
+                Box::new(GridBindingComponent::new(ComponentRef::Guid(guid))),
+            );
+            let _ = world.add_child(target_transform, binding_id);
+        }
+        true
+    }
+
+    pub fn unbind_transform(world: &mut World, target_transform: ComponentId) -> bool {
+        let binding_ids: Vec<_> = world
+            .children_of(target_transform)
+            .iter()
+            .copied()
+            .filter(|child| {
+                world
+                    .get_component_by_id_as::<GridBindingComponent>(*child)
+                    .is_some()
+            })
+            .collect();
+        let changed = !binding_ids.is_empty();
+        for binding_id in binding_ids {
+            let _ = world.remove_component_leaf(binding_id);
+        }
+        changed
     }
 
     pub fn grid_hit_context_for_renderable(
@@ -259,6 +363,7 @@ impl GridSystem {
         let snapped_world = transform_point(active.matrix_world, snapped_local);
 
         GridSnapResult {
+            grid_owner_transform: active.owner_transform,
             point_world: snapped_world,
             normal_world: active.normal_world,
             step: GridStep {
@@ -282,6 +387,7 @@ impl GridSystem {
         let snapped_world = transform_point(active.matrix_world, snapped_local);
 
         GridSnapResult {
+            grid_owner_transform: active.owner_transform,
             point_world: snapped_world,
             normal_world: active.normal_world,
             step: GridStep {
@@ -450,6 +556,19 @@ impl GridSystem {
             return false;
         }
 
+        let binding_ids: Vec<_> = world
+            .all_components()
+            .filter(|&component_id| {
+                world
+                    .get_component_by_id_as::<GridBindingComponent>(component_id)
+                    .and_then(|binding| binding.resolve_grid_transform(world, Some(component_id)))
+                    == Some(owner_transform)
+            })
+            .collect();
+        for binding_id in binding_ids {
+            let _ = world.remove_component_leaf(binding_id);
+        }
+
         // The cleanup-aware subtree executor unregisters renderables, BVH/raycast
         // entries, transforms, and other runtime state before removing ECS records.
         // Removing the World subtree here first leaves those later cleanup intents
@@ -516,6 +635,7 @@ impl GridSystem {
 
         Some(ActiveGrid {
             component: entry.grid_component,
+            owner_transform: entry.owner_transform,
             spacing: world
                 .get_component_by_id_as::<GridComponent>(entry.grid_component)?
                 .spacing
@@ -812,11 +932,20 @@ mod tests {
     use super::*;
     use crate::engine::ecs::CommandQueue;
 
+    fn add_grid(world: &mut World, editor: ComponentId, grid: GridComponent) -> ComponentId {
+        let owner = world.add_component(TransformComponent::new());
+        let grid = world.add_component(grid);
+        world.add_child(editor, owner).unwrap();
+        world.add_child(owner, grid).unwrap();
+        owner
+    }
+
     #[test]
     fn snap_hit_rounds_to_grid_cell_on_xz_plane() {
         let mut world = World::default();
         let active = ActiveGrid {
             component: world.add_component(TransformComponent::new()),
+            owner_transform: world.add_component(TransformComponent::new()),
             spacing: 0.5,
             origin_world: [0.0, 0.0, 0.0],
             normal_world: [0.0, 1.0, 0.0],
@@ -836,6 +965,7 @@ mod tests {
         let mut world = World::default();
         let active = ActiveGrid {
             component: world.add_component(TransformComponent::new()),
+            owner_transform: world.add_component(TransformComponent::new()),
             spacing: 0.5,
             origin_world: [0.0, 0.0, 0.0],
             normal_world: [0.0, 1.0, 0.0],
@@ -957,7 +1087,7 @@ mod tests {
     }
 
     #[test]
-    fn active_grid_ignores_hidden_grid() {
+    fn active_grid_uses_hidden_enabled_grid() {
         let mut world = World::default();
         let grids = GridSystem::new();
         let editor = world.add_component(EditorComponent::new());
@@ -971,7 +1101,90 @@ mod tests {
             .expect("editor")
             .selected = Some(grid_transform);
 
-        assert!(grids.active_grid_for_editor(&world, editor).is_none());
+        assert!(grids.active_grid_for_editor(&world, editor).is_some());
+    }
+
+    #[test]
+    fn binding_is_authoritative_and_rebinding_never_duplicates() {
+        let mut world = World::default();
+        let grids = GridSystem::new();
+        let editor = world.add_component(EditorComponent::new());
+        let grid_a = add_grid(&mut world, editor, GridComponent::new(0.25));
+        let grid_b = add_grid(&mut world, editor, GridComponent::new(2.0));
+        let target = world.add_component(TransformComponent::new());
+        world.add_child(editor, target).unwrap();
+
+        assert!(GridSystem::bind_transform_to_grid(
+            &mut world, target, grid_a
+        ));
+        assert!(GridSystem::bind_transform_to_grid(
+            &mut world, target, grid_b
+        ));
+        assert!(GridSystem::bind_transform_to_grid(
+            &mut world, target, grid_b
+        ));
+        assert_eq!(
+            GridSystem::bound_grid_transform(&world, target),
+            Some(grid_b)
+        );
+        assert_eq!(
+            world
+                .children_of(target)
+                .iter()
+                .filter(|&&child| world
+                    .get_component_by_id_as::<GridBindingComponent>(child)
+                    .is_some())
+                .count(),
+            1
+        );
+        let active = grids
+            .active_grid_for_binding(&world, target)
+            .expect("binding exists")
+            .expect("bound grid active");
+        assert_eq!(active.owner_transform, grid_b);
+        assert!((active.spacing - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn disabled_binding_pauses_without_falling_back_and_hidden_binding_remains_active() {
+        let mut world = World::default();
+        let grids = GridSystem::new();
+        let editor = world.add_component(EditorComponent::new());
+        let hidden = add_grid(
+            &mut world,
+            editor,
+            GridComponent::new(0.5).with_hidden(true),
+        );
+        let disabled = add_grid(
+            &mut world,
+            editor,
+            GridComponent::new(1.0).with_enabled(false),
+        );
+        let target = world.add_component(TransformComponent::new());
+        world.add_child(editor, target).unwrap();
+
+        GridSystem::bind_transform_to_grid(&mut world, target, hidden);
+        assert!(matches!(
+            grids.active_grid_for_binding(&world, target),
+            Some(Some(_))
+        ));
+        GridSystem::bind_transform_to_grid(&mut world, target, disabled);
+        assert_eq!(grids.active_grid_for_binding(&world, target), Some(None));
+    }
+
+    #[test]
+    fn deleting_grid_removes_resolving_bindings() {
+        let mut world = World::default();
+        let grids = GridSystem::new();
+        let editor = world.add_component(EditorComponent::new());
+        let grid = add_grid(&mut world, editor, GridComponent::new(1.0));
+        let target = world.add_component(TransformComponent::new());
+        world.add_child(editor, target).unwrap();
+        GridSystem::bind_transform_to_grid(&mut world, target, grid);
+        let mut emit = CommandQueue::new();
+
+        assert!(grids.delete_grid(&mut world, &mut emit, grid));
+        assert!(GridSystem::direct_binding_component(&world, target).is_none());
     }
 
     #[test]

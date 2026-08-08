@@ -423,14 +423,27 @@ impl TransformGizmoSystem {
 
     fn active_snap_grid_for_translate(
         world: &World,
+        target_transform: ComponentId,
         editor_context_state: Option<Arc<Mutex<EditorContextState>>>,
-    ) -> Option<crate::engine::ecs::system::grid_system::ActiveGrid> {
+    ) -> Option<(
+        crate::engine::ecs::system::grid_system::ActiveGrid,
+        Option<ComponentId>,
+    )> {
+        let grids = GridSystem::new();
+        if let Some(bound_grid) = grids.active_grid_for_binding(world, target_transform) {
+            return bound_grid.map(|grid| (grid, None));
+        }
         let owner_transform = editor_context_state
             .as_ref()
             .and_then(|state| state.lock().ok())
             .and_then(|state| state.active_grid_owner_transform)?;
-        let grids = GridSystem::new();
-        grids.active_grid_for_owner_transform(world, owner_transform)
+        grids
+            .active_grid_for_owner_transform(world, owner_transform)
+            .map(|grid| (grid, Some(owner_transform)))
+    }
+
+    fn translation_changed(a: [f32; 3], b: [f32; 3]) -> bool {
+        (a[0] - b[0]).abs() > 1e-6 || (a[1] - b[1]).abs() > 1e-6 || (a[2] - b[2]).abs() > 1e-6
     }
 
     fn world_dir_to_target_local(
@@ -977,9 +990,12 @@ impl TransformGizmoSystem {
                     drag_start_target_translation,
                     *hit_point,
                 );
-                let next = if let Some(active_grid) =
-                    Self::active_snap_grid_for_translate(world, editor_context_state.clone())
-                {
+                let active_grid = Self::active_snap_grid_for_translate(
+                    world,
+                    target_transform,
+                    editor_context_state.clone(),
+                );
+                let next = if let Some((active_grid, _)) = active_grid.as_ref() {
                     let candidate_world = Self::target_translation_local_to_world(
                         world,
                         target_transform,
@@ -1037,6 +1053,11 @@ impl TransformGizmoSystem {
                     return;
                 };
                 t.set_position(emit, next[0], next[1], next[2]);
+                if Self::translation_changed(next, drag_start_target_translation)
+                    && let Some((_, Some(grid_owner))) = active_grid
+                {
+                    GridSystem::bind_transform_to_grid(world, target_transform, grid_owner);
+                }
             }
             TransformGizmoOp::TranslatePlane(plane) => {
                 let Some(drag_start_hit_point_world) = drag_start_hit_point_world else {
@@ -1056,9 +1077,12 @@ impl TransformGizmoSystem {
                     drag_start_target_translation,
                     *hit_point,
                 );
-                let next = if let Some(active_grid) =
-                    Self::active_snap_grid_for_translate(world, editor_context_state.clone())
-                {
+                let active_grid = Self::active_snap_grid_for_translate(
+                    world,
+                    target_transform,
+                    editor_context_state.clone(),
+                );
+                let next = if let Some((active_grid, _)) = active_grid.as_ref() {
                     let candidate_world = Self::target_translation_local_to_world(
                         world,
                         target_transform,
@@ -1114,6 +1138,11 @@ impl TransformGizmoSystem {
                     return;
                 };
                 t.set_position(emit, next[0], next[1], next[2]);
+                if Self::translation_changed(next, drag_start_target_translation)
+                    && let Some((_, Some(grid_owner))) = active_grid
+                {
+                    GridSystem::bind_transform_to_grid(world, target_transform, grid_owner);
+                }
             }
             TransformGizmoOp::Rotate(axis) => {
                 let coord_type =
@@ -2163,11 +2192,14 @@ impl TransformGizmoSystem {
 mod tests {
     use super::TransformGizmoSystem;
     use crate::engine::ecs::component::{
-        ColorComponent, RaycastableComponent, TransformComponent, TransformGizmoAxis,
-        TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
+        ColorComponent, EditorComponent, GridComponent, RaycastableComponent, TransformComponent,
+        TransformGizmoAxis, TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
         TransformGizmoTranslatePlaneComponent,
     };
+    use crate::engine::ecs::system::GridSystem;
+    use crate::engine::ecs::system::editor::context::EditorContextState;
     use crate::engine::ecs::{CommandQueue, World};
+    use std::sync::{Arc, Mutex};
 
     fn approx3(a: [f32; 3], b: [f32; 3]) {
         for i in 0..3 {
@@ -2388,6 +2420,7 @@ mod tests {
         let identity = TransformGizmoSystem::mat4_identity();
         let grid = ActiveGrid {
             component,
+            owner_transform: component,
             spacing: 1.0,
             origin_world: [0.0; 3],
             normal_world: [0.0, 1.0, 0.0],
@@ -2408,6 +2441,48 @@ mod tests {
             [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
         );
         approx3(xy, [0.0, 0.7, 0.76]);
+    }
+
+    #[test]
+    fn bound_grid_wins_over_selected_grid_and_disabled_binding_does_not_fall_back() {
+        let mut world = World::default();
+        let editor = world.add_component(EditorComponent::new());
+        let grid_a = world.add_component(TransformComponent::new());
+        let grid_a_component = world.add_component(GridComponent::new(0.25));
+        let grid_b = world.add_component(TransformComponent::new());
+        let grid_b_component = world.add_component(GridComponent::new(2.0));
+        let target = world.add_component(TransformComponent::new());
+        world.add_child(editor, grid_a).unwrap();
+        world.add_child(grid_a, grid_a_component).unwrap();
+        world.add_child(editor, grid_b).unwrap();
+        world.add_child(grid_b, grid_b_component).unwrap();
+        world.add_child(editor, target).unwrap();
+        GridSystem::bind_transform_to_grid(&mut world, target, grid_a);
+        let context = Arc::new(Mutex::new(EditorContextState {
+            active_editor: Some(editor),
+            active_grid_owner_transform: Some(grid_b),
+            ..EditorContextState::default()
+        }));
+
+        let (active, selected_binding_candidate) =
+            TransformGizmoSystem::active_snap_grid_for_translate(
+                &world,
+                target,
+                Some(Arc::clone(&context)),
+            )
+            .expect("bound active grid");
+        assert_eq!(active.owner_transform, grid_a);
+        assert!((active.spacing - 0.25).abs() < 1e-6);
+        assert_eq!(selected_binding_candidate, None);
+
+        world
+            .get_component_by_id_as_mut::<GridComponent>(grid_a_component)
+            .unwrap()
+            .enabled = false;
+        assert!(
+            TransformGizmoSystem::active_snap_grid_for_translate(&world, target, Some(context),)
+                .is_none()
+        );
     }
 
     #[test]

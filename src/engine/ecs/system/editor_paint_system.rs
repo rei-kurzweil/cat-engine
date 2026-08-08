@@ -668,6 +668,7 @@ fn apply_paint_side_effects(
                 let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
                 if let Some(session) = runtime.preview_session.take() {
                     commit_preview(world, session.preview_root_component_id);
+                    retain_paint_preview_grid_binding(world, &session);
                     if session.placement_kind == PlacementKind::Grid {
                         let _ = grid_system.set_grid_hidden(
                             world,
@@ -725,6 +726,16 @@ fn apply_paint_side_effects(
         total_start,
         format!("event={event:?}"),
     );
+}
+
+fn retain_paint_preview_grid_binding(world: &mut World, session: &PlacementPreviewSession) -> bool {
+    if session.placement_kind != PlacementKind::PaintAsset {
+        return false;
+    }
+    let Some(grid_owner) = session.grid_owner_transform else {
+        return false;
+    };
+    GridSystem::bind_transform_to_grid(world, session.preview_root_component_id, grid_owner)
 }
 
 fn current_editor_context(
@@ -838,7 +849,13 @@ fn handle_free_draw_stroke_move(
     let Some(session) = runtime.preview_session.as_mut() else {
         return None;
     };
-    let grid_snap = context.grid_snap(world, renderable, hit_point);
+    let grid_snap = match session.grid_owner_transform {
+        Some(owner) => context
+            .grid_system
+            .active_grid_for_owner_transform(world, owner)
+            .map(|grid| GridSystem::snap_hit(&grid, hit_point)),
+        None => context.grid_snap(world, renderable, hit_point),
+    };
     let frame = match resolve_surface_placement_frame(world, renderable, hit_point, grid_snap) {
         Ok(frame) => frame,
         Err(_) => return None,
@@ -1417,6 +1434,7 @@ fn start_paint_preview_session(
         preview_root_component_id: preview_root,
         target_renderable: Some(target_renderable),
         last_valid_placement_frame: Some(frame),
+        grid_owner_transform: grid_snap.map(|snap| snap.grid_owner_transform),
         local_min_z: asset_local_min_z(world, preview_root)?,
     })
 }
@@ -1455,6 +1473,7 @@ fn start_grid_preview_session(
         preview_root_component_id: preview_root,
         target_renderable: Some(target_renderable),
         last_valid_placement_frame: Some(frame),
+        grid_owner_transform: grid_snap.map(|snap| snap.grid_owner_transform),
         local_min_z: 0.0,
     })
 }
@@ -1571,6 +1590,9 @@ fn place_asset(
     );
     let _ = world.add_child(raycastable_root, wrapper);
     let _ = world.add_child(wrapper, asset_root);
+    if let Some(snap) = grid_snap {
+        GridSystem::bind_transform_to_grid(world, wrapper, snap.grid_owner_transform);
+    }
     world.init_component_tree(raycastable_root, emit);
     emit.push_intent_now(
         raycastable_root,
@@ -2035,6 +2057,33 @@ mod tests {
             self.next_mesh += 1;
             Ok(handle)
         }
+    }
+
+    #[test]
+    fn committed_grid_snapped_paint_preview_binds_its_manipulation_wrapper() {
+        let mut world = World::default();
+        let editor = world.add_component(EditorComponent::new());
+        let grid_owner = world.add_component(TransformComponent::new());
+        let grid = world.add_component(GridComponent::new(0.5));
+        let wrapper = world.add_component(TransformComponent::new());
+        world.add_child(editor, grid_owner).unwrap();
+        world.add_child(grid_owner, grid).unwrap();
+        world.add_child(editor, wrapper).unwrap();
+        let session = PlacementPreviewSession {
+            active_editor: editor,
+            placement_kind: PlacementKind::PaintAsset,
+            preview_root_component_id: wrapper,
+            target_renderable: None,
+            last_valid_placement_frame: None,
+            grid_owner_transform: Some(grid_owner),
+            local_min_z: 0.0,
+        };
+
+        assert!(retain_paint_preview_grid_binding(&mut world, &session));
+        assert_eq!(
+            GridSystem::bound_grid_transform(&world, wrapper),
+            Some(grid_owner)
+        );
     }
 
     impl TextureUploader for TestUploader {

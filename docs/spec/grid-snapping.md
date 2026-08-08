@@ -30,12 +30,46 @@ Most snapping paths start by resolving an `ActiveGrid`.
 
 An `ActiveGrid` carries:
 
+- grid component and owner-transform identity
 - spacing
 - world transform
 - inverse world transform
 - surface normal
 
 This lets snapping happen in grid-local space and then map back to world space.
+
+### Persistent object binding
+
+An object can persistently choose its snap grid with a `GridBinding` directly
+beneath the transform manipulated by the gizmo:
+
+```mms
+T {
+    GridBinding.grid(grid_transform)
+}
+```
+
+Live component handles are stored as GUID references. Saving a scene preserves
+the referenced grid transform's GUID, so the association survives reload.
+
+Gizmo translation resolves the effective grid in this order:
+
+1. the manipulated transform's direct `GridBinding`
+2. the workspace-selected grid when no binding exists
+3. no snapping
+
+A binding remains authoritative when its reference cannot resolve or its grid
+is disabled; the object does not fall back to another selected grid. Hidden,
+enabled grids still snap. Disabled grids pause snapping without losing the
+binding. The first successful snapped translation through an unbound selected
+grid creates the binding.
+
+Paint snap results carry the grid owner identity. A committed, grid-snapped
+paint asset stores the binding on its generated manipulation wrapper, using the
+same grid captured by its preview.
+
+`GridBinding` chooses *which grid* supplies the frame. `GridSnapMode` chooses
+the origin/bounds anchor behavior; these are independent policies.
 
 See:
 
