@@ -1,7 +1,6 @@
 # Compute-cached deformation XR performance regression
 
-Status: mitigation implemented in source; headset validation, residual allocation work, and
-before/after performance evidence remain open.
+Status: complete; the regression is accepted resolved by same-hardware headset validation.
 
 Related:
 
@@ -24,8 +23,9 @@ Mittens scene flickers out and the SteamVR environment / aurora becomes visible 
 frames.
 
 Before the cutover, these VR-only examples, including mirror use, were approximately in the
-30–60 FPS range on the test system. The last recorded post-cutover result was materially lower;
-the Phase 4 submission pipeline has not yet been remeasured on the headset.
+30–60 FPS range on the test system. An intermediate post-cutover result was materially lower.
+After the mirror scheduling and submission-pipelining work, same-hardware VR testing with mirrors
+and skinning improved from below 30 FPS to a consistent 60 FPS.
 
 Treat SteamVR-environment flicker as a missed-XR-deadline failure, not as an acceptable gradual
 performance reduction.
@@ -42,10 +42,11 @@ The original diagnosis below led to two source changes:
   Mirrors and both eyes now extend one GPU ordering chain without intermediate CPU waits. The raw
   XR copy signals one fence, and the CPU waits once before releasing the OpenXR swapchain image.
 
-This removes the known repeated-mirror and per-consumer-wait structure in source. It does not
-close the regression: the new pipeline still needs validation-layer headset runs and before/after
-reports, while persistent dirty-frame staging, descriptor reuse, and moving immutable validation
-out of the frame loop remain unfinished.
+This removes the known repeated-mirror and per-consumer-wait structure in source. Same-hardware
+headset testing accepted the regression as resolved on 2026-08-09: the representative mirrors and
+skinning workload rose from below 30 FPS to a consistent 60 FPS. Persistent dirty-frame staging,
+descriptor reuse, moving immutable validation out of the frame loop, and detailed captured timing
+reports remain useful non-blocking follow-ups.
 
 Profiling also separated a different bottleneck:
 [spring-bone visualization command flushing](spring-bone-visualization-command-flush-performance.md)
@@ -228,8 +229,8 @@ rendered multiple times for the same deformation generation and viewer family.
 
 ### 1. Remove per-consumer CPU queue drains
 
-Source status: implemented through OpenXR submission-pipelining Phase 4; headset verification
-pending.
+Source status: implemented through OpenXR submission-pipelining Phase 4; same-hardware headset
+verification accepted on 2026-08-09.
 
 - Do not call `wait(None)` between mirror captures or between XR eyes.
 - Preserve cache hazards through GPU-side ordering in the renderer-wide submission chain.
@@ -239,8 +240,8 @@ pending.
 
 ### 2. Schedule deformation and mirrors once
 
-Source status: mirror scheduling is once per XR viewer family, and both eyes consume one ordered
-deformation generation; parity and performance verification pending.
+Source status: mirror scheduling is once per XR viewer family, both eyes consume one ordered
+deformation generation, and same-hardware performance verification is accepted.
 
 - Record dirty deformation once before the first consumer of the generation.
 - Reuse that output for mirrors, both XR eyes, extraction, and the window.
@@ -250,7 +251,7 @@ deformation generation; parity and performance verification pending.
 
 ### 3. Make dirty-frame data persistent
 
-Status: open.
+Status: non-blocking follow-up.
 
 - Use bounded, reusable frame-slot staging for bones, jobs, workgroups, and active morph weights.
 - Keep persistent dummy/empty morph resources for Phase 1 rather than allocating them per dispatch.
@@ -260,7 +261,7 @@ Status: open.
 
 ### 4. Move immutable validation out of the frame loop
 
-Status: open.
+Status: non-blocking follow-up.
 
 - Validate joint indices and immutable mesh skin data during mesh upload.
 - Validate instance palette bounds when the mesh-to-rig binding changes.
@@ -274,6 +275,11 @@ Status: open.
 - Shared output lifetime and transfer-to-compute-to-vertex hazards must remain validation-clean.
 
 ## Acceptance criteria
+
+The primary performance criterion was accepted on 2026-08-09 from the same-hardware headset
+result: VR with mirrors and skinning now runs consistently at 60 FPS instead of below 30 FPS. The
+more detailed instrumentation and validation items below remain useful follow-up evidence rather
+than blockers for the resolved regression.
 
 - SteamVR environment/aurora does not flicker through during any of the four canonical presets.
 - There are no CPU fence waits between mirror captures or XR eyes.

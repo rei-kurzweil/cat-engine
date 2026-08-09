@@ -1,6 +1,6 @@
 # Compute-cached mesh deformation
 
-Status: implemented in source; validation and performance acceptance remain open.
+Status: complete; accepted on same-hardware VR performance validation.
 
 Epic: [GPU-cached deformation and morph targets](epic/gpu-cached-deformation-and-morph-targets.md)
 
@@ -12,9 +12,9 @@ ordinary desktop, mirrors, emissive/bloom extraction, and both XR eyes.
 
 Skin matrices are already maintained as a shared palette with stable per-instance ranges, and
 `SkinnedMeshSystem` updates bindings when joints, mesh transforms, mesh resources, or allocations
-change. The source now contains a persistent deformed-vertex cache driven by those changes. This
-task remains open because its full synchronization, consumer-parity, hardware, and before/after
-performance gates have not yet been completed.
+change. The source now contains a persistent deformed-vertex cache driven by those changes. The
+task was accepted complete on 2026-08-09 after VR with mirrors and skinning improved from below
+30 FPS to a consistent 60 FPS on the same hardware.
 
 ## Goal
 
@@ -210,7 +210,14 @@ Focused validation on 2026-07-28:
 
 - `cargo test deformation --lib`: 17 passed.
 
-This is a source implementation milestone, not completion of the task. The remaining gate is:
+Performance acceptance on 2026-08-09:
+
+- On the same VR hardware and representative workload with mirrors and skinning, observed frame
+  rate improved from subjectively poor performance below 30 FPS to a consistent 60 FPS.
+- This result accepts the compute-cached skinning cutover as complete and unblocks morph-target
+  work in the shared deformation pass.
+
+The following remain worthwhile non-blocking hardening and measurement follow-ups:
 
 - add GPU readback/parity coverage against the CPU reference;
 - prove unchanged frames issue zero deformation uploads and dispatches;

@@ -1,6 +1,6 @@
 # GPU-cached deformation and morph targets
 
-Status: active epic; Phase 1 is implemented in source but has not passed its validation gate.
+Status: active epic; Phase 1 is complete and Phase 2 is planned.
 
 ## Purpose
 
@@ -29,13 +29,14 @@ The source cutover in commit `ef592dc` implements the core of
 Static meshes retain their current graphics path.
 
 The source now uses the compute cache and no longer contains the graphics-stage skinning
-compatibility path. Phase 1 remains open until GPU readback/consumer parity, unchanged-frame
-behavior, buffer lifetime and frames-in-flight safety, required-hardware validation, and
-before/after GPU measurements are recorded.
+compatibility path. Phase 1 was accepted on 2026-08-09 after same-hardware VR testing with mirrors
+and skinning improved from subjectively poor performance below 30 FPS to a consistent 60 FPS.
+Additional GPU readback, synchronization, and allocation-hardening coverage remains useful
+follow-up work, but no longer blocks Phase 2.
 
 ### Phase 2: add morph targets and editor controls
 
-After Phase 1 passes its validation gate, implement
+With Phase 1 accepted, implement
 [morph targets and the editor panel](../morph-targets-and-editor-panel.md):
 
 1. Normalize glTF position and normal target accessors into one immutable dense representation.
@@ -81,7 +82,7 @@ targets.
 
 ## Validation gates
 
-Phase 1 is complete only when:
+Phase 1's original validation targets were:
 
 - CPU-reference tests cover identity, single-joint, four-weight, normal deformation, and multiple
   independently posed instances.
@@ -106,16 +107,18 @@ Phase 2 is complete only when:
 
 ## Implementation status
 
-As of 2026-07-28:
+As of 2026-08-09:
 
 - the Phase 1 compute shader, packed cache format, stable range allocation, dirty jobs,
   lightweight graphics consumer, capability checks, and counters are present in source;
 - the focused CPU deformation/range/dirty-state suite passes (`17` tests);
 - graphics-stage skinning has been removed;
 - XR mirror scheduling has been corrected and OpenXR submission pipelining is implemented through
-  Phase 4, but headset validation and before/after performance reports are pending;
-- per-dirty-frame staging/descriptor allocation and immutable validation scans still need to be
-  removed or shown insignificant;
+  Phase 4;
+- same-hardware subjective VR validation with mirrors and skinning improved from below 30 FPS to a
+  consistent 60 FPS, and Phase 1 is accepted complete on that result;
+- per-dirty-frame staging/descriptor allocation, immutable validation scans, GPU readback, and
+  more detailed captured timings remain non-blocking hardening and measurement follow-ups;
 - Phase 2 glTF morph import, runtime weights, and editor controls have not started. Morph-capable
   compute record layouts and CPU-reference coverage are scaffolding, not completion of Phase 2.
 
