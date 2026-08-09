@@ -1,4 +1,6 @@
-use crate::engine::ecs::component::{PointerEvents, TransformGizmoComponent};
+use crate::engine::ecs::component::{
+    DragContinuationPolicy, DragMappingPolicy, PointerComponent, PointerEvents,
+};
 use crate::engine::ecs::system::draggable_system::draggable_owner_for_hit;
 use crate::engine::ecs::system::grabbable_system::grabbable_owner_for_hit;
 use crate::engine::ecs::system::pointer_system::{
@@ -6,7 +8,8 @@ use crate::engine::ecs::system::pointer_system::{
 };
 use crate::engine::ecs::system::{BvhSystem, RayCastSystem, TransformSystem};
 use crate::engine::ecs::{
-    ComponentId, EventSignal, PointerActivationSource, RxWorld, SignalKind, World,
+    ComponentId, EventSignal, IntentValue, PointerActivationSource, RxWorld, SignalEmitter,
+    SignalKind, World,
 };
 use crate::engine::user_input::InputState;
 use std::collections::{HashMap, HashSet};
@@ -68,6 +71,8 @@ pub struct GestureState {
     pub last_cursor_pos: Option<(f32, f32)>,
     continuation: Option<DragContinuation>,
     mapping: Option<DragMapping>,
+    /// Root of this pointer's active mapping-surface diagnostic subtree.
+    pub debug_mapping_surface_root: Option<ComponentId>,
 
     // Click detection: position at DragStart.
     pub drag_start_screen_pos: Option<(f32, f32)>,
@@ -243,18 +248,69 @@ impl GestureSystem {
         point.iter().all(|v| v.is_finite()).then_some(point)
     }
 
-    fn has_gizmo_ancestor(world: &World, start: ComponentId) -> bool {
-        let mut current = Some(start);
-        while let Some(component) = current {
-            if world
-                .get_component_by_id_as::<TransformGizmoComponent>(component)
-                .is_some()
-            {
-                return true;
-            }
-            current = world.parent_of(component);
+    fn quat_from_z_to_dir(dir: [f32; 3]) -> [f32; 4] {
+        use crate::utils::math;
+        let z = [0.0f32, 0.0, 1.0];
+        let dot = Self::vec3_dot(z, dir);
+        if dot >= 1.0 - 1e-6 {
+            return [0.0, 0.0, 0.0, 1.0];
         }
-        false
+        if dot <= -1.0 + 1e-6 {
+            return math::quat_from_axis_angle([1.0, 0.0, 0.0], std::f32::consts::PI);
+        }
+        let axis = [-dir[1], dir[0], 0.0];
+        let axis = Self::finite_normalized(axis).unwrap_or([1.0, 0.0, 0.0]);
+        math::quat_from_axis_angle(axis, dot.clamp(-1.0, 1.0).acos())
+    }
+
+    fn spawn_debug_mapping_surface(
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        pointer: ComponentId,
+        point_world: [f32; 3],
+        normal_world: [f32; 3],
+    ) -> ComponentId {
+        use crate::engine::ecs::component::{
+            ColorComponent, EmissiveComponent, OpacityComponent, RenderableComponent,
+            TransformComponent,
+        };
+        use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Renderable};
+
+        let root = world.add_component_boxed_named(
+            format!("pointer_{pointer:?}_mapping_surface"),
+            Box::new(
+                TransformComponent::new()
+                    .with_position(point_world[0], point_world[1], point_world[2])
+                    .with_rotation_quat(Self::quat_from_z_to_dir(normal_world))
+                    .with_scale(2.0, 2.0, 0.005),
+            ),
+        );
+        let renderable = world.add_component_boxed_named(
+            "pointer_mapping_surface_renderable",
+            Box::new(RenderableComponent::new(Renderable::new(
+                CpuMeshHandle::CUBE,
+                MaterialHandle::UNLIT_MESH,
+            ))),
+        );
+        let color = world.add_component(ColorComponent::rgba(1.0, 0.0, 1.0, 0.35));
+        let opacity = world.add_component(
+            OpacityComponent::new()
+                .with_opacity(0.35)
+                .with_multiple_layers(),
+        );
+        let emissive = world.add_component(EmissiveComponent::on());
+        let _ = world.add_child(root, renderable);
+        let _ = world.add_child(renderable, color);
+        let _ = world.add_child(renderable, opacity);
+        let _ = world.add_child(renderable, emissive);
+        world.init_component_tree(root, emit);
+        root
+    }
+
+    fn remove_debug_mapping_surface(state: &mut GestureState, emit: &mut dyn SignalEmitter) {
+        if let Some(root) = state.debug_mapping_surface_root.take() {
+            emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
+        }
     }
 
     /// Consume RayIntersected signals and PointerActivations to emit DragStart/DragMove/DragEnd/Click.
@@ -263,7 +319,7 @@ impl GestureSystem {
     /// `activations` drives press/down/release for each pointer regardless of input source.
     pub fn tick_with_rx(
         &mut self,
-        world: &World,
+        world: &mut World,
         input: &InputState,
         activations: &PointerActivations,
         pointer_system: &PointerSystem,
@@ -445,35 +501,62 @@ impl GestureSystem {
             let controller_origin = controller_draggable
                 .then(|| TransformSystem::world_position(world, pointer_cid))
                 .flatten();
-            let captured_start_plane = Self::has_gizmo_ancestor(world, renderable)
-                || (is_screen_pointer
-                    && self.drag_update_policy == DragUpdatePolicy::StartPlaneProjection);
+            let raycastable =
+                BvhSystem::find_raycastable_for_renderable(world, renderable).unwrap_or_default();
+            let auto_start_plane = is_screen_pointer
+                && self.drag_update_policy == DragUpdatePolicy::StartPlaneProjection;
             let start_plane_normal = Self::finite_normalized(dir);
-
-            let (continuation, mapping) = if let Some(last_origin_world) = controller_origin {
-                (
-                    DragContinuation::Captured,
-                    DragMapping::ControllerTranslation { last_origin_world },
-                )
-            } else if captured_start_plane {
-                match (drag_hit_point, start_plane_normal) {
-                    (Some(point_world), Some(normal_world)) => (
-                        DragContinuation::Captured,
-                        DragMapping::StartRayPlane {
+            let continuation = match raycastable.drag_continuation {
+                DragContinuationPolicy::Auto if controller_draggable || auto_start_plane => {
+                    DragContinuation::Captured
+                }
+                DragContinuationPolicy::Auto | DragContinuationPolicy::RequireTargetContact => {
+                    DragContinuation::RequireTargetContact
+                }
+                DragContinuationPolicy::Captured => DragContinuation::Captured,
+            };
+            let mapping = match raycastable.drag_mapping {
+                DragMappingPolicy::Auto if controller_draggable => controller_origin
+                    .map(|last_origin_world| DragMapping::ControllerTranslation {
+                        last_origin_world,
+                    })
+                    .unwrap_or(DragMapping::ContactHit),
+                DragMappingPolicy::Auto if auto_start_plane => {
+                    match (drag_hit_point, start_plane_normal) {
+                        (Some(point_world), Some(normal_world)) => DragMapping::StartRayPlane {
                             point_world,
                             normal_world,
                         },
-                    ),
-                    _ => (
-                        DragContinuation::RequireTargetContact,
-                        DragMapping::ContactHit,
-                    ),
+                        _ => DragMapping::ContactHit,
+                    }
                 }
-            } else {
-                (
-                    DragContinuation::RequireTargetContact,
-                    DragMapping::ContactHit,
-                )
+                DragMappingPolicy::StartRayPlane => match (drag_hit_point, start_plane_normal) {
+                    (Some(point_world), Some(normal_world)) => DragMapping::StartRayPlane {
+                        point_world,
+                        normal_world,
+                    },
+                    _ => DragMapping::ContactHit,
+                },
+                DragMappingPolicy::Auto | DragMappingPolicy::ContactHit => DragMapping::ContactHit,
+            };
+
+            let debug_mapping_surface_root = match mapping {
+                DragMapping::StartRayPlane {
+                    point_world,
+                    normal_world,
+                } if world
+                    .get_component_by_id_as::<PointerComponent>(pointer_cid)
+                    .is_some_and(|pointer| pointer.debug_enabled) =>
+                {
+                    Some(Self::spawn_debug_mapping_surface(
+                        world,
+                        rx,
+                        pointer_cid,
+                        point_world,
+                        normal_world,
+                    ))
+                }
+                _ => None,
             };
 
             let state = self.states.entry(pointer_cid).or_default();
@@ -492,6 +575,7 @@ impl GestureSystem {
             state.last_cursor_pos = if is_screen_pointer { screen_pos } else { None };
             state.continuation = Some(continuation);
             state.mapping = Some(mapping);
+            state.debug_mapping_surface_root = debug_mapping_surface_root;
             state.drag_start_screen_pos = if is_screen_pointer { screen_pos } else { None };
             state.drag_start_hit_point = drag_hit_point;
             state.press_pointer_class = Some(if is_screen_pointer {
@@ -520,6 +604,16 @@ impl GestureSystem {
         // --- Down: continue active drags ---
         let active_pointers: Vec<ComponentId> = self.states.keys().copied().collect();
         for pointer_cid in active_pointers {
+            if world
+                .get_component_by_id_as::<PointerComponent>(pointer_cid)
+                .is_none()
+                || pointer_system.raycast_for_pointer(pointer_cid).is_none()
+            {
+                if let Some(mut state) = self.states.remove(&pointer_cid) {
+                    Self::remove_debug_mapping_surface(&mut state, rx);
+                }
+                continue;
+            }
             let is_down = activations.down.contains(&pointer_cid);
             let is_released = activations.released.contains(&pointer_cid);
 
@@ -529,7 +623,9 @@ impl GestureSystem {
                     let s = self.states.get(&pointer_cid).unwrap();
                     (s.drag_raycaster, s.drag_renderable)
                 }) else {
-                    self.states.remove(&pointer_cid);
+                    if let Some(mut state) = self.states.remove(&pointer_cid) {
+                        Self::remove_debug_mapping_surface(&mut state, rx);
+                    }
                     continue;
                 };
 
@@ -556,148 +652,152 @@ impl GestureSystem {
                         DragMapping::ContactHit,
                     ));
 
-                match mapping {
-                    DragMapping::ControllerTranslation { last_origin_world } => {
-                        // Controller Draggable capture follows controller translation after press.
-                        if let Some(current_controller) =
-                            TransformSystem::world_position(world, pointer_cid)
-                        {
-                            let state = self.states.get_mut(&pointer_cid).unwrap();
-                            let delta = [
-                                current_controller[0] - last_origin_world[0],
-                                current_controller[1] - last_origin_world[1],
-                                current_controller[2] - last_origin_world[2],
-                            ];
-                            if delta != [0.0; 3] {
-                                let previous_hit =
-                                    state.last_hit_point.unwrap_or(current_controller);
-                                let hit_point = [
-                                    previous_hit[0] + delta[0],
-                                    previous_hit[1] + delta[1],
-                                    previous_hit[2] + delta[2],
+                let has_target_contact = pointer_hits
+                    .iter()
+                    .any(|h| h.2 == active_rc && h.3 == active_renderable);
+                if continuation != DragContinuation::RequireTargetContact || has_target_contact {
+                    match mapping {
+                        DragMapping::ControllerTranslation { last_origin_world } => {
+                            // Controller Draggable capture follows controller translation after press.
+                            if let Some(current_controller) =
+                                TransformSystem::world_position(world, pointer_cid)
+                            {
+                                let state = self.states.get_mut(&pointer_cid).unwrap();
+                                let delta = [
+                                    current_controller[0] - last_origin_world[0],
+                                    current_controller[1] - last_origin_world[1],
+                                    current_controller[2] - last_origin_world[2],
                                 ];
-                                rx.push_event(
-                                    active_renderable,
-                                    EventSignal::DragMove {
-                                        activation_source: PointerActivationSource::Trigger,
-                                        raycaster: active_rc,
-                                        renderable: active_renderable,
-                                        hit_point,
-                                        delta_world: delta,
-                                        screen_pos_px: None,
-                                        screen_delta_px: None,
-                                    },
-                                );
-                                state.last_hit_point = Some(hit_point);
-                            }
-                            state.mapping = Some(DragMapping::ControllerTranslation {
-                                last_origin_world: current_controller,
-                            });
-                        }
-                    }
-                    DragMapping::ContactHit => {
-                        let target_hit = (continuation == DragContinuation::RequireTargetContact)
-                            .then(|| {
-                                pointer_hits
-                                    .iter()
-                                    .find(|h| h.2 == active_rc && h.3 == active_renderable)
-                            })
-                            .flatten();
-                        if let Some(&(_priority, t, _rc, _r, origin, dir, _pe)) =
-                            target_hit.copied()
-                        {
-                            let cur = [
-                                origin[0] + dir[0] * t,
-                                origin[1] + dir[1] * t,
-                                origin[2] + dir[2] * t,
-                            ];
-                            let state = self.states.get_mut(&pointer_cid).unwrap();
-                            if let Some(prev) = state.last_hit_point {
-                                let delta = [cur[0] - prev[0], cur[1] - prev[1], cur[2] - prev[2]];
-                                if delta[0] != 0.0 || delta[1] != 0.0 || delta[2] != 0.0 {
-                                    let screen_pos_px = if is_screen_pointer {
-                                        input.cursor_pos
-                                    } else {
-                                        None
-                                    };
-                                    let screen_delta_px = if is_screen_pointer {
-                                        match (state.last_cursor_pos, screen_pos_px) {
-                                            (Some((px, py)), Some((cx, cy))) => {
-                                                Some((cx - px, cy - py))
-                                            }
-                                            _ => None,
-                                        }
-                                    } else {
-                                        None
-                                    };
+                                if delta != [0.0; 3] {
+                                    let previous_hit =
+                                        state.last_hit_point.unwrap_or(current_controller);
+                                    let hit_point = [
+                                        previous_hit[0] + delta[0],
+                                        previous_hit[1] + delta[1],
+                                        previous_hit[2] + delta[2],
+                                    ];
                                     rx.push_event(
                                         active_renderable,
                                         EventSignal::DragMove {
                                             activation_source: PointerActivationSource::Trigger,
                                             raycaster: active_rc,
                                             renderable: active_renderable,
-                                            hit_point: cur,
+                                            hit_point,
                                             delta_world: delta,
-                                            screen_pos_px,
-                                            screen_delta_px,
+                                            screen_pos_px: None,
+                                            screen_delta_px: None,
                                         },
                                     );
+                                    state.last_hit_point = Some(hit_point);
                                 }
+                                state.mapping = Some(DragMapping::ControllerTranslation {
+                                    last_origin_world: current_controller,
+                                });
                             }
-                            let state = self.states.get_mut(&pointer_cid).unwrap();
-                            state.last_hit_point = Some(cur);
-                            state.last_cursor_pos =
-                                is_screen_pointer.then_some(input.cursor_pos).flatten();
                         }
-                    }
+                        DragMapping::ContactHit => {
+                            let target_hit = pointer_hits
+                                .iter()
+                                .find(|h| h.2 == active_rc && h.3 == active_renderable);
+                            if let Some(&(_priority, t, _rc, _r, origin, dir, _pe)) =
+                                target_hit.copied()
+                            {
+                                let cur = [
+                                    origin[0] + dir[0] * t,
+                                    origin[1] + dir[1] * t,
+                                    origin[2] + dir[2] * t,
+                                ];
+                                let state = self.states.get_mut(&pointer_cid).unwrap();
+                                if let Some(prev) = state.last_hit_point {
+                                    let delta =
+                                        [cur[0] - prev[0], cur[1] - prev[1], cur[2] - prev[2]];
+                                    if delta[0] != 0.0 || delta[1] != 0.0 || delta[2] != 0.0 {
+                                        let screen_pos_px = if is_screen_pointer {
+                                            input.cursor_pos
+                                        } else {
+                                            None
+                                        };
+                                        let screen_delta_px = if is_screen_pointer {
+                                            match (state.last_cursor_pos, screen_pos_px) {
+                                                (Some((px, py)), Some((cx, cy))) => {
+                                                    Some((cx - px, cy - py))
+                                                }
+                                                _ => None,
+                                            }
+                                        } else {
+                                            None
+                                        };
+                                        rx.push_event(
+                                            active_renderable,
+                                            EventSignal::DragMove {
+                                                activation_source: PointerActivationSource::Trigger,
+                                                raycaster: active_rc,
+                                                renderable: active_renderable,
+                                                hit_point: cur,
+                                                delta_world: delta,
+                                                screen_pos_px,
+                                                screen_delta_px,
+                                            },
+                                        );
+                                    }
+                                }
+                                let state = self.states.get_mut(&pointer_cid).unwrap();
+                                state.last_hit_point = Some(cur);
+                                state.last_cursor_pos =
+                                    is_screen_pointer.then_some(input.cursor_pos).flatten();
+                            }
+                        }
 
-                    DragMapping::StartRayPlane {
-                        point_world,
-                        normal_world,
-                    } => {
-                        let mapped_point = raycast_system.current_ray(active_rc).and_then(|ray| {
-                            Self::ray_plane_intersect(
-                                ray.origin_world,
-                                ray.direction_world,
-                                point_world,
-                                normal_world,
-                            )
-                        });
-                        if let Some(cur) = mapped_point {
-                            let state = self.states.get_mut(&pointer_cid).unwrap();
-                            if let Some(prev) = state.last_hit_point {
-                                let delta = [cur[0] - prev[0], cur[1] - prev[1], cur[2] - prev[2]];
-                                if delta[0] != 0.0 || delta[1] != 0.0 || delta[2] != 0.0 {
-                                    let screen_pos_px =
-                                        is_screen_pointer.then_some(input.cursor_pos).flatten();
-                                    let screen_delta_px = is_screen_pointer
-                                        .then(|| match (state.last_cursor_pos, screen_pos_px) {
-                                            (Some((px, py)), Some((cx, cy))) => {
-                                                Some((cx - px, cy - py))
-                                            }
-                                            _ => None,
-                                        })
-                                        .flatten();
-                                    rx.push_event(
-                                        active_renderable,
-                                        EventSignal::DragMove {
-                                            activation_source: PointerActivationSource::Trigger,
-                                            raycaster: active_rc,
-                                            renderable: active_renderable,
-                                            hit_point: cur,
-                                            delta_world: delta,
-                                            screen_pos_px,
-                                            screen_delta_px,
-                                        },
-                                    );
+                        DragMapping::StartRayPlane {
+                            point_world,
+                            normal_world,
+                        } => {
+                            let mapped_point =
+                                raycast_system.current_ray(active_rc).and_then(|ray| {
+                                    Self::ray_plane_intersect(
+                                        ray.origin_world,
+                                        ray.direction_world,
+                                        point_world,
+                                        normal_world,
+                                    )
+                                });
+                            if let Some(cur) = mapped_point {
+                                let state = self.states.get_mut(&pointer_cid).unwrap();
+                                if let Some(prev) = state.last_hit_point {
+                                    let delta =
+                                        [cur[0] - prev[0], cur[1] - prev[1], cur[2] - prev[2]];
+                                    if delta[0] != 0.0 || delta[1] != 0.0 || delta[2] != 0.0 {
+                                        let screen_pos_px =
+                                            is_screen_pointer.then_some(input.cursor_pos).flatten();
+                                        let screen_delta_px = is_screen_pointer
+                                            .then(|| match (state.last_cursor_pos, screen_pos_px) {
+                                                (Some((px, py)), Some((cx, cy))) => {
+                                                    Some((cx - px, cy - py))
+                                                }
+                                                _ => None,
+                                            })
+                                            .flatten();
+                                        rx.push_event(
+                                            active_renderable,
+                                            EventSignal::DragMove {
+                                                activation_source: PointerActivationSource::Trigger,
+                                                raycaster: active_rc,
+                                                renderable: active_renderable,
+                                                hit_point: cur,
+                                                delta_world: delta,
+                                                screen_pos_px,
+                                                screen_delta_px,
+                                            },
+                                        );
+                                    }
                                 }
+                                state.last_hit_point = Some(cur);
+                                state.last_cursor_pos =
+                                    is_screen_pointer.then_some(input.cursor_pos).flatten();
+                            } else if let Some(state) = self.states.get_mut(&pointer_cid) {
+                                state.last_cursor_pos =
+                                    is_screen_pointer.then_some(input.cursor_pos).flatten();
                             }
-                            state.last_hit_point = Some(cur);
-                            state.last_cursor_pos =
-                                is_screen_pointer.then_some(input.cursor_pos).flatten();
-                        } else if let Some(state) = self.states.get_mut(&pointer_cid) {
-                            state.last_cursor_pos =
-                                is_screen_pointer.then_some(input.cursor_pos).flatten();
                         }
                     }
                 }
@@ -852,7 +952,9 @@ impl GestureSystem {
                         }
                     }
                 }
-                self.states.remove(&pointer_cid);
+                if let Some(mut state) = self.states.remove(&pointer_cid) {
+                    Self::remove_debug_mapping_surface(&mut state, rx);
+                }
             }
         }
     }
@@ -868,6 +970,7 @@ static EMPTY_GESTURE_STATE: GestureState = GestureState {
     last_cursor_pos: None,
     continuation: None,
     mapping: None,
+    debug_mapping_surface_root: None,
     drag_start_screen_pos: None,
     drag_start_hit_point: None,
     press_pointer_class: None,
@@ -890,14 +993,15 @@ impl Default for GestureSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::{DragUpdatePolicy, GestureSystem};
+    use super::{DragMapping, DragUpdatePolicy, GestureSystem};
     use crate::engine::ecs::component::{
-        CameraXRComponent, PointerComponent, PointerEvents, TransformComponent,
-        TransformGizmoComponent,
+        CameraXRComponent, ControllerHand, ControllerPoseKind, ControllerXRComponent,
+        DragContinuationPolicy, DragMappingPolicy, DraggableComponent, PointerComponent,
+        PointerEvents, RaycastableComponent, TransformComponent, TransformGizmoComponent,
     };
     use crate::engine::ecs::system::pointer_system::{PointerActivations, PointerSystem};
     use crate::engine::ecs::system::{PointerRaySnapshot, RayCastSystem};
-    use crate::engine::ecs::{EventSignal, RxWorld, World};
+    use crate::engine::ecs::{EventSignal, IntentValue, RxWorld, World};
     use crate::engine::user_input::InputState;
 
     fn set_hit(
@@ -970,6 +1074,12 @@ mod tests {
         let mut world = World::default();
         let gizmo = world.add_component(TransformGizmoComponent::new());
         let target = world.add_component(TransformComponent::new());
+        let raycastable = world.add_component(
+            RaycastableComponent::enabled()
+                .with_drag_continuation(DragContinuationPolicy::Captured)
+                .with_drag_mapping(DragMappingPolicy::StartRayPlane),
+        );
+        world.add_child(target, raycastable).unwrap();
         let other_target = world.add_component(TransformComponent::new());
         world.add_child(gizmo, target).unwrap();
 
@@ -991,7 +1101,7 @@ mod tests {
             2.0,
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 pressed: vec![pointer],
@@ -1000,6 +1110,13 @@ mod tests {
             &pointers,
             &raycasts,
             &mut rx,
+        );
+        assert_eq!(
+            gestures
+                .states
+                .get(&pointer)
+                .and_then(|state| state.debug_mapping_surface_root),
+            None
         );
         let _ = rx.drain_ready_events();
 
@@ -1012,7 +1129,7 @@ mod tests {
             },
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 down: vec![pointer],
@@ -1066,7 +1183,7 @@ mod tests {
             },
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 down: vec![pointer],
@@ -1090,7 +1207,7 @@ mod tests {
 
         gestures.begin_frame();
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 released: vec![pointer],
@@ -1133,7 +1250,7 @@ mod tests {
             2.0,
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 pressed: vec![pointer],
@@ -1154,7 +1271,7 @@ mod tests {
             },
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 down: vec![pointer],
@@ -1171,6 +1288,282 @@ mod tests {
             )),
             0
         );
+    }
+
+    #[test]
+    fn explicit_contact_policies_override_desktop_start_plane_default() {
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new());
+        let policy = world.add_component(
+            RaycastableComponent::enabled()
+                .with_drag_continuation(DragContinuationPolicy::RequireTargetContact)
+                .with_drag_mapping(DragMappingPolicy::ContactHit),
+        );
+        world.add_child(target, policy).unwrap();
+
+        let mut pointers = PointerSystem::default();
+        let mut rx = RxWorld::default();
+        let pointer = world.add_component(PointerComponent::new());
+        pointers.register_pointer(&mut world, pointer, &mut rx);
+        let raycaster = pointers.raycast_for_pointer(pointer).unwrap();
+        let mut gestures = GestureSystem::default();
+        let mut raycasts = RayCastSystem::default();
+        let mut input = InputState::default();
+        input.cursor_pos = Some((10.0, 20.0));
+
+        set_hit(
+            &mut gestures,
+            raycaster,
+            target,
+            [0.0; 3],
+            [0.0, 0.0, -1.0],
+            2.0,
+        );
+        gestures.tick_with_rx(
+            &mut world,
+            &input,
+            &PointerActivations {
+                pressed: vec![pointer],
+                ..Default::default()
+            },
+            &pointers,
+            &raycasts,
+            &mut rx,
+        );
+        let _ = rx.drain_ready_events();
+
+        gestures.begin_frame();
+        raycasts.set_current_ray_for_test(
+            raycaster,
+            PointerRaySnapshot {
+                origin_world: [1.0, 0.0, 0.0],
+                direction_world: [0.0, 0.0, -1.0],
+            },
+        );
+        gestures.tick_with_rx(
+            &mut world,
+            &input,
+            &PointerActivations {
+                down: vec![pointer],
+                ..Default::default()
+            },
+            &pointers,
+            &raycasts,
+            &mut rx,
+        );
+        assert_eq!(
+            event_count(&mut rx, |event| matches!(
+                event,
+                EventSignal::DragMove { .. }
+            )),
+            0
+        );
+    }
+
+    #[test]
+    fn debug_mapping_surfaces_are_pointer_owned_independent_and_removed() {
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new());
+        let policy = world.add_component(
+            RaycastableComponent::enabled()
+                .with_drag_continuation(DragContinuationPolicy::Captured)
+                .with_drag_mapping(DragMappingPolicy::StartRayPlane),
+        );
+        world.add_child(target, policy).unwrap();
+
+        let mut pointers = PointerSystem::default();
+        let mut rx = RxWorld::default();
+        let (pointer_a, raycaster_a) = spatial_pointer(&mut world, &mut pointers, &mut rx);
+        let (pointer_b, raycaster_b) = spatial_pointer(&mut world, &mut pointers, &mut rx);
+        world
+            .get_component_by_id_as_mut::<PointerComponent>(pointer_a)
+            .unwrap()
+            .debug_enabled = true;
+        world
+            .get_component_by_id_as_mut::<PointerComponent>(pointer_b)
+            .unwrap()
+            .debug_enabled = true;
+
+        let mut gestures = GestureSystem::default();
+        gestures.begin_frame();
+        {
+            let mut hits = gestures.ray_hits_sorted.lock().unwrap();
+            hits.push((
+                0,
+                2.0,
+                raycaster_a,
+                target,
+                [0.0; 3],
+                [0.0, 0.0, -1.0],
+                PointerEvents::All,
+            ));
+            hits.push((
+                0,
+                3.0,
+                raycaster_b,
+                target,
+                [2.0, 0.0, 0.0],
+                [0.0, 0.0, -2.0],
+                PointerEvents::All,
+            ));
+        }
+        gestures.tick_with_rx(
+            &mut world,
+            &InputState::default(),
+            &PointerActivations {
+                pressed: vec![pointer_a, pointer_b],
+                ..Default::default()
+            },
+            &pointers,
+            &RayCastSystem::default(),
+            &mut rx,
+        );
+
+        let state_a = gestures.states.get(&pointer_a).unwrap();
+        let state_b = gestures.states.get(&pointer_b).unwrap();
+        let root_a = state_a.debug_mapping_surface_root.unwrap();
+        let root_b = state_b.debug_mapping_surface_root.unwrap();
+        assert_ne!(root_a, root_b);
+        assert_eq!(
+            state_a.mapping,
+            Some(DragMapping::StartRayPlane {
+                point_world: [0.0, 0.0, -2.0],
+                normal_world: [0.0, 0.0, -1.0],
+            })
+        );
+        assert_eq!(
+            state_b.mapping,
+            Some(DragMapping::StartRayPlane {
+                point_world: [2.0, 0.0, -6.0],
+                normal_world: [0.0, 0.0, -1.0],
+            })
+        );
+        assert_eq!(
+            world
+                .get_component_by_id_as::<TransformComponent>(root_a)
+                .unwrap()
+                .transform
+                .translation,
+            [0.0, 0.0, -2.0]
+        );
+        let _ = rx.drain_ready_intents();
+
+        gestures.tick_with_rx(
+            &mut world,
+            &InputState::default(),
+            &PointerActivations {
+                released: vec![pointer_a],
+                ..Default::default()
+            },
+            &pointers,
+            &RayCastSystem::default(),
+            &mut rx,
+        );
+        assert!(!gestures.states.contains_key(&pointer_a));
+        assert_eq!(
+            gestures
+                .states
+                .get(&pointer_b)
+                .and_then(|state| state.debug_mapping_surface_root),
+            Some(root_b)
+        );
+        assert!(rx.drain_ready_intents().iter().any(|signal| matches!(
+            signal.intent.as_ref().map(|intent| &intent.value),
+            Some(IntentValue::RemoveSubtree { component_id }) if *component_id == root_a
+        )));
+    }
+
+    #[test]
+    fn controller_draggable_auto_translation_can_be_overridden_by_raycastable_mapping() {
+        fn controller_pointer(
+            world: &mut World,
+            pointers: &mut PointerSystem,
+            rx: &mut RxWorld,
+        ) -> (
+            crate::engine::ecs::ComponentId,
+            crate::engine::ecs::ComponentId,
+        ) {
+            let controller = world.add_component(ControllerXRComponent::new(
+                true,
+                ControllerHand::Left,
+                ControllerPoseKind::Aim,
+            ));
+            let transform = world.add_component(TransformComponent::new());
+            let pointer = world.add_component(PointerComponent::new());
+            world.add_child(controller, transform).unwrap();
+            world.add_child(transform, pointer).unwrap();
+            pointers.register_pointer(world, pointer, rx);
+            (pointer, pointers.raycast_for_pointer(pointer).unwrap())
+        }
+
+        let mut world = World::default();
+        let target = world.add_component(TransformComponent::new());
+        let draggable = world.add_component(DraggableComponent::new());
+        let raycastable = world.add_component(RaycastableComponent::enabled());
+        world.add_child(target, draggable).unwrap();
+        world.add_child(target, raycastable).unwrap();
+        let mut pointers = PointerSystem::default();
+        let mut rx = RxWorld::default();
+        let (pointer, raycaster) = controller_pointer(&mut world, &mut pointers, &mut rx);
+        let mut gestures = GestureSystem::default();
+        set_hit(
+            &mut gestures,
+            raycaster,
+            target,
+            [0.0; 3],
+            [0.0, 0.0, -1.0],
+            1.0,
+        );
+        gestures.tick_with_rx(
+            &mut world,
+            &InputState::default(),
+            &PointerActivations {
+                pressed: vec![pointer],
+                ..Default::default()
+            },
+            &pointers,
+            &RayCastSystem::default(),
+            &mut rx,
+        );
+        assert!(matches!(
+            gestures
+                .states
+                .get(&pointer)
+                .and_then(|state| state.mapping),
+            Some(DragMapping::ControllerTranslation { .. })
+        ));
+
+        gestures.states.clear();
+        world
+            .get_component_by_id_as_mut::<RaycastableComponent>(raycastable)
+            .unwrap()
+            .drag_mapping = DragMappingPolicy::StartRayPlane;
+        set_hit(
+            &mut gestures,
+            raycaster,
+            target,
+            [0.0; 3],
+            [0.0, 0.0, -1.0],
+            1.0,
+        );
+        gestures.tick_with_rx(
+            &mut world,
+            &InputState::default(),
+            &PointerActivations {
+                pressed: vec![pointer],
+                ..Default::default()
+            },
+            &pointers,
+            &RayCastSystem::default(),
+            &mut rx,
+        );
+        assert!(matches!(
+            gestures
+                .states
+                .get(&pointer)
+                .and_then(|state| state.mapping),
+            Some(DragMapping::StartRayPlane { .. })
+        ));
     }
 
     #[test]
@@ -1211,7 +1604,7 @@ mod tests {
             1.0,
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 pressed: vec![pointer],
@@ -1239,7 +1632,7 @@ mod tests {
             1.0,
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 released: vec![pointer],
@@ -1284,7 +1677,7 @@ mod tests {
             0.5,
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 pressed: vec![pointer],
@@ -1307,7 +1700,7 @@ mod tests {
             20.0,
         );
         gestures.tick_with_rx(
-            &world,
+            &mut world,
             &input,
             &PointerActivations {
                 released: vec![pointer],

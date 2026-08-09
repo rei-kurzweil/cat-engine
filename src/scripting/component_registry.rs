@@ -18,31 +18,32 @@ use crate::engine::ecs::component::{
     Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
     CollisionResponseComponent, CollisionShape, CollisionShapeComponent, ColorComponent,
     ControllerHand, ControllerPoseKind, DataComponent, DataValue, DirectionalLightComponent,
-    Display, DraggableComponent, DraggablePlane, EdgeInsets, EditorComponent,
-    EditorInteractionMode, EditorPanel, EditorUIComponent, EditorUIPanelConfig, EditorUIPanelSpec,
-    ElementType, EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode,
-    FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent,
-    GrabbableComponent, GravityComponent, GridBindingComponent, GridComponent,
-    HtmlElementComponent, HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent,
-    IKChainComponent, IKSolver, InputComponent, InputTransformModeComponent, InputXRComponent,
-    InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent,
-    KeyframeComponent, LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent,
-    MeshComponent, MirrorComponent, MusicNote, MusicNoteComponent, NormalVisualisationComponent,
-    OpacityComponent, OptionComponent, OscillatorType, Overflow, OverlayComponent,
-    PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
-    PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
-    QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
-    RaycastableShapeType, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RendererStatsComponent, RestAttachmentComponent, RouterComponent, ScrollingComponent,
-    SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
-    SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
-    SkinnedMeshComponent, SpotLightComponent, SpringBoneComponent, SpringColliderComponent,
-    SpringCollidersComponent, SpringJointComponent, StencilClipComponent, StyleComponent,
-    TextAlign, TextComponent, TextInputComponent, TextShadowComponent, TextureComponent,
-    TextureFilteringComponent, ToggleComponent, TransformCameraSpecificComponent,
-    TransformComponent, TransformDropComponent, TransformForkTRSComponent, TransformGizmoAxis,
-    TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
-    TransformGizmoRotateComponent, TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
+    Display, DragContinuationPolicy, DragMappingPolicy, DraggableComponent, DraggablePlane,
+    EdgeInsets, EditorComponent, EditorInteractionMode, EditorPanel, EditorUIComponent,
+    EditorUIPanelConfig, EditorUIPanelSpec, ElementType, EmissiveComponent, EmissivePassComponent,
+    FitBoundsComponent, FitBoundsMode, FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent,
+    GestureCoordTypeComponent, GrabbableComponent, GravityComponent, GridBindingComponent,
+    GridComponent, HtmlElementComponent, HttpClientComponent, HttpServerComponent,
+    HumanoidBoneMapComponent, IKChainComponent, IKSolver, InputComponent,
+    InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent,
+    JointRetargetBasisComponent, JustifyContent, KeyframeComponent, LayoutBoundsComponent,
+    LayoutComponent, LightQuantizationComponent, MeshComponent, MirrorComponent, MusicNote,
+    MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
+    OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
+    PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
+    Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
+    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RenderGraphComponent,
+    RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
+    RestAttachmentComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
+    SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
+    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
+    SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
+    SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
+    TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
+    ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
+    TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
+    TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoRotateComponent,
+    TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
     TransformGizmoTranslatePlaneComponent, TransformMapRotationComponent,
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
@@ -1707,7 +1708,8 @@ fn create_component(
             Some(method @ ("min_grab_distance"
             | "click_max_screen_distance_px"
             | "click_max_ray_angle_deg"
-            | "click_max_origin_distance")) => {
+            | "click_max_origin_distance"
+            | "debug_enable")) => {
                 let id = world.add_component(PointerComponent::new());
                 apply_call(world, id, method, args)?;
                 Ok(id)
@@ -1994,6 +1996,11 @@ fn create_component(
             Some("drag_only") => add!(RaycastableComponent::drag_only()),
             Some("click_only") => add!(RaycastableComponent::click_only()),
             Some("enabled") => add!(RaycastableComponent::enabled()),
+            Some(method @ ("drag_continuation" | "drag_mapping")) => {
+                let id = world.add_component(RaycastableComponent::enabled());
+                apply_call(world, id, method, args)?;
+                Ok(id)
+            }
             _ => add!(RaycastableComponent::enabled()),
         },
         "PoseCapture" => add!(PoseCaptureComponent::new()),
@@ -2440,6 +2447,14 @@ fn apply_call(
         .get_component_by_id_as::<PointerComponent>(id)
         .is_some()
     {
+        if method == "debug_enable" {
+            let enabled = arg_bool(args, 0)?;
+            world
+                .get_component_by_id_as_mut::<PointerComponent>(id)
+                .expect("pointer checked above")
+                .debug_enabled = enabled;
+            return Ok(());
+        }
         let value = val_as_f32(arg(args, 0)?)?;
         let pointer = world
             .get_component_by_id_as_mut::<PointerComponent>(id)
@@ -3056,6 +3071,28 @@ fn apply_call(
             };
         } else if method == "interaction_priority" {
             rc.interaction_priority = arg_f32(args, 0)?.clamp(0.0, u8::MAX as f32) as u8;
+        } else if method == "drag_continuation" {
+            rc.drag_continuation = match arg_str(args, 0)? {
+                "auto" => DragContinuationPolicy::Auto,
+                "require_target_contact" => DragContinuationPolicy::RequireTargetContact,
+                "captured" => DragContinuationPolicy::Captured,
+                value => {
+                    return Err(format!(
+                        "Raycastable.drag_continuation expected \"auto\", \"require_target_contact\", or \"captured\"; got {value:?}"
+                    ));
+                }
+            };
+        } else if method == "drag_mapping" {
+            rc.drag_mapping = match arg_str(args, 0)? {
+                "auto" => DragMappingPolicy::Auto,
+                "contact_hit" => DragMappingPolicy::ContactHit,
+                "start_ray_plane" => DragMappingPolicy::StartRayPlane,
+                value => {
+                    return Err(format!(
+                        "Raycastable.drag_mapping expected \"auto\", \"contact_hit\", or \"start_ray_plane\"; got {value:?}"
+                    ));
+                }
+            };
         }
         return Ok(());
     }

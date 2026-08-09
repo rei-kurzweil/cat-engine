@@ -8,9 +8,7 @@ use crate::engine::ecs::component::{
 };
 use crate::engine::ecs::system::GridSystem;
 use crate::engine::ecs::system::editor::context::EditorContextState;
-use crate::engine::ecs::{
-    ComponentId, EventSignal, IntentValue, RxWorld, SignalEmitter, SignalKind, World,
-};
+use crate::engine::ecs::{ComponentId, EventSignal, RxWorld, SignalEmitter, SignalKind, World};
 use crate::engine::user_input::InputState;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -158,17 +156,6 @@ impl TransformGizmoSystem {
             },
         );
         rx.add_handler(SignalKind::DragEnd, gizmo_root, Self::on_drag_end);
-    }
-
-    fn debug_mapping_surface_enabled() -> bool {
-        static ENABLED: OnceLock<bool> = OnceLock::new();
-        *ENABLED.get_or_init(|| {
-            let v = std::env::var("CAT_DEBUG_GIZMO_MAPPING_SURFACE")
-                .or_else(|_| std::env::var("CAT_DEBUG_GIZMO_DRAG_PLANE"))
-                .unwrap_or_default();
-            let v = v.trim().to_ascii_lowercase();
-            matches!(v.as_str(), "1" | "true" | "yes" | "on")
-        })
     }
 
     fn debug_enabled() -> bool {
@@ -644,100 +631,6 @@ impl TransformGizmoSystem {
         [u, v]
     }
 
-    fn quat_from_z_to_dir(dir: [f32; 3]) -> [f32; 4] {
-        use crate::utils::math;
-
-        fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-            [
-                a[1] * b[2] - a[2] * b[1],
-                a[2] * b[0] - a[0] * b[2],
-                a[0] * b[1] - a[1] * b[0],
-            ]
-        }
-
-        // Rotate local +Z to `dir`.
-        let z = [0.0f32, 0.0f32, 1.0f32];
-        let d = math::vec3_normalize(dir);
-        let dot_ = z[0] * d[0] + z[1] * d[1] + z[2] * d[2];
-
-        if dot_ >= 1.0 - 1e-6 {
-            return [0.0, 0.0, 0.0, 1.0];
-        }
-        if dot_ <= -1.0 + 1e-6 {
-            // 180-degree flip around X (any axis orthogonal to Z works).
-            return math::quat_from_axis_angle([1.0, 0.0, 0.0], std::f32::consts::PI);
-        }
-
-        let axis = cross(z, d);
-        let axis_len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
-        if axis_len <= 1e-6 {
-            return [0.0, 0.0, 0.0, 1.0];
-        }
-        let axis_n = [axis[0] / axis_len, axis[1] / axis_len, axis[2] / axis_len];
-        let angle = dot_.clamp(-1.0, 1.0).acos();
-        math::quat_from_axis_angle(axis_n, angle)
-    }
-
-    fn spawn_debug_mapping_surface(
-        world: &mut World,
-        emit: &mut dyn SignalEmitter,
-        hit_point: [f32; 3],
-        plane_normal: [f32; 3],
-    ) -> ComponentId {
-        use crate::engine::ecs::component::{
-            ColorComponent, EmissiveComponent, OpacityComponent, RenderableComponent,
-            TransformComponent,
-        };
-        use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Renderable};
-
-        let q = Self::quat_from_z_to_dir(plane_normal);
-
-        // Use a very thin cube so it is visible from both sides (debug aid).
-        let size = 2.0_f32;
-        let thickness = 0.005_f32;
-
-        let t = world.add_component_boxed_named(
-            "gizmo_mapping_surface_t",
-            Box::new(
-                TransformComponent::new()
-                    .with_position(hit_point[0], hit_point[1], hit_point[2])
-                    .with_rotation_quat(q)
-                    .with_scale(size, size, thickness),
-            ),
-        );
-        let r = world.add_component_boxed_named(
-            "gizmo_mapping_surface_r",
-            Box::new(RenderableComponent::new(Renderable::new(
-                CpuMeshHandle::CUBE,
-                MaterialHandle::UNLIT_MESH,
-            ))),
-        );
-        let c = world.add_component_boxed_named(
-            "gizmo_mapping_surface_color",
-            Box::new(ColorComponent::rgba(1.0, 0.0, 1.0, 0.35)),
-        );
-        let o = world.add_component_boxed_named(
-            "gizmo_mapping_surface_opacity",
-            Box::new(
-                OpacityComponent::new()
-                    .with_opacity(0.35)
-                    .with_multiple_layers(),
-            ),
-        );
-        let e = world.add_component_boxed_named(
-            "gizmo_mapping_surface_emissive",
-            Box::new(EmissiveComponent::on()),
-        );
-
-        let _ = world.add_child(t, r);
-        let _ = world.add_child(r, c);
-        let _ = world.add_child(r, o);
-        let _ = world.add_child(r, e);
-
-        world.init_component_tree(t, emit);
-        t
-    }
-
     fn on_parent_changed(
         world: &mut World,
         _emit: &mut dyn SignalEmitter,
@@ -825,14 +718,13 @@ impl TransformGizmoSystem {
 
     fn on_drag_start(
         world: &mut World,
-        emit: &mut dyn SignalEmitter,
+        _emit: &mut dyn SignalEmitter,
         env: &crate::engine::ecs::Signal,
     ) {
         let Some(EventSignal::DragStart {
             raycaster,
             renderable,
             hit_point,
-            ray_dir_world,
             ..
         }) = env.event.as_ref()
         else {
@@ -860,32 +752,12 @@ impl TransformGizmoSystem {
             _ => None,
         };
 
-        let mut old_debug_root: Option<ComponentId> = None;
         if let Some(g) = world.get_component_by_id_as_mut::<TransformGizmoComponent>(gizmo_cid) {
             g.active_raycaster = Some(*raycaster);
             g.active_drag_slider_last_angle = 0.0;
             g.active_drag_start_hit_point_world = Some(*hit_point);
             g.active_drag_start_target_translation = drag_start_target_translation;
             g.active_drag_plane_axes_world = active_drag_plane_axes_world;
-            if Self::debug_mapping_surface_enabled() {
-                old_debug_root = g.debug_mapping_surface_root.take();
-            }
-        }
-
-        if let Some(root) = old_debug_root {
-            emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
-        }
-
-        if Self::debug_mapping_surface_enabled() {
-            // GestureSystem maps every captured gizmo drag on the plane through the initial hit
-            // whose normal is the normalized drag-start ray. The handle's axis/plane basis is a
-            // later gizmo constraint and is intentionally not visualized as this surface.
-            let plane_root =
-                Self::spawn_debug_mapping_surface(world, emit, *hit_point, *ray_dir_world);
-            if let Some(g) = world.get_component_by_id_as_mut::<TransformGizmoComponent>(gizmo_cid)
-            {
-                g.debug_mapping_surface_root = Some(plane_root);
-            }
         }
     }
 
@@ -1339,7 +1211,7 @@ impl TransformGizmoSystem {
 
     fn on_drag_end(
         world: &mut World,
-        emit: &mut dyn SignalEmitter,
+        _emit: &mut dyn SignalEmitter,
         env: &crate::engine::ecs::Signal,
     ) {
         let Some(EventSignal::DragEnd {
@@ -1364,12 +1236,6 @@ impl TransformGizmoSystem {
             g.active_drag_start_hit_point_world = None;
             g.active_drag_start_target_translation = None;
             g.active_drag_plane_axes_world = None;
-
-            if Self::debug_mapping_surface_enabled() {
-                if let Some(root) = g.debug_mapping_surface_root.take() {
-                    emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
-                }
-            }
         }
     }
 
@@ -1732,11 +1598,18 @@ impl TransformGizmoSystem {
             parent: ComponentId,
             name: &str,
         ) -> ComponentId {
-            use crate::engine::ecs::component::RaycastableComponent;
+            use crate::engine::ecs::component::{
+                DragContinuationPolicy, DragMappingPolicy, RaycastableComponent,
+            };
 
             let rc = world.add_component_boxed_named(
                 name,
-                Box::new(RaycastableComponent::drag_only().with_interaction_priority(1)),
+                Box::new(
+                    RaycastableComponent::drag_only()
+                        .with_interaction_priority(1)
+                        .with_drag_continuation(DragContinuationPolicy::Captured)
+                        .with_drag_mapping(DragMappingPolicy::StartRayPlane),
+                ),
             );
             let _ = world.add_child(parent, rc);
             rc
@@ -2189,9 +2062,9 @@ impl TransformGizmoSystem {
 mod tests {
     use super::TransformGizmoSystem;
     use crate::engine::ecs::component::{
-        ColorComponent, EditorComponent, GridComponent, RaycastableComponent, TransformComponent,
-        TransformGizmoAxis, TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
-        TransformGizmoTranslatePlaneComponent,
+        ColorComponent, DragContinuationPolicy, DragMappingPolicy, EditorComponent, GridComponent,
+        RaycastableComponent, TransformComponent, TransformGizmoAxis, TransformGizmoComponent,
+        TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoTranslatePlaneComponent,
     };
     use crate::engine::ecs::system::GridSystem;
     use crate::engine::ecs::system::editor::context::EditorContextState;
@@ -2246,12 +2119,16 @@ mod tests {
                     .plane,
                 expected_plane
             );
-            assert!(
-                world
-                    .find_component(handle, "Raycastable")
-                    .and_then(|id| world.get_component_by_id_as::<RaycastableComponent>(id))
-                    .is_some_and(|raycastable| raycastable.enable)
+            let raycastable = world
+                .find_component(handle, "Raycastable")
+                .and_then(|id| world.get_component_by_id_as::<RaycastableComponent>(id))
+                .expect("explicit handle raycastable");
+            assert!(raycastable.enable);
+            assert_eq!(
+                raycastable.drag_continuation,
+                DragContinuationPolicy::Captured
             );
+            assert_eq!(raycastable.drag_mapping, DragMappingPolicy::StartRayPlane);
             let color = world
                 .find_component(handle, "Color")
                 .and_then(|id| world.get_component_by_id_as::<ColorComponent>(id))

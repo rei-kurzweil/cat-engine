@@ -403,10 +403,14 @@ Carries pointer state used when that engine feature is present in a component tr
 **Directly constructible** as `Pointer`. Sources: [Rust implementation](../../../src/engine/ecs/component/pointer.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Pointer.min_grab_distance(0.05) {}
+Pointer.debug_enable(true) {}
 ```
 
 Controller/hand pointers default to 0.05 m grab clearance. Desktop-camera and XR-head
 pointers default to 0.75 m. `min_grab_distance` overrides that value per pointer.
+`debug_enable(true)` is the generic per-pointer diagnostics switch. Its first diagnostic is a
+visualization of the active start-ray drag-mapping surface; the surface exists only for that
+pointer's active drag and is removed when the gesture ends.
 
 ### `GrabbableComponent`
 <!-- catalog:component source="GrabbableComponent" mms="direct" names="Grabbable" -->
@@ -455,7 +459,14 @@ Carries raycastable state used when that engine feature is present in a componen
 **Directly constructible** as `Raycastable`. Sources: [Rust implementation](../../../src/engine/ecs/component/raycastable.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
 ```mms parse-only
 Raycastable {}
+Raycastable.drag_continuation("captured").drag_mapping("start_ray_plane") {}
 ```
+
+Drag continuation accepts `"auto"`, `"require_target_contact"`, or `"captured"`. Drag mapping
+accepts `"auto"`, `"contact_hit"`, or `"start_ray_plane"`. The two policies are independent.
+`"auto"` preserves legacy inference: controller `Draggable` targets follow captured controller
+translation, ordinary desktop drags use a captured start-ray plane under the default gesture
+setting, and ordinary spatial targets require contact and use the current hit point.
 
 ### `RaycastableShapeComponent`
 <!-- catalog:component source="RaycastableShapeComponent" mms="direct" names="RaycastableShape" -->

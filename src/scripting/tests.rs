@@ -5854,6 +5854,7 @@ fn roundtrip_raycastable_pass_through() {
         enable: true,
         pointer_events: PointerEvents::PassThrough,
         interaction_priority: 0,
+        ..RaycastableComponent::default()
     };
     let (world, id) = roundtrip_component(original);
     let got = world
@@ -5873,6 +5874,67 @@ fn roundtrip_raycastable_interaction_priority() {
         .unwrap();
     assert!(got.enable);
     assert_eq!(got.interaction_priority, 3);
+}
+
+#[test]
+fn raycastable_drag_policy_defaults_and_roundtrip() {
+    use crate::engine::ecs::component::{
+        DragContinuationPolicy, DragMappingPolicy, RaycastableComponent,
+    };
+    let defaults = RaycastableComponent::enabled();
+    assert_eq!(defaults.drag_continuation, DragContinuationPolicy::Auto);
+    assert_eq!(defaults.drag_mapping, DragMappingPolicy::Auto);
+
+    let original = defaults
+        .with_drag_continuation(DragContinuationPolicy::Captured)
+        .with_drag_mapping(DragMappingPolicy::StartRayPlane);
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<RaycastableComponent>(id)
+        .unwrap();
+    assert_eq!(got.drag_continuation, DragContinuationPolicy::Captured);
+    assert_eq!(got.drag_mapping, DragMappingPolicy::StartRayPlane);
+}
+
+#[test]
+fn raycastable_drag_policy_mms_parses_and_rejects_invalid_values() {
+    use crate::engine::ecs::component::{
+        DragContinuationPolicy, DragMappingPolicy, RaycastableComponent,
+    };
+
+    let spawn = |source: &str| {
+        let mut program = parse(source);
+        let ce = as_component!(program.remove(0));
+        let materialized = crate::scripting::component_registry::ce_ast_to_materialized(&ce)
+            .expect("materialize policy component");
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let result = crate::scripting::component_registry::spawn_tree_uninitialized(
+            &materialized,
+            &mut world,
+            &mut emit,
+        );
+        (world, result)
+    };
+
+    let (world, result) = spawn(
+        "Raycastable.drag_continuation(\"require_target_contact\").drag_mapping(\"contact_hit\") {}",
+    );
+    let component = world
+        .get_component_by_id_as::<RaycastableComponent>(result.unwrap())
+        .unwrap();
+    assert_eq!(
+        component.drag_continuation,
+        DragContinuationPolicy::RequireTargetContact
+    );
+    assert_eq!(component.drag_mapping, DragMappingPolicy::ContactHit);
+
+    assert!(
+        spawn("Raycastable.drag_continuation(\"sticky\") {}")
+            .1
+            .is_err()
+    );
+    assert!(spawn("Raycastable.drag_mapping(\"screen\") {}").1.is_err());
 }
 
 #[test]
@@ -6351,6 +6413,25 @@ fn pointer_click_threshold_defaults() {
     assert_eq!(pointer.click_max_screen_distance_px, 8.0);
     assert_eq!(pointer.click_max_ray_angle_deg, 2.0);
     assert_eq!(pointer.click_max_origin_distance, 0.03);
+    assert!(!pointer.debug_enabled);
+}
+
+#[test]
+fn roundtrip_pointer_debug_enable() {
+    use crate::engine::ecs::component::PointerComponent;
+    let stub = World::default();
+    let default_text = crate::scripting::unparser::unparse_component(
+        &PointerComponent::new().to_mms_ast(&stub),
+    );
+    assert!(!default_text.contains("debug_enable"));
+
+    let (world, id) = roundtrip_component(PointerComponent::new().debug_enable(true));
+    assert!(
+        world
+            .get_component_by_id_as::<PointerComponent>(id)
+            .unwrap()
+            .debug_enabled
+    );
 }
 
 #[test]

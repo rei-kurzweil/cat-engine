@@ -197,7 +197,9 @@ pub use point_light::PointLightComponent;
 pub use pointer::PointerComponent;
 pub use pose_capture::*;
 pub use raycast::{RayCastComponent, RayCastMode};
-pub use raycastable::{PointerEvents, RaycastableComponent};
+pub use raycastable::{
+    DragContinuationPolicy, DragMappingPolicy, PointerEvents, RaycastableComponent,
+};
 pub use raycastable_shape::{RaycastableShapeComponent, RaycastableShapeType};
 pub use render_graph::RenderGraphComponent;
 pub use renderable::RenderableComponent;

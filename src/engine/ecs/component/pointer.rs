@@ -9,6 +9,8 @@ use crate::engine::ecs::component::Component;
 #[derive(Debug, Clone, Copy)]
 pub struct PointerComponent {
     pub enabled: bool,
+    /// Enables diagnostics owned by this pointer, currently its active drag mapping surface.
+    pub debug_enabled: bool,
     /// Override for the clearance between a held object's ray-facing surface and pointer origin.
     pub min_grab_distance: Option<f32>,
     /// Maximum desktop cursor displacement that can still qualify as a click.
@@ -29,6 +31,7 @@ impl PointerComponent {
     pub fn new() -> Self {
         Self {
             enabled: true,
+            debug_enabled: false,
             min_grab_distance: None,
             click_max_screen_distance_px: Self::DEFAULT_CLICK_MAX_SCREEN_DISTANCE_PX,
             click_max_ray_angle_deg: Self::DEFAULT_CLICK_MAX_RAY_ANGLE_DEG,
@@ -40,6 +43,7 @@ impl PointerComponent {
     pub fn disabled() -> Self {
         Self {
             enabled: false,
+            debug_enabled: false,
             min_grab_distance: None,
             click_max_screen_distance_px: Self::DEFAULT_CLICK_MAX_SCREEN_DISTANCE_PX,
             click_max_ray_angle_deg: Self::DEFAULT_CLICK_MAX_RAY_ANGLE_DEG,
@@ -50,6 +54,12 @@ impl PointerComponent {
 
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Enable or disable pointer-owned diagnostics.
+    pub fn debug_enable(mut self, enabled: bool) -> Self {
+        self.debug_enabled = enabled;
         self
     }
 
@@ -132,6 +142,11 @@ impl Component for PointerComponent {
             ce("Pointer")
         } else {
             ce_call("Pointer", "disabled", vec![])
+        };
+        let expression = if self.debug_enabled {
+            expression.with_call("debug_enable", vec![b(true)])
+        } else {
+            expression
         };
         let expression = match self.min_grab_distance {
             Some(distance) => expression.with_call("min_grab_distance", vec![num(distance as f64)]),

@@ -34,6 +34,30 @@ impl PointerEvents {
     }
 }
 
+/// Controls whether a drag continues after its initiating ray leaves the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DragContinuationPolicy {
+    /// Preserve the engine's pointer- and target-specific default behavior.
+    #[default]
+    Auto,
+    /// Only update the drag while the initiating ray still intersects the target.
+    RequireTargetContact,
+    /// Capture the drag until release, independently of later target intersections.
+    Captured,
+}
+
+/// Controls how pointer motion is mapped to a world-space drag point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DragMappingPolicy {
+    /// Preserve the engine's pointer- and target-specific default behavior.
+    #[default]
+    Auto,
+    /// Use the current intersection point on the initiating target.
+    ContactHit,
+    /// Intersect the current ray with the plane captured from the drag-start ray.
+    StartRayPlane,
+}
+
 /// Controls whether renderables should be eligible for ray casting (BVH insertion).
 ///
 /// This is intentionally separate from `RenderableComponent` so raycasting policy can be
@@ -46,6 +70,10 @@ pub struct RaycastableComponent {
     pub pointer_events: PointerEvents,
     /// Higher values win interaction ordering before distance-based tie-breaking.
     pub interaction_priority: u8,
+    /// Authored policy for continued contact versus pointer capture during a drag.
+    pub drag_continuation: DragContinuationPolicy,
+    /// Authored policy for mapping pointer motion to world-space drag coordinates.
+    pub drag_mapping: DragMappingPolicy,
 }
 
 impl RaycastableComponent {
@@ -54,6 +82,8 @@ impl RaycastableComponent {
             enable,
             pointer_events: PointerEvents::All,
             interaction_priority: 0,
+            drag_continuation: DragContinuationPolicy::Auto,
+            drag_mapping: DragMappingPolicy::Auto,
         }
     }
 
@@ -71,6 +101,8 @@ impl RaycastableComponent {
             enable: true,
             pointer_events: PointerEvents::DragOnly,
             interaction_priority: 0,
+            drag_continuation: DragContinuationPolicy::Auto,
+            drag_mapping: DragMappingPolicy::Auto,
         }
     }
 
@@ -80,11 +112,23 @@ impl RaycastableComponent {
             enable: true,
             pointer_events: PointerEvents::ClickOnly,
             interaction_priority: 0,
+            drag_continuation: DragContinuationPolicy::Auto,
+            drag_mapping: DragMappingPolicy::Auto,
         }
     }
 
     pub fn with_interaction_priority(mut self, interaction_priority: u8) -> Self {
         self.interaction_priority = interaction_priority;
+        self
+    }
+
+    pub fn with_drag_continuation(mut self, policy: DragContinuationPolicy) -> Self {
+        self.drag_continuation = policy;
+        self
+    }
+
+    pub fn with_drag_mapping(mut self, policy: DragMappingPolicy) -> Self {
+        self.drag_mapping = policy;
         self
     }
 }
@@ -151,6 +195,26 @@ impl Component for RaycastableComponent {
             ce = ce.with_call(
                 "interaction_priority",
                 vec![num(self.interaction_priority as f64)],
+            );
+        }
+        if self.drag_continuation != DragContinuationPolicy::Auto {
+            ce = ce.with_call(
+                "drag_continuation",
+                vec![s(match self.drag_continuation {
+                    DragContinuationPolicy::Auto => "auto",
+                    DragContinuationPolicy::RequireTargetContact => "require_target_contact",
+                    DragContinuationPolicy::Captured => "captured",
+                })],
+            );
+        }
+        if self.drag_mapping != DragMappingPolicy::Auto {
+            ce = ce.with_call(
+                "drag_mapping",
+                vec![s(match self.drag_mapping {
+                    DragMappingPolicy::Auto => "auto",
+                    DragMappingPolicy::ContactHit => "contact_hit",
+                    DragMappingPolicy::StartRayPlane => "start_ray_plane",
+                })],
             );
         }
         ce

@@ -51,6 +51,10 @@ More concretely:
 
 `PointerComponent` is the authored scene-facing marker for “this subtree owns an interaction pointer”.
 
+`Pointer.debug_enable(true)` enables diagnostics owned by that pointer. Currently it visualizes
+the plane used by an active `StartRayPlane` drag mapping; simultaneous pointers own independent
+visualization roots, which are removed with their gesture state.
+
 Authoring examples:
 
 - desktop camera pointer
