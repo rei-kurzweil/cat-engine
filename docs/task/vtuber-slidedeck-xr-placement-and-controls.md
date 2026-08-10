@@ -7,6 +7,7 @@ Related:
 - [Manual animation keyframe stepping and XR slide controls](manual-animation-keyframe-stepping-and-xr-slide-controls.md)
 - [Transform parent component-ref routing](transform-parent-component-ref-routing.md)
 - [Transform pipeline cleanup checklist](transform-pipeline-cleanup-checklist.md)
+- [Transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md)
 
 ## Goal
 
@@ -31,8 +32,18 @@ to a detached world-space snapshot taken when a slide is selected.
   dispatch.
 - [x] Put MMS ButtonA/ButtonB traces before `previous()`/`next()` so a method-dispatch failure
   cannot hide proof that the script handler ran.
-- [ ] Verify on hardware that ButtonB and ButtonA produce Rust `[xr-button]` traces.
-- [ ] Verify that the matching MMS `received ButtonB` / `received ButtonA` trace follows.
+- [x] Verify on hardware that ButtonB and ButtonA produce Rust `[xr-button]` traces.
+- [x] Establish from missing MMS traces that the scoped MMS handler was not registered against the
+  live gamepad component.
+- [x] Switch `vtuber-slidedeck.rs` from non-live `eval_with_path(...)` to
+  `eval_with_world_and_assets_at_path(...)`, so let-bound component objects and `on(...)` handlers
+  use the actual Universe component IDs.
+- [x] Add an automated live-scene regression that injects ButtonB and observes slide 1 text.
+- [x] Use the existing `set_color([r, g, b, a])` mutation API in slide keyframes and order
+  `set_font_size(...)` before `set_text(...)`; the current font-size mutation schedules a text
+  rebuild using the text value that exists when it is called.
+- [ ] Verify on hardware that the matching MMS `received ButtonB` / `received ButtonA` trace now
+  follows the Rust trace.
 - [ ] Verify that successful ButtonB presses visit all five text/color/size states and clamp at
   the last state; verify ButtonA walks backward and clamps at the first.
 - [ ] Detach `slide_root` from the XR/avatar tree.
@@ -90,44 +101,37 @@ it loses facing/orientation, ignores ancestor transforms, and cannot correctly r
 presentation offset into the sampled rig pose. `TransformParent` is also not the answer because it
 would preserve the unwanted continuous relationship.
 
-## Candidate implementation seam
+## Planned transform API direction
 
-Prefer an atomic engine operation over assembling a world-pose copy from several MMS getters. A
-candidate surface is:
+Do not add a feature-specific `snapshot_world_pose_from(...)` method. The desired surface is a set
+of small transform accessors and value-based setters:
 
 ```mms
-slide_root.snapshot_world_pose_from(
-    avatar_locomotion_root,
-    [-0.95, 0.15, -1.25],
-    [0.0, 3.14159, 0.0],
-    [0.055, 0.055, 1.0],
-)
+let rotation = some_transform.rotation()
+let pose = presentation_anchor.world.trs()
+slide_root.world.trs(pose)
 ```
 
-The operation would:
+This copies only the TRS data value. It does not clone or register a transform component;
+`presentation_anchor` and the independently authored `slide_root` remain the only live components
+involved.
 
-1. sample the source's propagated world matrix at the normal intent drain point;
-2. compose the authored local presentation offset with that matrix;
-3. convert the result into the detached target's parent space (world space for a root);
-4. update the target once without retaining a source reference.
+The full proposal, tuple shape, quaternion contract, local/world distinction, composition needs,
+and type-system dependency are tracked in
+[Transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md).
 
-This avoids separately reading translation and rotation at different points in a frame, avoids
-lossy quaternion-to-Euler round trips, and makes snapshot semantics explicit. Open questions:
-
-- Should the offset be a structured TRS value rather than three arguments?
-- Should the generic name be `copy_world_pose_from`, `snapshot_world_pose_from`, or
-  `place_relative_to_now`?
-- Must the target be a world root, or should arbitrary target parent spaces be supported?
-- Should transition components be bypassed by default for an instantaneous snapshot?
-- Should the operation sample the locomotion root, the tracked head/camera pose, or an authored
-  presentation anchor beneath the rig?
-
-The last question requires XR review: sampling the locomotion root preserves avatar-level
-placement, while sampling the headset better matches what the user is looking at when advancing a
-slide.
+The remaining XR-specific question is which source to sample: the locomotion root preserves
+avatar-level placement, while the tracked head or an authored presentation anchor better matches
+what the user is looking at when advancing a slide.
 
 ## Verification command
 
 ```bash
 cargo run --release --example vtuber-slidedeck
+```
+
+The non-hardware regression is:
+
+```bash
+cargo test --example vtuber-slidedeck
 ```

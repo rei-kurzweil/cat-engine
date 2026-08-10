@@ -87,15 +87,95 @@ fn on_xr_button_event(world: &mut World, _emit: &mut dyn SignalEmitter, signal: 
 
 #[cfg(test)]
 mod tests {
+    use mittens_engine::engine;
+    use mittens_engine::engine::ecs::component::{
+        ControllerHand, InputXRGamepadComponent, TextComponent, XrButtonControl,
+    };
+    use mittens_engine::engine::ecs::{EventSignal, Signal, SignalEmitter};
     use mittens_engine::scripting;
 
     #[test]
-    fn mms_scene_evaluates_with_manual_step_handlers() {
-        let output = scripting::MeowMeowRunner::eval_with_path(
+    fn button_b_advances_the_live_mms_scene_to_its_first_slide() {
+        let world = engine::ecs::World::default();
+        let mut universe = engine::Universe::new(world);
+        let output = scripting::MeowMeowRunner::eval_with_world_and_assets_at_path(
             include_str!("vtuber-slidedeck.mms"),
-            "examples/vtuber-slidedeck.mms",
+            Some("examples/vtuber-slidedeck.mms"),
+            &mut universe.world,
+            &mut universe.systems.rx,
+            Some(&mut universe.render_assets),
+            &mut universe.command_queue,
         );
         assert!(output.errors.is_empty(), "{:?}", output.errors);
+
+        let scope = engine::ecs::ComponentId::default();
+        for intent in output.intents {
+            universe.command_queue.push_intent_now(scope, intent);
+        }
+        universe.systems.process_commands(
+            &mut universe.world,
+            &mut universe.visuals,
+            &mut universe.render_assets,
+            &mut universe.command_queue,
+        );
+
+        let controls = universe
+            .world
+            .all_components()
+            .find(|id| {
+                universe
+                    .world
+                    .get_component_by_id_as::<InputXRGamepadComponent>(*id)
+                    .is_some()
+            })
+            .expect("XR gamepad component");
+        universe.systems.rx.dispatch_event_handlers(
+            &mut universe.world,
+            &Signal::event(
+                controls,
+                EventSignal::XrButtonDown {
+                    source_component: controls,
+                    hand: ControllerHand::Right,
+                    control: XrButtonControl::ButtonB,
+                    value: 1.0,
+                },
+            ),
+        );
+        universe.systems.process_commands(
+            &mut universe.world,
+            &mut universe.visuals,
+            &mut universe.render_assets,
+            &mut universe.command_queue,
+        );
+        universe.systems.animation.tick_with_beat(
+            &mut universe.world,
+            0.0,
+            60.0,
+            &mut universe.systems.rx,
+        );
+        universe.systems.process_commands(
+            &mut universe.world,
+            &mut universe.visuals,
+            &mut universe.render_assets,
+            &mut universe.command_queue,
+        );
+
+        let texts = universe
+            .world
+            .all_components()
+            .filter_map(|id| {
+                universe
+                    .world
+                    .get_component_by_id_as::<TextComponent>(id)
+                    .map(|text| text.text.clone())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            texts.iter().any(|text| {
+                text == "short form video creators hate it when you use this one simple trick!"
+            }),
+            "live text values after ButtonB: {texts:?}",
+        );
     }
 }
 
@@ -103,9 +183,15 @@ fn main() {
     mittens_engine::example_support::ensure_model_assets();
     utils::logger::init();
 
-    let output = scripting::MeowMeowRunner::eval_with_path(
+    let world = engine::ecs::World::default();
+    let mut universe = engine::Universe::new(world);
+    let output = scripting::MeowMeowRunner::eval_with_world_and_assets_at_path(
         include_str!("vtuber-slidedeck.mms"),
-        "examples/vtuber-slidedeck.mms",
+        Some("examples/vtuber-slidedeck.mms"),
+        &mut universe.world,
+        &mut universe.systems.rx,
+        Some(&mut universe.render_assets),
+        &mut universe.command_queue,
     );
 
     for error in &output.errors {
@@ -121,9 +207,6 @@ fn main() {
         output.intents.len()
     );
     println!("[vtuber-slidedeck] controls: B = next slide, A = previous slide");
-
-    let world = engine::ecs::World::default();
-    let mut universe = engine::Universe::new(world);
 
     let scope = engine::ecs::ComponentId::default();
     for intent in output.intents {

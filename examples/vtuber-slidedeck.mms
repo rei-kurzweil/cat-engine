@@ -123,37 +123,37 @@ let slides = Animation.paused() {
 
     Keyframe.at(0) {
         slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
-        slide_text.set_text("short form video creators hate it when you use this one simple trick!")
         slide_text.set_font_size(0.72)
-        slide_color.set_rgba(1.0, 0.35, 0.78, 1.0)
+        slide_text.set_text("short form video creators hate it when you use this one simple trick!")
+        slide_color.set_color([1.0, 0.35, 0.78, 1.0])
     }
 
     Keyframe.at(1) {
         slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
-        slide_text.set_text("POV: your renderer stopped skinning the same cat five times")
         slide_text.set_font_size(0.66)
-        slide_color.set_rgba(0.10, 0.95, 1.0, 1.0)
+        slide_text.set_text("POV: your renderer stopped skinning the same cat five times")
+        slide_color.set_color([0.10, 0.95, 1.0, 1.0])
     }
 
     Keyframe.at(2) {
         slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
-        slide_text.set_text("chat said add mirrors\nso we cached the vertices")
         slide_text.set_font_size(0.82)
-        slide_color.set_rgba(1.0, 0.84, 0.18, 1.0)
+        slide_text.set_text("chat said add mirrors\nso we cached the vertices")
+        slide_color.set_color([1.0, 0.84, 0.18, 1.0])
     }
 
     Keyframe.at(3) {
         slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
-        slide_text.set_text("the GPU has seen enough\none deformation pass is enough")
         slide_text.set_font_size(0.76)
-        slide_color.set_rgba(0.42, 1.0, 0.55, 1.0)
+        slide_text.set_text("the GPU has seen enough\none deformation pass is enough")
+        slide_color.set_color([0.42, 1.0, 0.55, 1.0])
     }
 
     Keyframe.at(4) {
         slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
-        slide_text.set_text("like, follow, and subscribe\nfor more suspiciously fast cats")
         slide_text.set_font_size(0.70)
-        slide_color.set_rgba(0.72, 0.48, 1.0, 1.0)
+        slide_text.set_text("like, follow, and subscribe\nfor more suspiciously fast cats")
+        slide_color.set_color([0.72, 0.48, 1.0, 1.0])
     }
 }
 
