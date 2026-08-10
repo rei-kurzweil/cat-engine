@@ -9,6 +9,7 @@ use crate::engine::ecs::system::System;
 use crate::engine::ecs::{ComponentId, World};
 use crate::engine::graphics::VisualWorld;
 use crate::engine::graphics::primitives::TransformMatrix;
+use crate::engine::transform::TransformTrs;
 use crate::engine::user_input::InputState;
 use crate::utils::math;
 use std::collections::{HashMap, VecDeque};
@@ -81,12 +82,8 @@ pub struct TransformPipelinePlan {
     pub stages: Vec<TransformPipelineStage>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TransformPipelineChannels {
-    pub translation: [f32; 3],
-    pub rotation_quat_xyzw: [f32; 4],
-    pub scale: [f32; 3],
-}
+/// Legacy transform-pipeline name retained while terminology cleanup is deferred.
+pub type TransformPipelineChannels = TransformTrs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TransformPipelineStageKey {
@@ -927,12 +924,6 @@ impl TransformStreamSystem {
             .abs()
             .clamp(0.0, 1.0);
         (2.0 * dot.acos()).to_degrees()
-    }
-}
-
-impl From<TransformMatrix> for TransformPipelineChannels {
-    fn from(value: TransformMatrix) -> Self {
-        TransformStreamSystem::decompose_matrix(value)
     }
 }
 

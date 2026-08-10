@@ -3,12 +3,14 @@ pub mod ecs;
 pub mod graphics;
 pub mod repl;
 pub(crate) mod startup_trace;
+pub mod transform;
 pub mod universe;
 pub mod user_input;
 pub mod vr_perf;
 pub mod windowing;
 
 pub use cli::CLI;
+pub use transform::{TransformMatrix, TransformTrs, TransformTrsError};
 pub use universe::Universe;
 pub use windowing::Windowing;
 

@@ -1,6 +1,7 @@
 use super::Component;
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter};
 use crate::engine::graphics::primitives::Transform;
+use crate::engine::transform::TransformTrs;
 use crate::utils::math::{
     mat_to_quat, quat_normalize, shortest_arc_quat, vec3_cross, vec3_dot, vec3_len, vec3_normalize,
     vec3_scale, vec3_sub,
@@ -17,6 +18,22 @@ pub struct TransformComponent {
 }
 
 impl TransformComponent {
+    pub fn translation(&self) -> [f32; 3] {
+        self.transform.translation
+    }
+
+    pub fn rotation_quat_xyzw(&self) -> [f32; 4] {
+        self.transform.rotation
+    }
+
+    pub fn scale(&self) -> [f32; 3] {
+        self.transform.scale
+    }
+
+    pub fn trs(&self) -> TransformTrs {
+        self.transform.trs()
+    }
+
     pub fn new() -> Self {
         let transform = Transform::default();
         Self {
@@ -277,6 +294,30 @@ mod tests {
     use crate::engine::ecs::{CommandQueue, IntentValue, SignalEmitter, SystemWorld, World};
     use crate::engine::graphics::{RenderAssets, VisualWorld};
     use crate::utils::math::{mat_to_quat, quat_rotate_vec3, vec3_dot, vec3_len, vec3_normalize};
+
+    #[test]
+    fn local_accessors_return_copied_values_without_registering_components() {
+        let mut world = World::default();
+        let component = world.add_component(
+            TransformComponent::new()
+                .with_position(1.0, 2.0, 3.0)
+                .with_rotation_quat([0.0, 0.0, 0.0, 1.0])
+                .with_scale(4.0, 5.0, 6.0),
+        );
+        let component_count = world.all_components().count();
+
+        let transform = world
+            .get_component_by_id_as::<TransformComponent>(component)
+            .expect("transform component");
+        assert_eq!(transform.translation(), [1.0, 2.0, 3.0]);
+        assert_eq!(transform.rotation_quat_xyzw(), [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(transform.scale(), [4.0, 5.0, 6.0]);
+
+        let mut copied_trs = transform.trs();
+        copied_trs.translation[0] = 99.0;
+        assert_eq!(transform.translation(), [1.0, 2.0, 3.0]);
+        assert_eq!(world.all_components().count(), component_count);
+    }
 
     fn flush(
         world: &mut World,

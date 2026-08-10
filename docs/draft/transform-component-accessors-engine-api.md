@@ -1,6 +1,6 @@
 # Transform component accessors: Mittens engine API
 
-Status: draft; engine API proposed, implementation not started.
+Status: in progress; shared value/local-read foundation implemented, world access and writes pending.
 
 Related:
 
@@ -403,6 +403,18 @@ This first slice should touch roughly one new module plus `engine/mod.rs`,
 It is a low-to-medium-risk foundation. World reads are the next separate slice because they force
 the decomposition policy; world writes are a third slice because they additionally require
 effective-parent conversion and intent timing.
+
+Implementation result:
+
+- [x] Added `engine::transform::{TransformMatrix, TransformTrs, TransformTrsError}`.
+- [x] Preserved the old `graphics::primitives::TransformMatrix` path as a re-export.
+- [x] Added validated quaternion normalization and TRS-to-matrix composition.
+- [x] Added conversions between `TransformTrs` and renderer `Transform` local channels.
+- [x] Replaced the duplicated `TransformPipelineChannels` struct with a temporary
+  `TransformTrs` alias.
+- [x] Added local `TransformComponent` translation, quaternion rotation, scale, and TRS getters.
+- [x] Added focused value, conversion, no-component-clone, and transform-stream compatibility
+  tests.
 
 ## Open questions
 

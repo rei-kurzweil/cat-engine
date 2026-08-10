@@ -1,7 +1,6 @@
 /// Mesh helpers / basic primitives placeholder.
-
-/// Column-major 4x4 transform matrix.
-pub type TransformMatrix = [[f32; 4]; 4];
+pub use crate::engine::transform::TransformMatrix;
+use crate::engine::transform::{TransformTrs, TransformTrsError};
 
 /// Minimal transform (placeholder).
 #[derive(Debug, Clone, Copy)]
@@ -42,6 +41,10 @@ impl Default for Transform {
 }
 
 impl Transform {
+    pub fn trs(&self) -> TransformTrs {
+        TransformTrs::new(self.translation, self.rotation, self.scale)
+    }
+
     /// Recompute `self.model` from translation/rotation/scale.
     pub fn recompute_model(&mut self) {
         let [tx, ty, tz] = self.translation;
@@ -83,6 +86,53 @@ impl Transform {
         let c3 = [tx, ty, tz, 1.0];
 
         self.model = [c0, c1, c2, c3];
+    }
+}
+
+impl From<Transform> for TransformTrs {
+    fn from(value: Transform) -> Self {
+        value.trs()
+    }
+}
+
+impl From<&Transform> for TransformTrs {
+    fn from(value: &Transform) -> Self {
+        value.trs()
+    }
+}
+
+impl TryFrom<TransformTrs> for Transform {
+    type Error = TransformTrsError;
+
+    fn try_from(value: TransformTrs) -> Result<Self, Self::Error> {
+        let value = value.normalized()?;
+        let model = value.to_matrix()?;
+        Ok(Self {
+            translation: value.translation,
+            rotation: value.rotation_quat_xyzw,
+            scale: value.scale,
+            model,
+            matrix_world: model,
+        })
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use super::Transform;
+    use crate::engine::transform::TransformTrs;
+
+    #[test]
+    fn transform_trs_conversion_normalizes_and_round_trips_local_channels() {
+        let source = TransformTrs::new([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 2.0], [4.0, 5.0, 6.0]);
+        let transform = Transform::try_from(source).unwrap();
+        let copied = TransformTrs::from(transform);
+
+        assert_eq!(copied.translation, source.translation);
+        assert_eq!(copied.rotation_quat_xyzw, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(copied.scale, source.scale);
+        assert_eq!(transform.model, copied.to_matrix().unwrap());
+        assert_eq!(transform.matrix_world, transform.model);
     }
 }
 
