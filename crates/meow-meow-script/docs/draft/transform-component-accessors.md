@@ -4,6 +4,7 @@ Status: draft; API shape proposed, implementation not started.
 
 Related:
 
+- [Mittens engine transform accessor API](../../../../docs/draft/transform-component-accessors-engine-api.md)
 - [Type-expression grammar and AST](type-expressions.md)
 - [Compound MMS types](compound-types.md)
 - [MMS type-system epic](type-system-epic.md)

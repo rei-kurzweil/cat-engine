@@ -8,6 +8,7 @@ Related:
 - [Transform parent component-ref routing](transform-parent-component-ref-routing.md)
 - [Transform pipeline cleanup checklist](transform-pipeline-cleanup-checklist.md)
 - [Transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md)
+- [Mittens engine transform accessor API](../draft/transform-component-accessors-engine-api.md)
 
 ## Goal
 

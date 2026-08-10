@@ -1,5 +1,11 @@
 # ₊˚ʚ Transform Mutation API in MMS (v2) ＼(＾▽＾)／
 
+Status: historical draft. Its inventory of the existing mutation path remains useful, but its MMS
+method names and separate-intent proposal are superseded by:
+
+- [Transform component accessors: Mittens engine API](transform-component-accessors-engine-api.md)
+- [MMS transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md)
+
 This document specifies the MMS-level API for mutating transforms at runtime and the underlying intent structure.
 
 ---
