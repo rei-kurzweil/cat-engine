@@ -557,6 +557,12 @@ impl RxMutationExecutor {
                     systems.set_animation_state(component, state.clone());
                 }
             }
+            IntentValue::StepAnimation {
+                component_id,
+                direction,
+            } => {
+                systems.step_animation(*component_id, *direction);
+            }
             IntentValue::RegisterKeyframe { component_id } => {
                 let component = *component_id;
                 systems.register_keyframe(world, visuals, component);

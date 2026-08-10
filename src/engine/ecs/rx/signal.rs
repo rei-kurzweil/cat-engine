@@ -804,6 +804,10 @@ pub enum IntentValue {
         component_id: ComponentId,
         state: AnimationState,
     },
+    StepAnimation {
+        component_id: ComponentId,
+        direction: crate::engine::ecs::component::AnimationStepDirection,
+    },
     RegisterKeyframe {
         component_id: ComponentId,
     },
@@ -1023,6 +1027,7 @@ impl IntentValue {
 
             IntentValue::RegisterAnimation { .. } => "register_animation",
             IntentValue::SetAnimationState { .. } => "set_animation_state",
+            IntentValue::StepAnimation { .. } => "step_animation",
             IntentValue::RegisterKeyframe { .. } => "register_keyframe",
 
             IntentValue::RegisterAudioOutput { .. } => "register_audio_output",

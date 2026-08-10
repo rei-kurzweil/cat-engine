@@ -1169,6 +1169,153 @@ fn live_eval_component_object_transform_look_at_emits_look_at_intent() {
 }
 
 #[test]
+fn live_animation_step_methods_emit_directional_intents() {
+    use crate::engine::ecs::component::AnimationStepDirection;
+
+    let src = r##"
+        let slides = Animation.paused() {}
+        slides.next()
+        slides.previous()
+    "##;
+
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+
+    let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut rx, &mut emit);
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+
+    let directions: Vec<_> = out
+        .intents
+        .iter()
+        .filter_map(|intent| match intent {
+            IntentValue::StepAnimation { direction, .. } => Some(*direction),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        directions,
+        vec![
+            AnimationStepDirection::Next,
+            AnimationStepDirection::Previous
+        ]
+    );
+}
+
+#[test]
+fn live_animation_next_executes_through_the_command_pipeline() {
+    let src = r##"
+        let label = Text { "before" }
+        label
+
+        let slides = Animation.paused() {
+            Keyframe.at(0) { label.set_text("first") }
+            Keyframe.at(1) { label.set_text("second") }
+        }
+        slides
+        slides.next()
+    "##;
+
+    let mut world = World::default();
+    let mut systems = crate::engine::ecs::system::SystemWorld::default();
+    let mut visuals = VisualWorld::default();
+    let mut render_assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+
+    let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut systems.rx, &mut queue);
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+    for intent in out.intents {
+        queue.push_intent_now(ComponentId::default(), intent);
+    }
+
+    systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+    systems
+        .animation
+        .tick_with_beat(&mut world, 0.0, 60.0, &mut systems.rx);
+    systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+
+    let label = world
+        .all_components()
+        .find_map(|id| {
+            world.get_component_by_id_as::<crate::engine::ecs::component::TextComponent>(id)
+        })
+        .expect("label text component");
+    assert_eq!(label.text, "first");
+}
+
+#[test]
+fn xr_button_handler_can_step_a_paused_animation() {
+    use crate::engine::ecs::component::{
+        ControllerHand, InputXRGamepadComponent, XrButtonControl,
+    };
+
+    let src = r##"
+        let label = Text { "before" }
+        label
+
+        let slides = Animation.paused() {
+            Keyframe.at(0) { label.set_text("first") }
+        }
+        slides
+
+        let controls = InputXRGamepad {}
+        controls
+        on(controls, "XrButtonDown", fn(event) {
+            if event.control == "ButtonB" {
+                slides.next()
+            }
+        })
+    "##;
+
+    let mut world = World::default();
+    let mut systems = crate::engine::ecs::system::SystemWorld::default();
+    let mut visuals = VisualWorld::default();
+    let mut render_assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+
+    let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut systems.rx, &mut queue);
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+    for intent in out.intents {
+        queue.push_intent_now(ComponentId::default(), intent);
+    }
+    systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+
+    let controls = world
+        .all_components()
+        .find(|id| {
+            world
+                .get_component_by_id_as::<InputXRGamepadComponent>(*id)
+                .is_some()
+        })
+        .expect("XR gamepad component");
+    systems.rx.dispatch_event_handlers(
+        &mut world,
+        &Signal::event(
+            controls,
+            EventSignal::XrButtonDown {
+                source_component: controls,
+                hand: ControllerHand::Right,
+                control: XrButtonControl::ButtonB,
+                value: 1.0,
+            },
+        ),
+    );
+    systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+    systems
+        .animation
+        .tick_with_beat(&mut world, 0.0, 60.0, &mut systems.rx);
+    systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+
+    let label = world
+        .all_components()
+        .find_map(|id| {
+            world.get_component_by_id_as::<crate::engine::ecs::component::TextComponent>(id)
+        })
+        .expect("label text component");
+    assert_eq!(label.text, "first");
+}
+
+#[test]
 fn live_eval_imported_factory_keyframe_closure_captures_live_component_objects() {
     let src = r##"
         import { rainbow_animated } from "../assets/components/animated.mms"

@@ -112,6 +112,7 @@ pub use crate::engine::ecs::system::model::collision_types::{CollisionMode, Coll
 pub use ambient_light::AmbientLightComponent;
 pub use animation::AnimationComponent;
 pub use animation::AnimationState;
+pub use animation::AnimationStepDirection;
 pub use asset_payload::AssetPayloadComponent;
 pub use audio_band_pass_filter::*;
 pub use audio_buffer_size::AudioBufferSizeComponent;

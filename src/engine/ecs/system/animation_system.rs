@@ -1,9 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::engine::ecs::component::{AnimationComponent, AnimationState, KeyframeComponent};
-use crate::engine::ecs::system::System;
+use crate::engine::ecs::component::{
+    AnimationComponent, AnimationState, AnimationStepDirection, KeyframeComponent,
+};
 use crate::engine::ecs::system::animation_keyframe_evaluator::AnimationKeyframeEvaluator;
 use crate::engine::ecs::system::animation_scheduler::AnimationScheduler;
+use crate::engine::ecs::system::System;
 use crate::engine::ecs::{ComponentId, RxWorld, World};
 use crate::engine::graphics::VisualWorld;
 use crate::engine::user_input::InputState;
@@ -11,6 +13,8 @@ use crate::engine::user_input::InputState;
 #[derive(Debug, Default)]
 struct AnimationRuntime {
     keyframes: Vec<ComponentId>,
+    manual_cursor: Option<ComponentId>,
+    manual_cursor_ordinal: Option<usize>,
     fired_keyframes: BTreeSet<ComponentId>,
     /// For audio lookahead scheduling, track the last loop-cycle index each keyframe was
     /// scheduled for.
@@ -18,7 +22,13 @@ struct AnimationRuntime {
     /// Loop cycle index for audio scheduling. Increments whenever a looping animation wraps.
     audio_cycle: u64,
     start_beat: f64,
-    pending_state: Option<AnimationState>,
+    pending_commands: VecDeque<AnimationCommand>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AnimationCommand {
+    SetState(AnimationState),
+    Step(AnimationStepDirection),
 }
 
 #[derive(Debug, Default)]
@@ -55,7 +65,16 @@ impl AnimationSystem {
         self.animations
             .entry(animation)
             .or_insert_with(AnimationRuntime::default)
-            .pending_state = Some(state);
+            .pending_commands
+            .push_back(AnimationCommand::SetState(state));
+    }
+
+    pub fn step_animation(&mut self, animation: ComponentId, direction: AnimationStepDirection) {
+        self.animations
+            .entry(animation)
+            .or_insert_with(AnimationRuntime::default)
+            .pending_commands
+            .push_back(AnimationCommand::Step(direction));
     }
 
     pub fn register_keyframe(&mut self, world: &mut World, component: ComponentId) {
@@ -95,6 +114,9 @@ impl AnimationSystem {
                         .unwrap_or(0.0);
                     ba.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
                 });
+                if let Some(cursor) = runtime.manual_cursor {
+                    runtime.manual_cursor_ordinal = list.iter().position(|id| *id == cursor);
+                }
                 return;
             }
             cursor = world.parent_of(node);
@@ -111,23 +133,84 @@ impl AnimationSystem {
             }
         }
 
-        // Apply any requested state changes.
-        // Setting Playing/Looping is treated as a restart.
+        // Remove stale keyframes before resolving cursor-relative commands. If the selected
+        // keyframe disappeared, retain the nearest surviving ordinal where possible.
+        for runtime in self.animations.values_mut() {
+            let prior_ordinal = runtime.manual_cursor_ordinal;
+            runtime.keyframes.retain(|keyframe| {
+                world
+                    .get_component_by_id_as::<KeyframeComponent>(*keyframe)
+                    .is_some()
+            });
+            if runtime
+                .manual_cursor
+                .is_some_and(|cursor| !runtime.keyframes.contains(&cursor))
+            {
+                if let Some(index) = prior_ordinal.filter(|_| !runtime.keyframes.is_empty()) {
+                    let index = index.min(runtime.keyframes.len() - 1);
+                    runtime.manual_cursor = Some(runtime.keyframes[index]);
+                    runtime.manual_cursor_ordinal = Some(index);
+                } else {
+                    runtime.manual_cursor = None;
+                    runtime.manual_cursor_ordinal = None;
+                }
+            }
+        }
+
+        // Apply state changes and manual steps in the order their intents arrived.
         for (&anim, runtime) in self.animations.iter_mut() {
-            let Some(state) = runtime.pending_state.take() else {
-                continue;
-            };
+            while let Some(command) = runtime.pending_commands.pop_front() {
+                match command {
+                    AnimationCommand::SetState(state) => {
+                        let Some(anim_comp) =
+                            world.get_component_by_id_as_mut::<AnimationComponent>(anim)
+                        else {
+                            break;
+                        };
 
-            let Some(anim_comp) = world.get_component_by_id_as_mut::<AnimationComponent>(anim)
-            else {
-                continue;
-            };
+                        anim_comp.state = state;
+                        runtime.start_beat = beat_now;
+                        runtime.fired_keyframes.clear();
+                        runtime.audio_scheduled_cycle_by_keyframe.clear();
+                        runtime.audio_cycle = 0;
+                        if matches!(state, AnimationState::Playing | AnimationState::Looping) {
+                            runtime.manual_cursor = None;
+                            runtime.manual_cursor_ordinal = None;
+                        }
+                    }
+                    AnimationCommand::Step(direction) => {
+                        let Some(anim_comp) =
+                            world.get_component_by_id_as_mut::<AnimationComponent>(anim)
+                        else {
+                            break;
+                        };
+                        anim_comp.state = AnimationState::Paused;
 
-            anim_comp.state = state;
-            runtime.start_beat = beat_now;
-            runtime.fired_keyframes.clear();
-            runtime.audio_scheduled_cycle_by_keyframe.clear();
-            runtime.audio_cycle = 0;
+                        let selected_index = match direction {
+                            AnimationStepDirection::Next => match runtime.manual_cursor_ordinal {
+                                Some(index) => index.checked_add(1),
+                                None => Some(0),
+                            },
+                            AnimationStepDirection::Previous => runtime
+                                .manual_cursor_ordinal
+                                .and_then(|index| index.checked_sub(1)),
+                        }
+                        .filter(|index| *index < runtime.keyframes.len());
+
+                        let Some(selected_index) = selected_index else {
+                            continue;
+                        };
+                        let keyframe = runtime.keyframes[selected_index];
+                        runtime.manual_cursor = Some(keyframe);
+                        runtime.manual_cursor_ordinal = Some(selected_index);
+
+                        // Manual stepping is intentionally visual-only. Passing `true` here
+                        // suppresses MusicNote child playback as well as closure audio intents.
+                        self.keyframe_evaluator
+                            .evaluate_visual_due_keyframe(world, rx, keyframe, beat_now, true);
+                    }
+                }
+            }
         }
 
         // Drive animations.
@@ -259,6 +342,9 @@ impl AnimationSystem {
                     );
 
                     runtime.fired_keyframes.insert(kf_id);
+                    runtime.manual_cursor = Some(kf_id);
+                    runtime.manual_cursor_ordinal =
+                        runtime.keyframes.iter().position(|id| *id == kf_id);
                 }
             }
 
@@ -294,15 +380,175 @@ impl System for AnimationSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ecs::IntentValue;
     use crate::engine::ecs::component::{AudioOscillatorComponent, TransformComponent};
+    use crate::engine::ecs::IntentValue;
     use crate::scripting::ast::{
         BinOpKind, BlockStatement, CallExpression, Expression, Ident, Statement,
     };
     use crate::scripting::object::{RuntimeClosure, Value};
-    use crate::scripting::world_evaluator::{RuntimeClosureExecMode, eval_runtime_closure};
+    use crate::scripting::world_evaluator::{eval_runtime_closure, RuntimeClosureExecMode};
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    fn emissive_intensity_callback(target: ComponentId, intensity: f64) -> RuntimeClosure {
+        RuntimeClosure {
+            body: BlockStatement {
+                statements: vec![Statement::Expression(Expression::Call(CallExpression {
+                    callee: Box::new(Expression::BinaryOp {
+                        op: BinOpKind::Dot,
+                        lhs: Box::new(Expression::Identifier(Ident("glow".to_string()))),
+                        rhs: Box::new(Expression::Identifier(Ident("set_intensity".to_string()))),
+                    }),
+                    args: vec![Expression::Number(intensity)],
+                }))],
+            },
+            captured_env: Arc::new(HashMap::from([(
+                "glow".to_string(),
+                Value::ComponentObject {
+                    id: target,
+                    component_type: "EM".to_string(),
+                },
+            )])),
+            heap: crate::scripting::object::HeapHandle::new(),
+            analysis: None,
+        }
+    }
+
+    fn stepped_intensities(rx: &mut RxWorld) -> Vec<f32> {
+        rx.drain_ready_intents()
+            .into_iter()
+            .filter_map(|signal| match signal.intent.map(|intent| intent.value) {
+                Some(IntentValue::SetEmissiveIntensity { intensity, .. }) => Some(intensity),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn paused_animation_steps_forward_and_backward_with_clamped_ends() {
+        let mut world = World::default();
+        let animation =
+            world.add_component(AnimationComponent::new().with_state(AnimationState::Paused));
+        let target = world.add_component(crate::engine::ecs::component::EmissiveComponent::off());
+        let keyframes = [(0.0, 1.0), (10.0, 2.0), (100.0, 3.0)].map(|(beat, intensity)| {
+            let keyframe = world.add_component(KeyframeComponent::new_with_callback(
+                beat,
+                emissive_intensity_callback(target, intensity),
+            ));
+            world.add_child(animation, keyframe).unwrap();
+            keyframe
+        });
+
+        let mut system = AnimationSystem::new();
+        system.register_animation(&mut world, animation);
+        for keyframe in keyframes {
+            system.register_keyframe(&mut world, keyframe);
+        }
+        let mut rx = RxWorld::default();
+
+        for expected in [1.0, 2.0, 3.0] {
+            system.step_animation(animation, AnimationStepDirection::Next);
+            system.tick_with_beat(&mut world, 0.0, 60.0, &mut rx);
+            assert_eq!(stepped_intensities(&mut rx), vec![expected]);
+        }
+        system.step_animation(animation, AnimationStepDirection::Next);
+        system.tick_with_beat(&mut world, 0.0, 60.0, &mut rx);
+        assert!(stepped_intensities(&mut rx).is_empty());
+
+        for expected in [2.0, 1.0] {
+            system.step_animation(animation, AnimationStepDirection::Previous);
+            system.tick_with_beat(&mut world, 0.0, 60.0, &mut rx);
+            assert_eq!(stepped_intensities(&mut rx), vec![expected]);
+        }
+        system.step_animation(animation, AnimationStepDirection::Previous);
+        system.tick_with_beat(&mut world, 0.0, 60.0, &mut rx);
+        assert!(stepped_intensities(&mut rx).is_empty());
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AnimationComponent>(animation)
+                .unwrap()
+                .state,
+            AnimationState::Paused
+        );
+    }
+
+    #[test]
+    fn manual_step_pauses_playback_and_advances_from_last_visual_keyframe() {
+        let mut world = World::default();
+        let animation =
+            world.add_component(AnimationComponent::new().with_state(AnimationState::Playing));
+        let target = world.add_component(crate::engine::ecs::component::EmissiveComponent::off());
+        for (beat, intensity) in [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)] {
+            let keyframe = world.add_component(KeyframeComponent::new_with_callback(
+                beat,
+                emissive_intensity_callback(target, intensity),
+            ));
+            world.add_child(animation, keyframe).unwrap();
+        }
+
+        let keyframes = world.children_of(animation).to_vec();
+        let mut system = AnimationSystem::new();
+        system.register_animation(&mut world, animation);
+        for keyframe in keyframes {
+            system.register_keyframe(&mut world, keyframe);
+        }
+        let mut rx = RxWorld::default();
+
+        system.tick_with_beat(&mut world, 1.0, 60.0, &mut rx);
+        assert_eq!(stepped_intensities(&mut rx), vec![1.0, 2.0]);
+
+        system.step_animation(animation, AnimationStepDirection::Next);
+        system.tick_with_beat(&mut world, 1.0, 60.0, &mut rx);
+        assert_eq!(stepped_intensities(&mut rx), vec![3.0]);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AnimationComponent>(animation)
+                .unwrap()
+                .state,
+            AnimationState::Paused
+        );
+    }
+
+    #[test]
+    fn restarting_timed_playback_resets_manual_cursor_and_preserves_default_looping() {
+        let mut world = World::default();
+        let animation = world.add_component(AnimationComponent::new());
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AnimationComponent>(animation)
+                .unwrap()
+                .state,
+            AnimationState::Looping
+        );
+        let target = world.add_component(crate::engine::ecs::component::EmissiveComponent::off());
+        for (beat, intensity) in [(0.0, 1.0), (1.0, 2.0)] {
+            let keyframe = world.add_component(KeyframeComponent::new_with_callback(
+                beat,
+                emissive_intensity_callback(target, intensity),
+            ));
+            world.add_child(animation, keyframe).unwrap();
+        }
+
+        let keyframes = world.children_of(animation).to_vec();
+        let mut system = AnimationSystem::new();
+        system.register_animation(&mut world, animation);
+        for keyframe in keyframes {
+            system.register_keyframe(&mut world, keyframe);
+        }
+        let mut rx = RxWorld::default();
+
+        system.step_animation(animation, AnimationStepDirection::Next);
+        system.tick_with_beat(&mut world, 0.0, 60.0, &mut rx);
+        assert_eq!(stepped_intensities(&mut rx), vec![1.0]);
+
+        system.set_animation_state(animation, AnimationState::Looping);
+        system.tick_with_beat(&mut world, 5.0, 60.0, &mut rx);
+        assert_eq!(stepped_intensities(&mut rx), vec![1.0]);
+
+        system.step_animation(animation, AnimationStepDirection::Next);
+        system.tick_with_beat(&mut world, 5.0, 60.0, &mut rx);
+        assert_eq!(stepped_intensities(&mut rx), vec![2.0]);
+    }
 
     #[test]
     fn keyframe_callback_dispatches_live_component_intent_when_due() {

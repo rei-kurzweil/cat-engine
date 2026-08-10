@@ -4,7 +4,7 @@
 // The world and asset panels are omitted because their current draw/list work
 // materially affects the VR performance this example is intended to preserve.
 //
-// Planned controls (manual Animation stepping backend is not implemented yet):
+// Manual slide controls:
 //   B = next slide
 //   A = previous slide
 //
@@ -79,9 +79,6 @@ ED.active() {
         R.cube() { C.rgba(0.86, 0.84, 0.82, 1.0) }
     }
 
-    T.position(0.0, 0.55, -4.08).scale(2.55, 2.85, 0.10) {
-        R.cube() { C.rgba(0.66, 0.56, 0.34, 1.0) }
-    }
     T.position(0.0, 0.55, -3.95).scale(2.30, 2.60, 0.08) {
         R.cube() {
             C.rgba(0.82, 0.88, 0.94, 1.0)
@@ -104,7 +101,7 @@ ED.active() {
 // hierarchy. Every keyframe keeps this same local placement near the model.
 let slide_text = Text {
     name = "slide_text"
-    "short form video creators hate it when you use this one simple trick!"
+    "press B to reveal one weird rendering trick"
     font_size(0.72)
     TextureFiltering.linear()
 }
@@ -113,7 +110,7 @@ let slide_color = C.rgba(1.0, 0.35, 0.78, 1.0) {
     EM.on()
     slide_text
 }
-let slide_root = T.position(-1.45, 0.15, -1.25).rotation(0.0, 3.14159, 0.0).scale(0.055, 0.055, 1.0) {
+let slide_root = T.position(-0.95, 0.15, -1.25).rotation(0.0, 3.14159, 0.0).scale(0.055, 0.055, 1.0) {
     name = "avatar_slide_root"
     slide_color
 }
@@ -125,35 +122,35 @@ let slides = Animation.paused() {
     name = "short_form_slide_deck"
 
     Keyframe.at(0) {
-        slide_root.update_transform([-1.45, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
+        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_text("short form video creators hate it when you use this one simple trick!")
         slide_text.set_font_size(0.72)
         slide_color.set_rgba(1.0, 0.35, 0.78, 1.0)
     }
 
     Keyframe.at(1) {
-        slide_root.update_transform([-1.45, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
+        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_text("POV: your renderer stopped skinning the same cat five times")
         slide_text.set_font_size(0.66)
         slide_color.set_rgba(0.10, 0.95, 1.0, 1.0)
     }
 
     Keyframe.at(2) {
-        slide_root.update_transform([-1.45, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
+        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_text("chat said add mirrors\nso we cached the vertices")
         slide_text.set_font_size(0.82)
         slide_color.set_rgba(1.0, 0.84, 0.18, 1.0)
     }
 
     Keyframe.at(3) {
-        slide_root.update_transform([-1.45, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
+        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_text("the GPU has seen enough\none deformation pass is enough")
         slide_text.set_font_size(0.76)
         slide_color.set_rgba(0.42, 1.0, 0.55, 1.0)
     }
 
     Keyframe.at(4) {
-        slide_root.update_transform([-1.45, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
+        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_text("like, follow, and subscribe\nfor more suspiciously fast cats")
         slide_text.set_font_size(0.70)
         slide_color.set_rgba(0.72, 0.48, 1.0, 1.0)
@@ -218,11 +215,11 @@ slides
 
 on(xr_gamepad, "XrButtonDown", fn(event) {
     if event.control == "ButtonB" {
+        print("vtuber-slidedeck: received ButtonB; requesting next slide")
         slides.next()
-        print("vtuber-slidedeck: next (B)")
     } else if event.control == "ButtonA" {
+        print("vtuber-slidedeck: received ButtonA; requesting previous slide")
         slides.previous()
-        print("vtuber-slidedeck: previous (A)")
     }
 })
 

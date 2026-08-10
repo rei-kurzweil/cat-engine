@@ -1,9 +1,10 @@
 # Manual animation keyframe stepping and XR slide controls
 
-Status: planned.
+Status: implemented; awaiting hands-on XR example verification.
 
 Related:
 
+- [VTuber slide-deck XR placement and controls](vtuber-slidedeck-xr-placement-and-controls.md)
 - [Morph deformation cache plumbing](morph-deformation-cache-plumbing.md)
 - [Incremental text reveal](../draft/incremental-text-reveal.md)
 - [Bounded incremental text windowing](../draft/bounded-incremental-text-windowing.md)
@@ -23,23 +24,29 @@ state independently of the engine clock. A slide keyframe may reposition and rot
 replace its text, change font size and color, and switch the active state of the demonstrated
 feature.
 
-## Current behavior and missing seam
+## Original behavior and implemented seam
+
+Implementation note (2026-08-10): the core MMS methods, intent routing, manual cursor, clamping,
+playback interaction, and visual-only keyframe execution described below are implemented. The
+`vtuber-slidedeck` example binds `ButtonB` to `next()` and `ButtonA` to `previous()` for hands-on
+verification. A desktop input fallback and the morph-target-specific deck remain follow-up work.
 
 `AnimationComponent` currently has `Playing`, `Looping`, and `Paused` states. `AnimationSystem`
 stores registered keyframes in beat order and evaluates due callbacks from clock progress.
 
-The live MMS methods are:
+Before this change, the live MMS methods were:
 
 - `play()`, which starts a one-shot animation from the beginning;
 - `loop_anim()`, which starts a looping animation from the beginning;
 - `pause()`, which stops clock-driven evaluation.
 
-There is no manual keyframe cursor, step intent, or `next()`/`previous()` method. Pausing therefore
-does not currently provide a way to select and execute an individual keyframe.
+Previously there was no manual keyframe cursor, step intent, or `next()`/`previous()` method.
+Those pieces now use the normal signal/intent drain path and the existing visual keyframe
+evaluator.
 
-XR input already exposes `XrButtonDown` events with controls including `ButtonA`, `ButtonB`,
-`ButtonX`, and `ButtonY`. The new animation methods should use the normal intent pipeline so XR,
-desktop buttons, scripts, and other event sources all receive identical behavior.
+XR input exposes `XrButtonDown` events with controls including `ButtonA`, `ButtonB`, `ButtonX`,
+and `ButtonY`. The new animation methods use the normal intent pipeline so XR, desktop buttons,
+scripts, and other event sources all receive identical behavior.
 
 ## Proposed MMS surface
 

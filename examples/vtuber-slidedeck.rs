@@ -59,12 +59,38 @@ fn on_xr_pointer_event(world: &mut World, _emit: &mut dyn SignalEmitter, signal:
     );
 }
 
+fn on_xr_button_event(world: &mut World, _emit: &mut dyn SignalEmitter, signal: &Signal) {
+    let Some(event) = signal.event.as_ref() else {
+        return;
+    };
+    let (edge, source, hand, control, value) = match event {
+        EventSignal::XrButtonDown {
+            source_component,
+            hand,
+            control,
+            value,
+        } => ("down", *source_component, *hand, *control, *value),
+        EventSignal::XrButtonUp {
+            source_component,
+            hand,
+            control,
+            value,
+        } => ("up", *source_component, *hand, *control, *value),
+        _ => return,
+    };
+
+    println!(
+        "[vtuber-slidedeck][xr-button] edge={edge} hand={hand:?} control={control:?} value={value:.3} source={} ({source:?})",
+        component_label(world, source),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use mittens_engine::scripting;
 
     #[test]
-    fn mms_scene_evaluates_before_manual_step_methods_are_invoked() {
+    fn mms_scene_evaluates_with_manual_step_handlers() {
         let output = scripting::MeowMeowRunner::eval_with_path(
             include_str!("vtuber-slidedeck.mms"),
             "examples/vtuber-slidedeck.mms",
@@ -94,9 +120,7 @@ fn main() {
         "[mms] {} intent(s) from vtuber-slidedeck.mms",
         output.intents.len()
     );
-    println!(
-        "[vtuber-slidedeck] planned controls: B = next slide, A = previous slide; manual Animation stepping is not implemented yet"
-    );
+    println!("[vtuber-slidedeck] controls: B = next slide, A = previous slide");
 
     let world = engine::ecs::World::default();
     let mut universe = engine::Universe::new(world);
@@ -140,6 +164,12 @@ fn main() {
             .systems
             .rx
             .add_global_handler(kind, on_xr_pointer_event);
+    }
+    for kind in [SignalKind::XrButtonDown, SignalKind::XrButtonUp] {
+        universe
+            .systems
+            .rx
+            .add_global_handler(kind, on_xr_button_event);
     }
 
     universe.enable_repl();

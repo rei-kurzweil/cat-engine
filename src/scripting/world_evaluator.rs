@@ -1960,7 +1960,7 @@ fn eval_user_fn(
 /// Dispatch a method call on a `Value::ComponentObject`.
 ///
 /// Produces intents (emitted via `ctx.emits`) or returns a value.
-/// Currently supports animation methods: `play`, `pause`, `loop_anim`.
+/// Currently supports animation methods: `play`, `pause`, `loop_anim`, `next`, `previous`.
 fn eval_method_call(
     receiver: Value,
     method: &str,
@@ -2147,6 +2147,36 @@ fn eval_method_call(
                     IntentValue::SetAnimationState {
                         component_id: id,
                         state,
+                    },
+                );
+                return Ok(Value::Null);
+            }
+
+            let step_direction = match method {
+                "next"
+                    if matches!(
+                        component_type.as_str(),
+                        "A" | "Animation" | "AnimationComponent" | "animation"
+                    ) =>
+                {
+                    Some(crate::engine::ecs::component::AnimationStepDirection::Next)
+                }
+                "previous"
+                    if matches!(
+                        component_type.as_str(),
+                        "A" | "Animation" | "AnimationComponent" | "animation"
+                    ) =>
+                {
+                    Some(crate::engine::ecs::component::AnimationStepDirection::Previous)
+                }
+                _ => None,
+            };
+            if let Some(direction) = step_direction {
+                push_eval_intent(
+                    ctx,
+                    IntentValue::StepAnimation {
+                        component_id: id,
+                        direction,
                     },
                 );
                 return Ok(Value::Null);

@@ -2356,6 +2356,14 @@ impl SystemWorld {
         self.animation.set_animation_state(component, state);
     }
 
+    pub fn step_animation(
+        &mut self,
+        component: ComponentId,
+        direction: crate::engine::ecs::component::AnimationStepDirection,
+    ) {
+        self.animation.step_animation(component, direction);
+    }
+
     pub fn register_keyframe(
         &mut self,
         world: &mut World,

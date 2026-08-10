@@ -8,6 +8,12 @@ pub enum AnimationState {
     Paused,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimationStepDirection {
+    Next,
+    Previous,
+}
+
 #[derive(Debug, Clone)]
 pub struct AnimationComponent {
     pub state: AnimationState,
