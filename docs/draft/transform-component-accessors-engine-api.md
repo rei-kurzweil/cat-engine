@@ -91,6 +91,42 @@ impl TransformTrs {
 `from_matrix` must have an explicit policy for negative scale and shear. It must not silently
 pretend that every affine matrix is exactly representable as TRS.
 
+## Recommended module home
+
+Use a focused engine-domain module rather than a generic `core.rs` or `primitives/mod.rs` bucket:
+
+```text
+src/engine/transform.rs
+```
+
+with:
+
+```rust,ignore
+pub mod transform;
+pub use transform::{TransformMatrix, TransformTrs};
+```
+
+`TransformTrs` and `TransformMatrix` are neither ECS components nor graphics-only types. They are
+shared transform-domain values used by ECS propagation, renderer instances, skinning, XR, gizmos,
+transform streams, and scripting. A dedicated module makes that ownership explicit and avoids
+turning `core` or `primitives` into a miscellaneous dependency bucket.
+
+`TransformMatrix` currently lives in `engine::graphics::primitives`. Move its definition to the
+new module but re-export it from the old path initially:
+
+```rust,ignore
+// engine/graphics/primitives.rs
+pub use crate::engine::transform::TransformMatrix;
+```
+
+That preserves existing imports while new shared code uses `engine::transform`. Migrating old
+imports can happen later with the deferred terminology cleanup; it should not inflate the first
+accessor patch.
+
+The renderer-oriented `Transform` struct can remain in `graphics::primitives` for now because it
+also owns cached `model` and `matrix_world` matrices. Add conversions between its local channels
+and `TransformTrs` rather than moving that larger type in the same change.
+
 ## Local operations belong on `TransformComponent`
 
 Local values require no ECS traversal, so ordinary component methods are appropriate:
@@ -321,10 +357,11 @@ Value::TransformMethods {
 
 ## Focused implementation sequence
 
-1. Add `TransformTrs` and central matrix composition/decomposition helpers with finite-value,
-   quaternion, singular-matrix, negative-scale, and shear tests.
+1. Add `TransformTrs` and central matrix composition helpers with finite-value and quaternion
+   tests.
 2. Add read-only local methods on `TransformComponent`.
-3. Add strict transform-only world getters on `TransformSystem`.
+3. Add central matrix decomposition with singular-matrix, negative-scale, and shear tests, then
+   add strict transform-only world getters on `TransformSystem`.
 4. Extract a shared effective-parent-basis resolver from transform propagation.
 5. Add `world_to_local_trs` tests for a root, ordinary parent, rotated parent, non-uniform scale,
    singular parent, `TransformParent`, and transform-stream boundary.
@@ -334,6 +371,38 @@ Value::TransformMethods {
 8. Add MMS integration tests proving getters do not register components, setters mutate only the
    receiver, copied values retain no relationship, and world writes preserve unspecified channels.
 9. Use the API to detach and place the VTuber slide deck, then perform XR verification.
+
+## Recommended next implementation chunk
+
+Keep the first backend patch to plain values and local reads:
+
+1. Add `src/engine/transform.rs` with `TransformMatrix`, `TransformTrs`, identity, finite-value
+   validation, quaternion normalization, and local TRS-to-matrix composition.
+2. Re-export `TransformMatrix` from `graphics::primitives` so existing callers do not move yet.
+3. Add lossless conversions between `TransformTrs` and the local channels of the existing
+   renderer `Transform`.
+4. Make `TransformPipelineChannels` a temporary alias or thin conversion around `TransformTrs`;
+   do not perform the broader pipeline-to-stream rename in this patch.
+5. Add `translation`, `rotation_quat_xyzw`, `scale`, and `trs` read methods to
+   `TransformComponent`.
+6. Add focused unit tests for identity, conversion round trips, matrix composition, quaternion
+   normalization, non-finite rejection, component local getters, and proof that copying
+   `TransformTrs` creates no ECS component.
+
+Explicitly defer from this first chunk:
+
+- matrix-to-TRS decomposition and its shear/negative-scale policy;
+- world getters;
+- local or world setter intents;
+- the MMS `world` table and tuple conversion;
+- transform-pipeline terminology cleanup;
+- `CommandQueue` terminology cleanup.
+
+This first slice should touch roughly one new module plus `engine/mod.rs`,
+`graphics/primitives.rs`, `transform_stream_system.rs`, `component/transform.rs`, and their tests.
+It is a low-to-medium-risk foundation. World reads are the next separate slice because they force
+the decomposition policy; world writes are a third slice because they additionally require
+effective-parent conversion and intent timing.
 
 ## Open questions
 
