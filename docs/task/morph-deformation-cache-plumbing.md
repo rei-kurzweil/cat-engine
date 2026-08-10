@@ -225,7 +225,7 @@ avoid one mode warming or allocating resources for another. An optional in-world
 cycle through explanatory and runtime states for interactive validation and recording. That deck
 should use the planned
 [manual animation stepping API](manual-animation-keyframe-stepping-and-xr-slide-controls.md):
-`ButtonA` advances, `ButtonB` goes back, and each slide explicitly updates its complete text,
+`ButtonB` advances, `ButtonA` goes back, and each slide explicitly updates its complete text,
 transform, color, font size, and morph-probe state.
 
 The example should display or log at least:

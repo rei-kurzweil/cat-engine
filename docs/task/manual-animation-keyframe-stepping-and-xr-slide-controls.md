@@ -5,6 +5,8 @@ Status: planned.
 Related:
 
 - [Morph deformation cache plumbing](morph-deformation-cache-plumbing.md)
+- [Incremental text reveal](../draft/incremental-text-reveal.md)
+- [Bounded incremental text windowing](../draft/bounded-incremental-text-windowing.md)
 - [Animation keyframe interpolation](../spec/animation-keyframe-interpolation.md)
 - [MMS signal guide](../how_to/guide/signals.md)
 - [OpenXR per-hand input state](openxr-per-hand-input-state.md)
@@ -156,8 +158,8 @@ preserves the current cursor.
 
 The initial presentation convention is:
 
-- `ButtonA`: next slide;
-- `ButtonB`: previous slide.
+- `ButtonB`: next slide;
+- `ButtonA`: previous slide.
 
 Use `XrButtonDown`, not button-held or axis-change events, so one physical press requests one step:
 
@@ -167,9 +169,9 @@ let xr_controls = InputXRGamepad {
 }
 
 on(xr_controls, "XrButtonDown", fn(event) {
-    if event.control == "ButtonA" {
+    if event.control == "ButtonB" {
         slides.next()
-    } else if event.control == "ButtonB" {
+    } else if event.control == "ButtonA" {
         slides.previous()
     }
 })
@@ -227,7 +229,7 @@ block automated morph cache tests or command-line performance presets.
 - Keyframe removal and insertion do not leave a dangling cursor.
 - Step requests flow through intents and execute at a drain point.
 - A stepped callback can update text, font size, color, transform, and feature state together.
-- `ButtonA` and `ButtonB` `XrButtonDown` events cause one next/previous request respectively.
+- `ButtonB` and `ButtonA` `XrButtonDown` events cause one next/previous request respectively.
 - Held buttons do not repeatedly advance slides without new down events.
 - Avatar locomotion, tracking, mirrors, and ordinary animation remain active while the deck is
   manually stepped.
