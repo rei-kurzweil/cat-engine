@@ -8,6 +8,9 @@ Parent task: [Morph targets and editor panel](morph-targets-and-editor-panel.md)
 
 Depends on: [Compute-cached mesh deformation](compute-cached-mesh-deformation.md)
 
+Example control follow-up:
+[Manual animation keyframe stepping and XR slide controls](manual-animation-keyframe-stepping-and-xr-slide-controls.md)
+
 ## Purpose
 
 Exercise real morph-target GPU data, per-instance blend-factor updates, and the shared deformation
@@ -188,6 +191,55 @@ Expected work:
 | unchanged factor, changing bones | active targets | none | on bone changes |
 | all inputs unchanged | none | none | none |
 
+## Validation example
+
+Plan a dedicated example pair derived from the existing `vtuber-mirror-example`:
+
+```text
+examples/vtuber-morph-targets.rs
+examples/vtuber-morph-targets.mms
+```
+
+Preserve the representative workload that made cached skinning valuable:
+
+- a tracked and animated skinned VTuber avatar;
+- XR left and right eye rendering;
+- at least one mirror observing the avatar;
+- the existing shared deformation cache and performance counters;
+- no dependency on a production model that already contains visible morph targets.
+
+Until glTF morph import exists, the Rust wrapper may construct or inject synthetic zero-delta morph
+targets into the test mesh. The MMS scene owns the environment, avatar, mirror, status text, and
+operator controls. Once import exists, keep the synthetic mode as the stable identity oracle and
+add a real-model mode separately.
+
+Provide separate command-line or startup presets for reliable measurements:
+
+1. skin-only baseline;
+2. morph-capable with 32 to 64 identity targets and all blend factors zero;
+3. one identity target active;
+4. a factor-change probe with bones held still where practical.
+
+Separate startup presets are authoritative for before/after performance comparisons because they
+avoid one mode warming or allocating resources for another. An optional in-world manual deck may
+cycle through explanatory and runtime states for interactive validation and recording. That deck
+should use the planned
+[manual animation stepping API](manual-animation-keyframe-stepping-and-xr-slide-controls.md):
+`ButtonA` advances, `ButtonB` goes back, and each slide explicitly updates its complete text,
+transform, color, font size, and morph-probe state.
+
+The example should display or log at least:
+
+- current probe mode;
+- active morph count;
+- morph-blend-factor upload bytes;
+- deformation dispatches, jobs, and dirty vertices;
+- mirror and XR consumer counts;
+- observed FPS/frame timing.
+
+The example is a human-operated validation and video-production surface, not a replacement for
+automated output, dirty-range, and unchanged-frame tests.
+
 ## Implementation slices
 
 1. Rename new contracts to distinguish skin joint weights from morph blend factors. Existing glTF
@@ -199,7 +251,8 @@ Expected work:
 5. Populate real `active_morph_base` and `active_morph_count` job fields.
 6. Make skin input optional for morph-only jobs while preserving current skinned behavior.
 7. Add the synthetic identity-morph fixture, output comparison, dirty-work tests, and counters.
-8. Repeat the representative VR-with-mirrors workload for skin-only, zero-active morph-capable,
+8. Add the `vtuber-morph-targets.rs` / `.mms` validation example and its isolated startup presets.
+9. Repeat the representative VR-with-mirrors workload for skin-only, zero-active morph-capable,
    and one-active-identity-target cases.
 
 glTF morph import, target naming, editor controls, animation channels, VRM expressions, and visible
