@@ -39,12 +39,15 @@ follow-up work, but no longer blocks Phase 2.
 With Phase 1 accepted, implement
 [morph targets and the editor panel](../morph-targets-and-editor-panel.md):
 
-1. Normalize glTF position and normal target accessors into one immutable dense representation.
-2. Upload target-major device-local morph data.
-3. Extend dirty deformation jobs with compact nonzero target weights and apply morphs before
+1. Complete the focused
+   [morph deformation cache plumbing](../morph-deformation-cache-plumbing.md) slice with synthetic
+   identity targets and a VR no-regression check.
+2. Normalize glTF position and normal target accessors into one immutable dense representation.
+3. Upload target-major device-local morph data.
+4. Extend dirty deformation jobs with compact nonzero morph blend factors and apply morphs before
    skinning.
-4. Add runtime morph state and stable primitive/target update intents.
-5. Add a selected-glTF editor panel with grouped, draggable weight controls.
+5. Add runtime morph state and stable primitive/target update intents.
+6. Add a selected-glTF editor panel with grouped, draggable morph-blend-factor controls.
 
 ## Requirements and constraints
 
@@ -119,8 +122,9 @@ As of 2026-08-09:
   consistent 60 FPS, and Phase 1 is accepted complete on that result;
 - per-dirty-frame staging/descriptor allocation, immutable validation scans, GPU readback, and
   more detailed captured timings remain non-blocking hardening and measurement follow-ups;
-- Phase 2 glTF morph import, runtime weights, and editor controls have not started. Morph-capable
-  compute record layouts and CPU-reference coverage are scaffolding, not completion of Phase 2.
+- Phase 2 glTF morph import, runtime morph blend factors, and editor controls have not started.
+  Morph-capable compute record layouts and CPU-reference coverage are scaffolding, not completion
+  of Phase 2.
 
 ## Deferred follow-ups
 

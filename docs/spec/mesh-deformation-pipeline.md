@@ -6,7 +6,8 @@ compute, cached once, and reused by every window, mirror, emissive-extraction, a
 observes that deformation generation.
 
 Phase 1 includes operational low-level morph buffers and morph-before-skin compute logic. glTF
-morph import, ECS weights, animation, intents, persistence, and editor controls are Phase 2.
+morph import, ECS morph blend factors, animation, intents, persistence, and editor controls are
+Phase 2.
 
 ## GPU data contract
 
@@ -17,9 +18,9 @@ Compile-time Rust assertions enforce size, alignment, and the nonzero field offs
 | Type | Fields and offsets | Size / alignment |
 |---|---|---|
 | `GpuBaseDeformationVertex` | `vec4 position` 0, `vec4 normal` 16 | 32 / 16 |
-| `GpuDeformationSkinVertex` | `uvec4 joints` 0, `vec4 weights` 16 | 32 / 16 |
+| `GpuDeformationSkinVertex` | `uvec4 joints` 0, `vec4 weights` 16 (skin joint weights) | 32 / 16 |
 | `GpuMorphDelta` | `vec4 position_delta` 0, `vec4 normal_delta` 16 | 32 / 16 |
-| `GpuActiveMorph` | `uint delta_base` 0, `float weight` 4 | 8 / 4 |
+| `GpuActiveMorph` | `uint delta_base` 0, `float weight` 4 (morph blend factor) | 8 / 4 |
 | `GpuDeformationJob` | eight `uint`s: base, skin, output, vertex count, bones base/count, active-morph base/count | 32 / 4 |
 | `GpuDeformationWorkgroup` | `uint job_index` 0, `uint first_vertex` 4 | 8 / 4 |
 | `GpuDeformedVertex` | `vec3 position` 0, `uint packed_normal` 12 | 16 / 4 |
@@ -74,9 +75,9 @@ For each in-range invocation:
 
 1. Load the mesh-local base position and normal.
 2. Add every active position and normal delta. Do not normalize between targets.
-3. Sum the four weights. Select identity if `bones_count == 0` or the sum is not greater than
-   zero.
-4. Otherwise blend all four matrices directly. Do not renormalize weights.
+3. Sum the four skin joint weights. Select identity if `bones_count == 0` or the sum is not greater
+   than zero.
+4. Otherwise blend all four matrices directly. Do not renormalize the skin joint weights.
 5. Transform position by the 4x4 matrix and normal by `mat3(skin)`.
 6. Normalize once in the octahedral packer and write one `GpuDeformedVertex`.
 
@@ -93,9 +94,10 @@ alive until commands that mention it complete.
 
 Bone palette writes are compared with the existing range. Identical matrices create no dirty
 interval and do not dirty deformation. Changed and freed ranges are coalesced. A mesh allocation,
-output allocation, changed palette, or active-weight change dirties its affected instances.
+output allocation, changed palette, or active morph-blend-factor change dirties its affected
+instances.
 Model, camera, material, visibility, and viewport changes do not. An unchanged generation records
-no bone/job/weight upload and no dispatch.
+no bone/job/morph-blend-factor upload and no dispatch.
 
 Immutable base/skin arenas and the output cache are renderer-global, not swapchain- or eye-local.
 The first command buffer observing dirtiness records uploads and compute before
@@ -127,8 +129,9 @@ Initialization rejects a graphics queue without compute, local size or invocatio
 64, fewer than eight compute-stage storage buffers, or a zero X dispatch limit, and reports the
 failed capability.
 
-The renderer accumulates dispatches, jobs, workgroups, dirty vertices, bone/job/weight upload
-bytes, live/allocated cache bytes, and resizes. GPU timestamp collection is enabled where the
+The renderer accumulates dispatches, jobs, workgroups, dirty vertices,
+bone/job/morph-blend-factor upload bytes, live/allocated cache bytes, and resizes. GPU timestamp
+collection is enabled where the
 renderer's profiling path provides timestamp queries. Performance acceptance records before/after
 timings and bandwidth on GTX 1080 and retains the epic's GTX 1050 Ti desktop validation.
 

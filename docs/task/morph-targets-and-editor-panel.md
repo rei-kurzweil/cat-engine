@@ -6,15 +6,17 @@ Epic: [GPU-cached deformation and morph targets](epic/gpu-cached-deformation-and
 
 Depends on: [Compute-cached mesh deformation](compute-cached-mesh-deformation.md)
 
+First renderer slice: [Morph deformation cache plumbing](morph-deformation-cache-plumbing.md)
+
 ## Problem
 
-The engine does not import and evaluate glTF morph targets or expose their weights for live editor
-preview. The previous [blend-shape draft](../spec/blend-shapes.md) proposed multiple graphics
-pipelines and runtime dense/sparse storage selection, which would repeat deformation work across
-passes and views.
+The engine does not import and evaluate glTF morph targets or expose their morph blend factors for
+live editor preview. The previous [blend-shape draft](../spec/blend-shapes.md) proposed multiple
+graphics pipelines and runtime dense/sparse storage selection, which would repeat deformation work
+across passes and views.
 
 Morph targets should instead extend the shared compute deformation pass. Import normalizes source
-accessors once; runtime work is dirty only when an affected instance's weights or other
+accessors once; runtime work is dirty only when an affected instance's morph blend factors or other
 deformation inputs change.
 
 ## Scope
@@ -23,10 +25,10 @@ Version 1 supports:
 
 - glTF `POSITION` target deltas
 - optional glTF `NORMAL` target deltas
-- imported mesh and node default weights
+- imported mesh and node default morph blend factors
 - dense immutable target-major CPU and GPU data
-- dense host weights and compact nonzero compute entries
-- runtime weight updates with stable primitive/target identity
+- dense host morph blend factors and compact nonzero compute entries
+- runtime morph-blend-factor updates with stable primitive/target identity
 - a selected-glTF editor panel for live preview
 
 Out of scope:
@@ -36,7 +38,7 @@ Out of scope:
 - VRM expression presets
 - retargeting
 - LOD
-- saved/persistent preview weights or poses
+- saved/persistent preview morph blend factors or poses
 - disk caching
 
 ## Import and normalized representation
@@ -57,7 +59,7 @@ For every primitive:
 - retain immutable normalized arrays in the existing URI/mesh CPU cache
 - preserve stable primitive and target identity across CPU, GPU, runtime component, and editor
   updates
-- retain imported mesh/node default weights
+- retain imported mesh/node default morph blend factors
 
 Dense target-major arrays are the only v1 storage format. Do not add an analyzer, CSR storage,
 authoring overrides, or separate dense/sparse pipelines.
@@ -67,30 +69,35 @@ for normalized data is an explicit later optimization, not part of v1.
 
 ## Runtime deformation
 
-Maintain dense host weights for simple indexing and updates. For a dirty deformation job, build a
+The focused cache-plumbing task establishes the shared GPU resources, terminology, morph-only
+eligibility, identity-morph probe, and no-regression performance gate before glTF import and editor
+work proceed here.
+
+Maintain dense host morph blend factors for simple indexing and updates. For a dirty deformation
+job, build a
 compact list of nonzero:
 
 ```text
-(target_index, weight)
+(target_index, morph_blend_factor)
 ```
 
-Upload only changed weight data and dirty only deformation ranges belonging to affected
-renderables. Do not scan or dispatch unrelated instances.
+Upload only changed morph-blend-factor data and dirty only deformation ranges belonging to
+affected renderables. Do not scan or dispatch unrelated instances.
 
 Apply target deltas in bind-pose space before skinning:
 
 ```text
-morphed_position = base_position + sum(weight * position_delta)
-morphed_normal   = base_normal   + sum(weight * normal_delta)
+morphed_position = base_position + sum(morph_blend_factor * position_delta)
+morphed_normal   = base_normal   + sum(morph_blend_factor * normal_delta)
 deformed_output = skin(morphed_position, morphed_normal)
 ```
 
 Position-only targets leave the base normal unchanged before skinning. Define and test the normal
 normalization point used by the cached graphics path.
 
-Add runtime morph components and weight-update intents that carry stable primitive/target
-identity. Preview weight changes are runtime state and reset to imported defaults after asset or
-scene reload.
+Add runtime morph components and morph-blend-factor update intents that carry stable
+primitive/target identity. Preview blend-factor changes are runtime state and reset to imported
+defaults after asset or scene reload.
 
 ## Selection and editor panel
 
@@ -107,11 +114,12 @@ or target metadata changes.
 
 ### Row identity and labels
 
-- Group equal-name targets across primitives into one row when their current weights agree.
+- Group equal-name targets across primitives into one row when their current morph blend factors
+  agree.
 - An update from a grouped row emits one intent covering every member.
 - Unnamed targets use a stable primitive-qualified fallback label.
-- If equal-name members currently have different weights, split them into primitive-qualified
-  rows for v1.
+- If equal-name members currently have different morph blend factors, split them into
+  primitive-qualified rows for v1.
 - Mixed-value grouped presentation is a v2 follow-up.
 
 Labels and intent payloads must not rely on row order, because primitives and targets need stable
@@ -126,13 +134,13 @@ Each scrollable row contains:
 - track
 - `Draggable` thumb
 
-On drag start, capture the thumb's local X and current weight. During drag:
+On drag start, capture the thumb's local X and current morph blend factor. During drag:
 
 1. convert movement into track-local X
 2. calculate from the captured values
-3. clamp thumb position and weight to `[0, 1]`
+3. clamp thumb position and displayed morph blend factor to `[0, 1]`
 4. update the numeric display and thumb
-5. emit one grouped weight update
+5. emit one grouped morph-blend-factor update
 
 Do not depend on event-handler ordering by rereading a transform that `DraggableSystem` may already
 have mutated.
@@ -149,21 +157,21 @@ have mutated.
 
 ### Deformation
 
-- One target at zero and nonzero weights matches a CPU reference.
+- One target at zero and nonzero morph blend factors matches a CPU reference.
 - Multiple active targets sum correctly.
 - Morph-before-skin ordering matches a CPU reference and differs from an intentionally reversed
   reference.
 - Position-only targets preserve the expected normal input.
-- Updating one weight dirties only affected deformation ranges and uploads only changed weight
-  data.
-- Unchanged weights produce no deformation work.
+- Updating one morph blend factor dirties only affected deformation ranges and uploads only
+  changed morph-blend-factor data.
+- Unchanged morph blend factors produce no deformation work.
 
 ### Runtime and editor
 
 - Named targets group across primitives when values agree.
 - Unnamed fallback names are stable and primitive-qualified.
 - Duplicate-name targets split when current values differ.
-- Imported default weights appear initially and return after reload.
+- Imported default morph blend factors appear initially and return after reload.
 - Selection resolves directly and through the nearest glTF ancestor.
 - Selection changes and removal clear stale rows and update targets.
 - Slider drag uses captured local state, clamps position/value to `[0, 1]`, and emits one grouped
@@ -178,7 +186,8 @@ the panel in desktop rendering on GTX 1050 Ti Mobile and desktop/XR rendering on
 ## Completion criteria
 
 - glTF morph targets and defaults import into one validated dense representation.
-- Morph buffers are immutable and device-local; weight updates are compact and change-driven.
+- Morph buffers are immutable and device-local; morph-blend-factor updates are compact and
+  change-driven.
 - Morphs run before skinning inside the shared cached deformation pass.
 - Runtime updates preserve stable primitive/target identity.
 - The selected-glTF editor panel implements naming, grouping, dragging, selection, and reload
@@ -190,5 +199,4 @@ the panel in desktop rendering on GTX 1050 Ti Mobile and desktop/XR rendering on
 
 Reserve a future serializable `MorphPoseComponent` concept for named presets containing
 `(target key, value)` entries and a pose-like `apply(gltf)` API. A morph pose is a collection of
-target weights, not a raw target, and is not part of this task.
-
+target blend factors, not a raw target, and is not part of this task.
