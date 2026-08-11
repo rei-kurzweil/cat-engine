@@ -3,24 +3,20 @@ use crate::engine::ecs::component::{
     TransitionComponent,
 };
 use crate::engine::ecs::{ComponentId, IntentValue, PoseApplyMode, World};
+use crate::engine::transform::TransformSpace;
 use crate::scripting::object::Value;
 
 pub(crate) fn supports_component_method(component_type: &str, method: &str) -> bool {
     matches!(
         method,
-        "attach"
-            | "attach_clone"
-            | "detach"
-            | "remove_child"
-            | "remove_subtree"
-            | "set_color"
+        "attach" | "attach_clone" | "detach" | "remove_child" | "remove_subtree" | "set_color"
     ) || (matches!(
         component_type,
         "T" | "Transform" | "TransformComponent" | "transform"
     ) && matches!(
         method,
         "update_transform" | "look_at" | "translation" | "trs"
-    ))
+    )) || (component_type == "TransformWorld" && method == "trs")
         || (matches!(
             component_type,
             "PoseCapturePose" | "PoseCapturePoseComponent" | "pose_capture_pose"
@@ -56,6 +52,27 @@ pub(crate) fn invoke_component_method(
     mut emit_intent: impl FnMut(IntentValue),
 ) -> Result<Value, String> {
     match (component_type, method) {
+        ("TransformWorld", "trs") => {
+            world
+                .get_component_by_id_as::<TransformComponent>(id)
+                .ok_or_else(|| "world.trs(): not a TransformComponent".to_string())?;
+            match args {
+                [] => crate::engine::ecs::system::TransformSystem::world_trs(world, id)
+                    .map(Value::TransformTrs)
+                    .map_err(|error| format!("world.trs(): {error}")),
+                [Value::TransformTrs(value)] => {
+                    emit_intent(IntentValue::SetTransformTrs {
+                        component_id: id,
+                        space: TransformSpace::World,
+                        value: *value,
+                    });
+                    Ok(Value::Null)
+                }
+                other => Err(format!(
+                    "world.trs(): expected no arguments for a getter or one TransformTrs value for a setter, got {other:?}"
+                )),
+            }
+        }
         (_, "attach") => {
             let child = match args {
                 [Value::ComponentObject { id, .. }] => *id,
@@ -550,6 +567,40 @@ mod tests {
         )
         .expect_err("an array is not an opaque TransformTrs value");
         assert!(error.contains("one TransformTrs value"), "{error}");
+    }
+
+    #[test]
+    fn transform_world_trs_reads_cached_pose_and_emits_a_world_space_setter() {
+        let mut world = World::default();
+        let source = world.add_component(TransformComponent::new().with_position(3.0, 4.0, 5.0));
+        let target = world.add_component(TransformComponent::new());
+        let source_transform = world
+            .get_component_by_id_as_mut::<TransformComponent>(source)
+            .unwrap();
+        source_transform.transform.matrix_world = source_transform.transform.model;
+
+        let pose =
+            invoke_component_method(&mut world, source, "TransformWorld", "trs", &[], |_| {})
+                .expect("world TRS getter");
+        let mut emitted = Vec::new();
+        invoke_component_method(
+            &mut world,
+            target,
+            "TransformWorld",
+            "trs",
+            &[pose],
+            |intent| emitted.push(intent),
+        )
+        .expect("world TRS setter");
+
+        assert!(matches!(
+            emitted.as_slice(),
+            [IntentValue::SetTransformTrs {
+                component_id,
+                space: TransformSpace::World,
+                value,
+            }] if *component_id == target && value.translation == [3.0, 4.0, 5.0]
+        ));
     }
 
     #[test]

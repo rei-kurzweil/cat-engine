@@ -1968,6 +1968,37 @@ fn eval_method_call(
     ctx: &mut EvalContext<'_>,
 ) -> Result<Value, String> {
     match receiver {
+        Value::TransformWorld { id } => {
+            if !supports_component_method("TransformWorld", method) {
+                return Err(format!("Transform.world: unknown method '{method}'"));
+            }
+            if let Some(world) = ctx.host_world {
+                let world = unsafe { &mut *world };
+                return invoke_component_method(
+                    world,
+                    id,
+                    "TransformWorld",
+                    method,
+                    &args,
+                    |intent| push_eval_intent(ctx, intent),
+                );
+            }
+            if let Some(ch) = ctx.channels.as_mut() {
+                return match ch.call(HostCallKind::InvokeComponentMethod {
+                    id,
+                    component_type: "TransformWorld".to_string(),
+                    method: method.to_string(),
+                    args,
+                }) {
+                    Some(HostValue::Null) | None => Ok(Value::Null),
+                    Some(HostValue::Value(value)) => Ok(value),
+                    Some(other) => Err(format!(
+                        "Transform.world method returned unexpected value {other:?}"
+                    )),
+                };
+            }
+            Err("Transform.world method call requires a host world".to_string())
+        }
         Value::BuiltinTable(BuiltinTableKind::Math) => eval_math_method(
             MathReceiverKind::BuiltinTable(BuiltinTableKind::Math),
             method,
@@ -2741,6 +2772,15 @@ fn eval_binop(
                     }
                     _ => Err(format!("field access: '{}' not found", field.0)),
                 },
+                Value::ComponentObject { id, component_type }
+                    if field.0 == "world"
+                        && matches!(
+                            component_type.as_str(),
+                            "T" | "Transform" | "TransformComponent" | "transform"
+                        ) =>
+                {
+                    Ok(Value::TransformWorld { id })
+                }
                 Value::Map(fields) => fields
                     .get(&field.0)
                     .cloned()
@@ -2934,6 +2974,7 @@ fn value_display(val: &Value) -> String {
                 .join(", ")
         ),
         Value::TransformTrs(_) => "<TransformTrs>".into(),
+        Value::TransformWorld { id } => format!("<Transform.world:{id:?}>"),
         Value::Function { .. } => "<fn>".into(),
         Value::ComponentObject { id, component_type } => format!("<{}:{:?}>", component_type, id),
         Value::ComponentExpr(_) => "<ce>".into(),

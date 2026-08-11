@@ -1,10 +1,11 @@
 # Transform component accessors: Mittens engine API
 
-Status: in progress; shared values, local reads, strict decomposition, and world reads implemented;
-writes pending.
+Status: in progress; shared values, local/world TRS reads, and complete local/world TRS transfer
+implemented. Granular writes and shared effective-parent-basis consolidation remain.
 
 Related:
 
+- [Shared effective transform-parent basis resolution](effective-transform-parent-basis-resolution.md)
 - [VTuber slide-deck detached world-TRS implementation](../task/vtuber-slidedeck-detached-world-trs.md)
 - [MMS transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md)
 - [Transform mutation API v2](transform-mutation-api-v2.md)
@@ -423,6 +424,10 @@ Implementation result:
 - [x] Added strict transform-only world translation, rotation, scale, and TRS getters on
   `TransformSystem`. Translation remains readable from a sheared matrix; the decomposed getters
   reject it.
+- [x] Added `TransformSpace`, a complete-TRS setter intent, execution-time world-to-local
+  conversion, and receiver-bound MMS `transform.world.trs()` getter/setter support.
+- [ ] Replace the provisional duplicated ancestry walk with the
+  [shared effective-parent-basis resolver](effective-transform-parent-basis-resolution.md).
 
 ## Open questions
 
@@ -433,5 +438,6 @@ Implementation result:
   orthonormalization rule defines it?
 - Should world setters participate in `TransitionComponent` interpolation exactly like current
   local `UpdateTransform`, or provide an explicit immediate mode later?
-- Does a transform-stream-owned target allow direct world writes, or should the engine reject them
-  because the stream will overwrite the result on its next evaluation?
+- Under current propagation semantics, a directly transform-stream-owned target rejects authored
+  world writes because the stream owns its cached world result. Revisit only if a future stream
+  operator explicitly defines an inverse/write-through contract.

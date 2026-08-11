@@ -97,8 +97,9 @@ ED.active() {
     }
 }
 
-// Slide content is authored once and mounted beneath the controlled avatar
-// hierarchy. Every keyframe keeps this same local placement near the model.
+// The slide content keeps its authored presentation offset beneath a detached
+// world-space placement root. Button presses copy the current XR camera-wrapper
+// pose into that root once; later headset/avatar motion does not drag it along.
 let slide_text = Text {
     name = "slide_text"
     "press B to reveal one weird rendering trick"
@@ -110,47 +111,49 @@ let slide_color = C.rgba(1.0, 0.35, 0.78, 1.0) {
     EM.on()
     slide_text
 }
-let slide_root = T.position(-0.95, 0.15, -1.25).rotation(0.0, 3.14159, 0.0).scale(0.055, 0.055, 1.0) {
-    name = "avatar_slide_root"
+let slide_offset = T.position(1, 0.15, 1.0).rotation(0.0, 3.14159, 0.0).scale(0.055, 0.055, 1.0) {
+    name = "slide_presentation_offset"
     slide_color
 }
+let slide_root = T {
+    name = "detached_slide_root"
+    slide_offset
+}
+
+// Materialize the placement root as an independent world root.
+slide_root
 
 // Each slide is state-complete so previous() can reapply an earlier state.
-// The transform remains constant: the text stays near the controlled avatar,
-// while content, font size, and color change.
+// Placement is deliberately not part of slide state. Slides only change their
+// presentation; the button handler snapshots a fresh placement independently.
 let slides = Animation.paused() {
     name = "short_form_slide_deck"
 
     Keyframe.at(0) {
-        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_font_size(0.72)
-        slide_text.set_text("short form video creators hate it when you use this one simple trick!")
+        slide_text.set_text("short form video creators\n\nhate it\n\nwhen you\n\nuse this\none simple trick!")
         slide_color.set_color([1.0, 0.35, 0.78, 1.0])
     }
 
     Keyframe.at(1) {
-        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_font_size(0.66)
-        slide_text.set_text("POV: your renderer stopped skinning the same cat five times")
+        slide_text.set_text("i swear guys, this is not just a powerpoint\nThis changes everythng\n (again)")
         slide_color.set_color([0.10, 0.95, 1.0, 1.0])
     }
 
     Keyframe.at(2) {
-        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_font_size(0.82)
-        slide_text.set_text("chat said add mirrors\nso we cached the vertices")
+        slide_text.set_text("next we're gonna animate this text\ncause tbh i don't expect\nppl to read more\nthan 4 words at\nonce")
         slide_color.set_color([1.0, 0.84, 0.18, 1.0])
     }
 
     Keyframe.at(3) {
-        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_font_size(0.76)
-        slide_text.set_text("the GPU has seen enough\none deformation pass is enough")
+        slide_text.set_text("im not even an influencer.\n im just a dog,\n but ur watching so w/e")
         slide_color.set_color([0.42, 1.0, 0.55, 1.0])
     }
 
     Keyframe.at(4) {
-        slide_root.update_transform([-0.95, 0.15, -1.25], [0.0, 3.14159, 0.0], [0.055, 0.055, 1.0])
         slide_text.set_font_size(0.70)
         slide_text.set_text("like, follow, and subscribe\nfor more suspiciously fast cats")
         slide_color.set_color([0.72, 0.48, 1.0, 1.0])
@@ -160,6 +163,11 @@ let slides = Animation.paused() {
 let xr_gamepad = InputXRGamepad {
     locomotion()
     speed(1.5)
+}
+
+let presentation_anchor = T.position(0.0, 0.08, 0.12) {
+    name = "xr_camera_wrapper"
+    CXR { Pointer {} }
 }
 
 T {
@@ -183,14 +191,7 @@ T {
                     }
                 }
 
-                // The slide follows the same locomotion/avatar root but remains
-                // independent of individual animated bones.
-                slide_root
-
-                T.position(0.0, 0.08, 0.12) {
-                    name = "xr_camera_wrapper"
-                    CXR { Pointer {} }
-                }
+                presentation_anchor
 
                 XRHand.new(true, Left, GripAim).laser() {
                     T {
@@ -216,9 +217,13 @@ slides
 on(xr_gamepad, "XrButtonDown", fn(event) {
     if event.control == "ButtonB" {
         print("vtuber-slidedeck: received ButtonB; requesting next slide")
+        let pose = presentation_anchor.world.trs()
+        slide_root.world.trs(pose)
         slides.next()
     } else if event.control == "ButtonA" {
         print("vtuber-slidedeck: received ButtonA; requesting previous slide")
+        let pose = presentation_anchor.world.trs()
+        slide_root.world.trs(pose)
         slides.previous()
     }
 })

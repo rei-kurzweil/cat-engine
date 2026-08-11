@@ -10,7 +10,7 @@ pub mod vr_perf;
 pub mod windowing;
 
 pub use cli::CLI;
-pub use transform::{TransformMatrix, TransformTrs, TransformTrsError};
+pub use transform::{TransformMatrix, TransformSpace, TransformTrs, TransformTrsError};
 pub use universe::Universe;
 pub use windowing::Windowing;
 

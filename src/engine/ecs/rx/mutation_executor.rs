@@ -187,6 +187,35 @@ impl RxMutationExecutor {
                     systems.update_transform(world, visuals, component, t);
                 }
             }
+            IntentValue::SetTransformTrs {
+                component_id,
+                space,
+                value,
+            } => {
+                let local = match space {
+                    crate::engine::transform::TransformSpace::Local => {
+                        value.normalized().map_err(|error| error.to_string())
+                    }
+                    crate::engine::transform::TransformSpace::World => {
+                        crate::engine::ecs::system::TransformSystem::world_to_local_trs(
+                            world,
+                            &systems.transform_stream,
+                            *component_id,
+                            *value,
+                        )
+                        .map_err(|error| error.to_string())
+                    }
+                };
+                match local.and_then(|value| Transform::try_from(value).map_err(|e| e.to_string()))
+                {
+                    Ok(transform) => {
+                        systems.update_transform(world, visuals, *component_id, transform);
+                    }
+                    Err(error) => {
+                        eprintln!("SetTransformTrs ignored for {:?}: {}", component_id, error)
+                    }
+                }
+            }
             IntentValue::RemoveTransform { component_id } => {
                 let component = *component_id;
                 systems.remove_transform(world, visuals, component);

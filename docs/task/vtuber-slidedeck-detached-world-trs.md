@@ -1,10 +1,11 @@
 # VTuber slide-deck detached world-TRS implementation
 
-Status: in progress; opaque MMS TRS pass-through and local `trs()` round trip implemented, world
-mutation and binding remain.
+Status: in progress; detached slide-deck world-TRS snapshot path implemented and under manual XR
+review. Granular local/world channel accessors and extended edge-case coverage remain.
 
 Related:
 
+- [Shared effective transform-parent basis resolution](../draft/effective-transform-parent-basis-resolution.md)
 - [VTuber slide-deck XR placement and controls](vtuber-slidedeck-xr-placement-and-controls.md)
 - [Transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md)
 - [Mittens engine transform accessor API](../draft/transform-component-accessors-engine-api.md)
@@ -71,11 +72,11 @@ MMS/local mutation progress:
 - [x] An opaque MMS TRS runtime value.
 - [x] Local MMS `trs()` getter/setter pass-through binding.
 - [ ] Local MMS `rotation()` and `scale()` getter/setter bindings.
-- [ ] Effective-parent basis resolution for world writes.
-- [ ] World-to-local TRS conversion.
-- [ ] A space-aware transform mutation intent.
-- [ ] Receiver-bound MMS `transform.world` access.
-- [ ] Detached world-pose placement in `vtuber-slidedeck.mms`.
+- [x] Effective-parent basis resolution for world writes.
+- [x] World-to-local TRS conversion.
+- [x] A space-aware transform mutation intent.
+- [x] Receiver-bound MMS `transform.world` access for opaque TRS transfer.
+- [x] Detached world-pose placement in `vtuber-slidedeck.mms`.
 
 The existing Rust `IntentValue::UpdateTransformWorld` is only a propagation/cache refresh signal.
 It is not a world-space setter and must not be repurposed or exposed as one.
@@ -153,16 +154,17 @@ Checklist:
 
 - [ ] Extract or centralize effective-parent-basis resolution so world writes and propagation use
   the same ordinary-parent, `TransformParent`, and transform-stream semantics.
-- [ ] Invert the effective parent matrix and return a structured error for singular bases.
-- [ ] Convert the complete desired world TRS to a local matrix and strictly decompose it.
-- [ ] Do not silently discard shear created by a rotated, non-uniformly scaled parent.
-- [ ] Test a detached root and an ordinary translated parent.
-- [ ] Test rotated and uniformly scaled parents.
+- [x] Invert the effective parent matrix and return a structured error for singular bases.
+- [x] Convert the complete desired world TRS to a local matrix and strictly decompose it.
+- [x] Do not silently discard shear created by a rotated, non-uniformly scaled parent.
+- [x] Test a detached root through the example and an ordinary parent in the transform system.
+- [x] Test a rotated parent.
 - [ ] Test non-uniform scale with representable and non-representable desired poses.
 - [ ] Test singular parents and reflected matrices.
 - [ ] Test `TransformParent` redirection.
-- [ ] Test a transform-stream boundary and define whether stream-owned targets reject direct
-  authored writes that the stream would overwrite.
+- [x] Define stream-owned targets to reject direct authored world writes that the stream would
+  overwrite.
+- [ ] Test a transform-stream boundary and verify that rejection.
 
 ## Slice 4: space-aware transform mutation intent
 
@@ -171,16 +173,15 @@ otherwise hierarchy and parent transforms may change between evaluation and exec
 
 Checklist:
 
-- [ ] Add `TransformSpace::{Local, World}` and a partial `TransformPatch` or equivalent complete
-  TRS payload.
-- [ ] Add a new explicit setter intent; do not overload the propagation-only
+- [x] Add `TransformSpace::{Local, World}` and a complete TRS payload.
+- [x] Add a new explicit setter intent; do not overload the propagation-only
   `UpdateTransformWorld` name.
-- [ ] Validate and normalize supplied channels before mutating the target.
+- [x] Validate and normalize supplied channels before mutating the target.
 - [ ] For a world patch, read one coherent current world TRS, replace only supplied channels,
   then convert the complete desired pose through the effective parent basis.
-- [ ] Funnel the resulting local transform through existing propagation, transition, renderable,
+- [x] Funnel the resulting local transform through existing propagation, transition, renderable,
   camera, light, collision, skinning, and BVH update behavior.
-- [ ] Guarantee that conversion failure produces no partial mutation.
+- [x] Guarantee that conversion failure produces no partial mutation.
 - [ ] Test intent execution after an intervening parent change to prove conversion is not stale.
 
 ## Slice 5: receiver-bound MMS `world` table
@@ -190,22 +191,22 @@ existing component; it is not a transform clone or copied pose.
 
 Checklist:
 
-- [ ] Make `transform.world` bind the live transform component ID and `TransformSpace::World`.
-- [ ] Bind zero-argument world getters to strict `TransformSystem` reads.
-- [ ] Bind one-argument world setters to the space-aware mutation intent.
+- [x] Make `transform.world` bind the live transform component ID and `TransformSpace::World`.
+- [x] Bind zero-argument world `trs()` to the strict `TransformSystem` read.
+- [x] Bind one-argument world `trs(value)` to the space-aware mutation intent.
 - [ ] Support `translation`, `rotation`, `scale`, and `trs` with the same zero/one-argument rule as
   local accessors.
 - [ ] Reject `transform.world()` and `T.world(transform)` with useful diagnostics.
 - [ ] Do not allow the bound world table to outlive or silently retarget its receiver.
 - [ ] Test that property access and getter calls allocate/register no ECS components.
-- [ ] Test the exact snapshot operation between two unrelated transform roots.
+- [x] Test the exact snapshot operation between two unrelated transform roots.
 
 ## Slice 6: adapt `vtuber-slidedeck.mms`
 
 Separate the transform that receives the world snapshot from the authored presentation offset:
 
 ```mms
-let slide_offset = T.position(-0.95, 0.15, -1.25)
+let slide_offset = T.position(1, 0.15, 1.0)
     .rotation(0.0, 3.14159, 0.0)
     .scale(0.055, 0.055, 1.0) {
     slide_color
@@ -223,16 +224,16 @@ requiring general TRS multiplication for the first working example.
 
 Checklist:
 
-- [ ] Remove `slide_root` from the avatar/XR component tree.
-- [ ] Split the current authored offset into a child `slide_offset` under an identity
+- [x] Remove `slide_root` from the avatar/XR component tree.
+- [x] Split the current authored offset into a child `slide_offset` under an identity
   `slide_root` placement wrapper.
-- [ ] Bind or otherwise retain the chosen live `presentation_anchor` component object.
-- [ ] On ButtonB, advance the animation and snapshot/place `slide_root` once.
-- [ ] On ButtonA, move backward and snapshot/place `slide_root` once.
-- [ ] Remove repeated local `slide_root.update_transform(...)` calls from all five keyframes.
+- [x] Bind or otherwise retain the chosen live `presentation_anchor` component object.
+- [x] On ButtonB, snapshot/place `slide_root` once and advance the animation.
+- [x] On ButtonA, snapshot/place `slide_root` once and move backward.
+- [x] Remove repeated local `slide_root.update_transform(...)` calls from all five keyframes.
 - [ ] Decide the initial pre-button placement behavior after live world caches are available.
-- [ ] Keep slide content, font size, and color state-complete in every keyframe.
-- [ ] Keep the lightweight `EditorUI` panel selection and unobstructed mirror setup.
+- [x] Keep slide content, font size, and color state-complete in every keyframe.
+- [x] Keep the lightweight `EditorUI` panel selection and unobstructed mirror setup.
 
 ## Deferred phase 2: TRS channel inspection ergonomics
 

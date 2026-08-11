@@ -109,6 +109,10 @@ Today it is responsible for:
 
 `TransformSystem` stays responsible for ordinary transform-tree propagation.
 
+The planned consolidation of ordinary-parent, `TransformParent`, and transform-stream boundary
+resolution is documented in
+[Shared effective transform-parent basis resolution](../draft/effective-transform-parent-basis-resolution.md).
+
 Its relationship to the pipeline system is:
 
 1. walk the normal transform subtree

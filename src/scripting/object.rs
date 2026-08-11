@@ -97,6 +97,12 @@ pub enum Value {
     /// individual channels yet.
     TransformTrs(TransformTrs),
 
+    /// Receiver-bound world-space transform methods. This is a view of an
+    /// existing component, not a cloned or newly registered transform.
+    TransformWorld {
+        id: ComponentId,
+    },
+
     /// A live engine component (already spawned). Holds the engine-side
     /// `ComponentId` and the MMS component type name (e.g. `"Anim"`, `"T"`).
     /// Produced when `let x = CE` is evaluated with a live reply channel

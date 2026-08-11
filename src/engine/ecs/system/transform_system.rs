@@ -26,6 +26,11 @@ pub struct TransformSystem;
 pub enum TransformAccessError {
     NotTransform(ComponentId),
     InvalidWorldMatrix(TransformTrsError),
+    InvalidDesiredTrs(TransformTrsError),
+    UnresolvedTransformParent(ComponentId),
+    TransformStreamOwned(ComponentId),
+    SingularEffectiveParent(ComponentId),
+    InvalidLocalMatrix(TransformTrsError),
 }
 
 impl std::fmt::Display for TransformAccessError {
@@ -37,6 +42,25 @@ impl std::fmt::Display for TransformAccessError {
             Self::InvalidWorldMatrix(error) => {
                 write!(formatter, "invalid world transform: {error}")
             }
+            Self::InvalidDesiredTrs(error) => write!(formatter, "invalid desired TRS: {error}"),
+            Self::UnresolvedTransformParent(component) => write!(
+                formatter,
+                "transform-parent boundary {component:?} has no resolved target"
+            ),
+            Self::TransformStreamOwned(component) => write!(
+                formatter,
+                "world transform for {component:?} is owned by a transform-stream boundary"
+            ),
+            Self::SingularEffectiveParent(component) => write!(
+                formatter,
+                "effective parent of transform {component:?} is not invertible"
+            ),
+            Self::InvalidLocalMatrix(error) => {
+                write!(
+                    formatter,
+                    "world pose cannot be represented as local TRS: {error}"
+                )
+            }
         }
     }
 }
@@ -44,8 +68,13 @@ impl std::fmt::Display for TransformAccessError {
 impl std::error::Error for TransformAccessError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidWorldMatrix(error) => Some(error),
-            Self::NotTransform(_) => None,
+            Self::InvalidWorldMatrix(error)
+            | Self::InvalidDesiredTrs(error)
+            | Self::InvalidLocalMatrix(error) => Some(error),
+            Self::NotTransform(_)
+            | Self::UnresolvedTransformParent(_)
+            | Self::TransformStreamOwned(_)
+            | Self::SingularEffectiveParent(_) => None,
         }
     }
 }
@@ -342,6 +371,59 @@ impl TransformSystem {
         Ok(Self::world_trs(world, component)?.scale)
     }
 
+    /// Convert a desired world-space TRS into the local TRS which produces it.
+    ///
+    /// The effective parent follows the same structural, TransformParent, and
+    /// transform-stream boundaries used by transform propagation. A transform
+    /// directly owned by a stream operator is rejected because changing its
+    /// local value cannot promise a stable world result.
+    pub fn world_to_local_trs(
+        world: &World,
+        transform_stream_system: &TransformStreamSystem,
+        component: ComponentId,
+        desired_world: TransformTrs,
+    ) -> Result<TransformTrs, TransformAccessError> {
+        if world
+            .get_component_by_id_as::<TransformComponent>(component)
+            .is_none()
+        {
+            return Err(TransformAccessError::NotTransform(component));
+        }
+
+        let desired_matrix = desired_world
+            .to_matrix()
+            .map_err(TransformAccessError::InvalidDesiredTrs)?;
+        let mut probe = component;
+        let effective_parent = loop {
+            let Some(parent) = world.parent_of(probe) else {
+                break Self::mat4_identity();
+            };
+            if let Some(transform) = world.get_component_by_id_as::<TransformComponent>(parent) {
+                break transform.transform.matrix_world;
+            }
+            if let Some(transform_parent) =
+                world.get_component_by_id_as::<TransformParentComponent>(parent)
+            {
+                let Some(target) = transform_parent.resolve_target_component(world) else {
+                    return Err(TransformAccessError::UnresolvedTransformParent(parent));
+                };
+                let Some(target_world) = Self::world_model(world, target) else {
+                    return Err(TransformAccessError::UnresolvedTransformParent(parent));
+                };
+                break target_world;
+            }
+            if transform_stream_system.is_transform_stream_boundary(world, parent) {
+                return Err(TransformAccessError::TransformStreamOwned(component));
+            }
+            probe = parent;
+        };
+
+        let inverse_parent = crate::utils::math::mat4_inverse(effective_parent)
+            .ok_or(TransformAccessError::SingularEffectiveParent(component))?;
+        let local_matrix = crate::utils::math::mat4_mul(inverse_parent, desired_matrix);
+        TransformTrs::from_matrix(local_matrix).map_err(TransformAccessError::InvalidLocalMatrix)
+    }
+
     /// Called by TransformComponent when its values change.
     ///
     /// This updates camera translation if the transform has a Camera2D child, and updates
@@ -619,6 +701,47 @@ mod tests {
             TransformTrs::from_matrix(matrix),
             Err(TransformTrsError::ShearNotRepresentable)
         );
+    }
+
+    #[test]
+    fn world_to_local_trs_compensates_for_the_effective_parent() {
+        let mut world = World::default();
+        let parent = world.add_component(
+            TransformComponent::new()
+                .with_position(10.0, 1.0, -2.0)
+                .with_rotation_euler(0.0, std::f32::consts::FRAC_PI_2, 0.0),
+        );
+        let child = world.add_component(TransformComponent::new());
+        world.add_child(parent, child).unwrap();
+        let parent_component = world
+            .get_component_by_id_as_mut::<TransformComponent>(parent)
+            .unwrap();
+        parent_component.transform.matrix_world = parent_component.transform.model;
+
+        let desired = TransformTrs::new([4.0, 5.0, 6.0], [0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
+        let local = TransformSystem::world_to_local_trs(
+            &world,
+            &TransformStreamSystem::new(),
+            child,
+            desired,
+        )
+        .unwrap();
+        let recomposed = crate::utils::math::mat4_mul(
+            world
+                .get_component_by_id_as::<TransformComponent>(parent)
+                .unwrap()
+                .transform
+                .matrix_world,
+            local.to_matrix().unwrap(),
+        );
+        let desired_matrix = desired.to_matrix().unwrap();
+        for (actual, expected) in recomposed
+            .into_iter()
+            .flatten()
+            .zip(desired_matrix.into_iter().flatten())
+        {
+            assert!((actual - expected).abs() < 1e-4, "{actual} != {expected}");
+        }
     }
 }
 

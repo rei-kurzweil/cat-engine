@@ -89,13 +89,14 @@ fn on_xr_button_event(world: &mut World, _emit: &mut dyn SignalEmitter, signal: 
 mod tests {
     use mittens_engine::engine;
     use mittens_engine::engine::ecs::component::{
-        ControllerHand, InputXRGamepadComponent, TextComponent, XrButtonControl,
+        ControllerHand, InputXRGamepadComponent, TextComponent, TransformComponent, XrButtonControl,
     };
-    use mittens_engine::engine::ecs::{EventSignal, Signal, SignalEmitter};
+    use mittens_engine::engine::ecs::system::TransformSystem;
+    use mittens_engine::engine::ecs::{EventSignal, IntentValue, Signal, SignalEmitter};
     use mittens_engine::scripting;
 
     #[test]
-    fn button_b_advances_the_live_mms_scene_to_its_first_slide() {
+    fn button_b_places_a_detached_slide_and_advances_its_content() {
         let world = engine::ecs::World::default();
         let mut universe = engine::Universe::new(world);
         let output = scripting::MeowMeowRunner::eval_with_world_and_assets_at_path(
@@ -175,6 +176,85 @@ mod tests {
                 text == "short form video creators hate it when you use this one simple trick!"
             }),
             "live text values after ButtonB: {texts:?}",
+        );
+
+        let named_transform = |name: &str| {
+            universe
+                .world
+                .all_components()
+                .find(|id| {
+                    universe
+                        .world
+                        .get_component_record(*id)
+                        .is_some_and(|record| record.name == name)
+                        && universe
+                            .world
+                            .get_component_by_id_as::<TransformComponent>(*id)
+                            .is_some()
+                })
+                .unwrap_or_else(|| panic!("transform named {name}"))
+        };
+        let anchor = named_transform("xr_camera_wrapper");
+        let slide_root = named_transform("detached_slide_root");
+        let locomotion_root = named_transform("avatar_locomotion_root");
+
+        fn assert_matrix_near(actual: [[f32; 4]; 4], expected: [[f32; 4]; 4]) {
+            for (actual, expected) in actual
+                .into_iter()
+                .flatten()
+                .zip(expected.into_iter().flatten())
+            {
+                assert!((actual - expected).abs() < 1e-4, "{actual} != {expected}");
+            }
+        }
+
+        let anchor_at_snapshot = TransformSystem::world_model(&universe.world, anchor).unwrap();
+        let slide_at_snapshot = TransformSystem::world_model(&universe.world, slide_root).unwrap();
+        assert_matrix_near(slide_at_snapshot, anchor_at_snapshot);
+
+        universe.command_queue.push_intent_now(
+            locomotion_root,
+            IntentValue::UpdateTransform {
+                component_id: locomotion_root,
+                translation: [2.0, 0.0, 0.0],
+                rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+            },
+        );
+        universe.systems.process_commands(
+            &mut universe.world,
+            &mut universe.visuals,
+            &mut universe.render_assets,
+            &mut universe.command_queue,
+        );
+
+        let moved_anchor = TransformSystem::world_model(&universe.world, anchor).unwrap();
+        let still_detached_slide =
+            TransformSystem::world_model(&universe.world, slide_root).unwrap();
+        assert_ne!(moved_anchor[3], anchor_at_snapshot[3]);
+        assert_matrix_near(still_detached_slide, slide_at_snapshot);
+
+        universe.systems.rx.dispatch_event_handlers(
+            &mut universe.world,
+            &Signal::event(
+                controls,
+                EventSignal::XrButtonDown {
+                    source_component: controls,
+                    hand: ControllerHand::Right,
+                    control: XrButtonControl::ButtonB,
+                    value: 1.0,
+                },
+            ),
+        );
+        universe.systems.process_commands(
+            &mut universe.world,
+            &mut universe.visuals,
+            &mut universe.render_assets,
+            &mut universe.command_queue,
+        );
+        assert_matrix_near(
+            TransformSystem::world_model(&universe.world, slide_root).unwrap(),
+            moved_anchor,
         );
     }
 }

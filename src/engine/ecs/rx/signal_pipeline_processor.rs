@@ -84,6 +84,7 @@ impl SignalPipelineProcessor {
             | IntentValue::RegisterScrolling { component_id }
             | IntentValue::RegisterTransform { component_id }
             | IntentValue::UpdateTransform { component_id, .. }
+            | IntentValue::SetTransformTrs { component_id, .. }
             | IntentValue::RemoveTransform { component_id }
             | IntentValue::RegisterCamera3d { component_id }
             | IntentValue::RegisterCamera2d { component_id }
@@ -226,6 +227,7 @@ impl SignalPipelineProcessor {
             | IntentValue::RegisterScrolling { component_id }
             | IntentValue::RegisterTransform { component_id }
             | IntentValue::UpdateTransform { component_id, .. }
+            | IntentValue::SetTransformTrs { component_id, .. }
             | IntentValue::RemoveTransform { component_id }
             | IntentValue::RegisterCamera3d { component_id }
             | IntentValue::RegisterCamera2d { component_id }

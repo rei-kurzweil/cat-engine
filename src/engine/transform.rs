@@ -3,6 +3,13 @@ use std::fmt;
 /// Column-major 4x4 transform matrix shared by ECS, rendering, XR, and scripting.
 pub type TransformMatrix = [[f32; 4]; 4];
 
+/// Coordinate space used when transferring copied transform values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformSpace {
+    Local,
+    World,
+}
+
 /// Plain copied transform channels with no ECS identity or cached matrices.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TransformTrs {

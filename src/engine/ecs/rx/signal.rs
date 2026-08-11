@@ -603,6 +603,11 @@ pub enum IntentValue {
         rotation_quat_xyzw: [f32; 4],
         scale: [f32; 3],
     },
+    SetTransformTrs {
+        component_id: ComponentId,
+        space: crate::engine::transform::TransformSpace,
+        value: crate::engine::transform::TransformTrs,
+    },
     RemoveTransform {
         component_id: ComponentId,
     },
@@ -939,6 +944,7 @@ impl IntentValue {
             IntentValue::RegisterTransform { .. } => "register_transform",
             IntentValue::UpdateTransformWorld { .. } => "update_transform_world",
             IntentValue::UpdateTransform { .. } => "update_transform",
+            IntentValue::SetTransformTrs { .. } => "set_transform_trs",
             IntentValue::RemoveTransform { .. } => "remove_transform",
 
             IntentValue::RegisterCamera3d { .. } => "register_camera3d",

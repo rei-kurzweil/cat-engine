@@ -667,6 +667,16 @@ Transform {}
 target
 ```
 
+#### `SetTransformTrs`
+<!-- catalog:signal source="SetTransformTrs" kind="intent" mms="live-api" -->
+**Intent — Available through a live method/builtin.** Transfers one complete copied TRS value into a transform in explicitly selected local or world space. World-space values are converted through the target's effective parent basis when the intent executes; conversion failure leaves the target unchanged. MMS currently emits this through `transform.world.trs(value)`, while the local `transform.trs(value)` path retains the established `UpdateTransform` intent. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS method registry](../../../src/scripting/component_method_registry.rs).
+```mms parse-only
+let source = Transform {}
+let target = Transform {}
+let pose = source.world.trs()
+target.world.trs(pose)
+```
+
 #### `RemoveTransform`
 <!-- catalog:signal source="RemoveTransform" kind="intent" mms="component-lifecycle" -->
 **Intent — Indirectly emitted by component lifecycle.** Requests the `RemoveTransform` operation. Component creation, initialization, teardown, or topology work emits this intent indirectly; user MMS does not author the enum variant. It is scoped to the requesting/affected component and executes at an explicit drain point; `AtBeat` delays eligibility when the producer supplies timed metadata. Related components and systems are the targets named by the variant; see executor matching for exact effects. Sources: [intent definition](../../../src/engine/ecs/rx/signal.rs), [intent interpretation](../../../src/engine/ecs/rx/intent_executor.rs), [mutation execution](../../../src/engine/ecs/rx/mutation_executor.rs), and [MMS component registry](../../../src/scripting/component_registry.rs).
