@@ -8,7 +8,7 @@ use crate::engine::ecs::system::CollisionSystem;
 use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformStreamSystem;
 use crate::engine::graphics::VisualWorld;
-use crate::engine::graphics::primitives::TransformMatrix;
+use crate::engine::transform::{TransformMatrix, TransformTrs, TransformTrsError};
 use crate::engine::user_input::InputState;
 
 /// System responsible for
@@ -21,6 +21,34 @@ use crate::engine::user_input::InputState;
 /// - Instances in `VisualWorld` are created per `RenderableComponent` under transforms.
 #[derive(Debug, Default)]
 pub struct TransformSystem;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformAccessError {
+    NotTransform(ComponentId),
+    InvalidWorldMatrix(TransformTrsError),
+}
+
+impl std::fmt::Display for TransformAccessError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotTransform(component) => {
+                write!(formatter, "component {component:?} is not a transform")
+            }
+            Self::InvalidWorldMatrix(error) => {
+                write!(formatter, "invalid world transform: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TransformAccessError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidWorldMatrix(error) => Some(error),
+            Self::NotTransform(_) => None,
+        }
+    }
+}
 
 impl TransformSystem {
     pub fn new() -> Self {
@@ -265,6 +293,55 @@ impl TransformSystem {
         Some([p[0], p[1], p[2]])
     }
 
+    fn strict_world_model(
+        world: &World,
+        component: ComponentId,
+    ) -> Result<TransformMatrix, TransformAccessError> {
+        world
+            .get_component_by_id_as::<TransformComponent>(component)
+            .map(|transform| transform.transform.matrix_world)
+            .ok_or(TransformAccessError::NotTransform(component))
+    }
+
+    /// Read the cached world-space translation of an actual transform component.
+    pub fn world_translation(
+        world: &World,
+        component: ComponentId,
+    ) -> Result<[f32; 3], TransformAccessError> {
+        let matrix = Self::strict_world_model(world, component)?;
+        let translation = [matrix[3][0], matrix[3][1], matrix[3][2]];
+        if translation.into_iter().all(f32::is_finite) {
+            Ok(translation)
+        } else {
+            Err(TransformAccessError::InvalidWorldMatrix(
+                TransformTrsError::NonFiniteValue,
+            ))
+        }
+    }
+
+    /// Decompose one coherent cached world matrix into strict TRS channels.
+    pub fn world_trs(
+        world: &World,
+        component: ComponentId,
+    ) -> Result<TransformTrs, TransformAccessError> {
+        TransformTrs::from_matrix(Self::strict_world_model(world, component)?)
+            .map_err(TransformAccessError::InvalidWorldMatrix)
+    }
+
+    pub fn world_rotation_quat_xyzw(
+        world: &World,
+        component: ComponentId,
+    ) -> Result<[f32; 4], TransformAccessError> {
+        Ok(Self::world_trs(world, component)?.rotation_quat_xyzw)
+    }
+
+    pub fn world_scale(
+        world: &World,
+        component: ComponentId,
+    ) -> Result<[f32; 3], TransformAccessError> {
+        Ok(Self::world_trs(world, component)?.scale)
+    }
+
     /// Called by TransformComponent when its values change.
     ///
     /// This updates camera translation if the transform has a Camera2D child, and updates
@@ -425,13 +502,14 @@ impl TransformSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::TransformSystem;
+    use super::{TransformAccessError, TransformSystem};
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{TransformComponent, TransformParentComponent};
     use crate::engine::ecs::system::{
         CameraSystem, CollisionSystem, LightSystem, TransformStreamSystem,
     };
     use crate::engine::graphics::VisualWorld;
+    use crate::engine::transform::{TransformTrs, TransformTrsError};
 
     #[test]
     fn transform_parent_updates_cross_tree_child_when_target_changes() {
@@ -468,6 +546,78 @@ mod tests {
         assert_eq!(
             TransformSystem::world_position(&world, child),
             Some([1.0, 2.0, 0.0])
+        );
+    }
+
+    #[test]
+    fn strict_world_getters_read_only_transform_components() {
+        let mut world = World::default();
+        let root = world.add_component(
+            TransformComponent::new()
+                .with_position(1.0, 2.0, 3.0)
+                .with_rotation_quat([
+                    0.0,
+                    std::f32::consts::FRAC_1_SQRT_2,
+                    0.0,
+                    std::f32::consts::FRAC_1_SQRT_2,
+                ])
+                .with_scale(2.0, 3.0, 4.0),
+        );
+        let root_transform = world
+            .get_component_by_id_as_mut::<TransformComponent>(root)
+            .unwrap();
+        root_transform.transform.matrix_world = root_transform.transform.model;
+        let non_transform = world.add_component(TransformParentComponent::new());
+
+        assert_eq!(
+            TransformSystem::world_translation(&world, root),
+            Ok([1.0, 2.0, 3.0])
+        );
+        let world_trs = TransformSystem::world_trs(&world, root).unwrap();
+        assert_eq!(world_trs.translation, [1.0, 2.0, 3.0]);
+        for (actual, expected) in world_trs.scale.into_iter().zip([2.0, 3.0, 4.0]) {
+            assert!((actual - expected).abs() < 1e-5);
+        }
+        let world_scale = TransformSystem::world_scale(&world, root).unwrap();
+        for (actual, expected) in world_scale.into_iter().zip([2.0, 3.0, 4.0]) {
+            assert!((actual - expected).abs() < 1e-5);
+        }
+        assert_eq!(
+            TransformSystem::world_rotation_quat_xyzw(&world, root),
+            Ok(world_trs.rotation_quat_xyzw)
+        );
+        assert_eq!(
+            TransformSystem::world_trs(&world, non_transform),
+            Err(TransformAccessError::NotTransform(non_transform))
+        );
+    }
+
+    #[test]
+    fn strict_world_trs_rejects_shear_but_translation_remains_exact() {
+        let mut world = World::default();
+        let transform = world.add_component(TransformComponent::new());
+        let matrix = {
+            let component = world
+                .get_component_by_id_as_mut::<TransformComponent>(transform)
+                .unwrap();
+            component.transform.matrix_world[1][0] = 0.25;
+            component.transform.matrix_world[3] = [4.0, 5.0, 6.0, 1.0];
+            component.transform.matrix_world
+        };
+
+        assert_eq!(
+            TransformSystem::world_translation(&world, transform),
+            Ok([4.0, 5.0, 6.0])
+        );
+        assert_eq!(
+            TransformSystem::world_trs(&world, transform),
+            Err(TransformAccessError::InvalidWorldMatrix(
+                TransformTrsError::ShearNotRepresentable
+            ))
+        );
+        assert_eq!(
+            TransformTrs::from_matrix(matrix),
+            Err(TransformTrsError::ShearNotRepresentable)
         );
     }
 }

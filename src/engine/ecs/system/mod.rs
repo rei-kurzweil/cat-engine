@@ -158,7 +158,7 @@ pub use text_system::TextSystem;
 pub use texture_system::TextureSystem;
 pub use toggle_system::ToggleSystem;
 pub use transform_stream_system::TransformStreamSystem;
-pub use transform_system::TransformSystem;
+pub use transform_system::{TransformAccessError, TransformSystem};
 pub use transition_system::TransitionSystem;
 pub use vr_types::{XrGamepadState, XrHandGamepadState, XrInputState};
 

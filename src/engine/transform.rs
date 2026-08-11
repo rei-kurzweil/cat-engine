@@ -15,6 +15,10 @@ pub struct TransformTrs {
 pub enum TransformTrsError {
     NonFiniteValue,
     DegenerateQuaternion,
+    NonAffineMatrix,
+    SingularScale,
+    ReflectedMatrix,
+    ShearNotRepresentable,
 }
 
 impl fmt::Display for TransformTrsError {
@@ -23,6 +27,14 @@ impl fmt::Display for TransformTrsError {
             Self::NonFiniteValue => f.write_str("transform TRS contains a non-finite value"),
             Self::DegenerateQuaternion => {
                 f.write_str("transform TRS contains a degenerate rotation quaternion")
+            }
+            Self::NonAffineMatrix => f.write_str("transform matrix is not affine"),
+            Self::SingularScale => f.write_str("transform matrix has a singular scale axis"),
+            Self::ReflectedMatrix => {
+                f.write_str("transform matrix contains a reflection or negative determinant")
+            }
+            Self::ShearNotRepresentable => {
+                f.write_str("transform matrix contains shear that TRS cannot represent")
             }
         }
     }
@@ -111,6 +123,84 @@ impl TransformTrs {
             [tx, ty, tz, 1.0],
         ])
     }
+
+    /// Decompose a finite affine matrix into canonical TRS channels.
+    ///
+    /// This strict conversion rejects singular axes, shear, and matrices with a
+    /// negative determinant. An even number of negative input scale axes is
+    /// indistinguishable from a rotation and is therefore canonicalized to
+    /// positive scale with the equivalent rotation.
+    pub fn from_matrix(matrix: TransformMatrix) -> Result<Self, TransformTrsError> {
+        const AFFINE_EPSILON: f32 = 1e-5;
+        const SCALE_EPSILON: f32 = 1e-7;
+        const ORTHOGONAL_EPSILON: f32 = 1e-4;
+
+        if !matrix.into_iter().flatten().all(f32::is_finite) {
+            return Err(TransformTrsError::NonFiniteValue);
+        }
+        if matrix[0][3].abs() > AFFINE_EPSILON
+            || matrix[1][3].abs() > AFFINE_EPSILON
+            || matrix[2][3].abs() > AFFINE_EPSILON
+            || (matrix[3][3] - 1.0).abs() > AFFINE_EPSILON
+        {
+            return Err(TransformTrsError::NonAffineMatrix);
+        }
+
+        fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        }
+        fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        }
+        fn length(value: [f32; 3]) -> f32 {
+            dot(value, value).sqrt()
+        }
+        fn divided(value: [f32; 3], divisor: f32) -> [f32; 3] {
+            [value[0] / divisor, value[1] / divisor, value[2] / divisor]
+        }
+
+        let columns = [
+            [matrix[0][0], matrix[0][1], matrix[0][2]],
+            [matrix[1][0], matrix[1][1], matrix[1][2]],
+            [matrix[2][0], matrix[2][1], matrix[2][2]],
+        ];
+        let scale = columns.map(length);
+        if scale.into_iter().any(|axis| axis <= SCALE_EPSILON) {
+            return Err(TransformTrsError::SingularScale);
+        }
+
+        let basis = [
+            divided(columns[0], scale[0]),
+            divided(columns[1], scale[1]),
+            divided(columns[2], scale[2]),
+        ];
+        if dot(basis[0], basis[1]).abs() > ORTHOGONAL_EPSILON
+            || dot(basis[0], basis[2]).abs() > ORTHOGONAL_EPSILON
+            || dot(basis[1], basis[2]).abs() > ORTHOGONAL_EPSILON
+        {
+            return Err(TransformTrsError::ShearNotRepresentable);
+        }
+        if dot(cross(basis[0], basis[1]), basis[2]) <= 0.0 {
+            return Err(TransformTrsError::ReflectedMatrix);
+        }
+
+        let rotation_matrix = [
+            [basis[0][0], basis[0][1], basis[0][2], 0.0],
+            [basis[1][0], basis[1][1], basis[1][2], 0.0],
+            [basis[2][0], basis[2][1], basis[2][2], 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+
+        Ok(Self {
+            translation: [matrix[3][0], matrix[3][1], matrix[3][2]],
+            rotation_quat_xyzw: crate::utils::math::mat_to_quat(rotation_matrix),
+            scale,
+        })
+    }
 }
 
 impl Default for TransformTrs {
@@ -165,6 +255,67 @@ mod tests {
         assert_eq!(
             degenerate.normalized(),
             Err(TransformTrsError::DegenerateQuaternion)
+        );
+    }
+
+    fn assert_matrix_close(actual: [[f32; 4]; 4], expected: [[f32; 4]; 4]) {
+        for column in 0..4 {
+            for row in 0..4 {
+                assert!(
+                    (actual[column][row] - expected[column][row]).abs() < 1e-5,
+                    "matrix mismatch at [{column}][{row}]: {} != {}",
+                    actual[column][row],
+                    expected[column][row]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn matrix_decomposition_round_trips_canonical_trs() {
+        let source = TransformTrs::new(
+            [2.0, -3.0, 4.0],
+            [
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ],
+            [2.0, 3.0, 4.0],
+        );
+        let matrix = source.to_matrix().unwrap();
+        let decomposed = TransformTrs::from_matrix(matrix).unwrap();
+
+        assert_eq!(decomposed.translation, source.translation);
+        for axis in 0..3 {
+            assert!((decomposed.scale[axis] - source.scale[axis]).abs() < 1e-5);
+        }
+        assert_matrix_close(decomposed.to_matrix().unwrap(), matrix);
+    }
+
+    #[test]
+    fn matrix_decomposition_rejects_singular_reflected_and_sheared_matrices() {
+        let singular = TransformTrs::new([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0, 0.0, 1.0])
+            .to_matrix()
+            .unwrap();
+        assert_eq!(
+            TransformTrs::from_matrix(singular),
+            Err(TransformTrsError::SingularScale)
+        );
+
+        let reflected = TransformTrs::new([0.0; 3], [0.0, 0.0, 0.0, 1.0], [-1.0, 1.0, 1.0])
+            .to_matrix()
+            .unwrap();
+        assert_eq!(
+            TransformTrs::from_matrix(reflected),
+            Err(TransformTrsError::ReflectedMatrix)
+        );
+
+        let mut sheared = TransformTrs::IDENTITY.to_matrix().unwrap();
+        sheared[1][0] = 0.25;
+        assert_eq!(
+            TransformTrs::from_matrix(sheared),
+            Err(TransformTrsError::ShearNotRepresentable)
         );
     }
 }

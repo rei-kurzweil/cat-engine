@@ -1,6 +1,7 @@
 # Transform component accessors: Mittens engine API
 
-Status: in progress; shared value/local-read foundation implemented, world access and writes pending.
+Status: in progress; shared values, local reads, strict decomposition, and world reads implemented;
+writes pending.
 
 Related:
 
@@ -415,6 +416,12 @@ Implementation result:
 - [x] Added local `TransformComponent` translation, quaternion rotation, scale, and TRS getters.
 - [x] Added focused value, conversion, no-component-clone, and transform-stream compatibility
   tests.
+- [x] Added strict matrix-to-TRS decomposition. Singular scale, shear, non-affine matrices, and
+  negative-determinant/reflected matrices return errors; even negative-axis pairs canonicalize to
+  their equivalent positive-scale rotation.
+- [x] Added strict transform-only world translation, rotation, scale, and TRS getters on
+  `TransformSystem`. Translation remains readable from a sheared matrix; the decomposed getters
+  reject it.
 
 ## Open questions
 
