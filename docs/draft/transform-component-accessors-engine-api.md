@@ -5,6 +5,7 @@ writes pending.
 
 Related:
 
+- [VTuber slide-deck detached world-TRS implementation](../task/vtuber-slidedeck-detached-world-trs.md)
 - [MMS transform component accessors](../../crates/meow-meow-script/docs/draft/transform-component-accessors.md)
 - [Transform mutation API v2](transform-mutation-api-v2.md)
 - [Transform pipeline cleanup checklist](../task/transform-pipeline-cleanup-checklist.md)

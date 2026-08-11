@@ -4,6 +4,7 @@ Status: draft; API shape proposed, implementation not started.
 
 Related:
 
+- [VTuber slide-deck detached world-TRS implementation](../../../../docs/task/vtuber-slidedeck-detached-world-trs.md)
 - [Mittens engine transform accessor API](../../../../docs/draft/transform-component-accessors-engine-api.md)
 - [Type-expression grammar and AST](type-expressions.md)
 - [Compound MMS types](compound-types.md)

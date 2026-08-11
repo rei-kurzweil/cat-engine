@@ -4,6 +4,7 @@ Status: in progress; hands-on XR verification required.
 
 Related:
 
+- [Detached world-TRS implementation tracker](vtuber-slidedeck-detached-world-trs.md)
 - [Manual animation keyframe stepping and XR slide controls](manual-animation-keyframe-stepping-and-xr-slide-controls.md)
 - [Transform parent component-ref routing](transform-parent-component-ref-routing.md)
 - [Transform pipeline cleanup checklist](transform-pipeline-cleanup-checklist.md)
