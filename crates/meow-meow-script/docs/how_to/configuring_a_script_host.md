@@ -119,6 +119,10 @@ snapshots, component values become opaque `ComponentHandle`s, and callbacks
 become opaque `CallbackHandle`s. A host should not retain MMS heap objects or
 closure bodies.
 
+The current API only gives components privileged live receiver identity. The proposed general
+model for non-component resources and component-bound sub-receivers is documented in
+[Host values, resources, and bound receivers](../draft/host-values-resources-and-bound-receivers.md).
+
 ## Create a session and evaluate
 
 The current synchronous session API temporarily requires a capability summary

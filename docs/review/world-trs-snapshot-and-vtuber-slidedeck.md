@@ -32,6 +32,12 @@ language-runtime feature, so a second review document in that crate would imply 
 not exist in the implementation. The existing crate draft remains useful for the eventual general
 accessor syntax, but the concrete `.world` behavior belongs to the Mittens host.
 
+The synthetic component-type dispatch used by this first implementation should eventually migrate
+to the crate-level
+[host values, resources, and bound receivers](../../crates/meow-meow-script/docs/draft/host-values-resources-and-bound-receivers.md)
+protocol. That proposal generalizes `.world` without making bound interfaces or non-component
+resources pretend to be ECS components.
+
 ## Outcome
 
 The implemented semantics match the intended snapshot model:

@@ -1,10 +1,11 @@
 # Transform component accessors
 
-Status: in progress; engine-side values/reads and opaque local MMS `trs()` pass-through exist;
-world mutation and the receiver-bound `world` table remain.
+Status: in progress; opaque local/world MMS `trs()` transfer and the receiver-bound `world` view
+exist in the Mittens host. Granular accessors and generic host-receiver migration remain.
 
 Related:
 
+- [Host values, resources, and bound receivers](host-values-resources-and-bound-receivers.md)
 - [VTuber slide-deck detached world-TRS implementation](../../../../docs/task/vtuber-slidedeck-detached-world-trs.md)
 - [Mittens engine transform accessor API](../../../../docs/draft/transform-component-accessors-engine-api.md)
 - [Type-expression grammar and AST](type-expressions.md)
@@ -137,8 +138,17 @@ transform.world.rotation(replacement_rotation)
 ```
 
 The first expression copies out a quaternion value. The second emits a world-space mutation for
-the already-bound `transform`. The table itself is not a first-class transform value and should
-not be storable independently of its receiver.
+the already-bound `transform`. The table is not a first-class transform value, but the general
+[bound-receiver model](host-values-resources-and-bound-receivers.md) permits storing the interface
+itself:
+
+```mms
+let world = transform.world
+world.rotation()
+```
+
+That stored receiver continues to target the same generation-checked transform. It does not copy
+transform channels, and it becomes stale rather than silently retargeting if the owner is removed.
 
 Callable spellings are deliberately excluded:
 
