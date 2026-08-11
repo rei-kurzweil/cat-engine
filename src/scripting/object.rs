@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::engine::ecs::ComponentId;
+use crate::engine::transform::TransformTrs;
 use crate::scripting::ast::BlockStatement;
 use crate::scripting::block_effect_analyzer::BlockEffectAnalysis;
 
@@ -89,6 +90,12 @@ pub enum Value {
     String(String),
     Array(Vec<Value>),
     Map(HashMap<String, Value>),
+
+    /// Copied transform channels with no component identity or source
+    /// relationship. Initially opaque to MMS: scripts may store/copy this
+    /// value and pass it between `trs()` accessors, but cannot inspect its
+    /// individual channels yet.
+    TransformTrs(TransformTrs),
 
     /// A live engine component (already spawned). Holds the engine-side
     /// `ComponentId` and the MMS component type name (e.g. `"Anim"`, `"T"`).

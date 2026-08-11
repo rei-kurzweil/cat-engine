@@ -17,7 +17,10 @@ pub(crate) fn supports_component_method(component_type: &str, method: &str) -> b
     ) || (matches!(
         component_type,
         "T" | "Transform" | "TransformComponent" | "transform"
-    ) && matches!(method, "update_transform" | "look_at" | "translation"))
+    ) && matches!(
+        method,
+        "update_transform" | "look_at" | "translation" | "trs"
+    ))
         || (matches!(
             component_type,
             "PoseCapturePose" | "PoseCapturePoseComponent" | "pose_capture_pose"
@@ -208,6 +211,28 @@ pub(crate) fn invoke_component_method(
                     .map(|value| Value::Number(value as f64))
                     .collect(),
             ))
+        }
+        ("T" | "Transform" | "TransformComponent" | "transform", "trs") => {
+            let current = world
+                .get_component_by_id_as::<TransformComponent>(id)
+                .ok_or_else(|| "trs(): not a TransformComponent".to_string())?
+                .trs();
+
+            match args {
+                [] => Ok(Value::TransformTrs(current)),
+                [Value::TransformTrs(replacement)] => {
+                    emit_intent(IntentValue::UpdateTransform {
+                        component_id: id,
+                        translation: replacement.translation,
+                        rotation_quat_xyzw: replacement.rotation_quat_xyzw,
+                        scale: replacement.scale,
+                    });
+                    Ok(Value::Null)
+                }
+                other => Err(format!(
+                    "trs(): expected no arguments for a getter or one TransformTrs value for a setter, got {other:?}"
+                )),
+            }
         }
         ("T" | "Transform" | "TransformComponent" | "transform", "update_transform") => {
             let [translation, rotation_euler, scale] = match args {
@@ -473,6 +498,58 @@ mod tests {
             id,
             component_type: ty.to_string(),
         }
+    }
+
+    #[test]
+    fn transform_trs_is_an_opaque_copied_value_and_setter_emits_existing_update_intent() {
+        let mut world = World::default();
+        let source = world.add_component(
+            TransformComponent::new()
+                .with_position(1.0, 2.0, 3.0)
+                .with_rotation_quat([0.0, 0.0, 0.70710677, 0.70710677])
+                .with_scale(4.0, 5.0, 6.0),
+        );
+        let target = world.add_component(TransformComponent::new());
+        let component_count = world.all_components().count();
+
+        let pose = invoke_component_method(&mut world, source, "Transform", "trs", &[], |_| {})
+            .expect("local TRS getter");
+        assert_eq!(
+            pose,
+            Value::TransformTrs(crate::engine::transform::TransformTrs::new(
+                [1.0, 2.0, 3.0],
+                [0.0, 0.0, 0.70710677, 0.70710677],
+                [4.0, 5.0, 6.0],
+            ))
+        );
+
+        let mut emitted = Vec::new();
+        invoke_component_method(&mut world, target, "Transform", "trs", &[pose], |intent| {
+            emitted.push(intent)
+        })
+        .expect("local TRS setter");
+
+        assert!(matches!(
+            emitted.as_slice(),
+            [IntentValue::UpdateTransform {
+                component_id,
+                translation: [1.0, 2.0, 3.0],
+                rotation_quat_xyzw: [0.0, 0.0, 0.70710677, 0.70710677],
+                scale: [4.0, 5.0, 6.0],
+            }] if *component_id == target
+        ));
+        assert_eq!(world.all_components().count(), component_count);
+
+        let error = invoke_component_method(
+            &mut world,
+            target,
+            "Transform",
+            "trs",
+            &[Value::Array(Vec::new())],
+            |_| {},
+        )
+        .expect_err("an array is not an opaque TransformTrs value");
+        assert!(error.contains("one TransformTrs value"), "{error}");
     }
 
     #[test]

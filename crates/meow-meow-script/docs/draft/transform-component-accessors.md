@@ -1,6 +1,7 @@
 # Transform component accessors
 
-Status: draft; API shape proposed, implementation not started.
+Status: in progress; engine-side values/reads and opaque local MMS `trs()` pass-through exist;
+world mutation and the receiver-bound `world` table remain.
 
 Related:
 

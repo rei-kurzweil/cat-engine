@@ -40,6 +40,7 @@ pub fn format_repl_value(value: &Value, world: &World) -> Result<String, String>
         Value::Object(id) => id
             .with_map(|map| format_repl_value(&Value::Map(map.clone()), world))
             .ok_or_else(|| "<stale object>".to_string())?,
+        Value::TransformTrs(_) => Ok("<TransformTrs>".into()),
         Value::Function { .. } => Ok("<fn>".into()),
         Value::Module { .. } => Ok("<module>".into()),
         Value::BuiltinTable(BuiltinTableKind::Math) => Ok("<builtin Math>".into()),

@@ -945,6 +945,84 @@ fn live_eval_imported_factory_component_supports_top_level_update_transform() {
 }
 
 #[test]
+fn live_eval_local_trs_value_round_trip_is_copied_and_quaternion_preserving() {
+    let src = r##"
+        let source = T.position(1.0, 2.0, 3.0)
+            .rotation_quat(0.0, 0.0, 0.70710677, 0.70710677)
+            .scale(4.0, 5.0, 6.0) {
+            name = "trs_source"
+        }
+        let target = T {
+            name = "trs_target"
+        }
+
+        source
+        target
+
+        let pose = source.trs()
+        target.trs(pose)
+
+        source.update_transform(
+            [9.0, 8.0, 7.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0]
+        )
+    "##;
+
+    let mut world = World::default();
+    let mut systems = crate::engine::ecs::system::SystemWorld::default();
+    let mut visuals = VisualWorld::default();
+    let mut render_assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+
+    let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut systems.rx, &mut queue);
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+    assert_eq!(
+        world.all_components().count(),
+        2,
+        "the copied TRS value must not register a component"
+    );
+
+    for intent in out.intents {
+        queue.push_intent_now(ComponentId::default(), intent);
+    }
+    systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+
+    let source = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("trs_source"))
+        .expect("source transform");
+    let target = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("trs_target"))
+        .expect("target transform");
+    let source = world
+        .get_component_by_id_as::<TransformComponent>(source)
+        .expect("source TransformComponent")
+        .trs();
+    let target = world
+        .get_component_by_id_as::<TransformComponent>(target)
+        .expect("target TransformComponent")
+        .trs();
+
+    assert_eq!(source.translation, [9.0, 8.0, 7.0]);
+    assert_eq!(source.rotation_quat_xyzw, [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(source.scale, [1.0, 1.0, 1.0]);
+
+    assert_eq!(target.translation, [1.0, 2.0, 3.0]);
+    assert_eq!(
+        target.rotation_quat_xyzw,
+        [0.0, 0.0, 0.70710677, 0.70710677]
+    );
+    assert_eq!(target.scale, [4.0, 5.0, 6.0]);
+    assert_eq!(
+        world.all_components().count(),
+        2,
+        "applying the copied TRS must not register a component"
+    );
+}
+
+#[test]
 fn live_eval_math_builtin_table_supports_trig_and_rounding() {
     let src = r##"
         assert(Math.abs(Math.sin(Math.pi / 2.0) - 1.0) < 0.0001, "expected sin(pi/2) ~= 1")

@@ -2933,6 +2933,7 @@ fn value_display(val: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Value::TransformTrs(_) => "<TransformTrs>".into(),
         Value::Function { .. } => "<fn>".into(),
         Value::ComponentObject { id, component_type } => format!("<{}:{:?}>", component_type, id),
         Value::ComponentExpr(_) => "<ce>".into(),

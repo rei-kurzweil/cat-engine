@@ -1,6 +1,7 @@
 # VTuber slide-deck detached world-TRS implementation
 
-Status: planned; Rust TRS values and strict world getters exist, mutation and MMS binding remain.
+Status: in progress; opaque MMS TRS pass-through and local `trs()` round trip implemented, world
+mutation and binding remain.
 
 Related:
 
@@ -65,10 +66,11 @@ Implemented on the Mittens Engine side:
 - [x] Strict transform-only `TransformSystem` world translation, rotation, scale, and TRS getters.
 - [x] Focused Rust tests for those value and read operations.
 
-Not yet implemented:
+MMS/local mutation progress:
 
-- [ ] An MMS TRS runtime value.
-- [ ] Local MMS `rotation()`, `scale()`, or `trs()` getter/setter bindings.
+- [x] An opaque MMS TRS runtime value.
+- [x] Local MMS `trs()` getter/setter pass-through binding.
+- [ ] Local MMS `rotation()` and `scale()` getter/setter bindings.
 - [ ] Effective-parent basis resolution for world writes.
 - [ ] World-to-local TRS conversion.
 - [ ] A space-aware transform mutation intent.
@@ -101,12 +103,12 @@ does not mean the engine avoids matrix decomposition.
 
 Checklist:
 
-- [ ] Add the runtime value and debug/error formatting.
-- [ ] Convert engine `TransformTrs` to/from the MMS value without Euler conversion.
-- [ ] Make the value copy-by-value with no component identity or source reference.
-- [ ] Allow it to pass directly from `trs()` getter to `trs(value)` setter.
-- [ ] Reject other value shapes with a useful expected-TRS error.
-- [ ] Test quaternion-preserving pass-through, copies, and useful errors.
+- [x] Add the runtime value and debug/error formatting.
+- [x] Convert engine `TransformTrs` to/from the MMS value without Euler conversion.
+- [x] Make the value copy-by-value with no component identity or source reference.
+- [x] Allow it to pass directly from `trs()` getter to `trs(value)` setter.
+- [x] Reject other value shapes with a useful expected-TRS error.
+- [x] Test quaternion-preserving pass-through, copies, and useful errors.
 
 Explicitly defer general MMS channel inspection from the first working slide-deck path. That keeps
 the initial value contract small and avoids prematurely choosing between tuple, array, and record
@@ -123,15 +125,17 @@ target.trs(pose)
 
 Checklist:
 
-- [ ] Bind zero-argument local `translation()`, `rotation()`, `scale()`, and `trs()` getters.
-- [ ] Bind the corresponding one-argument local setters.
-- [ ] Route setters through one validated transform mutation path rather than directly changing
+- [x] Bind zero-argument local `trs()` and the already-existing `translation()` getter.
+- [ ] Bind zero-argument local `rotation()` and `scale()` getters.
+- [x] Bind the one-argument local `trs()` setter.
+- [ ] Bind granular one-argument translation, rotation, and scale setters.
+- [x] Route the TRS setter through the existing transform mutation path rather than directly changing
   renderer caches from the evaluator.
 - [ ] Preserve all channels during granular setters by applying a coherent partial patch.
-- [ ] Preserve quaternion rotation without converting through Euler angles.
-- [ ] Test that the target changes, the source does not, no component is registered, and moving
+- [x] Preserve quaternion rotation without converting through Euler angles.
+- [x] Test that the target changes, the source does not, no component is registered, and moving
   the source later has no effect on the target.
-- [ ] Keep the existing three-argument `update_transform` behavior working in current examples.
+- [x] Keep the existing three-argument `update_transform` behavior working in current examples.
 
 The opaque `TransformTrs` pass-through is sufficient for the `trs()` round trip. Granular
 translation/rotation/scale methods use their existing vector-array shapes and do not require the
@@ -278,8 +282,8 @@ wrapper. Hardware calibration decides the final source.
 
 ## Automated verification
 
-- [ ] Unit-test opaque `TransformTrs` MMS conversion and direct getter-to-setter pass-through.
-- [ ] Add an evaluator test for local `source.trs()` → `target.trs(pose)`.
+- [x] Unit-test opaque `TransformTrs` MMS conversion and direct getter-to-setter pass-through.
+- [x] Add an evaluator test for local `source.trs()` → `target.trs(pose)`.
 - [ ] Add TransformSystem world-to-local coverage listed in slice 3.
 - [ ] Add an evaluator test for `source.world.trs()` → `target.world.trs(pose)` between unrelated
   roots.
