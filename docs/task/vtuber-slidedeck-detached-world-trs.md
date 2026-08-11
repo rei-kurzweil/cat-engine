@@ -78,7 +78,7 @@ Not yet implemented:
 The existing Rust `IntentValue::UpdateTransformWorld` is only a propagation/cache refresh signal.
 It is not a world-space setter and must not be repurposed or exposed as one.
 
-## Slice 1: first-class MMS TRS value
+## Slice 1: opaque first-class MMS TRS value
 
 Represent a copied pose without allocating three nested general-purpose tables. Tentative runtime
 shape:
@@ -87,35 +87,30 @@ shape:
 Value::TransformTrs(TransformTrs)
 ```
 
-Expose a stable three-channel indexing contract:
+The first slide-deck implementation does not need to inspect or decompose this value in MMS. It
+only needs lossless pass-through:
 
 ```mms
-pose[0] // translation: [f32; 3]
-pose[1] // rotation quaternion xyzw: [f32; 4]
-pose[2] // scale: [f32; 3]
+let pose = presentation_anchor.world.trs()
+slide_root.world.trs(pose)
 ```
 
-Named reads are desirable if they remain a property of this specialized copied value rather than
-pretending every MMS array is a JavaScript array/object hybrid:
-
-```mms
-pose.translation
-pose.rotation
-pose.scale
-```
-
-Current MMS arrays support numeric indexing and tables/objects support string-key/dot reads; one
-general value does not currently provide both. Keep generic array/table semantics separate while
-allowing the specialized TRS value to support both forms if implementation remains small.
+The engine still decomposes the anchor's cached world matrix into `TransformTrs` when servicing
+the getter. "Opaque in MMS" means the script cannot yet split that copied DTO into channels; it
+does not mean the engine avoids matrix decomposition.
 
 Checklist:
 
 - [ ] Add the runtime value and debug/error formatting.
 - [ ] Convert engine `TransformTrs` to/from the MMS value without Euler conversion.
-- [ ] Implement numeric channel reads and decide whether named reads land in the same slice.
 - [ ] Make the value copy-by-value with no component identity or source reference.
-- [ ] Reject malformed arrays/tables at host boundaries rather than silently filling channels.
-- [ ] Test indexing, named reads if supported, quaternion order, copies, and useful errors.
+- [ ] Allow it to pass directly from `trs()` getter to `trs(value)` setter.
+- [ ] Reject other value shapes with a useful expected-TRS error.
+- [ ] Test quaternion-preserving pass-through, copies, and useful errors.
+
+Explicitly defer general MMS channel inspection from the first working slide-deck path. That keeps
+the initial value contract small and avoids prematurely choosing between tuple, array, and record
+semantics.
 
 ## Slice 2: local MMS getter/setter round trip
 
@@ -137,6 +132,10 @@ Checklist:
 - [ ] Test that the target changes, the source does not, no component is registered, and moving
   the source later has no effect on the target.
 - [ ] Keep the existing three-argument `update_transform` behavior working in current examples.
+
+The opaque `TransformTrs` pass-through is sufficient for the `trs()` round trip. Granular
+translation/rotation/scale methods use their existing vector-array shapes and do not require the
+phase-2 TRS indexing decision.
 
 ## Slice 3: effective parent and world-to-local conversion
 
@@ -231,6 +230,37 @@ Checklist:
 - [ ] Keep slide content, font size, and color state-complete in every keyframe.
 - [ ] Keep the lightweight `EditorUI` panel selection and unobstructed mirror setup.
 
+## Deferred phase 2: TRS channel inspection ergonomics
+
+After detached snapshot placement works, decide how MMS authors inspect or modify individual
+channels. A tuple-like numeric contract could be:
+
+```mms
+pose[0] // translation: [f32; 3]
+pose[1] // rotation quaternion xyzw: [f32; 4]
+pose[2] // scale: [f32; 3]
+```
+
+Named reads may be more expressive:
+
+```mms
+pose.translation
+pose.rotation
+pose.scale
+```
+
+Current MMS arrays support numeric indexing and tables/objects support string-key/dot reads; one
+general value does not currently provide both. Do not turn all MMS arrays into JavaScript-style
+array/object hybrids solely for TRS. If a specialized `TransformTrs` value eventually supports
+both forms, document that as its own value contract and align it with the future tuple/type-system
+direction.
+
+- [ ] Decide tuple-like numeric indexing versus named fields, or intentionally support both.
+- [ ] Define whether returned channel arrays are independent copies or mutable views; prefer
+  independent copies unless MMS gains explicit value/reference semantics.
+- [ ] Define how an author reconstructs or patches a TRS after changing one channel.
+- [ ] Add indexing/named-read, quaternion-order, out-of-range, and invalid-key tests.
+
 ## Source-anchor decision
 
 The first implementation should name the sampled component explicitly, not rely on an ambiguous
@@ -248,7 +278,7 @@ wrapper. Hardware calibration decides the final source.
 
 ## Automated verification
 
-- [ ] Unit-test `TransformTrs` MMS conversion and indexing.
+- [ ] Unit-test opaque `TransformTrs` MMS conversion and direct getter-to-setter pass-through.
 - [ ] Add an evaluator test for local `source.trs()` → `target.trs(pose)`.
 - [ ] Add TransformSystem world-to-local coverage listed in slice 3.
 - [ ] Add an evaluator test for `source.world.trs()` → `target.world.trs(pose)` between unrelated
@@ -285,3 +315,5 @@ wrapper. Hardware calibration decides the final source.
 - Existing local `update_transform` examples continue to work.
 - Release-mode VR plus mirror performance shows no meaningful regression.
 
+TRS numeric/named channel inspection is deliberately not an exit criterion for this first
+slide-deck implementation.

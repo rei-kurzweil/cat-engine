@@ -174,20 +174,20 @@ types. Supporting the annotation above therefore requires both tuple type syntax
 representation/destructuring story. This should be added deliberately rather than pretending a
 heterogeneous TRS tuple is a homogeneous fixed array.
 
-Before typed tuples land, `trs()` can still return a runtime three-element aggregate if its index
-contract is stable:
+The first implementation does not need to expose those channels inside MMS. It can return an
+opaque, first-class copied `TransformTrs` runtime value that passes directly between getter and
+setter:
 
 ```mms
-let trs = some_transform.trs()
-let translation = trs[0]
-let rotation = trs[1]
-let scale = trs[2]
+let pose = some_transform.world.trs()
+target.world.trs(pose)
 ```
 
-Open question: should the untyped interim value instead be a named table
-`{ translation, rotation, scale }`? A table is self-documenting, but it would make the dynamic and
-eventual typed tuple surfaces differ. Do not commit to the interim representation until the tuple
-work is scoped.
+The engine still decomposes a world matrix to create this DTO; opaque means only that MMS cannot
+yet split it into channels. Numeric indexing and named channel reads are deferred until detached
+snapshot placement works. At that point, align the inspection API with the tuple/type-system work
+rather than committing early to a nested array or hash table representation. The implementation
+tracker records the deferred alternatives.
 
 ## Applying a copied TRS
 
