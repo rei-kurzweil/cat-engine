@@ -768,7 +768,8 @@ mod tests {
         // 2. Identify the 'e' glyph (index 1)
         let text_target = resolve_text_target(&world, input).expect("backing text");
         let mut e_glyph_renderable = None;
-        for &t_id in world.children_of(text_target) {
+        let glyph_parent = TextSystem::owned_text_block(&world, text_target).unwrap_or(text_target);
+        for &t_id in world.children_of(glyph_parent) {
             for &r_id in world.children_of(t_id) {
                 if world
                     .get_component_by_id_as::<RenderableComponent>(r_id)

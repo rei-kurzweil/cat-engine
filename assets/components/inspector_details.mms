@@ -30,9 +30,7 @@ fn detail_row(label, value) {
                 background_z(-0.01)
                 color = LABEL_COLOR
             }
-            T.position(0.0, 0.0, 0.0) {
-                Text { label }
-            }
+            Text { label }
         }
 
         T {
@@ -46,9 +44,7 @@ fn detail_row(label, value) {
                 color = VALUE_COLOR
                 word_wrap("normal")
             }
-            T.position(0.0, 0.0, 0.0) {
-                Text { value }
-            }
+            Text { value }
         }
     }
 }

@@ -13,11 +13,9 @@ export fn asset_module_header(module_name) {
             padding_xy(0.5, 0.45)
             vertical_align("middle")
         }
-        T.position(0.0, 0.0, 0.0) {
-            Text {
-                module_name
-                C.rgba(0.9, 1.0, 0.9, 1.0)
-            }
+        Text {
+            module_name
+            C.rgba(0.9, 1.0, 0.9, 1.0)
         }
     }
 }

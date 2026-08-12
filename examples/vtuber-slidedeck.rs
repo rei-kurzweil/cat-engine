@@ -88,8 +88,11 @@ fn on_xr_button_event(world: &mut World, _emit: &mut dyn SignalEmitter, signal: 
 #[cfg(test)]
 mod tests {
     use mittens_engine::engine;
+    use mittens_engine::engine::ecs::component::style::VerticalAlign;
     use mittens_engine::engine::ecs::component::{
-        ControllerHand, InputXRGamepadComponent, TextComponent, TransformComponent, XrButtonControl,
+        ControllerHand, DraggableComponent, GrabbableComponent, InputXRGamepadComponent,
+        LayoutComponent, RaycastableComponent, SizeDimension, StyleComponent, TextAlign,
+        TextComponent, TransformComponent, XrButtonControl,
     };
     use mittens_engine::engine::ecs::system::TransformSystem;
     use mittens_engine::engine::ecs::{EventSignal, IntentValue, Signal, SignalEmitter};
@@ -119,6 +122,30 @@ mod tests {
             &mut universe.render_assets,
             &mut universe.command_queue,
         );
+
+        let slide_text = universe
+            .world
+            .all_components()
+            .find(|id| {
+                universe
+                    .world
+                    .get_component_by_id_as::<TextComponent>(*id)
+                    .is_some_and(|text| text.text == "press B to reveal one weird rendering trick")
+            })
+            .expect("slide text");
+        let text_block_before_step = universe
+            .world
+            .children_of(slide_text)
+            .iter()
+            .copied()
+            .find(|child| {
+                universe.world.component_label(*child) == Some("__text_block")
+                    && universe
+                        .world
+                        .get_component_by_id_as::<TransformComponent>(*child)
+                        .is_some()
+            })
+            .expect("owned text block");
 
         let controls = universe
             .world
@@ -173,7 +200,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(
             texts.iter().any(|text| {
-                text == "short form video creators hate it when you use this one simple trick!"
+                text
+                    == "short form video creators\n\nhate it\n\nwhen you\n\nuse this\none simple trick!"
             }),
             "live text values after ButtonB: {texts:?}",
         );
@@ -197,6 +225,91 @@ mod tests {
         let anchor = named_transform("xr_camera_wrapper");
         let slide_root = named_transform("detached_slide_root");
         let locomotion_root = named_transform("avatar_locomotion_root");
+        let slide_offset = named_transform("slide_presentation_offset");
+        let layout_origin_offset = named_transform("slide_layout_origin_offset");
+
+        let slide_offset_transform = universe
+            .world
+            .get_component_by_id_as::<TransformComponent>(slide_offset)
+            .expect("slide presentation offset transform");
+        assert_eq!(slide_offset_transform.transform.translation[0], 0.0);
+        assert_eq!(slide_offset_transform.transform.translation[1], 0.0);
+
+        let layout_origin_transform = universe
+            .world
+            .get_component_by_id_as::<TransformComponent>(layout_origin_offset)
+            .expect("slide layout origin offset transform");
+        assert_eq!(layout_origin_transform.transform.translation[0], -15.0);
+        assert_eq!(layout_origin_transform.transform.translation[1], 4.5);
+
+        let slide_layout = universe
+            .world
+            .children_of(layout_origin_offset)
+            .iter()
+            .copied()
+            .find(|id| {
+                universe
+                    .world
+                    .get_component_by_id_as::<LayoutComponent>(*id)
+                    .is_some()
+            })
+            .expect("slide layout root");
+        let layout = universe
+            .world
+            .get_component_by_id_as::<LayoutComponent>(slide_layout)
+            .expect("slide layout component");
+        assert_eq!(
+            layout.authored_available_width,
+            SizeDimension::GlyphUnits(30.0)
+        );
+        assert_eq!(
+            layout.authored_available_height,
+            Some(SizeDimension::GlyphUnits(9.0))
+        );
+
+        let subtitle_box = named_transform("slide_subtitle_box");
+        let subtitle_style = universe
+            .world
+            .children_of(subtitle_box)
+            .iter()
+            .find_map(|child| {
+                universe
+                    .world
+                    .get_component_by_id_as::<StyleComponent>(*child)
+            })
+            .expect("slide subtitle box style");
+        assert_eq!(subtitle_style.text_align, TextAlign::Center);
+        assert_eq!(subtitle_style.vertical_align, VerticalAlign::Middle);
+
+        assert!(universe.world.children_of(slide_root).iter().any(|child| {
+            universe
+                .world
+                .get_component_by_id_as::<GrabbableComponent>(*child)
+                .is_some()
+        }));
+        assert!(universe.world.children_of(slide_root).iter().any(|child| {
+            universe
+                .world
+                .get_component_by_id_as::<DraggableComponent>(*child)
+                .is_some()
+        }));
+
+        assert_eq!(
+            universe
+                .world
+                .children_of(slide_text)
+                .iter()
+                .copied()
+                .find(|child| universe.world.component_label(*child) == Some("__text_block")),
+            Some(text_block_before_step),
+            "SetText should preserve the Text-owned block transform"
+        );
+        assert!(universe.world.children_of(slide_text).iter().any(|child| {
+            universe
+                .world
+                .get_component_by_id_as::<RaycastableComponent>(*child)
+                .is_some_and(|raycastable| raycastable.enable)
+        }));
 
         fn assert_matrix_near(actual: [[f32; 4]; 4], expected: [[f32; 4]; 4]) {
             for (actual, expected) in actual

@@ -77,9 +77,7 @@ fn editor_settings_mode_row(row_name, label, mode_value) {
             text_align("left")
             vertical_align("middle")
         }
-        T {
-            Text { label }
-        }
+        Text { label }
     }
 }
 
@@ -338,11 +336,9 @@ export fn paint_panel_body(item_background_color, title_color) {
             }
             T {
                 name = "paint_panel_status_root"
-                T.position(0.0, 0.0, 0.0) {
-                    Text {
-                        name = "paint_panel_status_value"
-                        "paint inactive: no asset selected"
-                    }
+                Text {
+                    name = "paint_panel_status_value"
+                    "paint inactive: no asset selected"
                 }
             }
         }
@@ -477,11 +473,9 @@ export fn pose_capture_panel_body() {
                 background_z(-0.01)
                 color = EDITOR_DARK_CHROME_TEXT
             }
-            T.position(0.0, 0.0, 0.0) {
-                Text {
-                    name = "pose_panel_status_value"
-                    "idle"
-                }
+            Text {
+                name = "pose_panel_status_value"
+                "idle"
             }
         }
     })
@@ -533,9 +527,7 @@ fn panel_button(node_name, label) {
             background_color(EDITOR_DARK_CHROME_BACKGROUND)
             color = EDITOR_DARK_CHROME_TEXT
         }
-        T.position(0.0, 0.0, 0.0) {
-            Text { label }
-        }
+        Text { label }
     }
     return root
 }
@@ -811,9 +803,7 @@ export fn grid_panel_body() {
                     vertical_align("middle")
                     color = EDITOR_DARK_CHROME_TEXT
                 }
-                T.position(0.0, 0.0, 0.0) {
-                    Text { "Add Grid" }
-                }
+                Text { "Add Grid" }
             }
 
         }

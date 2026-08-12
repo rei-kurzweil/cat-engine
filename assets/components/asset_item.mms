@@ -50,9 +50,7 @@ export fn asset_item(display_label, payload_asset_key, item_background_color) {
                     word_wrap("normal")
                     background_z(-0.002)
                 }
-                T.position(0.0, 0.0, 0.0) {
-                    Text { "Preview unavailable" }
-                }
+                Text { "Preview unavailable" }
             }
         }
 

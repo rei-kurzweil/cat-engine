@@ -112,9 +112,7 @@ let panel = T {
             vertical_align("middle")
             background_z(-0.01)
         }
-        T.position(0.0, 0.0, 0.0) {
-            Text { "FitBounds Demo" }
-        }
+        Text { "FitBounds Demo" }
     }
 
     T {
@@ -161,10 +159,8 @@ let panel = T {
             background_color([0.08, 0.24, 0.11, 0.92])
             background_z(-0.01)
         }
-        T.position(0.0, 0.0, 0.0) {
-            Text {
-                "debug scene: FitBounds icon sizing still enabled"
-            }
+        Text {
+            "debug scene: FitBounds icon sizing still enabled"
         }
     }
 }

@@ -1340,7 +1340,9 @@ impl SystemWorld {
                 tc.mark_unbuilt();
 
                 // Best-effort: delete glyph transform children (keep style components).
-                let children: Vec<ComponentId> = world.children_of(component).to_vec();
+                let glyph_parent =
+                    TextSystem::owned_text_block(world, component).unwrap_or(component);
+                let children: Vec<ComponentId> = world.children_of(glyph_parent).to_vec();
                 for ch in children {
                     if world
                         .get_component_by_id_as::<TransformComponent>(ch)

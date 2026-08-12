@@ -44,9 +44,7 @@ export fn button(label, options) {
             background_color(bg_rgba)
             color(text_rgba)
         }
-        T.position(0.0, 0.0, 0.0) {
-            Text { label }
-        }
+        Text { label }
     }
     return root
 }

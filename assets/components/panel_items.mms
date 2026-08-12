@@ -76,11 +76,9 @@ export fn paint_panel_item(item_label, icon, item_background_color, title_color)
 export fn world_panel_status(label) {
     let root = T {
         name = "panel_status_root"
-        T.position(0.0, 0.0, 0.0) {
-            Text {
-                name = "panel_status_value"
-                label
-            }
+        Text {
+            name = "panel_status_value"
+            label
         }
     }
 
@@ -106,11 +104,9 @@ fn world_panel_row(row_name, label, bg) {
             background_color = bg
             background_z(-0.01)
         }
-        T {
-            Text {
-                label
-                C.rgba(0.06, 0.09, 0.08, 1.0)
-            }
+        Text {
+            label
+            C.rgba(0.06, 0.09, 0.08, 1.0)
         }
     }
     return row
@@ -218,9 +214,7 @@ fn pose_capture_section_header(label) {
             background_color([0.2, 0.2, 0.2, 1.0])
             color = [1, 1, 1, 1]
         }
-        T {
-            Text { label }
-        }
+        Text { label }
     }
 }
 
@@ -236,11 +230,9 @@ fn pose_capture_row(label, bg) {
             background_color = bg
             background_z(-0.01)
         }
-        T {
-            Text {
-                label
-                C.rgba(0, 0, 0, 1)
-            }
+        Text {
+            label
+            C.rgba(0, 0, 0, 1)
         }
     }
 }
@@ -258,8 +250,6 @@ fn pose_capture_add_button(label) {
             color = [0.96, 0.97, 0.98, 1.0]
             text_align("center")
         }
-        T {
-            Text { label }
-        }
+        Text { label }
     }
 }

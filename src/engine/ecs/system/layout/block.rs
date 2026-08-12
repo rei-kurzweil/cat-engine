@@ -31,7 +31,7 @@ use crate::engine::ecs::component::{
     TextComponent, TransformComponent,
 };
 use crate::engine::ecs::system::ScrollingSystem;
-use crate::engine::ecs::system::text_system::TextSystem;
+use crate::engine::ecs::system::text_system::{OWNED_TEXT_BLOCK_LABEL, TextSystem};
 use crate::engine::ecs::{IntentValue, SignalEmitter};
 
 const OWNED_CLIPPED_CONTENT_LABEL: &str = "__clip_content";
@@ -874,7 +874,10 @@ fn find_alignable_direct_child(world: &World, tc_id: ComponentId) -> Option<Comp
             }
         }
     }
-    fallback
+    fallback.or_else(|| {
+        let text = super::measure::find_text_id_in_local_content_subtree(world, tc_id)?;
+        TextSystem::owned_text_block(world, text)
+    })
 }
 
 fn subtree_has_text(world: &World, root: ComponentId) -> bool {
@@ -905,6 +908,19 @@ fn find_text_descriptor(
     world: &World,
     root: ComponentId,
 ) -> Option<(String, bool, Vec<String>, f32)> {
+    if world.component_label(root) == Some(OWNED_TEXT_BLOCK_LABEL)
+        && let Some(text) = world
+            .parent_of(root)
+            .and_then(|parent| world.get_component_by_id_as::<TextComponent>(parent))
+    {
+        return Some((
+            text.text.clone(),
+            text.word_wrap,
+            text.word_wrap_tokens.clone(),
+            text.font_size,
+        ));
+    }
+
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if let Some(t) = world.get_component_by_id_as::<TextComponent>(node) {
@@ -1126,6 +1142,7 @@ mod tests {
         TextComponent, TransformComponent,
     };
     use crate::engine::ecs::system::layout::LayoutSystem;
+    use crate::engine::ecs::system::text_system::TextSystem;
     use crate::engine::ecs::{CommandQueue, SystemWorld, World};
     use crate::engine::graphics::{RenderAssets, VisualWorld};
 
@@ -1825,6 +1842,52 @@ mod tests {
             (text_wrap_tc.transform.translation[1] + 0.04).abs() < 1e-4,
             "expected y ≈ -0.04, got {}",
             text_wrap_tc.transform.translation[1]
+        );
+    }
+
+    #[test]
+    fn naked_text_uses_its_owned_block_for_whole_block_alignment() {
+        let mut world = World::default();
+        let mut visuals = VisualWorld::new();
+        let mut render_assets = RenderAssets::new();
+        let mut systems = SystemWorld::default();
+        let mut queue = CommandQueue::new();
+        let mut layout_system = LayoutSystem::new();
+
+        let root = world.add_component(LayoutComponent::new(20.0).with_unit_scale(0.08));
+        let box_tc = world.add_component_boxed_named("box", Box::new(TransformComponent::new()));
+        let box_style = world.add_component({
+            let mut style = StyleComponent::new();
+            style.width = SizeDimension::GlyphUnits(10.0);
+            style.height = SizeDimension::GlyphUnits(4.0);
+            style.text_align = crate::engine::ecs::component::style::TextAlign::Center;
+            style.vertical_align = crate::engine::ecs::component::style::VerticalAlign::Middle;
+            style.font_size = SizeDimension::GlyphUnits(1.0);
+            style
+        });
+        let text = world.add_component_boxed_named("text", Box::new(TextComponent::new("ab")));
+        let _ = world.add_child(root, box_tc);
+        let _ = world.add_child(box_tc, box_style);
+        let _ = world.add_child(box_tc, text);
+
+        world.init_component_tree(root, &mut queue);
+        systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+        layout_system.tick(&mut world, &mut queue);
+        systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
+
+        let block = TextSystem::owned_text_block(&world, text).expect("owned text block");
+        let block_transform = world
+            .get_component_by_id_as::<TransformComponent>(block)
+            .expect("owned text block transform");
+        assert!(
+            (block_transform.transform.translation[0] - 0.32).abs() < 1e-4,
+            "expected centered x 0.32, got {}",
+            block_transform.transform.translation[0]
+        );
+        assert!(
+            (block_transform.transform.translation[1] + 0.12).abs() < 1e-4,
+            "expected centered y -0.12, got {}",
+            block_transform.transform.translation[1]
         );
     }
 

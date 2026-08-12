@@ -11,6 +11,34 @@ use crate::engine::graphics::TextureFiltering;
 use crate::engine::graphics::VisualWorld;
 #[derive(Debug, Default)]
 pub struct TextSystem;
+
+pub(crate) const OWNED_TEXT_BLOCK_LABEL: &str = "__text_block";
+
+impl TextSystem {
+    /// Return the stable, generated transform which owns this Text's glyph roots.
+    pub(crate) fn owned_text_block(world: &World, text: ComponentId) -> Option<ComponentId> {
+        world.children_of(text).iter().copied().find(|&child| {
+            world.component_label(child) == Some(OWNED_TEXT_BLOCK_LABEL)
+                && world
+                    .get_component_by_id_as::<TransformComponent>(child)
+                    .is_some()
+        })
+    }
+
+    fn ensure_owned_text_block(world: &mut World, text: ComponentId) -> ComponentId {
+        if let Some(block) = Self::owned_text_block(world, text) {
+            return block;
+        }
+
+        let block = world
+            .add_component_boxed_named(OWNED_TEXT_BLOCK_LABEL, Box::new(TransformComponent::new()));
+        let serialize = world.add_component(SerializeComponent::off());
+        let _ = world.add_child(block, serialize);
+        let _ = world.add_child(text, block);
+        block
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct WordWrapState {
     col: usize,
@@ -343,6 +371,7 @@ impl TextSystem {
         if let Some(text_comp) = world.get_component_by_id_as_mut::<TextComponent>(component) {
             text_comp.mark_built();
         }
+        let text_block = Self::ensure_owned_text_block(world, component);
         let text_input_root = {
             let mut cur = world.parent_of(component);
             let mut found = None;
@@ -386,7 +415,7 @@ impl TextSystem {
                         .with_position(x, y, 0.0)
                         .with_scale(width, font_size, 1.0);
                     let t_id = world.add_component(t);
-                    let _ = world.add_child(component, t_id);
+                    let _ = world.add_child(text_block, t_id);
                     let t_serialize = world.add_component(SerializeComponent::off());
                     let _ = world.add_child(t_id, t_serialize);
                     let color = world.add_component(ColorComponent {
@@ -417,7 +446,7 @@ impl TextSystem {
                     .with_position(x, y, 0.0)
                     .with_scale(font_size, font_size, 1.0);
                 let t_id = world.add_component(t);
-                let _ = world.add_child(component, t_id);
+                let _ = world.add_child(text_block, t_id);
                 let t_serialize = world.add_component(SerializeComponent::off());
                 let _ = world.add_child(t_id, t_serialize);
                 let glyph_uvs = uvs_for_glyph(ch);
@@ -629,7 +658,7 @@ fn uvs_for_glyph(ch: char) -> Vec<[f32; 2]> {
 }
 #[cfg(test)]
 mod tests {
-    use super::TextSystem;
+    use super::{OWNED_TEXT_BLOCK_LABEL, TextSystem};
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         SerializeComponent, TextComponent, TextInputGlyphHitComponent, TextureComponent,
@@ -649,6 +678,44 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn register_text_owns_glyphs_under_one_private_stable_block() {
+        let mut world = World::default();
+        let mut visuals = VisualWorld::new();
+        let text = world.add_component(TextComponent::new("cat"));
+        let mut text_system = TextSystem::default();
+
+        let spawned = text_system.register_text(&mut world, &mut visuals, text);
+        let block = TextSystem::owned_text_block(&world, text).expect("owned text block");
+
+        assert_eq!(spawned.len(), 3);
+        assert!(
+            spawned
+                .iter()
+                .all(|glyph| world.parent_of(glyph.transform) == Some(block))
+        );
+        assert_eq!(
+            world
+                .children_of(text)
+                .iter()
+                .filter(|&&child| world.component_label(child) == Some(OWNED_TEXT_BLOCK_LABEL))
+                .count(),
+            1
+        );
+        assert!(world.children_of(block).iter().any(|&child| {
+            world
+                .get_component_by_id_as::<SerializeComponent>(child)
+                .is_some_and(|serialize| !serialize.enabled)
+        }));
+
+        assert!(
+            text_system
+                .register_text(&mut world, &mut visuals, text)
+                .is_empty()
+        );
+        assert_eq!(TextSystem::owned_text_block(&world, text), Some(block));
     }
     fn register_text_scales_spawned_glyphs_by_font_size() {
         let mut world = World::default();

@@ -100,23 +100,59 @@ ED.active() {
 // The slide content keeps its authored presentation offset beneath a detached
 // world-space placement root. Button presses copy the current XR camera-wrapper
 // pose into that root once; later headset/avatar motion does not drag it along.
+//
+// LayoutRoot flow begins at its top-left. Keep the camera-relative presentation
+// offset centered at X/Y = 0, then move the layout origin left by half its width
+// and up by half its height. The authored slide rectangle is therefore centered
+// on the presentation basis before the whole subtree is scaled into world space.
+let SLIDE_LAYOUT_WIDTH_GU = 30.0
+let SLIDE_LAYOUT_HEIGHT_GU = 9.0
 let slide_text = Text {
     name = "slide_text"
     "press B to reveal one weird rendering trick"
     font_size(0.72)
     TextureFiltering.linear()
+    Raycastable.enabled()
 }
 let slide_color = C.rgba(1.0, 0.35, 0.78, 1.0) {
     name = "slide_color"
     EM.on()
     slide_text
 }
-let slide_offset = T.position(1, 0.15, 1.0).rotation(0.0, 3.14159, 0.0).scale(0.055, 0.055, 1.0) {
-    name = "slide_presentation_offset"
+let slide_subtitle_box = T {
+    name = "slide_subtitle_box"
+    Style {
+        display("block")
+        width(SLIDE_LAYOUT_WIDTH_GU)
+        height(SLIDE_LAYOUT_HEIGHT_GU)
+        word_wrap("normal")
+        text_align("center")
+        vertical_align("middle")
+    }
     slide_color
+}
+let slide_layout = LayoutRoot {
+    name = "slide_layout_root"
+    available_width(SLIDE_LAYOUT_WIDTH_GU)
+    available_height(SLIDE_LAYOUT_HEIGHT_GU)
+    slide_subtitle_box
+}
+let slide_layout_origin_offset = T.position(
+    -SLIDE_LAYOUT_WIDTH_GU / 2.0,
+    SLIDE_LAYOUT_HEIGHT_GU / 2.0,
+    0.0,
+) {
+    name = "slide_layout_origin_offset"
+    slide_layout
+}
+let slide_offset = T.position(0.0, 0.0, 1.0).rotation(0.0, 3.14159, 0.0).scale(0.055, 0.055, 1.0) {
+    name = "slide_presentation_offset"
+    slide_layout_origin_offset
 }
 let slide_root = T {
     name = "detached_slide_root"
+    Grabbable {}
+    Draggable.plane("camera")
     slide_offset
 }
 
