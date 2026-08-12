@@ -4,6 +4,8 @@ Status: Proposed
 
 Date: 2026-08-09
 
+Runtime investigation updated: 2026-08-12
+
 ## Problem
 
 `AvatarControlSystem` currently creates left- and right-arm `TwoBoneIK`
@@ -27,6 +29,59 @@ activates both arm solvers.
 
 The resulting arms and hands continually reach and orient toward synthetic
 targets at the world origin.
+
+## Runtime confirmation
+
+Running `cargo run --release --example vtuber-desktop` with the desktop topology
+that has no hand tracking produced both AVC arm-chain creation messages:
+
+```text
+[AVC] left arm IK: ... target=(id=ComponentId(28593v1))
+[AVC] right arm IK: ... target=(id=ComponentId(28596v1))
+```
+
+The component IDs vary per run. The important result is that AVC created two
+arm chains and assigned two runtime targets even though
+`examples/vtuber-desktop.mms` contains no `XRHand` children or other hand pose
+drivers. This confirms the chain-construction half of the failure in the real
+desktop example, not only by static inspection.
+
+After repairing the `ik_debug()` overlay lifecycle described below, the same
+desktop scene provided direct visual confirmation of the target positions:
+
+- the cyan pole, pink plane-normal, green elbow, and white elbow-point markers
+  remained near the arms at their expected diagnostic scale;
+- both yellow target segments were abnormally long and terminated at the world
+  origin;
+- the yellow segments therefore showed the exact vectors consumed by
+  `TwoBoneIK`: each upper-arm root was solving toward its generated origin
+  target.
+
+This closes the remaining runtime question. A custom headless probe is not
+needed to establish the cause.
+
+### `ik_debug()` overlay lifecycle defect (fixed 2026-08-12)
+
+Enabling `AVC { ik_debug() }` did not make the target/pole/elbow overlays
+visible. This is a separate diagnostic defect:
+
+- `IKSystem::spawn_debug_cube` creates the overlay, transform, renderable,
+  color, and emissive components directly with `World::add_component`.
+- `World::add_component` is explicitly storage-only and does not invoke
+  `Component::init`.
+- `spawn_debug_cube` attaches the new nodes but never calls
+  `World::init_component_tree` on the generated root.
+- Consequently, the debug `RenderableComponent` never emits its registration
+  intent and never enters the renderer's visual state. The IK system still
+  updates the invisible debug transforms each tick.
+
+Other runtime visualization systems, such as GLTF bounds visualization, build
+their generated tree and then call `world.init_component_tree(root, emit)`.
+Arm-IK debug visualization now follows the same lifecycle: its generated
+overlay roots are passed to `world.init_component_tree(root, emit)`, and a
+focused regression test verifies that all five debug renderables initialize and
+emit registration intents. This repair remains logically separate from the
+desktop arm-activation fix.
 
 ## Confirmed cause
 
@@ -283,6 +338,14 @@ is expected to touch these seams.
 - Update comments in `AvatarControlComponent` and examples that still describe
   controller/bone reparenting from the pre-TwoBoneIK design.
 
+### Completed diagnostic follow-up: `src/engine/ecs/system/ik_system.rs`
+
+- `spawn_debug_cube` initializes/registers its generated component tree.
+- `two_bone_debug_visuals_initialize_generated_renderables` verifies the five
+  generated renderables (target, pole, plane normal, elbow line, elbow point).
+- The diagnostic lifecycle fix does not alter arm-activation policy; the two
+  bugs retain independent acceptance criteria.
+
 ## Regression tests
 
 Add focused tests that inspect both generated topology and emitted transforms.
@@ -377,6 +440,7 @@ controller branch still creates one and needs parallel regression coverage.
 - An explicit disable override, if implemented, suppresses arm deformation even
   when drivers exist.
 - Authored non-AVC and non-XR `IKChain` behavior is unchanged.
+- The arm activation fix does not depend on `ik_debug()` becoming visible.
 
 ## Out of scope
 

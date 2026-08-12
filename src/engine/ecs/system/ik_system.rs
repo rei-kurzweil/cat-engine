@@ -657,7 +657,7 @@ fn maybe_update_two_bone_debug(
         return;
     }
 
-    let visuals = ensure_two_bone_debug_visuals(world, ik_chain_id);
+    let visuals = ensure_two_bone_debug_visuals(world, emit, ik_chain_id);
     let pole_tip = vec3_add(root_pos, vec3_scale(vec3_normalize_or_z(pole_world), 0.30));
     let normal_tip = vec3_add(
         root_pos,
@@ -693,6 +693,7 @@ fn maybe_update_two_bone_debug(
 
 fn ensure_two_bone_debug_visuals(
     world: &mut World,
+    emit: &mut dyn SignalEmitter,
     ik_chain_id: ComponentId,
 ) -> TwoBoneIkDebugVisuals {
     if let Some(existing) = world
@@ -710,24 +711,39 @@ fn ensure_two_bone_debug_visuals(
     let visuals = TwoBoneIkDebugVisuals {
         target_line: spawn_debug_cube(
             world,
+            emit,
             parent,
             "ik_debug_target_line",
             (1.0, 0.85, 0.15, 0.95),
         ),
-        pole_line: spawn_debug_cube(world, parent, "ik_debug_pole_line", (0.10, 0.95, 1.0, 0.95)),
+        pole_line: spawn_debug_cube(
+            world,
+            emit,
+            parent,
+            "ik_debug_pole_line",
+            (0.10, 0.95, 1.0, 0.95),
+        ),
         plane_normal_line: spawn_debug_cube(
             world,
+            emit,
             parent,
             "ik_debug_plane_normal_line",
             (1.0, 0.35, 0.80, 0.95),
         ),
         elbow_line: spawn_debug_cube(
             world,
+            emit,
             parent,
             "ik_debug_elbow_line",
             (0.20, 1.0, 0.35, 0.95),
         ),
-        elbow_point: spawn_debug_cube(world, parent, "ik_debug_elbow_point", (1.0, 1.0, 1.0, 0.95)),
+        elbow_point: spawn_debug_cube(
+            world,
+            emit,
+            parent,
+            "ik_debug_elbow_point",
+            (1.0, 1.0, 1.0, 0.95),
+        ),
     };
 
     if let Some(ik) = world.get_component_by_id_as_mut::<IKChainComponent>(ik_chain_id) {
@@ -738,6 +754,7 @@ fn ensure_two_bone_debug_visuals(
 
 fn spawn_debug_cube(
     world: &mut World,
+    emit: &mut dyn SignalEmitter,
     parent: ComponentId,
     name: &str,
     color: (f32, f32, f32, f32),
@@ -753,6 +770,7 @@ fn spawn_debug_cube(
     let _ = world.add_child(renderable, color);
     let _ = world.add_child(renderable, emissive);
     let _ = world.add_child(parent, overlay);
+    world.init_component_tree(overlay, emit);
     transform
 }
 
@@ -1077,6 +1095,61 @@ mod tests {
         fn push_intent(&mut self, scope: ComponentId, intent: crate::engine::ecs::IntentSignal) {
             self.intents.push((scope, intent.value));
         }
+    }
+
+    #[test]
+    fn two_bone_debug_visuals_initialize_generated_renderables() {
+        let mut world = World::default();
+        let avc_id = world.add_component(AvatarControlComponent::new().with_ik_debug());
+        let target = world.add_component(TransformComponent::new());
+        let hand = world.add_component(TransformComponent::new());
+        let mut chain = IKChainComponent::new(
+            IKSolver::TwoBoneIK {
+                root_joint_id: hand,
+                mid_joint_id: hand,
+                pole_direction: [0.0, 1.0, 0.0],
+                copy_end_rotation: false,
+            },
+            target,
+            hand,
+        );
+        chain.avc_id = Some(avc_id);
+        let chain_id = world.add_component(chain);
+        world.add_child(avc_id, chain_id).unwrap();
+
+        let mut emit = TestEmitter::default();
+        let visuals = ensure_two_bone_debug_visuals(&mut world, &mut emit, chain_id);
+        let transforms = [
+            visuals.target_line,
+            visuals.pole_line,
+            visuals.plane_normal_line,
+            visuals.elbow_line,
+            visuals.elbow_point,
+        ];
+
+        for transform in transforms {
+            let overlay = world.parent_of(transform).expect("debug overlay root");
+            let renderable = world
+                .children_of(transform)
+                .iter()
+                .copied()
+                .find(|&id| {
+                    world
+                        .get_component_by_id_as::<RenderableComponent>(id)
+                        .is_some()
+                })
+                .expect("debug renderable");
+            assert!(world.is_initialized(overlay));
+            assert!(world.is_initialized(transform));
+            assert!(world.is_initialized(renderable));
+        }
+
+        let registrations = emit
+            .intents
+            .iter()
+            .filter(|(_, intent)| matches!(intent, IntentValue::RegisterRenderable { .. }))
+            .count();
+        assert_eq!(registrations, 5);
     }
 
     #[test]

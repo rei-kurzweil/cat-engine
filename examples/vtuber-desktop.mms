@@ -173,6 +173,8 @@ ED {
                 initial_yaw(0.0)
                 body_yaw_threshold(3.14 / 7.5)
 
+                ik_debug()
+
                 T.position(0.0, -1.6, 0.0) {
                     GLTF.new("assets/models/pc-rei.hoodie.glb") { EM.on() }
                 }
