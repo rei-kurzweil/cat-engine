@@ -10,37 +10,26 @@ pub(crate) fn supports_component_method(component_type: &str, method: &str) -> b
     matches!(
         method,
         "attach" | "attach_clone" | "detach" | "remove_child" | "remove_subtree" | "set_color"
-    ) || (matches!(
-        component_type,
-        "T" | "Transform" | "TransformComponent" | "transform"
-    ) && matches!(
-        method,
-        "update_transform" | "look_at" | "translation" | "trs"
-    )) || (component_type == "TransformWorld" && method == "trs")
+    ) || (matches!(component_type, "T" | "Transform" | "transform")
+        && matches!(
+            method,
+            "update_transform" | "look_at" | "translation" | "trs"
+        ))
+        || (component_type == "TransformWorld" && method == "trs")
+        || (matches!(component_type, "PoseCapturePose" | "pose_capture_pose")
+            && matches!(method, "apply" | "overlay" | "apply_blended"))
+        || (matches!(component_type, "EM" | "Emissive" | "emissive")
+            && matches!(method, "set_intensity" | "on" | "off"))
+        || (matches!(component_type, "Raycast" | "RayCast" | "raycast")
+            && method == "request_raycast")
         || (matches!(
             component_type,
-            "PoseCapturePose" | "PoseCapturePoseComponent" | "pose_capture_pose"
-        ) && matches!(method, "apply" | "overlay" | "apply_blended"))
-        || (matches!(
-            component_type,
-            "EM" | "Emissive" | "EmissiveComponent" | "emissive"
-        ) && matches!(method, "set_intensity" | "on" | "off"))
-        || (matches!(
-            component_type,
-            "Raycast" | "RayCast" | "RayCastComponent" | "raycast"
-        ) && method == "request_raycast")
-        || (matches!(
-            component_type,
-            "AudioBandPassFilter" | "AudioBandPassFilterComponent" | "audio_band_pass_filter"
+            "AudioBandPassFilter" | "audio_band_pass_filter"
         ) && method == "set_center_hz")
-        || (matches!(
-            component_type,
-            "HttpClient" | "HttpClientComponent" | "http_client"
-        ) && matches!(method, "get" | "post" | "put" | "delete"))
-        || (matches!(
-            component_type,
-            "HttpServer" | "HttpServerComponent" | "http_server"
-        ) && matches!(method, "reply_text"))
+        || (matches!(component_type, "HttpClient" | "http_client")
+            && matches!(method, "get" | "post" | "put" | "delete"))
+        || (matches!(component_type, "HttpServer" | "http_server")
+            && matches!(method, "reply_text"))
 }
 
 pub(crate) fn invoke_component_method(
@@ -163,7 +152,7 @@ pub(crate) fn invoke_component_method(
             Ok(Value::Null)
         }
         (
-            "PoseCapturePose" | "PoseCapturePoseComponent" | "pose_capture_pose",
+            "PoseCapturePose" | "pose_capture_pose",
             method @ ("apply" | "overlay" | "apply_blended"),
         ) => {
             world
@@ -211,7 +200,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("T" | "Transform" | "TransformComponent" | "transform", "translation") => {
+        ("T" | "Transform" | "transform", "translation") => {
             if !args.is_empty() {
                 return Err(format!(
                     "translation(): expected no arguments, got {args:?}"
@@ -229,7 +218,7 @@ pub(crate) fn invoke_component_method(
                     .collect(),
             ))
         }
-        ("T" | "Transform" | "TransformComponent" | "transform", "trs") => {
+        ("T" | "Transform" | "transform", "trs") => {
             let current = world
                 .get_component_by_id_as::<TransformComponent>(id)
                 .ok_or_else(|| "trs(): not a TransformComponent".to_string())?
@@ -251,7 +240,7 @@ pub(crate) fn invoke_component_method(
                 )),
             }
         }
-        ("T" | "Transform" | "TransformComponent" | "transform", "update_transform") => {
+        ("T" | "Transform" | "transform", "update_transform") => {
             let [translation, rotation_euler, scale] = match args {
                 [translation, rotation, scale] => [
                     value_as_f32_array::<3>(translation)?,
@@ -281,7 +270,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("T" | "Transform" | "TransformComponent" | "transform", "look_at") => {
+        ("T" | "Transform" | "transform", "look_at") => {
             let [target_world] = match args {
                 [target_world] => [value_as_f32_array::<3>(target_world)?],
                 other => {
@@ -302,7 +291,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("EM" | "Emissive" | "EmissiveComponent" | "emissive", "set_intensity" | "on" | "off") => {
+        ("EM" | "Emissive" | "emissive", "set_intensity" | "on" | "off") => {
             let intensity = match method {
                 "on" => 1.0,
                 "off" => 0.0,
@@ -342,7 +331,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("Raycast" | "RayCast" | "RayCastComponent" | "raycast", "request_raycast") => {
+        ("Raycast" | "RayCast" | "raycast", "request_raycast") => {
             if !args.is_empty() {
                 return Err(format!(
                     "request_raycast(): expected no arguments, got {args:?}"
@@ -354,10 +343,7 @@ pub(crate) fn invoke_component_method(
             emit_intent(IntentValue::RequestRaycast { component_id: id });
             Ok(Value::Null)
         }
-        (
-            "AudioBandPassFilter" | "AudioBandPassFilterComponent" | "audio_band_pass_filter",
-            "set_center_hz",
-        ) => {
+        ("AudioBandPassFilter" | "audio_band_pass_filter", "set_center_hz") => {
             let center_hz = match args {
                 [Value::Number(value)] if value.is_finite() && *value >= 0.0 => *value as f32,
                 other => {
@@ -377,7 +363,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("HttpClient" | "HttpClientComponent" | "http_client", "get" | "delete") => {
+        ("HttpClient" | "http_client", "get" | "delete") => {
             let [url] = match args {
                 [url] => [value_as_string(url, method)?],
                 other => {
@@ -396,7 +382,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("HttpClient" | "HttpClientComponent" | "http_client", "post" | "put") => {
+        ("HttpClient" | "http_client", "post" | "put") => {
             let (url, body_text) = match args {
                 [url, body_text] => (
                     value_as_string(url, method)?,
@@ -418,7 +404,7 @@ pub(crate) fn invoke_component_method(
             });
             Ok(Value::Null)
         }
-        ("HttpServer" | "HttpServerComponent" | "http_server", "reply_text") => {
+        ("HttpServer" | "http_server", "reply_text") => {
             let (request_id, status, body_text) = match args {
                 [request, status, body_text] => (
                     request_id_from_value(request)?,

@@ -840,10 +840,7 @@ pub fn ce_ast_to_materialized(ce: &ComponentExpression) -> Result<MaterializedCE
 }
 
 pub fn component_expr_uses_property_assignment_only(raw: &str) -> bool {
-    matches!(
-        resolve_type_name(raw).as_str(),
-        "Data" | "DataComponent" | "Style" | "StyleComponent"
-    )
+    matches!(resolve_type_name(raw).as_str(), "Data" | "Style")
 }
 
 pub fn is_universal_component_named_prop(name: &str) -> bool {

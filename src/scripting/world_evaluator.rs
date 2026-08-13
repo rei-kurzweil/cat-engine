@@ -2146,28 +2146,15 @@ fn eval_method_call(
 
             // Animation playback.
             let anim_state = match method {
-                "play"
-                    if matches!(
-                        component_type.as_str(),
-                        "A" | "Animation" | "AnimationComponent" | "animation"
-                    ) =>
-                {
+                "play" if matches!(component_type.as_str(), "A" | "Animation" | "animation") => {
                     Some(AnimationState::Playing)
                 }
                 "loop_anim"
-                    if matches!(
-                        component_type.as_str(),
-                        "A" | "Animation" | "AnimationComponent" | "animation"
-                    ) =>
+                    if matches!(component_type.as_str(), "A" | "Animation" | "animation") =>
                 {
                     Some(AnimationState::Looping)
                 }
-                "pause"
-                    if matches!(
-                        component_type.as_str(),
-                        "A" | "Animation" | "AnimationComponent" | "animation"
-                    ) =>
-                {
+                "pause" if matches!(component_type.as_str(), "A" | "Animation" | "animation") => {
                     Some(AnimationState::Paused)
                 }
                 _ => None,
@@ -2184,19 +2171,11 @@ fn eval_method_call(
             }
 
             let step_direction = match method {
-                "next"
-                    if matches!(
-                        component_type.as_str(),
-                        "A" | "Animation" | "AnimationComponent" | "animation"
-                    ) =>
-                {
+                "next" if matches!(component_type.as_str(), "A" | "Animation" | "animation") => {
                     Some(crate::engine::ecs::component::AnimationStepDirection::Next)
                 }
                 "previous"
-                    if matches!(
-                        component_type.as_str(),
-                        "A" | "Animation" | "AnimationComponent" | "animation"
-                    ) =>
+                    if matches!(component_type.as_str(), "A" | "Animation" | "animation") =>
                 {
                     Some(crate::engine::ecs::component::AnimationStepDirection::Previous)
                 }
@@ -2214,10 +2193,8 @@ fn eval_method_call(
             }
 
             // Layout getter: layout.available_width() → current width as Number.
-            if matches!(
-                component_type.as_str(),
-                "layout" | "LayoutRoot" | "LayoutComponent"
-            ) && method == "available_width"
+            if matches!(component_type.as_str(), "layout" | "LayoutRoot")
+                && method == "available_width"
             {
                 use crate::engine::ecs::system::layout::measure::layout_root_available_bounds;
                 let Some(world) = ctx.host_world else {
@@ -2235,10 +2212,8 @@ fn eval_method_call(
                 return Ok(Value::Number(w));
             }
 
-            if matches!(
-                component_type.as_str(),
-                "layout" | "LayoutRoot" | "LayoutComponent"
-            ) && method == "available_height"
+            if matches!(component_type.as_str(), "layout" | "LayoutRoot")
+                && method == "available_height"
             {
                 use crate::engine::ecs::system::layout::measure::layout_root_available_bounds;
                 let Some(world) = ctx.host_world else {
@@ -2259,10 +2234,8 @@ fn eval_method_call(
             }
 
             // Layout mutation: layout.set_available_width(N).
-            if matches!(
-                component_type.as_str(),
-                "layout" | "LayoutRoot" | "LayoutComponent"
-            ) && method == "set_available_width"
+            if matches!(component_type.as_str(), "layout" | "LayoutRoot")
+                && method == "set_available_width"
             {
                 use crate::engine::ecs::component::style::SizeDimension;
                 use crate::scripting::token::Unit;
@@ -2305,10 +2278,8 @@ fn eval_method_call(
                 return Ok(Value::Null);
             }
 
-            if matches!(
-                component_type.as_str(),
-                "layout" | "LayoutRoot" | "LayoutComponent"
-            ) && method == "set_available_height"
+            if matches!(component_type.as_str(), "layout" | "LayoutRoot")
+                && method == "set_available_height"
             {
                 use crate::engine::ecs::component::style::SizeDimension;
                 use crate::scripting::token::Unit;
@@ -2352,10 +2323,8 @@ fn eval_method_call(
             }
 
             // Layout viz toggle: layout.set_inspect(bool) / .enable_inspect() / .disable_inspect().
-            if matches!(
-                component_type.as_str(),
-                "layout" | "LayoutRoot" | "LayoutComponent"
-            ) && matches!(method, "set_inspect" | "enable_inspect" | "disable_inspect")
+            if matches!(component_type.as_str(), "layout" | "LayoutRoot")
+                && matches!(method, "set_inspect" | "enable_inspect" | "disable_inspect")
             {
                 let enabled = match (method, args.first()) {
                     ("enable_inspect", _) => true,
@@ -2383,11 +2352,7 @@ fn eval_method_call(
             }
 
             // Text mutation: text.set_text("...").
-            if matches!(
-                component_type.as_str(),
-                "Text" | "TXT" | "TextComponent" | "text"
-            ) && method == "set_text"
-            {
+            if matches!(component_type.as_str(), "Text" | "TXT" | "text") && method == "set_text" {
                 let text = match args.first() {
                     Some(Value::String(s)) => s.clone(),
                     Some(other) => {
@@ -2408,10 +2373,8 @@ fn eval_method_call(
                 return Ok(Value::Null);
             }
 
-            if matches!(
-                component_type.as_str(),
-                "T" | "Transform" | "TransformComponent" | "transform"
-            ) && method == "set_position"
+            if matches!(component_type.as_str(), "T" | "Transform" | "transform")
+                && method == "set_position"
             {
                 let [x, y, z] = match args.as_slice() {
                     [Value::Number(x), Value::Number(y), Value::Number(z)] => {
@@ -2446,10 +2409,8 @@ fn eval_method_call(
                 return Ok(Value::Null);
             }
 
-            if matches!(
-                component_type.as_str(),
-                "Camera3D" | "Camera3DComponent" | "camera3d" | "C3D"
-            ) && matches!(method, "enabled" | "make_active_camera")
+            if matches!(component_type.as_str(), "Camera3D" | "camera3d" | "C3D")
+                && matches!(method, "enabled" | "make_active_camera")
             {
                 let Some(world) = ctx.host_world else {
                     return Err(format!("{method}(): no host world"));
@@ -2483,10 +2444,8 @@ fn eval_method_call(
                 return Ok(Value::Null);
             }
 
-            if matches!(
-                component_type.as_str(),
-                "CameraXR" | "CameraXRComponent" | "camera_xr" | "CXR"
-            ) && matches!(method, "enabled" | "make_active_camera")
+            if matches!(component_type.as_str(), "CameraXR" | "camera_xr" | "CXR")
+                && matches!(method, "enabled" | "make_active_camera")
             {
                 let Some(world) = ctx.host_world else {
                     return Err(format!("{method}(): no host world"));
@@ -2520,10 +2479,8 @@ fn eval_method_call(
                 return Ok(Value::Null);
             }
 
-            if matches!(
-                component_type.as_str(),
-                "Text" | "TXT" | "TextComponent" | "text"
-            ) && method == "set_font_size"
+            if matches!(component_type.as_str(), "Text" | "TXT" | "text")
+                && method == "set_font_size"
             {
                 let font_size = match args.first() {
                     Some(Value::Number(n)) => *n as f32,
@@ -2560,7 +2517,7 @@ fn eval_method_call(
 
             if matches!(
                 component_type.as_str(),
-                "ObserverRouter" | "signal_observer_router" | "SignalObserverRouterComponent"
+                "ObserverRouter" | "signal_observer_router"
             ) && matches!(method, "blacklist" | "whitelist" | "block" | "allow")
             {
                 let Some(world) = ctx.host_world else {
@@ -2632,10 +2589,7 @@ fn eval_method_call(
             // returns a detached handle, caller attaches by referencing
             // the binding inside a CE body (or manually). See
             // docs/draft/audio-clip-instance-cloning.md §3.
-            if matches!(
-                component_type.as_str(),
-                "AudioClip" | "AudioClipComponent" | "audio_clip"
-            ) && method == "instance"
+            if matches!(component_type.as_str(), "AudioClip" | "audio_clip") && method == "instance"
             {
                 let start_beat = match args.first() {
                     Some(Value::Number(n)) => Some(*n),
@@ -2774,10 +2728,7 @@ fn eval_binop(
                 },
                 Value::ComponentObject { id, component_type }
                     if field.0 == "world"
-                        && matches!(
-                            component_type.as_str(),
-                            "T" | "Transform" | "TransformComponent" | "transform"
-                        ) =>
+                        && matches!(component_type.as_str(), "T" | "Transform" | "transform") =>
                 {
                     Ok(Value::TransformWorld { id })
                 }
