@@ -1,6 +1,6 @@
 # Require a real hand pose driver before AVC creates arm IK
 
-Status: Proposed
+Status: Implemented; manual XR regression check pending
 
 Date: 2026-08-09
 
@@ -132,6 +132,32 @@ AND usable per-side hand pose driver
 AND not explicitly disabled
 ```
 
+### Classification lifetime and refresh policy
+
+The eligibility classification runs once per side during AVC initialization.
+No separate persistent classification flag is necessary: an eligible result is
+materialized into the cached hand target IDs and generated `IKChainComponent`;
+an ineligible side leaves those fields `None` and creates no chain.
+
+This matches the supported runtime lifecycle today:
+
+- `GLTFSystem` spawns each `GLTFComponent` once;
+- there is no supported in-place GLTF URI/mesh reload operation;
+- replacing the authored GLTF/AVC subtree creates a new AVC and naturally
+  classifies it again.
+
+Although `HumanoidBoneMapReport` has a generation number, AVC's current
+generation refresh only reroutes the camera anchor. It does not tear down and
+rebuild displaced bones, correction targets, or arm chains. Likewise, adding or
+removing an `XRHand` after AVC initialization does not currently reconfigure
+the arms.
+
+Do not add a manual "reclassify" switch without first implementing an idempotent
+AVC teardown/rebind operation. Re-running only classification/creation could
+leave duplicate chains or stale joint IDs. A future dynamic rebind should be
+triggered by map generation or driver-topology generation and must explicitly
+remove the old per-side runtime nodes before rebuilding them.
+
 ## Desired behavior
 
 AVC arm IK should be driver-based opt-in on each side.
@@ -164,6 +190,17 @@ a live target.
 ## Proposed fix
 
 ### 1. Separate arm capability from arm activation
+
+Implemented 2026-08-12 via the dedicated, non-mutating per-side
+`classify_arm_ik_eligibility` seam. It returns one of:
+
+- `Eligible(ArmIkBinding)`,
+- `IncompleteArmMap`,
+- `NoHandDriver`,
+- `MalformedHandDriver`.
+
+`ArmIkBinding` retains the resolved controller, direct tracked target, upper
+arm, lower arm, and hand IDs used by initialization.
 
 In `AvatarControlSystem::try_init_splices`, resolve the humanoid bones as model
 capabilities, but do not call the hand-target construction path unless that side
@@ -198,6 +235,10 @@ If any item is absent, skip only that side.
 
 ### 2. Remove the no-controller identity-target fallback
 
+Implemented 2026-08-12. The old `resolve_hand_splice` fallback was removed and
+replaced by `resolve_hand_target`, which accepts only an already eligible
+binding and can no longer invent an unattached target.
+
 `resolve_hand_splice` is now an arm-IK target resolver despite retaining an old
 "splice" name and fallback. Change its contract so an absent controller or
 other target provider returns `None`.
@@ -217,6 +258,9 @@ consumed rather than preserving misleading topology concepts.
 
 ### 3. Calibrate hand basis only for active sides
 
+Implemented 2026-08-12. Hand-basis preparation and correction derivation now
+run only after that side classifies as eligible.
+
 AVC currently requests/derives left and right hand aim corrections before it
 knows whether either side has a driver. That can delay all AVC initialization on
 hand landmark/basis readiness even for a head-only desktop avatar.
@@ -233,6 +277,10 @@ Head, body, camera, collision, and neck initialization must remain independent
 of unused hand tracking.
 
 ### 4. Preserve and strengthen pose-validity gating
+
+Implemented for the current XR-specific path. Eligible bindings originate from
+an enabled `ControllerXRComponent` with its required direct tracked transform;
+the generated chain retains the existing XR pose-validity owner/gate.
 
 For an AVC-generated XR arm chain, `xr_pose_driver` should always resolve to the
 owning `ControllerXRComponent`. Keep the existing `pose_valid` check in
@@ -284,8 +332,8 @@ validity/liveness semantics appropriate to that driver type.
 
 ## Implementation seams
 
-No source changes are part of this task document. The eventual implementation
-is expected to touch these seams.
+The minimal activation fix touches the seams below. A dynamic teardown and
+rebind operation remains future work.
 
 ### `src/engine/ecs/system/avatar_control_system.rs`
 
@@ -294,9 +342,9 @@ is expected to touch these seams.
   - Avoid unconditional hand-basis preparation.
   - Create and cache target IDs only for active sides.
   - Create `TwoBoneIK` only when both mapped joints and a target exist.
-- `resolve_hand_splice`
-  - Remove the `controller == None` identity-transform fallback.
-  - Potentially rename the helper and simplify its return type.
+- `resolve_hand_target`
+  - Accept only an eligible `ArmIkBinding`.
+  - Create only the optional basis-correction child; never synthesize a target.
 - `find_xr_pose_driver`
   - Keep as the runtime validity-owner lookup, or make the controller ID
     explicit when constructing an XR-owned chain.

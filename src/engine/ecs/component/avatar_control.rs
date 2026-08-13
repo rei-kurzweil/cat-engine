@@ -14,14 +14,13 @@ use crate::engine::ecs::component::Component;
 ///
 /// ## Controller discovery
 ///
-/// Hand controllers are discovered automatically by topology: any `ControllerXRComponent`
-/// that is a **direct child** of this component is registered as a hand driver.
-/// Its `hand` field (`Left` / `Right`) determines which hand bone it drives.
-/// The bone is displaced under the controller's first `TransformComponent` child
-/// (the driven transform written by `OpenXRSystem`).
+/// Hand controllers are discovered automatically by topology: any enabled
+/// `ControllerXRComponent` that is a **direct child** of this component is a candidate hand
+/// driver. Its `hand` field (`Left` / `Right`) selects the side, and its first direct
+/// `TransformComponent` child is the tracked target written by `OpenXRSystem`.
 ///
-/// If no controller is present for a configured hand bone, a plain
-/// `TransformComponent` splice is inserted instead (for IK-only or static setups).
+/// AVC creates a side's TwoBoneIK chain only when both the complete mapped arm and that usable
+/// tracked target exist. A mapped arm without a controller remains in its FK/rest/animation pose.
 ///
 /// ## Topology (after init)
 ///
@@ -32,16 +31,12 @@ use crate::engine::ecs::component::Component;
 ///               ├── model_root  (TransformComponent, Y offset)
 ///               │     └── GLTFComponent
 ///               │           └── [armature]
-///               │                 left_lower_arm
-///               │                   └── ControllerXR (Left, Grip)  ← moved here by system
-///               │                         └── controller_driven_t
-///               │                               └── J_Bip_L_Hand (displaced)
-///               │                 right_lower_arm
-///               │                   └── ControllerXR (Right, Grip)
-///               │                         └── controller_driven_t
-///               │                               └── J_Bip_R_Hand (displaced)
-///               ├── ControllerXR (Left,  Grip) { T }  ← declared here; re-parented on init
-///               └── ControllerXR (Right, Grip) { T }
+///               │                 left_upper_arm → left_lower_arm → left_hand
+///               │                 right_upper_arm → right_lower_arm → right_hand
+///               ├── ControllerXR (Left,  Grip) { controller_driven_t }
+///               ├── ControllerXR (Right, Grip) { controller_driven_t }
+///               ├── [runtime] left TwoBoneIK → corrected left controller target
+///               └── [runtime] right TwoBoneIK → corrected right controller target
 ///         └── head_mount  ← injected by AVC; fixed offset from driven_t
 ///               └── J_Bip_C_Head (displaced from the armature)
 /// ```

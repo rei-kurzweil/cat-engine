@@ -146,29 +146,21 @@ then `end_effector_id` directly). Bone lengths are measured from FK world positi
 time (stable since only rotations are modified by IK). The controller stays under AVC —
 `OpenXRSystem` correctly converts world→local regardless of parent hierarchy.
 
-**Arm activation:** AVC consumes the owning GLTF's retained `HumanoidBoneMapReport`. A side is
-enabled only when its upper-arm, lower-arm, and hand slots validate. The other side remains
-independent. AVC does not perform name lookup or topology inference itself.
+**Arm activation:** AVC consumes the owning GLTF's retained `HumanoidBoneMapReport` and
+classifies each side independently. A side is eligible only when its upper-arm, lower-arm,
+and hand slots validate and an enabled direct `ControllerXRComponent` child for that side has
+a direct tracked `TransformComponent` child. AVC does not perform name lookup or topology
+inference itself.
 
-### Simple splice mode (no arm IK / fallback)
+An ineligible side creates no target and no `TwoBoneIK` chain. Its mapped bones remain in
+their ordinary FK/rest/animation pose. In particular, desktop AVC with no XR hand drivers does
+not manufacture identity targets at world origin.
 
-Used for non-controller/static hand routing after semantic map validation.
-
-```
-bone_original_parent  (e.g. J_Bip_L_LowerArm)
-  ControllerXR (Left, Grip)
-    controller_driven_t
-      [sys] hand_pipeline  (TransformPipeline — only if hand_rotation_smoothing is Some)
-        ForkTRS
-          MapRotation
-            QuatTemporalFilter { smoothing_factor }
-          MergeTRS
-        PipelineOutput
-          [sys] smoothed_t  (TC)
-            J_Bip_L_Hand  (displaced here)
-      — OR, if smoothing is None —
-      J_Bip_L_Hand  (displaced directly)
-```
+Eligibility is classified once during AVC initialization. Generated target IDs and IK chains
+are the cached active mode; inactive sides leave their runtime IDs empty. Replacing the
+GLTF/AVC subtree initializes and classifies a new instance. Dynamic driver or topology refresh
+requires a future teardown/rebind operation so old runtime nodes can be removed safely before
+classification runs again.
 
 ---
 
@@ -222,7 +214,7 @@ driver and final camera consumer are still different.
 ### Practical reading of the table
 
 What is the same:
-- The avatar rigging topology created by AVC.
+- The head and body rigging topology created by AVC.
 - The head-target math and authored eye-offset sign convention.
 - The way the visible head bone is restored and mounted.
 - The mapped camera-anchor calibration and camera discovery/reparent flow.
@@ -244,7 +236,8 @@ What is not the same:
 2. Wait without topology mutation until the mapped head validates.
 3. Create `head_mount` beneath `driven_t`; displace the mapped head beneath it.
 4. Create body pipeline as child of AVC; re-parent `model_root` under its output.
-5. Independently create each arm IK chain whose mapped upper arm, lower arm, and hand validate.
+5. Classify each arm independently; create its IK target and chain only when the complete map
+   and a usable direct XR hand target both validate.
 6. Calibrate and attach cameras to the report's operational `camera_anchor` target.
 7. Store all runtime IDs on `AvatarControlComponent`; `head_mount` being `Some` stops retries.
 

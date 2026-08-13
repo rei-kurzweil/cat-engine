@@ -4,6 +4,8 @@
 // Note: the bone-marker debug overlay (find_component loop) is not expressed here;
 // it lives in the .rs loader if needed.
 
+import { pose as relaxed_pose_factory } from "assets/components/poses/bisket/000-relaxed.pose.mms"
+
 // --- Renderer settings ---
 RendererSettings.msaa_off() {
     window_size(1280, 960)
@@ -176,7 +178,10 @@ ED {
                 ik_debug()
 
                 T.position(0.0, -1.6, 0.0) {
-                    GLTF.new("assets/models/pc-rei.hoodie.glb") { EM.on() }
+                    GLTF.new("assets/models/pc-rei.hoodie.glb") {
+                        relaxed_pose_factory()
+                        EM.on()
+                    }
                 }
             }
         }

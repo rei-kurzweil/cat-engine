@@ -453,6 +453,84 @@ fn ancestor_input_xr_is_ready(world: &World, start: ComponentId) -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArmIkBinding {
+    controller: ComponentId,
+    raw_target: ComponentId,
+    upper_arm: ComponentId,
+    lower_arm: ComponentId,
+    hand: ComponentId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArmIkEligibility {
+    Eligible(ArmIkBinding),
+    IncompleteArmMap,
+    NoHandDriver,
+    MalformedHandDriver,
+}
+
+/// Classify one AVC arm without mutating the world.
+///
+/// A complete humanoid arm is only a capability. AVC-owned arm IK activates when
+/// that capability also has an enabled, direct hand pose driver with the tracked
+/// transform topology expected by `OpenXRSystem`.
+fn classify_arm_ik_eligibility(
+    world: &World,
+    humanoid_map: &HumanoidBoneMapReport,
+    controller: Option<ComponentId>,
+    left: bool,
+) -> ArmIkEligibility {
+    let (upper_slot, lower_slot, hand_slot) = if left {
+        (
+            HumanoidSlot::LeftUpperArm,
+            HumanoidSlot::LeftLowerArm,
+            HumanoidSlot::LeftHand,
+        )
+    } else {
+        (
+            HumanoidSlot::RightUpperArm,
+            HumanoidSlot::RightLowerArm,
+            HumanoidSlot::RightHand,
+        )
+    };
+    let (Some(upper_arm), Some(lower_arm), Some(hand)) = (
+        map_target(humanoid_map, upper_slot),
+        map_target(humanoid_map, lower_slot),
+        map_target(humanoid_map, hand_slot),
+    ) else {
+        return ArmIkEligibility::IncompleteArmMap;
+    };
+    let Some(controller) = controller else {
+        return ArmIkEligibility::NoHandDriver;
+    };
+    let Some(config) = world.get_component_by_id_as::<ControllerXRComponent>(controller) else {
+        return ArmIkEligibility::MalformedHandDriver;
+    };
+    if !config.enabled {
+        return ArmIkEligibility::NoHandDriver;
+    }
+    let Some(raw_target) = world
+        .children_of(controller)
+        .iter()
+        .copied()
+        .find(|&child| {
+            world
+                .get_component_by_id_as::<TransformComponent>(child)
+                .is_some()
+        })
+    else {
+        return ArmIkEligibility::MalformedHandDriver;
+    };
+    ArmIkEligibility::Eligible(ArmIkBinding {
+        controller,
+        raw_target,
+        upper_arm,
+        lower_arm,
+        hand,
+    })
+}
+
 /// First-time setup: splice bones, create body pipeline, and (optionally) hand smoothing pipelines.
 ///
 /// Controllers are discovered by topology: any `ControllerXRComponent` that is a
@@ -559,44 +637,38 @@ fn try_init_splices(
     // permanently rotated visible head.
     let (_, head_rest_rot, head_rest_s) = read_bone_rest_pose(world, head_bone_id);
 
-    // Resolve hand bones + controller drivers for 2-bone arm IK.
-    // The hand bone stays in the armature; IKSystem rotates UpperArm + LowerArm
-    // each tick so the hand reaches the controller world pose, optionally
-    // through a rotated child target that compensates for grip-vs-palm framing.
-    ensure_map_hand_basis(world, retargeting, humanoid_map, true);
-    ensure_map_hand_basis(world, retargeting, humanoid_map, false);
-    let Some(left_aim_correction) = derive_hand_aim_correction(
-        world,
-        retargeting,
-        model_root_id,
-        map_target(humanoid_map, HumanoidSlot::LeftHand),
-        "left",
-    ) else {
+    // A mapped arm is only a model capability. Build a target and arm chain only
+    // when this AVC also owns a usable per-side hand pose driver.
+    let left_eligibility = classify_arm_ik_eligibility(world, humanoid_map, left_ctrl, true);
+    let right_eligibility = classify_arm_ik_eligibility(world, humanoid_map, right_ctrl, false);
+    let mut prepare_arm = |eligibility: ArmIkEligibility, left: bool, side: &str| {
+        let ArmIkEligibility::Eligible(binding) = eligibility else {
+            if eligibility == ArmIkEligibility::MalformedHandDriver {
+                eprintln!(
+                    "[AVC] {side} arm IK disabled: XRHand must have a direct tracked Transform child"
+                );
+            }
+            return Some(None);
+        };
+        ensure_map_hand_basis(world, retargeting, humanoid_map, left);
+        let correction = derive_hand_aim_correction(
+            world,
+            retargeting,
+            model_root_id,
+            Some(binding.hand),
+            side,
+        )?;
+        Some(Some((
+            resolve_hand_target(world, binding, correction),
+            correction,
+        )))
+    };
+    let Some(left) = prepare_arm(left_eligibility, true, "left") else {
         return;
     };
-    let Some(right_aim_correction) = derive_hand_aim_correction(
-        world,
-        retargeting,
-        model_root_id,
-        map_target(humanoid_map, HumanoidSlot::RightHand),
-        "right",
-    ) else {
+    let Some(right) = prepare_arm(right_eligibility, false, "right") else {
         return;
     };
-    let left = resolve_hand_splice(
-        world,
-        model_root_id,
-        map_target(humanoid_map, HumanoidSlot::LeftHand),
-        left_ctrl,
-        left_aim_correction,
-    );
-    let right = resolve_hand_splice(
-        world,
-        model_root_id,
-        map_target(humanoid_map, HumanoidSlot::RightHand),
-        right_ctrl,
-        right_aim_correction,
-    );
 
     // --- Camera bone: auto-calibrate model_root.y + discover camera children ---
     //
@@ -733,27 +805,31 @@ fn try_init_splices(
         c.model_root_local_y = model_root_local_y;
         c.neck_bone_id = neck_bone_id;
         c.neck_rest_translation = neck_rest_t;
-        if let Some((_, _, _, bone)) = left {
-            c.left_hand_bone_id = Some(bone);
+        if let Some(((binding, _, _), _)) = left {
+            c.left_hand_bone_id = Some(binding.hand);
         }
-        if let Some((_, _, _, bone)) = right {
-            c.right_hand_bone_id = Some(bone);
+        if let Some(((binding, _, _), _)) = right {
+            c.right_hand_bone_id = Some(binding.hand);
         }
-        if let Some((_, raw_driver, hand_driver, _)) = left {
+        if let Some(((_, raw_driver, hand_driver), _)) = left {
             c.left_hand_raw_target_id = Some(raw_driver);
             c.left_hand_visual_target_id = Some(hand_driver);
         }
-        if let Some((_, raw_driver, hand_driver, _)) = right {
+        if let Some(((_, raw_driver, hand_driver), _)) = right {
             c.right_hand_raw_target_id = Some(raw_driver);
             c.right_hand_visual_target_id = Some(hand_driver);
         }
-        c.left_hand_aim_correction = left_aim_correction;
-        c.right_hand_aim_correction = right_aim_correction;
+        c.left_hand_aim_correction = left.and_then(|(_, correction)| correction);
+        c.right_hand_aim_correction = right.and_then(|(_, correction)| correction);
     }
     // Avatar-finger lasers need the final quaternion-corrected hand targets
     // cached above. Controller registration happens earlier, so retry their
     // runtime mount now that AVC and the imported skeleton are both ready.
-    for controller in [left_ctrl, right_ctrl].into_iter().flatten() {
+    for controller in [left, right]
+        .into_iter()
+        .flatten()
+        .map(|((binding, _, _), _)| binding.controller)
+    {
         crate::engine::ecs::system::pointer_system::ensure_xr_hand_laser(
             world,
             retargeting,
@@ -851,34 +927,20 @@ fn try_init_splices(
     // under the arm joints (e.g. bisket's `J_Sec_L_TopsUpperArm_*` and
     // `J_Bip_L_UpperArm_collider_*`) are irrelevant.
     //
-    // Resolution per bone:
-    //   - if `*_upper_arm_bone` / `*_lower_arm_bone` set → name lookup under
-    //     model_root (skip the chain if the name is wrong — fail loudly).
-    //   - else fall back to `parent_of` walk-up from the hand bone (works for
-    //     clean VRM-style rigs with no twist bones).
+    // Bone IDs and the tracked target come from the already validated
+    // `ArmIkBinding`; there is no name lookup, topology inference, or synthetic
+    // origin target in this construction path.
     // -----------------------------------------------------------------------
-    for (hand_opt, upper_arm, lower_arm, pole_dir, side_label) in [
-        (
-            left,
-            map_target(humanoid_map, HumanoidSlot::LeftUpperArm),
-            map_target(humanoid_map, HumanoidSlot::LeftLowerArm),
-            left_arm_pole_direction,
-            "left",
-        ),
-        (
-            right,
-            map_target(humanoid_map, HumanoidSlot::RightUpperArm),
-            map_target(humanoid_map, HumanoidSlot::RightLowerArm),
-            right_arm_pole_direction,
-            "right",
-        ),
+    for (hand_opt, pole_dir, side_label) in [
+        (left, left_arm_pole_direction, "left"),
+        (right, right_arm_pole_direction, "right"),
     ] {
-        let Some((_, raw_driver, hand_driver, hand_bone)) = hand_opt else {
+        let Some(((binding, raw_driver, hand_driver), _)) = hand_opt else {
             continue;
         };
-
-        let Some(upper_arm) = upper_arm else { continue };
-        let Some(lower_arm) = lower_arm else { continue };
+        let upper_arm = binding.upper_arm;
+        let lower_arm = binding.lower_arm;
+        let hand_bone = binding.hand;
 
         let bone_name =
             |id: ComponentId| -> String { world.component_name(id).unwrap_or("?").to_string() };
@@ -994,30 +1056,13 @@ fn find_xr_pose_driver(world: &World, start: ComponentId) -> Option<ComponentId>
     None
 }
 
-/// Find a hand bone by name and determine its raw driver node.
-///
-/// Returns `(bone_original_parent, raw_driver, hand_driver, bone_id)` or `None` if the bone
-/// wasn't found (model may not have this joint — silently skip).
-fn resolve_hand_splice(
+/// Create the optional rotation-correction child beneath an already classified hand target.
+fn resolve_hand_target(
     world: &mut World,
-    _model_root: ComponentId,
-    bone: Option<ComponentId>,
-    controller: Option<ComponentId>,
+    binding: ArmIkBinding,
     rotation_offset: Option<[f32; 4]>,
-) -> Option<(ComponentId, ComponentId, ComponentId, ComponentId)> {
-    let bone = bone?;
-    let bone_parent = world.parent_of(bone)?;
-
-    let driver = if let Some(ctrl) = controller {
-        world.children_of(ctrl).iter().copied().find(|&ch| {
-            world
-                .get_component_by_id_as::<TransformComponent>(ch)
-                .is_some()
-        })?
-    } else {
-        world.add_component(TransformComponent::new())
-    };
-
+) -> (ArmIkBinding, ComponentId, ComponentId) {
+    let driver = binding.raw_target;
     let hand_driver = if let Some(offset_q) = rotation_offset {
         let offset = world.add_component(TransformComponent::new().with_rotation_quat(offset_q));
         let offset_serialize_id = world.add_component(SerializeComponent::off());
@@ -1028,7 +1073,7 @@ fn resolve_hand_splice(
         driver
     };
 
-    Some((bone_parent, driver, hand_driver, bone))
+    (binding, driver, hand_driver)
 }
 
 /// Returns `None` only while the imported skeleton or its retained basis is still in flight.
@@ -1357,7 +1402,12 @@ fn rest_model_relative_to(
 mod hand_pose_correction_tests {
     use super::*;
     use crate::engine::ecs::component::{ComponentRef, RestAttachmentComponent};
+    use crate::engine::ecs::system::{
+        HumanoidSlotProvenance, HumanoidSlotReport, HumanoidSlotStatus, ResolvedHumanoidTarget,
+        ResolvedHumanoidTargetKind,
+    };
     use crate::engine::ecs::{EventSignal, IntentSignal};
+    use std::collections::BTreeMap;
 
     #[derive(Default)]
     struct RecordingEmitter(Vec<[f32; 4]>);
@@ -1372,6 +1422,40 @@ mod hand_pose_correction_tests {
             {
                 self.0.push(rotation_quat_xyzw);
             }
+        }
+    }
+
+    fn left_arm_report(
+        upper: ComponentId,
+        lower: ComponentId,
+        hand: ComponentId,
+    ) -> HumanoidBoneMapReport {
+        let mut slots = BTreeMap::new();
+        for (slot, component) in [
+            (HumanoidSlot::LeftUpperArm, upper),
+            (HumanoidSlot::LeftLowerArm, lower),
+            (HumanoidSlot::LeftHand, hand),
+        ] {
+            slots.insert(
+                slot,
+                HumanoidSlotReport {
+                    slot,
+                    status: HumanoidSlotStatus::Resolved(ResolvedHumanoidTarget {
+                        component,
+                        kind: ResolvedHumanoidTargetKind::SkinJoint,
+                    }),
+                    provenance: HumanoidSlotProvenance::ConventionName,
+                    diagnostic: None,
+                },
+            );
+        }
+        HumanoidBoneMapReport {
+            owning_gltf: ComponentId::default(),
+            source: None,
+            generation: 1,
+            valid: true,
+            diagnostics: Vec::new(),
+            slots,
         }
     }
 
@@ -1425,13 +1509,12 @@ mod hand_pose_correction_tests {
     }
 
     #[test]
-    fn rest_attachment_keeps_the_tracked_transform_as_xr_hand_direct_child() {
+    fn arm_ik_eligibility_uses_the_xr_hand_direct_tracked_transform() {
         let mut world = World::default();
-        let model_root = world.add_component(TransformComponent::new());
-        let bone_parent = world.add_component(TransformComponent::new());
-        let bone = world.add_component_boxed_named("hand", Box::new(TransformComponent::new()));
-        world.add_child(model_root, bone_parent).unwrap();
-        world.add_child(bone_parent, bone).unwrap();
+        let upper = world.add_component(TransformComponent::new());
+        let lower = world.add_component(TransformComponent::new());
+        let hand = world.add_component(TransformComponent::new());
+        let report = left_arm_report(upper, lower, hand);
 
         let controller = world.add_component(ControllerXRComponent::new(
             true,
@@ -1448,22 +1531,38 @@ mod hand_pose_correction_tests {
         world.add_child(tracked, attachment).unwrap();
         world.add_child(attachment, pointer).unwrap();
 
-        let (_, raw_driver, _, resolved_bone) =
-            resolve_hand_splice(&mut world, model_root, Some(bone), Some(controller), None)
-                .expect("valid XR hand topology");
-        assert_eq!(raw_driver, tracked);
-        assert_eq!(resolved_bone, bone);
+        let eligibility = classify_arm_ik_eligibility(&world, &report, Some(controller), true);
+        let ArmIkEligibility::Eligible(binding) = eligibility else {
+            panic!("expected eligible arm, got {eligibility:?}");
+        };
+        assert_eq!(binding.raw_target, tracked);
+        assert_eq!(binding.hand, hand);
+        assert_eq!(binding.upper_arm, upper);
+        assert_eq!(binding.lower_arm, lower);
         assert_eq!(world.parent_of(tracked), Some(controller));
     }
 
     #[test]
-    fn missing_direct_tracked_transform_does_not_create_an_origin_target() {
+    fn complete_arm_without_hand_driver_is_not_eligible() {
         let mut world = World::default();
-        let model_root = world.add_component(TransformComponent::new());
-        let bone_parent = world.add_component(TransformComponent::new());
-        let bone = world.add_component_boxed_named("hand", Box::new(TransformComponent::new()));
-        world.add_child(model_root, bone_parent).unwrap();
-        world.add_child(bone_parent, bone).unwrap();
+        let upper = world.add_component(TransformComponent::new());
+        let lower = world.add_component(TransformComponent::new());
+        let hand = world.add_component(TransformComponent::new());
+        let report = left_arm_report(upper, lower, hand);
+
+        assert_eq!(
+            classify_arm_ik_eligibility(&world, &report, None, true),
+            ArmIkEligibility::NoHandDriver
+        );
+    }
+
+    #[test]
+    fn missing_direct_tracked_transform_is_malformed_not_an_origin_target() {
+        let mut world = World::default();
+        let upper = world.add_component(TransformComponent::new());
+        let lower = world.add_component(TransformComponent::new());
+        let hand = world.add_component(TransformComponent::new());
+        let report = left_arm_report(upper, lower, hand);
         let controller = world.add_component(ControllerXRComponent::new(
             true,
             ControllerHand::Left,
@@ -1477,9 +1576,9 @@ mod hand_pose_correction_tests {
         world.add_child(controller, wrapper).unwrap();
         world.add_child(wrapper, nested).unwrap();
 
-        assert!(
-            resolve_hand_splice(&mut world, model_root, Some(bone), Some(controller), None)
-                .is_none()
+        assert_eq!(
+            classify_arm_ik_eligibility(&world, &report, Some(controller), true),
+            ArmIkEligibility::MalformedHandDriver
         );
     }
 }
