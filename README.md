@@ -1,9 +1,10 @@
 
 # mittens-engine 0.7.0
-<img width="1920" height="745" alt="Screenshot_20260303_015535" src="https://github.com/user-attachments/assets/16d9656c-9df3-4a96-89bd-658d222e78d0" />
+<img height="420" alt="Screenshot_20260303_015535" src="assets/images/Screenshot_20260813_054729-1.png" />
 
-A hypermedia / web development inspired game engine specially made for social vr, vtubing, visual novels, css UI / spatial layout, and 3D character animation.
+A hypermedia / web development inspired game engine specially made for vr, 3d vtubing, animations and user interfaces.
 
+mittens aims to provide a similar -although more opinionated- developer experience to that of react-three/fiber, except for native apps (not web apps).  Eventually i may try to port this to webasm, but its not top priority tbh.
 
 ### Workspace crates
 
