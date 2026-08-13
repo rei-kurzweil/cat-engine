@@ -16,6 +16,8 @@ defined by the normative specification and must not be redefined here.
 Language/API decisions and their detailed verification live in these focused
 tasks:
 
+- [RuntimeSpec and MittensHost bindings](mms-runtime-spec-and-mittens-host-bindings.md)
+  gates Phase 1's single-specification and engine-host cutover.
 - [Standalone runner and source loading](mms-standalone-runner-and-source-loading.md)
   gates Phase 2 and the module/import portion of Phase 3.
 - [Component reflection and table dot access](mms-component-reflection-and-table-dot-access.md)

@@ -69,9 +69,11 @@ the standalone slice, not the engine cutover.
 - [x] Record the release decision: the full MMS cutover targets 0.9 and is not
       a 0.8 gate.
 - [ ] Finish the supported crate-owned `RuntimeSpec`, strict component policy,
-      and opaque binding IDs.
+      and opaque binding IDs, tracked in
+      [RuntimeSpec and MittensHost bindings](mms-runtime-spec-and-mittens-host-bindings.md).
 - [ ] Make `MittensHost` implement every declared effect without consulting a
-      second vocabulary or the legacy evaluator.
+      second vocabulary or the legacy evaluator, tracked in the same focused
+      task.
 - [ ] Introduce the host-independent persistent session/client boundary and
       make the generic runner drive it.
 - [ ] Cut ordinary Mittens source/file/world evaluation over first and rerun
