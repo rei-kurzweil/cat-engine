@@ -49,6 +49,13 @@ fn main() {
     assert_eq!(
         normalized_names
             .iter()
+            .filter(|name| *name == "directionallight")
+            .count(),
+        1
+    );
+    assert_eq!(
+        normalized_names
+            .iter()
             .filter(|name| *name == "emissive")
             .count(),
         3
@@ -58,5 +65,7 @@ fn main() {
     let bloom = post_processing.bloom.as_ref().expect("bloom is configured");
     assert!((bloom.intensity - 1.2).abs() < f32::EPSILON);
 
-    println!("RuntimeSpec smoke passed: camera + three emissive cubes + active bloom");
+    println!(
+        "RuntimeSpec smoke passed: configured camera + light + three emissive cubes + active bloom"
+    );
 }

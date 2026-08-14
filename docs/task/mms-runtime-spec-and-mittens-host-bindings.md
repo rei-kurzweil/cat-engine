@@ -135,14 +135,30 @@ Baseline verification on 2026-08-13:
   canonical name conflicts with the standard `MusicNote` builtin table. That
   spelling/namespace decision must be resolved before claiming complete
   component coverage.
-- Post-processing inventory exposed a parity seam: the crate evaluator accepts
-  declared fluent builder calls such as
-  `BlurPass.radius_ndc(0.05).half_res(true) {}`, while many existing Mittens
-  scenes use call-shaped entries inside component bodies, such as
-  `BlurPass { radius_ndc(0.05) half_res(true) }`. The latter currently reaches
-  ordinary function lookup and fails with `value is not callable`. Preserve
-  this authored behavior during the catalog cutover; do not mistake catalog
-  declaration coverage for evaluator parity.
+- The crate evaluator now recognizes declared call-shaped entries inside a
+  component body, preserving existing authored forms such as
+  `BlurPass { radius_ndc(0.05) half_res(true) }`. Bound script functions,
+  standard helpers, and registered global APIs still use ordinary call
+  evaluation; unbound body calls are validated against that component's
+  builder-call declarations.
+
+### 2026-08-14 catalog-parity slice in progress
+
+- Added bounded optional arguments to `ValueSignature`. The full declared
+  argument list remains typed while `minimum_arguments` records how many are
+  required; this covers defaulted constructors without making them variadic.
+- Expanded the Mittens specification across nearly all statically shaped
+  legacy component vocabulary: procedural renderables, cameras/lights,
+  input/transforms, layout/style, physics/interaction, avatar/spring systems,
+  audio, textures, animation/transition, text, networking, editor helpers,
+  and post-processing.
+- Extended the shared headless/graphical smoke scene with configured `Camera3D`
+  body calls and a configured `DirectionalLight`.
+- This is not yet full registry parity. Dynamic `Data` properties,
+  union/overload-shaped arguments (for example quaternion array vs four
+  scalars and spring gravity vector vs three scalars), component methods and
+  signals, the `MusicNote` name collision, and direct opaque binding dispatch
+  remain before the names-only fallback can be removed.
 
 Smoke command:
 

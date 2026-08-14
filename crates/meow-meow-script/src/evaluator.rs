@@ -543,6 +543,19 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     tree.children.push(CeChild::Spawn(self.materialize(child)?))
                 }
                 Statement::Expression(expression) => {
+                    if let Expression::Call(call) = expression {
+                        if let Expression::Identifier(method) = call.callee.as_ref() {
+                            if self.is_component_body_builder_call(&method.0) {
+                                let args = call
+                                    .args
+                                    .iter()
+                                    .map(|arg| self.eval_expr(arg))
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                tree.calls.push((method.0.clone(), args));
+                                continue;
+                            }
+                        }
+                    }
                     let value = self.eval_expr(expression)?;
                     match value {
                         Value::ComponentExpr(child) => tree.children.push(CeChild::Spawn(*child)),
@@ -596,6 +609,16 @@ impl<'a, H: Host> Evaluator<'a, H> {
             if let Some(validate) = &spec.validate { validate(&mut tree).map_err(EvalError::Runtime)?; }
         }
         Ok(tree)
+    }
+
+    fn is_component_body_builder_call(&self, name: &str) -> bool {
+        if self.lookup(name).is_some() || matches!(name, "range" | "len" | "query" | "query_all") {
+            return false;
+        }
+        !self.catalog.as_ref().is_some_and(|catalog| {
+            catalog.builtins.contains(name)
+                || catalog.apis.contains_key(&api_key(None, name))
+        })
     }
 
     fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, EvalError> {
@@ -726,10 +749,17 @@ fn transport_to_value(value: TransportValue) -> Result<Value, EvalError> {
 }
 
 fn validate_args(name: &str, signature: &ValueSignature, args: &[Value]) -> Result<(), EvalError> {
-    if (!signature.variadic && args.len() != signature.arguments.len()) || (signature.variadic && args.len() < signature.arguments.len()) {
-        return Err(EvalError::Runtime(format!("'{name}' expects {} argument(s), got {}", signature.arguments.len(), args.len())));
+    let too_few = args.len() < signature.minimum_arguments;
+    let too_many = !signature.variadic && args.len() > signature.arguments.len();
+    if too_few || too_many {
+        let expected = if signature.minimum_arguments == signature.arguments.len() {
+            signature.arguments.len().to_string()
+        } else {
+            format!("{}..={}", signature.minimum_arguments, signature.arguments.len())
+        };
+        return Err(EvalError::Runtime(format!("'{name}' expects {expected} argument(s), got {}", args.len())));
     }
-    for (index, ty) in signature.arguments.iter().enumerate() {
+    for (index, ty) in signature.arguments.iter().take(args.len()).enumerate() {
         if !ty.accepts(&args[index]) {
             return Err(EvalError::Runtime(format!(
                 "argument {} to '{name}' has the wrong type: expected {}",

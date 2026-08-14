@@ -128,6 +128,9 @@ where
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueSignature {
     pub arguments: Vec<ValueType>,
+    /// The number of leading arguments which must be supplied. Remaining
+    /// declared arguments are optional and retain their declared types.
+    pub minimum_arguments: usize,
     pub result: ValueType,
     pub variadic: bool,
 }
@@ -604,9 +607,28 @@ fn api_path(namespace: Option<&str>, name: &str) -> String {
 
 impl ValueSignature {
     pub fn new(arguments: impl Into<Vec<ValueType>>, result: ValueType) -> Self {
-        Self { arguments: arguments.into(), result, variadic: false }
+        let arguments = arguments.into();
+        let minimum_arguments = arguments.len();
+        Self { arguments, minimum_arguments, result, variadic: false }
     }
-    pub fn any() -> Self { Self { arguments: vec![], result: ValueType::Any, variadic: true } }
+    /// Declares a bounded signature whose trailing arguments may be omitted.
+    pub fn with_optional(
+        arguments: impl Into<Vec<ValueType>>,
+        minimum_arguments: usize,
+        result: ValueType,
+    ) -> Self {
+        let arguments = arguments.into();
+        assert!(minimum_arguments <= arguments.len());
+        Self { arguments, minimum_arguments, result, variadic: false }
+    }
+    pub fn any() -> Self {
+        Self {
+            arguments: vec![],
+            minimum_arguments: 0,
+            result: ValueType::Any,
+            variadic: true,
+        }
+    }
 }
 
 pub type ComponentCallback = Arc<dyn Fn(&mut MaterializedCE) -> Result<(), String> + Send + Sync>;
@@ -1096,6 +1118,10 @@ mod tests {
         let tree = build.runtime().materialize_component("Pane.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
         assert!(build.runtime().materialize_component("Unknown {}").is_err());
+        let tree = build.runtime().materialize_component("Pane { rounded(3) }").unwrap();
+        assert_eq!(tree.calls, vec![("rounded".into(), vec![Value::Number(3.0)])]);
+        let error = build.runtime().materialize_component("Pane { missing(3) }").unwrap_err();
+        assert!(error.to_string().contains("unknown builder call 'missing'"));
     }
 
     #[test]
@@ -1137,5 +1163,28 @@ mod tests {
         assert!(!ValueType::F32.accepts(&Value::Number(f64::MAX)));
         assert!(ValueType::F64.accepts(&Value::Number(f64::MAX)));
         assert_eq!(ValueType::U32.name(), "u32");
+    }
+
+    #[test]
+    fn optional_signature_arguments_are_bounded_and_typed() {
+        let mut builder = RuntimeSpec::builder::<()>();
+        builder.component("Mesh", |component| {
+            component.constructor(
+                "star",
+                ValueSignature::with_optional(
+                    vec![ValueType::U32, ValueType::F32],
+                    0,
+                    ValueType::Component,
+                ),
+            );
+        });
+        let runtime = builder.build().unwrap();
+
+        assert!(runtime.runtime().materialize_component("Mesh.star() {}").is_ok());
+        assert!(runtime.runtime().materialize_component("Mesh.star(5) {}").is_ok());
+        assert!(runtime.runtime().materialize_component("Mesh.star(5, 0.4) {}").is_ok());
+        assert!(runtime.runtime().materialize_component("Mesh.star(-1) {}").is_err());
+        assert!(runtime.runtime().materialize_component("Mesh.star(5, \"wide\") {}").is_err());
+        assert!(runtime.runtime().materialize_component("Mesh.star(5, 0.4, 2) {}").is_err());
     }
 }

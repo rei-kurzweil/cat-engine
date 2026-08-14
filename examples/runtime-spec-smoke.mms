@@ -15,7 +15,18 @@ RenderGraph {
 // `T` proves strict RuntimeSpec alias resolution.
 T.position(0.0, 0.6, 6.0) {
     C3D {
+        enabled(true)
+        fov(55.0)
+        near(0.05)
+        far(250.0)
         Pointer {}
+    }
+}
+
+T.rotation(-25.0, -35.0, 0.0) {
+    DirectionalLight {
+        intensity(1.5)
+        color(1.0, 0.92, 0.82)
     }
 }
 

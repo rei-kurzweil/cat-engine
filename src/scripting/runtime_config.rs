@@ -1,8 +1,8 @@
 //! The crate-owned MMS runtime specification used by Mittens.
 //!
-//! This is deliberately a small first vertical slice. Component names and
-//! aliases are authoritative here, while constructor/property/method/signal
-//! declarations are migrated in subsequent slices.
+//! Component names, aliases, and the migrated constructor/body vocabulary are
+//! authoritative here. The legacy registry remains the host implementation
+//! while its declarations move into this specification.
 
 use meow_meow_script as mms;
 
@@ -18,6 +18,47 @@ pub enum MittensBinding {
 
 /// The crate-owned runtime and matching Mittens bindings from one build.
 pub type MittensRuntime = mms::ConfiguredRuntime<MittensBinding>;
+
+fn component_signature(arguments: impl Into<Vec<mms::ValueType>>) -> mms::ValueSignature {
+    mms::ValueSignature::new(arguments, mms::ValueType::Component)
+}
+
+fn optional_component_signature(
+    arguments: impl Into<Vec<mms::ValueType>>,
+    minimum_arguments: usize,
+) -> mms::ValueSignature {
+    mms::ValueSignature::with_optional(arguments, minimum_arguments, mms::ValueType::Component)
+}
+
+fn constructor_and_builder(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    name: &str,
+    signature: mms::ValueSignature,
+) {
+    component
+        .constructor(name, signature.clone())
+        .builder_call(name, signature);
+}
+
+fn no_arg_constructors(component: &mut mms::ComponentBuilder<'_, MittensBinding>, names: &[&str]) {
+    for name in names {
+        component.constructor(*name, component_signature([]));
+    }
+}
+
+fn no_arg_builders(component: &mut mms::ComponentBuilder<'_, MittensBinding>, names: &[&str]) {
+    for name in names {
+        component.builder_call(*name, component_signature([]));
+    }
+}
+
+fn no_arg_constructors_and_builders(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    names: &[&str],
+) {
+    no_arg_constructors(component, names);
+    no_arg_builders(component, names);
+}
 
 /// Build the strict MMS vocabulary and its opaque engine binding table.
 pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> {
@@ -42,54 +83,146 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 component.alias(shortform.short);
             }
 
-            let floats = |count| {
-                mms::ValueSignature::new(
-                    vec![mms::ValueType::F32; count],
-                    mms::ValueType::Component,
-                )
-            };
-            let unsigned = |count| {
-                mms::ValueSignature::new(
-                    vec![mms::ValueType::U32; count],
-                    mms::ValueType::Component,
-                )
-            };
-            let booleans = |count| {
-                mms::ValueSignature::new(
-                    vec![mms::ValueType::Bool; count],
-                    mms::ValueType::Component,
-                )
-            };
-            let strings = |count| {
-                mms::ValueSignature::new(
-                    vec![mms::ValueType::String; count],
-                    mms::ValueType::Component,
-                )
-            };
-            let no_args = || mms::ValueSignature::new(Vec::new(), mms::ValueType::Component);
+            let floats = |count| component_signature(vec![mms::ValueType::F32; count]);
+            let unsigned = |count| component_signature(vec![mms::ValueType::U32; count]);
+            let booleans = |count| component_signature(vec![mms::ValueType::Bool; count]);
+            let strings = |count| component_signature(vec![mms::ValueType::String; count]);
+            let any = |count| component_signature(vec![mms::ValueType::Any; count]);
+            let no_args = || component_signature([]);
             match canonical {
                 "Transform" => {
-                    for method in ["position", "scale", "rotation"] {
-                        component
-                            .constructor(method, floats(3))
-                            .builder_call(method, floats(3));
+                    for method in ["position", "scale", "rotation", "rotation_euler"] {
+                        constructor_and_builder(component, method, floats(3));
                     }
+                    for method in ["rotation_quat", "quaternion", "quat"] {
+                        constructor_and_builder(component, method, floats(4));
+                    }
+                    constructor_and_builder(component, "looking_at", any(1));
                 }
                 "Renderable" => {
-                    component.constructor("cube", no_args());
+                    no_arg_constructors(
+                        component,
+                        &[
+                            "cube",
+                            "circle2d",
+                            "sphere",
+                            "triangle",
+                            "square",
+                            "plane",
+                            "tetrahedron",
+                        ],
+                    );
+                    component
+                        .constructor(
+                            "cone",
+                            optional_component_signature([mms::ValueType::U32], 0),
+                        )
+                        .constructor(
+                            "icosahedron",
+                            optional_component_signature(
+                                [mms::ValueType::U32, mms::ValueType::F32],
+                                0,
+                            ),
+                        )
+                        .constructor(
+                            "wireframe_sphere",
+                            optional_component_signature(
+                                [
+                                    mms::ValueType::U32,
+                                    mms::ValueType::U32,
+                                    mms::ValueType::F32,
+                                ],
+                                0,
+                            ),
+                        )
+                        .constructor(
+                            "wireframe_icosahedron",
+                            optional_component_signature(
+                                [
+                                    mms::ValueType::U32,
+                                    mms::ValueType::F32,
+                                    mms::ValueType::F32,
+                                ],
+                                0,
+                            ),
+                        )
+                        .constructor(
+                            "wireframe_box",
+                            optional_component_signature([mms::ValueType::F32], 0),
+                        )
+                        .constructor(
+                            "wireframe_square",
+                            optional_component_signature([mms::ValueType::F32], 0),
+                        )
+                        .constructor(
+                            "heart",
+                            optional_component_signature([mms::ValueType::U32], 0),
+                        )
+                        .constructor("polygon", any(1))
+                        .constructor(
+                            "partial_annulus_2d",
+                            optional_component_signature(
+                                [
+                                    mms::ValueType::F32,
+                                    mms::ValueType::F32,
+                                    mms::ValueType::F32,
+                                    mms::ValueType::F32,
+                                    mms::ValueType::U32,
+                                ],
+                                0,
+                            ),
+                        )
+                        .constructor(
+                            "star",
+                            optional_component_signature(
+                                [
+                                    mms::ValueType::U32,
+                                    mms::ValueType::F32,
+                                    mms::ValueType::U32,
+                                    mms::ValueType::U32,
+                                ],
+                                0,
+                            ),
+                        );
                 }
                 "Color" => {
                     component.constructor("rgba", floats(4));
+                }
+                "Camera3D" => {
+                    for method in ["enabled"] {
+                        constructor_and_builder(component, method, booleans(1));
+                    }
+                    for method in ["fov", "near", "far"] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                    constructor_and_builder(component, "target", strings(1));
+                }
+                "Camera2D" => constructor_and_builder(component, "target", strings(1)),
+                "CameraXR" => {
+                    no_arg_constructors(component, &["on", "off"]);
+                    component
+                        .builder_call("enabled", booleans(1))
+                        .builder_call("target", strings(1));
                 }
                 "Emissive" => {
                     component
                         .constructor("on", no_args())
                         .constructor("off", no_args())
-                        .constructor("intensity", floats(1))
                         .builder_call("intensity", floats(1));
                 }
                 "AmbientLight" => {
                     component.constructor("rgb", floats(3));
+                }
+                "DirectionalLight" | "PointLight" | "SpotLight" => {
+                    constructor_and_builder(component, "intensity", floats(1));
+                    constructor_and_builder(component, "color", floats(3));
+                    if canonical != "DirectionalLight" {
+                        constructor_and_builder(component, "distance", floats(1));
+                    }
+                    if canonical == "SpotLight" {
+                        constructor_and_builder(component, "angle", floats(1));
+                        constructor_and_builder(component, "penumbra", floats(1));
+                    }
                 }
                 "Bloom" => {
                     component
@@ -126,8 +259,572 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 }
                 "RendererSettings" => {
                     component
+                        .constructor("msaa_off", no_args())
                         .constructor("window_size", unsigned(2))
                         .builder_call("window_size", unsigned(2));
+                }
+                "Grid" => {
+                    constructor_and_builder(component, "spacing", floats(1));
+                    for method in ["size_x", "size_z"] {
+                        constructor_and_builder(component, method, unsigned(1));
+                    }
+                    constructor_and_builder(component, "hidden", booleans(1));
+                    component
+                        .builder_call("enabled", booleans(1))
+                        .builder_call("selectable", booleans(1));
+                }
+                "HttpClient" => {
+                    constructor_and_builder(component, "enabled", booleans(1));
+                    constructor_and_builder(
+                        component,
+                        "timeout_ms",
+                        component_signature([mms::ValueType::U64]),
+                    );
+                }
+                "HttpServer" => {
+                    constructor_and_builder(component, "bind", strings(1));
+                    constructor_and_builder(component, "enabled", booleans(1));
+                }
+                "GridBinding" => {
+                    component.constructor("grid", any(1));
+                }
+                "Opacity" => {
+                    constructor_and_builder(component, "opacity", floats(1));
+                    no_arg_constructors(component, &["multiple_layers"]);
+                    no_arg_builders(component, &["multiple_layers"]);
+                }
+                "Input" => constructor_and_builder(component, "speed", floats(1)),
+                "InputXR" => no_arg_constructors(component, &["on", "off"]),
+                "XR" => no_arg_constructors(component, &["on", "off", "auto", "openxr"]),
+                "InputXRGamepad" => {
+                    component.constructor("new", no_args());
+                    constructor_and_builder(component, "enabled", booleans(1));
+                    constructor_and_builder(component, "hand", strings(1));
+                    constructor_and_builder(
+                        component,
+                        "locomotion",
+                        optional_component_signature([mms::ValueType::Bool], 0),
+                    );
+                    for method in ["speed", "deadzone"] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                }
+                "InputTransformMode" => {
+                    no_arg_constructors(component, &["forward_y", "forward_z"]);
+                    no_arg_builders(
+                        component,
+                        &["fps_rotation", "roll_axis_y", "rotation_disabled"],
+                    );
+                    component.builder_call("translation_basis", any(1));
+                }
+                "Pointer" => {
+                    component.constructor("disabled", no_args());
+                    constructor_and_builder(component, "debug_enable", booleans(1));
+                    for method in [
+                        "min_grab_distance",
+                        "click_max_screen_distance_px",
+                        "click_max_ray_angle_deg",
+                        "click_max_origin_distance",
+                    ] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                }
+                "TransformParent" => {
+                    component.constructor("target", any(1));
+                    component
+                        .builder_call("target", any(1))
+                        .builder_call("root", any(1));
+                }
+                "TransformCameraSpecific" => {
+                    component.constructor("active_stereoscopic", no_args());
+                }
+                "TransformSampleAncestor" => {
+                    component.constructor("skip", unsigned(1));
+                }
+                "QuatTemporalFilter" | "Vector3TemporalFilter" => {
+                    constructor_and_builder(component, "smoothing_factor", floats(1));
+                }
+                "GLTF" => {
+                    component.constructor("new", strings(1));
+                    component.builder_call("with_visualized_transforms", booleans(1));
+                }
+                "Clock" => constructor_and_builder(component, "bpm", floats(1)),
+                "Animation" => {
+                    no_arg_constructors(component, &["playing", "paused", "looping"]);
+                    no_arg_builders(component, &["playing", "paused", "looping"]);
+                    constructor_and_builder(component, "length", floats(1));
+                    constructor_and_builder(component, "scope", any(1));
+                }
+                "TextureFiltering" => {
+                    no_arg_constructors(component, &["linear", "nearest_magnification", "nearest"]);
+                }
+                "Texture" => {
+                    for method in ["render_image", "with_uri", "uri", "from_png", "from_dds"] {
+                        constructor_and_builder(component, method, strings(1));
+                    }
+                }
+                "Transition" => {
+                    no_arg_constructors(component, &["on", "off"]);
+                    no_arg_builders(
+                        component,
+                        &[
+                            "on",
+                            "off",
+                            "step",
+                            "linear",
+                            "ease_in_quad",
+                            "ease_out_quad",
+                            "ease_in_out_quad",
+                            "ease_in_cubic",
+                            "ease_out_cubic",
+                            "ease_in_out_cubic",
+                            "ease_in_out_sine",
+                            "replace_same_target",
+                            "allow_parallel",
+                        ],
+                    );
+                    for method in ["enabled", "capture_from_current"] {
+                        constructor_and_builder(component, method, booleans(1));
+                    }
+                    constructor_and_builder(component, "duration_beats", floats(1));
+                }
+                "UV" => constructor_and_builder(component, "uv", floats(2)),
+                "Text" => {
+                    component.positional(mms::ValueType::String);
+                    component.builder_call("font_size", floats(1));
+                }
+                "TextInput" => {
+                    component
+                        .positional(mms::ValueType::String)
+                        .builder_call("read_only", booleans(1));
+                }
+                "FitBounds" => {
+                    no_arg_constructors_and_builders(
+                        component,
+                        &["renderable_only", "layout_aware", "to_container"],
+                    );
+                    constructor_and_builder(component, "to", floats(6));
+                }
+                "LayoutBounds" => {
+                    for method in ["content_box", "padding_box"] {
+                        constructor_and_builder(component, method, any(2));
+                    }
+                }
+                "Background" => {
+                    no_arg_constructors_and_builders(
+                        component,
+                        &["occlusion_and_lighting", "ray_casting"],
+                    );
+                }
+                "StencilClip" => {
+                    constructor_and_builder(
+                        component,
+                        "stencil_ref",
+                        component_signature([mms::ValueType::U8]),
+                    );
+                }
+                "XRHand" => {
+                    component.constructor(
+                        "new",
+                        component_signature([
+                            mms::ValueType::Bool,
+                            mms::ValueType::String,
+                            mms::ValueType::String,
+                        ]),
+                    );
+                    component.builder_call("laser", no_args());
+                }
+                "JointRetargetBasis" => {
+                    component.constructor("new", any(5));
+                }
+                "HumanoidBoneMap" => {
+                    component.constructor("new", no_args());
+                    component
+                        .builder_call(
+                            "slot",
+                            component_signature([mms::ValueType::String, mms::ValueType::Any]),
+                        )
+                        .builder_call("absent", strings(1))
+                        .builder_call("automap_disable", no_args());
+                }
+                "RestAttachment" => {
+                    component.constructor("new", any(2));
+                }
+                "SpringCollider" => {
+                    component
+                        .constructor(
+                            "sphere",
+                            component_signature([mms::ValueType::Any, mms::ValueType::F32]),
+                        )
+                        .constructor(
+                            "spheres",
+                            component_signature([mms::ValueType::Any, mms::ValueType::F32]),
+                        );
+                }
+                "SpringBone" => {
+                    component
+                        .constructor("new", strings(1))
+                        .constructor("from_root", any(1))
+                        .builder_call("center", any(1))
+                        .builder_call("colliders", any(1))
+                        .builder_call("enabled", booleans(1));
+                    for method in [
+                        "virtual_end_length_ratio",
+                        "stiffness",
+                        "drag_force",
+                        "hit_radius",
+                    ] {
+                        component.builder_call(method, floats(1));
+                    }
+                    // The host accepts either (power, vec3) or
+                    // (power, x, y, z); overloads remain a tracked seam.
+                    component.builder_call("gravity", any(2));
+                }
+                "SpringJoint" => {
+                    component.constructor("new", any(1));
+                    for method in ["stiffness", "drag_force"] {
+                        component.builder_call(method, floats(1));
+                    }
+                    component.builder_call("gravity", any(2));
+                }
+                "RendererStats" => {
+                    for method in ["enabled", "emissive"] {
+                        constructor_and_builder(component, method, booleans(1));
+                    }
+                    for method in ["update_interval_sec", "smoothing"] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                    constructor_and_builder(component, "color", any(1));
+                    constructor_and_builder(component, "camera_target", strings(1));
+                }
+                "TextShadow" => {
+                    for method in ["offset_xy", "offset", "rgba"] {
+                        constructor_and_builder(component, method, any(1));
+                    }
+                    for method in ["z_offset", "scale"] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                }
+                "AssetPayload" => {
+                    component.constructor("new", strings(2));
+                    for method in ["asset_key", "title"] {
+                        constructor_and_builder(component, method, strings(1));
+                    }
+                }
+                "Router" => {
+                    constructor_and_builder(component, "target", strings(1));
+                    constructor_and_builder(component, "ignore", any(1));
+                    component
+                        .property("target", mms::ValueType::String)
+                        .property("ignore", mms::ValueType::Array);
+                }
+                "Selectable" | "Toggle" | "Serialize" => {
+                    no_arg_constructors(component, &["on", "off"]);
+                }
+                "Selection" => {
+                    no_arg_constructors(component, &["multiple", "optional"]);
+                    no_arg_builders(component, &["optional"]);
+                    component
+                        .constructor("root", any(1))
+                        .builder_call("root", any(1))
+                        .property("root", mms::ValueType::Any);
+                }
+                "ObserverRouter" => {
+                    for method in ["blacklist", "whitelist"] {
+                        constructor_and_builder(component, method, any(1));
+                    }
+                }
+                "Scrolling" => {
+                    component.constructor("new", floats(2));
+                }
+                "HtmlElement" => {
+                    no_arg_constructors(
+                        component,
+                        &[
+                            "div", "span", "body", "header", "p", "section", "article", "footer",
+                            "nav", "aside", "main", "h1", "h2", "h3", "h4", "h5", "h6",
+                        ],
+                    );
+                }
+                "LayoutRoot" => {
+                    for method in ["width", "available_width", "height", "available_height"] {
+                        component.builder_call(method, any(1));
+                    }
+                    component.builder_call("unit_scale", floats(1));
+                }
+                "Style" => {
+                    for method in [
+                        "display",
+                        "box_sizing",
+                        "flex_direction",
+                        "justify_content",
+                        "align_items",
+                        "text_align",
+                        "vertical_align",
+                        "position",
+                        "overflow",
+                        "flex_wrap",
+                        "word_wrap",
+                    ] {
+                        component.builder_call(method, strings(1));
+                    }
+                    for method in [
+                        "width",
+                        "height",
+                        "padding",
+                        "margin",
+                        "font_size",
+                        "top",
+                        "right",
+                        "bottom",
+                        "left",
+                    ] {
+                        component.builder_call(method, any(1));
+                    }
+                    for method in ["padding_xy", "margin_xy"] {
+                        component.builder_call(method, any(2));
+                    }
+                    for method in [
+                        "background_z",
+                        "flex_grow",
+                        "flex_shrink",
+                        "gap",
+                        "row_gap",
+                        "column_gap",
+                    ] {
+                        component.builder_call(method, floats(1));
+                    }
+                    for method in ["background_color", "color"] {
+                        component
+                            .builder_call(method, any(1))
+                            .property(method, mms::ValueType::Any);
+                    }
+                    component
+                        .property("background_z", mms::ValueType::F32)
+                        .builder_call("z_index", component_signature([mms::ValueType::I32]))
+                        .builder_call("word_wrap_tokens", any(1));
+                }
+                "Grabbable" => {
+                    no_arg_constructors(component, &["parent", "off", "on"]);
+                }
+                "Draggable" => {
+                    no_arg_constructors(component, &["parent", "off", "on"]);
+                    component
+                        .constructor("target", any(1))
+                        .constructor("plane", any(1))
+                        .builder_call("target", any(1))
+                        .builder_call("plane", any(1));
+                }
+                "Raycastable" => {
+                    no_arg_constructors(
+                        component,
+                        &["disabled", "drag_only", "click_only", "enabled"],
+                    );
+                    for method in ["pointer_events", "drag_continuation", "drag_mapping"] {
+                        component.builder_call(method, strings(1));
+                    }
+                    component.builder_call(
+                        "interaction_priority",
+                        component_signature([mms::ValueType::U8]),
+                    );
+                }
+                "PoseCapture" => {
+                    for method in ["with_label", "label", "with_asset_name", "asset_name"] {
+                        constructor_and_builder(component, method, strings(1));
+                    }
+                }
+                "PoseCapturePose" => {
+                    component.constructor("new", strings(1)).builder_call(
+                        "joint",
+                        component_signature([
+                            mms::ValueType::String,
+                            mms::ValueType::Any,
+                            mms::ValueType::Any,
+                            mms::ValueType::Any,
+                        ]),
+                    );
+                }
+                "Keyframe" => {
+                    component.constructor("at", floats(1));
+                }
+                "NormalVis" => {
+                    component.constructor("thickness", floats(1));
+                }
+                "TransparentCutout" => {
+                    component.constructor("disabled", no_args());
+                }
+                "LightQuantization" => {
+                    component.constructor("steps", floats(1));
+                }
+                "Bounds" => {
+                    component.constructor("aabb", any(2));
+                }
+                "Mesh" => {
+                    component.constructor("new", strings(1));
+                }
+                "Mirror" => {
+                    component.constructor("quality", component_signature([mms::ValueType::I32]));
+                }
+                "GestureCoordType" => {
+                    no_arg_constructors(component, &["screen_space_1d_slider", "world_plane"]);
+                }
+                "CollisionShape" => {
+                    component
+                        .constructor("cube", any(1))
+                        .constructor("sphere", floats(1))
+                        .constructor("capsule_y", floats(2));
+                }
+                "RaycastableShape" => {
+                    no_arg_constructors(
+                        component,
+                        &[
+                            "aabb",
+                            "cone",
+                            "ring_2d",
+                            "quad_2d",
+                            "triangle_2d",
+                            "tetrahedron",
+                            "box",
+                        ],
+                    );
+                }
+                "Collision" => {
+                    no_arg_constructors(component, &["static", "kinematic", "rigged"]);
+                }
+                "Gravity" => {
+                    constructor_and_builder(component, "enabled", booleans(1));
+                    constructor_and_builder(component, "coefficient", floats(1));
+                }
+                "SkinnedMesh" => {
+                    component.constructor("new", unsigned(1));
+                }
+                "QuatYawFollow" => {
+                    component
+                        .constructor("new", floats(2))
+                        .builder_call("initial_yaw", floats(1))
+                        .builder_call("forward_plus_z", no_args());
+                }
+                "SignalRouteUpward" => {
+                    component.constructor("new", strings(2));
+                }
+                "AvatarBodyYaw" => {
+                    for method in ["threshold", "rate"] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                    no_arg_constructors_and_builders(component, &["forward_plus_z"]);
+                }
+                "Raycast" => {
+                    no_arg_constructors(component, &["continuous", "event_driven"]);
+                    component.builder_call("max_distance", floats(1));
+                }
+                "AudioOutput" => {
+                    component.constructor("off", no_args());
+                }
+                "AudioGain" => {
+                    // Legacy construction uses the first argument regardless
+                    // of constructor spelling; `new` is the canonical form.
+                    component.constructor("new", floats(1));
+                }
+                "AudioBandPassFilter" | "AudioLimiter" => {
+                    component.constructor("new", floats(3));
+                }
+                "AudioOscillator" => {
+                    no_arg_constructors(
+                        component,
+                        &[
+                            "sin", "triangle", "square", "square_3", "saw", "noise", "drum",
+                        ],
+                    );
+                    component
+                        .builder_call("frequency", floats(1))
+                        .builder_call("amplitude", floats(1))
+                        .builder_call("enabled", booleans(1));
+                }
+                "AudioClip" => {
+                    for method in [
+                        "new", "wav", "opus", "ogg", "mp3", "flac", "one_shot", "latched",
+                    ] {
+                        component.constructor(method, strings(1));
+                    }
+                    no_arg_builders(component, &["one_shot", "latched", "retrigger"]);
+                }
+                "IKChain" => {
+                    component
+                        .constructor("aim_constraint", any(3))
+                        .constructor("two_bone_ik", any(2))
+                        .constructor("fabrik", any(3))
+                        .builder_call("weight", floats(1))
+                        .builder_call("target", any(1))
+                        .builder_call("end_effector", any(1));
+                }
+                "TransformGizmo" => {
+                    constructor_and_builder(component, "scale", floats(1));
+                }
+                "TransformGizmoTranslate" | "TransformGizmoRotate" | "TransformGizmoScale" => {
+                    no_arg_constructors(component, &["x", "y", "z"]);
+                }
+                "TransformGizmoTranslatePlane" => {
+                    no_arg_constructors(component, &["xy", "yz", "xz"]);
+                }
+                "CollisionResponse" => {
+                    no_arg_constructors(component, &["push", "slide"]);
+                    component
+                        .builder_call("enabled", booleans(1))
+                        .builder_call("max_iterations", unsigned(1))
+                        .builder_call("movement_target", any(1));
+                    for method in [
+                        "push_out_epsilon",
+                        "push_strength",
+                        "friction",
+                        "friction_y",
+                        "max_speed",
+                    ] {
+                        component.builder_call(method, floats(1));
+                    }
+                }
+                "Editor" => {
+                    no_arg_constructors_and_builders(component, &["active"]);
+                    for method in [
+                        "interaction_mode",
+                        "translation_space",
+                        "rotation_space",
+                        "asset_dir",
+                    ] {
+                        constructor_and_builder(component, method, strings(1));
+                    }
+                    for method in ["panels", "serialize_editor_panels"] {
+                        constructor_and_builder(component, method, booleans(1));
+                    }
+                }
+                "EditorUI" => {
+                    constructor_and_builder(component, "panels", any(1));
+                }
+                "AvatarControl" => {
+                    for method in ["left_arm_pole_direction", "right_arm_pole_direction"] {
+                        constructor_and_builder(component, method, any(1));
+                    }
+                    for method in [
+                        "initial_yaw",
+                        "capsule_radius",
+                        "body_yaw_threshold",
+                        "body_yaw_rate",
+                        "hand_rotation_smoothing",
+                        "avatar_height",
+                        "eye_height_from_head_bone",
+                        "head_ik_eye_height",
+                    ] {
+                        constructor_and_builder(component, method, floats(1));
+                    }
+                    no_arg_constructors_and_builders(
+                        component,
+                        &[
+                            "forward_plus_z",
+                            "ik_debug",
+                            "collision_disabled",
+                            "neck_pin_disabled",
+                        ],
+                    );
+                    constructor_and_builder(component, "neck_pin_enabled", booleans(1));
                 }
                 _ => {}
             }
@@ -189,20 +886,44 @@ mod tests {
             Some(&MittensBinding::Smoke)
         );
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
-        assert!(configured
-            .runtime()
-            .materialize_component("DefinitelyNotAMittensComponent {}")
-            .is_err());
-        assert!(configured
-            .runtime()
-            .materialize_component("RendererSettings.window_size(960, 720) {}")
-            .is_ok());
+        assert!(
+            configured
+                .runtime()
+                .materialize_component("DefinitelyNotAMittensComponent {}")
+                .is_err()
+        );
+        assert!(
+            configured
+                .runtime()
+                .materialize_component("RendererSettings.window_size(960, 720) {}")
+                .is_ok()
+        );
         configured
             .runtime()
             .materialize_component(
-                "RenderGraph { EmissivePass { BlurPass.radius_ndc(0.05).half_res(true) {} } Bloom.intensity(1.2) {} }"
+                "RenderGraph { EmissivePass { BlurPass { radius_ndc(0.05) half_res(true) } } Bloom { intensity(1.2) } }"
             )
             .unwrap();
+        configured
+            .runtime()
+            .materialize_component(
+                "Transform { Camera3D { enabled(true) fov(55.0) near(0.05) far(250.0) } DirectionalLight { intensity(1.5) color(1.0, 0.92, 0.82) } }",
+            )
+            .unwrap();
+        for valid in [
+            "Renderable.cone() {}",
+            "Renderable.cone(24) {}",
+            "Renderable.heart() {}",
+            "Renderable.heart(48) {}",
+            "Renderable.star() {}",
+            "Renderable.partial_annulus_2d() {}",
+            "Renderable.wireframe_sphere() {}",
+        ] {
+            configured
+                .runtime()
+                .materialize_component(valid)
+                .unwrap_or_else(|error| panic!("optional constructor rejected {valid}: {error}"));
+        }
         for invalid in ["720.5", "-1", "4294967296"] {
             let error = configured
                 .runtime()
@@ -217,11 +938,58 @@ mod tests {
             "Bloom.intensity(\"bright\") {}",
             "BlurPass.half_res(1) {}",
             "RenderGraph { enabled(1) }",
+            "Camera3D { fov(\"wide\") }",
+            "DirectionalLight { color(1.0, 0.5) }",
+            "Renderable.cone(12, 24) {}",
         ] {
             assert!(
                 configured.runtime().materialize_component(invalid).is_err(),
                 "invalid post-processing declaration was accepted: {invalid}"
             );
         }
+    }
+
+    #[test]
+    fn non_marker_components_have_declarative_schema() {
+        const MARKER_OR_DYNAMIC_COMPONENTS: &[&str] = &[
+            "BackgroundColor",
+            "Data",
+            "EmissivePass",
+            "InspectLayout",
+            "Option",
+            "Overlay",
+            "PoseCaptureLibrary",
+            "SecondaryMotion",
+            "SpringColliders",
+            "TransformDrop",
+            "TransformForkTRS",
+            "TransformMapRotation",
+            "TransformMapScale",
+            "TransformMapTranslation",
+            "TransformMergeTRS",
+        ];
+        let configured = build_mittens_runtime().unwrap();
+
+        let mut missing = Vec::new();
+        for declaration in configured.spec().components() {
+            if declaration.name() == "MusicNote"
+                || MARKER_OR_DYNAMIC_COMPONENTS.contains(&declaration.name())
+            {
+                continue;
+            }
+            let has_schema = declaration.constructors().len() > 0
+                || declaration.builder_calls().len() > 0
+                || declaration.positionals().len() > 0
+                || declaration.properties().len() > 0
+                || declaration.methods().len() > 0
+                || declaration.signals().len() > 0;
+            if !has_schema {
+                missing.push(declaration.name());
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "components silently fell back to names-only registration: {missing:?}"
+        );
     }
 }
