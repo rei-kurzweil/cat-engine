@@ -177,9 +177,10 @@ maintained vocabulary and the transitional state is not a release milestone.
   - render-asset-dependent construction
   - errors without deadlock
 
-Exit gate: Mittens gives MMS exactly one `RuntimeSpec`; every effectful item in
-it has exactly one host implementation, and the live parity corpus reaches no
-unimplemented operation. Both focused component tasks above have passed.
+Exit gate: Mittens gives MMS exactly one `RuntimeSpec`; every host-effectful
+item in it has exactly one host implementation, and the live parity corpus
+reaches no unimplemented operation. Both focused component tasks above have
+passed.
 
 ## Phase 2 — ordinary runners
 
@@ -418,7 +419,7 @@ both direct embedders and Mittens users have an explicit migration story.
 | Suite | Required coverage |
 |---|---|
 | Pure parity | values, errors, tables, closures, control flow, component expressions, missing keys |
-| Specification consistency | every item parseable and visible; every effectful item has one binding; no orphan bindings |
+| Specification consistency | every item parseable and visible; every host-effectful item has one binding; no orphan bindings |
 | Host integration | spawn/register/attach, queries, methods, handles, assets, handlers, audio, mutations |
 | Modules | imports, export forms, repeated calls, shared heap |
 | Factory modes | template, live, uninitialized live, callback-bearing template |

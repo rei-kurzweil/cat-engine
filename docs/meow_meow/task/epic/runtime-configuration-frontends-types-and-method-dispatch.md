@@ -174,7 +174,7 @@ replacing the builder when static typing arrives:
       implementations.
 - [ ] Ensure implementation bindings contain no names or signature metadata
       that could become a second catalog.
-- [ ] Generate consistency tests proving that every declared effectful
+- [ ] Generate consistency tests proving that every declared host-effectful
       operation has exactly one binding.
 
 Do not add typed binding syntax, numeric-width runtime values, or the static

@@ -488,7 +488,7 @@ signal lists must be removed once their consumers migrate.
 The crate validates duplicate names and aliases, invalid nesting, conflicting
 signatures, missing host bindings, and unreachable bindings. Consistency tests
 must prove that every item in the completed `RuntimeSpec` is parseable and
-that every effectful item resolves to exactly one host implementation.
+that every host-effectful item resolves to exactly one host implementation.
 
 `CallApi` and component-method requests carry the opaque operation ID assigned
 by this build, not a string looked up in an independent match. If the current
@@ -782,7 +782,7 @@ The boundary is complete only when:
 - `src/scripting/world_evaluator.rs` and its ring-buffer protocol are deleted
 - the crate owns the only evaluator, runtime `Value`, heap, module state, and
   closure model
-- one `RuntimeSpec` contains all configured vocabulary and every effectful
+- one `RuntimeSpec` contains all configured vocabulary and every host-effectful
   item has exactly one builder-bound engine implementation
 - all component operations reject foreign and stale handles
 - no engine helper evaluates an arbitrary MMS expression

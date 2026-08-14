@@ -31,7 +31,12 @@ pub trait Host {
 
 The host does not advertise a second `HostCapabilities` schema. Its operation
 bindings are attached while Mittens builds the one `RuntimeSpec`; construction
-fails unless every effectful declaration has exactly one binding.
+fails unless every host-effectful declaration has exactly one binding.
+
+A **host-effectful declaration** is a `RuntimeSpec` vocabulary declaration
+whose implementation crosses the MMS host boundary. This distinguishes it
+from pure crate-implemented declarations and from deferred callback execution,
+which may evaluate multiple pure and host-effectful calls over its lifetime.
 
 Mittens uses the worker form because its evaluator state persists off the main
 thread while `World` and related services must remain on it:
@@ -108,7 +113,7 @@ these operations without engine types.
 | REPL inspection | world/component target and navigation operation | structured entries, target, description, or rendered source |
 
 Pure evaluation uses `Hostless`, which returns a typed
-`UnsupportedHostOperation` error for every effectful request.
+`UnsupportedHostOperation` error for every host-effectful request.
 
 The crate-owned `StandardHost` is distinct from a rejecting `Hostless`
 implementation. It services component collection, opaque local handles, local
@@ -243,7 +248,7 @@ Mittens constructs one crate-owned `RuntimeSpec` with the nested builder
 described in
 [Mittens host and MMS runtime boundary](mittens-host-and-runtime-boundary.md).
 The same builder calls attach opaque host implementation bindings to every
-effectful declaration. `Runtime` consumes the specification, while
+host-effectful declaration. `Runtime` consumes the specification, while
 `MittensHost` consumes those implementation bindings.
 
 The binding table is not another specification: it contains no names,

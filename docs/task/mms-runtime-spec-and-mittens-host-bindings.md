@@ -97,8 +97,9 @@ Baseline verification on 2026-08-13:
 - [ ] Define the public build result containing the `RuntimeSpec` and opaque
       implementation bindings without exposing Mittens types from
       `meow-meow-script`.
-- [ ] Define opaque ID domains for every effectful declaration that crosses the
-      host boundary, including component construction/property application,
+- [ ] Define opaque ID domains for every host-effectful declaration, meaning a
+      vocabulary declaration whose implementation crosses the host boundary,
+      including component construction/property application,
       component methods, signals, host builtins, namespaced APIs, audio, and
       engine mutations.
 - [ ] Decide which pure constructors/properties are crate implementations and
@@ -142,9 +143,9 @@ catalog or permanently host-owned session.
   - signals and typed payload fields.
 - [ ] Add nested global and namespaced declarations for pure builtins,
       host-dispatched builtins, and engine APIs.
-- [ ] Let every effectful constructor, property, method, signal, builtin, and
-      API declaration attach exactly one implementation binding in the same
-      builder call.
+- [ ] Let every host-effectful constructor, property, method, signal, builtin,
+      and API declaration attach exactly one implementation binding in the
+      same builder call.
 - [ ] Keep intrinsic/pure implementation targets distinct from host-operation
       targets while sharing the same signature catalog.
 - [ ] Preserve stable declaration order where it affects diagnostics,
@@ -156,7 +157,7 @@ catalog or permanently host-owned session.
 - [ ] Reject invalid nesting, duplicate positionals/properties/methods/signals,
       and conflicting signatures.
 - [ ] Reject unknown types referenced by signatures or signal fields.
-- [ ] Reject missing implementations for effectful declarations.
+- [ ] Reject missing implementations for host-effectful declarations.
 - [ ] Reject implementation bindings unreachable from a declaration.
 - [ ] Reject ambiguous operation dispatch and duplicate operation IDs.
 - [ ] Ensure the returned binding table contains no names, aliases,
@@ -189,8 +190,8 @@ catalog or permanently host-owned session.
 - [ ] Document the direct-embedder migration from flat catalog registration to
       nested declarations and builder-bound implementations.
 
-Exit gate: the crate exposes one validated specification and effectful calls
-carry only IDs assigned by its build.
+Exit gate: the crate exposes one validated specification and host-effectful
+calls carry only IDs assigned by its build.
 
 ## Workstream B — one Mittens builder expression
 
@@ -249,7 +250,7 @@ builder edit, not coordinated edits to parallel lists and match arms.
 
 - [ ] Make `MittensHost` receive the opaque implementation bindings produced
       with the runtime specification.
-- [ ] Dispatch effectful requests by opaque operation ID.
+- [ ] Dispatch host-effectful requests by opaque operation ID.
 - [ ] Ensure an unknown ID is a typed protocol/invalid-request error rather
       than a string fallback.
 - [ ] Remove `MittensHost::capabilities()` and catalog negotiation.
@@ -324,8 +325,8 @@ bindings and crate DTOs without a legacy evaluator, heap, or vocabulary lookup.
 
 - [ ] Generated consistency test: every declared component name and alias is
       parseable.
-- [ ] Generated consistency test: every effectful declaration has exactly one
-      reachable engine binding.
+- [ ] Generated consistency test: every host-effectful declaration has exactly
+      one reachable engine binding.
 - [ ] Spawn, register, attach, initialize, query, and method dispatch.
 - [ ] API, signal, handler-registration, audio, mutation, and render-dependent
       operation dispatch.
@@ -377,8 +378,8 @@ that selects between catalog implementations.
 - [ ] `HostCapabilities` is gone from the supported host/session API.
 - [ ] Component methods, signals, APIs, audio, and mutations cross the host
       boundary using specification-assigned IDs.
-- [ ] Every declared effectful operation has exactly one implementation and no
-      implementation is orphaned.
+- [ ] Every declared host-effectful operation has exactly one implementation
+      and no implementation is orphaned.
 - [ ] `MittensHost` distinguishes unavailable context from unsupported,
       invalid, foreign, stale, conversion, and engine failures.
 - [ ] `MittensHost` no longer consults names or legacy runtime values to

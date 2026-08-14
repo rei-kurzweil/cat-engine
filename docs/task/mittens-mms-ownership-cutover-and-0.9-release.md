@@ -195,7 +195,7 @@ script behavior must remain unchanged.
       operation.
 
 Exit gate: Mittens describes MMS vocabulary once and services every declared
-effectful operation exactly once.
+host-effectful operation exactly once.
 
 ## Phase 2: ordinary runner cutover
 
