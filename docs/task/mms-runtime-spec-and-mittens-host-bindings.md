@@ -122,47 +122,47 @@ catalog or permanently host-owned session.
 
 ### A1. Immutable specification and identifiers
 
-- [ ] Add public `RuntimeSpec` and `RuntimeSpecBuilder` types.
-- [ ] Separate immutable specification data from mutable builder state.
+- [x] Add public `RuntimeSpec` and `RuntimeSpecBuilder` types.
+- [x] Separate immutable specification data from mutable builder state.
 - [ ] Make `Runtime` compile or wrap exactly one completed `RuntimeSpec`.
-- [ ] Keep `RuntimeSpec` free of heap, host, session, and engine state.
-- [ ] Add opaque, non-string operation identifiers with no public construction
+- [x] Keep `RuntimeSpec` free of heap, host, session, and engine state.
+- [x] Add opaque, non-string operation identifiers with no public construction
       from arbitrary names.
-- [ ] Preserve `Runtime::standard()` as a builder-free open-name convenience.
-- [ ] Add `with_standard_builtins()` so crate-provided builtins and value types
+- [x] Preserve `Runtime::standard()` as a builder-free open-name convenience.
+- [x] Add `with_standard_builtins()` so crate-provided builtins and value types
       enter the same specification build.
 
 ### A2. Nested declaration builders
 
-- [ ] Add nested component declarations owning:
+- [x] Add nested component declarations owning:
   - canonical names and aliases;
   - component body mode, including `props_only`;
   - constructors and component-expression builder calls;
   - ordered positional fields and named properties;
   - component methods and signatures; and
   - signals and typed payload fields.
-- [ ] Add nested global and namespaced declarations for pure builtins,
+- [x] Add nested global and namespaced declarations for pure builtins,
       host-dispatched builtins, and engine APIs.
-- [ ] Let every host-effectful constructor, property, method, signal, builtin,
+- [x] Let every host-effectful constructor, property, method, signal, builtin,
       and API declaration attach exactly one implementation binding in the
       same builder call.
-- [ ] Keep intrinsic/pure implementation targets distinct from host-operation
+- [x] Keep intrinsic/pure implementation targets distinct from host-operation
       targets while sharing the same signature catalog.
-- [ ] Preserve stable declaration order where it affects diagnostics,
+- [x] Preserve stable declaration order where it affects diagnostics,
       completion, reflection, or authored component fields.
 
 ### A3. Build validation
 
-- [ ] Reject duplicate or case-conflicting canonical names and aliases.
+- [x] Reject duplicate or case-conflicting canonical names and aliases.
 - [ ] Reject invalid nesting, duplicate positionals/properties/methods/signals,
       and conflicting signatures.
 - [ ] Reject unknown types referenced by signatures or signal fields.
-- [ ] Reject missing implementations for host-effectful declarations.
-- [ ] Reject implementation bindings unreachable from a declaration.
-- [ ] Reject ambiguous operation dispatch and duplicate operation IDs.
-- [ ] Ensure the returned binding table contains no names, aliases,
+- [x] Reject missing implementations for host-effectful declarations.
+- [x] Reject implementation bindings unreachable from a declaration.
+- [x] Reject ambiguous operation dispatch and duplicate operation IDs.
+- [x] Ensure the returned binding table contains no names, aliases,
       signatures, signal schemas, parser metadata, or capability sets.
-- [ ] Add deterministic diagnostics identifying the declaration path that
+- [x] Add deterministic diagnostics identifying the declaration path that
       failed, such as `Transform.method(set_position)`.
 
 ### A4. Runtime and protocol consumption
