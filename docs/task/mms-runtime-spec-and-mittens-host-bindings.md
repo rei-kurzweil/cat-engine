@@ -49,7 +49,9 @@ an interface fixture is required for the builder or host boundary:
 - callback leases and keyframe/audio callback invocation migration;
 - the programmatic REPL and live-navigation migration;
 - deletion of `src/scripting/world_evaluator.rs`; and
-- later numeric runtime types, receiver intrinsics, inference, and checking.
+- later numeric runtime value representations, receiver intrinsics, inference,
+  and general expression checking. Fixed-width types in `RuntimeSpec`
+  signatures are part of this task because they define the 0.8 host contract.
 
 The builder and host protocol must be shaped so those tasks can consume them,
 but this tracker does not implement those consumers.
@@ -90,6 +92,50 @@ Baseline verification on 2026-08-13:
 - `cargo test -p meow-meow-script`: 44 passed; and
 - `cargo check -p mittens-engine --lib`: passed with pre-existing warnings.
 
+### 2026-08-13 component-spawn cutover slice
+
+- Added `build_mittens_runtime()`, which produces one strict crate-owned
+  `Runtime` and its `ImplementationBindings<MittensBinding>` from the nested
+  builder.
+- Registered the engine component names and supported shortforms in that
+  specification. This is a transitional generated view over
+  `SUPPORTED_COMPONENT_NAMES`; constructor/property/method/signal declarations
+  still need to move into the builder before the old catalog can be deleted.
+- Added `MeowMeowRunner::eval_with_runtime_spec`. It evaluates with the
+  `meow-meow-script` session and services component emission through a
+  short-lived `MittensHost`; it never invokes `world_evaluator`.
+- Added the headless `runtime-spec-smoke` example. It proves strict alias
+  resolution (`T`), crate-owned materialization, opaque-ID dispatch of the
+  builder-bound `mittens.smoke()` API, and real ECS topology creation with a
+  camera and three emissive cubes.
+- Declared the first component schema subset in the nested builder:
+  `Transform` position/scale/rotation, `Renderable.cube`, `Color.rgba`,
+  `Emissive` enable/intensity, `AmbientLight.rgb`, `Bloom.intensity`, and
+  `RendererSettings.window_size`. These declarations validate the authored
+  calls; construction still crosses the universal tree protocol and is the
+  next operation-ID/direct-DTO slice.
+- Added fixed-width numeric signature types to the public builder contract.
+  This first Mittens schema uses `f32` for engine scalar/vector values and
+  `u32` for window dimensions rather than an undifferentiated `number`.
+  Runtime values are still represented as `f64`, so validation is currently
+  contextual: integer boundaries enforce integral/range checks and `f32`
+  rejects finite overflow. Preserving numeric width and signedness in runtime
+  values remains downstream work.
+- Added the graphical `runtime-spec-emissive-cubes` example using the same MMS
+  scene as the headless smoke.
+- The `MusicNote` component remains excluded from the strict spec because its
+  canonical name conflicts with the standard `MusicNote` builtin table. That
+  spelling/namespace decision must be resolved before claiming complete
+  component coverage.
+
+Smoke command:
+
+```sh
+cargo run -p mittens-engine --example runtime-spec-smoke
+# Opens a window:
+cargo run -p mittens-engine --example runtime-spec-emissive-cubes
+```
+
 ## Boundary decisions to lock
 
 - [ ] Inventory the public flat builder API and decide which names receive a
@@ -124,7 +170,7 @@ catalog or permanently host-owned session.
 
 - [x] Add public `RuntimeSpec` and `RuntimeSpecBuilder` types.
 - [x] Separate immutable specification data from mutable builder state.
-- [ ] Make `Runtime` compile or wrap exactly one completed `RuntimeSpec`.
+- [x] Make `Runtime` compile or wrap exactly one completed `RuntimeSpec`.
 - [x] Keep `RuntimeSpec` free of heap, host, session, and engine state.
 - [x] Add opaque, non-string operation identifiers with no public construction
       from arbitrary names.
@@ -167,8 +213,8 @@ catalog or permanently host-owned session.
 
 ### A4. Runtime and protocol consumption
 
-- [ ] Make parser/validation component-name lookup use only `RuntimeSpec`.
-- [ ] Configure the standard runtime as `OpenUppercase` and the Mittens runtime
+- [x] Make parser/validation component-name lookup use only `RuntimeSpec`.
+- [x] Configure the standard runtime as `OpenUppercase` and the Mittens runtime
       as `StrictRegistered`.
 - [ ] Resolve registered component body mode from `RuntimeSpec`; complete the
       focused `props_only` behavior task without an engine-local name map.
@@ -214,9 +260,9 @@ calls carry only IDs assigned by its build.
 
 ### B2. Assemble the strict Mittens specification
 
-- [ ] Add one discoverable construction entrypoint for the complete Mittens
+- [x] Add one discoverable construction entrypoint for the complete Mittens
       build result.
-- [ ] Start it with standard builtins and
+- [x] Start it with standard builtins and
       `ComponentNamePolicy::StrictRegistered`.
 - [ ] Declare every supported component and alias through nested component
       builders.
@@ -227,7 +273,8 @@ calls carry only IDs assigned by its build.
       capabilities or alternate catalogs.
 - [ ] Make any transitional parser/registry/documentation views derive from
       the completed specification.
-- [ ] Add a test proving the Mittens build has no missing or orphan bindings.
+- [x] Add a test proving the current Mittens build has no missing or orphan
+      bindings and that the declared smoke API resolves to its opaque binding.
 
 ### B3. Retire parallel vocabulary
 
@@ -248,7 +295,8 @@ builder edit, not coordinated edits to parallel lists and match arms.
 
 ### C1. Host construction and binding lookup
 
-- [ ] Make `MittensHost` receive the opaque implementation bindings produced
+- [x] Make the RuntimeSpec runner's `MittensHost` receive the opaque
+      implementation bindings produced
       with the runtime specification.
 - [ ] Dispatch host-effectful requests by opaque operation ID.
 - [ ] Ensure an unknown ID is a typed protocol/invalid-request error rather
@@ -323,7 +371,7 @@ bindings and crate DTOs without a legacy evaluator, heap, or vocabulary lookup.
 
 ### Mittens integration tests
 
-- [ ] Generated consistency test: every declared component name and alias is
+- [x] Generated consistency test: every declared component name and alias is
       parseable.
 - [ ] Generated consistency test: every host-effectful declaration has exactly
       one reachable engine binding.

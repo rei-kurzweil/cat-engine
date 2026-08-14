@@ -148,6 +148,11 @@ pub enum HostRequest {
         api_id: String,
         args: Vec<TransportValue>,
     },
+    /// A configured API resolved by `RuntimeSpec` before host dispatch.
+    CallApiById {
+        operation_id: crate::OperationId,
+        args: Vec<TransportValue>,
+    },
     AudioClipInstance {
         source: ComponentHandle,
         start_beat: Option<f64>,
@@ -188,6 +193,7 @@ impl HostRequest {
             Self::RegisterHandler { .. } => "register_handler",
             Self::InvokeComponentMethod { .. } => "invoke_component_method",
             Self::CallApi { api_id, .. } => api_id,
+            Self::CallApiById { .. } => "call_api_by_id",
             Self::AudioClipInstance { .. } => "audio_clip_instance",
             Self::AudioOperation { operation, .. } | Self::EngineMutation { operation, .. } => {
                 operation

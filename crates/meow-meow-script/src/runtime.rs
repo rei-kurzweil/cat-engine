@@ -19,7 +19,27 @@ pub enum ComponentNamePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueType {
-    Any, Null, Bool, Number, String, Array, Table, Component, Callback,
+    Any,
+    Null,
+    Bool,
+    /// Compatibility type for the pre-0.8 single-`f64` numeric surface.
+    /// New RuntimeSpecs should use a fixed-width numeric type.
+    Number,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
+    String,
+    Array,
+    Table,
+    Component,
+    Callback,
 }
 
 impl ValueType {
@@ -31,7 +51,78 @@ impl ValueType {
                 | (Self::Array, Value::Array(_)) | (Self::Table, Value::Map(_) | Value::Object(_))
                 | (Self::Component, Value::ComponentObject { .. })
                 | (Self::Callback, Value::Function { .. }))
+            || match (self, value) {
+                (Self::I8, Value::Number(value)) => integer_in_range(*value, i8::MIN, i8::MAX),
+                (Self::I16, Value::Number(value)) => integer_in_range(*value, i16::MIN, i16::MAX),
+                (Self::I32, Value::Number(value)) => integer_in_range(*value, i32::MIN, i32::MAX),
+                (Self::I64, Value::Number(value)) => {
+                    value.is_finite()
+                        && value.fract() == 0.0
+                        && *value >= i64::MIN as f64
+                        && *value < 9_223_372_036_854_775_808.0
+                }
+                (Self::U8, Value::Number(value)) => unsigned_integer_in_range(*value, u8::MAX),
+                (Self::U16, Value::Number(value)) => unsigned_integer_in_range(*value, u16::MAX),
+                (Self::U32, Value::Number(value)) => unsigned_integer_in_range(*value, u32::MAX),
+                (Self::U64, Value::Number(value)) => {
+                    value.is_finite()
+                        && value.fract() == 0.0
+                        && *value >= 0.0
+                        && *value < 18_446_744_073_709_551_616.0
+                }
+                // Until numeric values retain their source width, an ordinary
+                // Number is contextually accepted at either floating boundary.
+                (Self::F32, Value::Number(value)) => {
+                    !value.is_finite() || (*value as f32).is_finite()
+                }
+                (Self::F64, Value::Number(_)) => true,
+                _ => false,
+            }
     }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Null => "null",
+            Self::Bool => "bool",
+            Self::Number => "number",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+            Self::String => "str",
+            Self::Array => "array",
+            Self::Table => "table",
+            Self::Component => "component",
+            Self::Callback => "callback",
+        }
+    }
+}
+
+fn integer_in_range<T>(value: f64, min: T, max: T) -> bool
+where
+    T: Copy + Into<i64>,
+{
+    value.is_finite()
+        && value.fract() == 0.0
+        && value >= min.into() as f64
+        && value <= max.into() as f64
+}
+
+fn unsigned_integer_in_range<T>(value: f64, max: T) -> bool
+where
+    T: Copy + Into<u64>,
+{
+    value.is_finite()
+        && value.fract() == 0.0
+        && value >= 0.0
+        && value <= max.into() as f64
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -585,6 +676,7 @@ pub(crate) struct Catalog {
     pub components: HashMap<String, Arc<ComponentSpec>>,
     pub canonical_components: Vec<Arc<ComponentSpec>>,
     pub apis: HashMap<String, Arc<HostApiSpec>>,
+    pub api_operation_ids: HashMap<String, OperationId>,
     pub namespaces: HashSet<String>,
     pub builtins: HashSet<String>,
 }
@@ -602,6 +694,7 @@ impl Default for RuntimeBuilder {
     fn default() -> Self {
         Self { catalog: Catalog { component_name_policy: ComponentNamePolicy::StrictRegistered,
             components: HashMap::new(), canonical_components: vec![], apis: HashMap::new(),
+            api_operation_ids: HashMap::new(),
             namespaces: HashSet::new(), builtins: ["null", "range", "len", "query", "query_all", "Math", "MusicNote"].into_iter().map(str::to_owned).collect() } }
     }
 }
@@ -649,12 +742,13 @@ pub(crate) fn api_key(namespace: Option<&str>, name: &str) -> String { namespace
 pub struct Runtime {
     spec: Arc<RuntimeSpec>,
     pub(crate) catalog: Arc<Catalog>,
+    check_host_capabilities: bool,
 }
 impl Runtime {
     pub fn builder() -> RuntimeBuilder { RuntimeBuilder::new() }
     pub fn from_spec(spec: RuntimeSpec) -> Self {
         let catalog = compile_catalog(&spec);
-        Self { spec: Arc::new(spec), catalog: Arc::new(catalog) }
+        Self { spec: Arc::new(spec), catalog: Arc::new(catalog), check_host_capabilities: false }
     }
     pub fn standard() -> Self {
         let mut builder = RuntimeSpec::builder::<()>();
@@ -698,7 +792,9 @@ impl Runtime {
         evaluator.materialize(component)
     }
     pub fn session<H: Host>(&self, host: H) -> Result<Session<H>, CatalogError> {
-        check_capabilities(&self.catalog, &host.capabilities())?;
+        if self.check_host_capabilities {
+            check_capabilities(&self.catalog, &host.capabilities())?;
+        }
         let tag = NEXT_SESSION_TAG.fetch_add(1, Ordering::Relaxed);
         Ok(Session { runtime: self.clone(), host, scopes: vec![HashMap::from([("null".into(), Value::Null)])],
             heap: HeapHandle::new(), callbacks: HashMap::new(), context: HostContext::new(tag) })
@@ -725,13 +821,14 @@ impl Runtime {
             operation_id: OperationId(u32::try_from(index + 1).expect("legacy API count exceeds operation ID space")),
         }).collect();
         let spec = RuntimeSpec { component_name_policy: catalog.component_name_policy, components, builtins, apis };
-        Self { spec: Arc::new(spec), catalog: Arc::new(catalog) }
+        Self { spec: Arc::new(spec), catalog: Arc::new(catalog), check_host_capabilities: true }
     }
 }
 
 fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
     let mut catalog = Catalog { component_name_policy: spec.component_name_policy, components: HashMap::new(),
         canonical_components: vec![], apis: HashMap::new(), namespaces: HashSet::new(),
+        api_operation_ids: HashMap::new(),
         builtins: spec.builtins.iter().map(|builtin| builtin.name.clone()).collect() };
     for declaration in &spec.components {
         let component = Arc::new(ComponentSpec {
@@ -751,6 +848,7 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
     for declaration in &spec.apis {
         if let Some(namespace) = &declaration.namespace { catalog.namespaces.insert(namespace.clone()); }
         let id = api_key(declaration.namespace.as_deref(), &declaration.name);
+        catalog.api_operation_ids.insert(id.clone(), declaration.operation_id);
         catalog.apis.insert(id.clone(), Arc::new(HostApiSpec { id, namespace: declaration.namespace.clone(),
             name: declaration.name.clone(), signature: declaration.signature.clone(), required_capability: String::new() }));
     }
@@ -1017,5 +1115,19 @@ mod tests {
         assert_eq!(runtime.spec().component_name_policy(), ComponentNamePolicy::OpenUppercase);
         assert!(runtime.spec().builtins().any(|builtin| builtin.name() == "range"));
         assert!(runtime.materialize_component("Unregistered { title = \"ok\" }").is_ok());
+    }
+
+    #[test]
+    fn fixed_width_numeric_types_validate_the_temporary_number_representation() {
+        assert!(ValueType::I64.accepts(&Value::Number(-7.0)));
+        assert!(!ValueType::I64.accepts(&Value::Number(1.5)));
+        assert!(ValueType::U32.accepts(&Value::Number(u32::MAX as f64)));
+        assert!(!ValueType::U32.accepts(&Value::Number(-1.0)));
+        assert!(!ValueType::U32.accepts(&Value::Number(u32::MAX as f64 + 1.0)));
+        assert!(!ValueType::U32.accepts(&Value::Number(f64::NAN)));
+        assert!(ValueType::F32.accepts(&Value::Number(1.25)));
+        assert!(!ValueType::F32.accepts(&Value::Number(f64::MAX)));
+        assert!(ValueType::F64.accepts(&Value::Number(f64::MAX)));
+        assert_eq!(ValueType::U32.name(), "u32");
     }
 }

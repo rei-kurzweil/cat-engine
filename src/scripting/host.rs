@@ -16,6 +16,7 @@ pub struct MittensHost<'a> {
     pub render_assets: Option<&'a mut RenderAssets>,
     pub emit: &'a mut dyn SignalEmitter,
     pub intents: &'a mut Vec<IntentValue>,
+    bindings: Option<&'a mms::ImplementationBindings<super::runtime_config::MittensBinding>>,
 }
 
 impl<'a> MittensHost<'a> {
@@ -30,6 +31,7 @@ impl<'a> MittensHost<'a> {
             render_assets: None,
             emit,
             intents,
+            bindings: None,
         }
     }
 
@@ -39,6 +41,14 @@ impl<'a> MittensHost<'a> {
     }
     pub fn with_render_assets(mut self, assets: &'a mut RenderAssets) -> Self {
         self.render_assets = Some(assets);
+        self
+    }
+
+    pub fn with_bindings(
+        mut self,
+        bindings: &'a mms::ImplementationBindings<super::runtime_config::MittensBinding>,
+    ) -> Self {
+        self.bindings = Some(bindings);
         self
     }
 
@@ -109,6 +119,26 @@ impl mms::Host for MittensHost<'_> {
                 })
             }
             R::CallApi { api_id, .. } => Err(mms::HostError::unsupported(api_id)),
+            R::CallApiById { operation_id, args } => {
+                let Some(binding) = self
+                    .bindings
+                    .and_then(|bindings| bindings.get(operation_id))
+                else {
+                    return Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: "operation ID is not present in the Mittens binding table".into(),
+                    });
+                };
+                match binding {
+                    super::runtime_config::MittensBinding::Smoke if args.is_empty() => Ok(S::Unit),
+                    super::runtime_config::MittensBinding::Smoke => Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: "mittens.smoke expects no arguments".into(),
+                    }),
+                }
+            }
             R::Spawn { tree } => {
                 let tree = external_tree_to_legacy(tree)?;
                 let result = if let Some(assets) = self.render_assets.as_deref_mut() {

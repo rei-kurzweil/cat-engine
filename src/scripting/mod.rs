@@ -17,6 +17,7 @@ pub mod parser {
 }
 pub mod repl;
 pub mod runner;
+pub mod runtime_config;
 pub mod token {
     pub use meow_meow_script::token::*;
 }
@@ -40,6 +41,7 @@ pub use lowering::*;
 pub use object::*;
 pub use parser::*;
 pub use runner::*;
+pub use runtime_config::*;
 pub use token::*;
 pub use tokenizer::*;
 pub use world_evaluator::*;

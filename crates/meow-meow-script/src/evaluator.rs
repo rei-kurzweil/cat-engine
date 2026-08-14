@@ -626,7 +626,22 @@ impl<'a, H: Host> Evaluator<'a, H> {
             .ok_or_else(|| EvalError::Runtime(format!("unknown host API '{key}'")))?;
         validate_args(&spec.id, &spec.signature, &args)?;
         let transport = args.into_iter().map(|value| self.to_transport(value)).collect::<Result<Vec<_>, _>>()?;
-        match self.dispatch(HostRequest::CallApi { api_id: spec.id.clone(), args: transport })? {
+        let request = if let Some(operation_id) = self
+            .catalog
+            .as_ref()
+            .and_then(|catalog| catalog.api_operation_ids.get(&key).copied())
+        {
+            HostRequest::CallApiById {
+                operation_id,
+                args: transport,
+            }
+        } else {
+            HostRequest::CallApi {
+                api_id: spec.id.clone(),
+                args: transport,
+            }
+        };
+        match self.dispatch(request)? {
             HostResponse::Transport(value) => transport_to_value(value),
             HostResponse::Value(value) => Ok(value),
             HostResponse::Unit => Ok(Value::Null),
@@ -715,7 +730,13 @@ fn validate_args(name: &str, signature: &ValueSignature, args: &[Value]) -> Resu
         return Err(EvalError::Runtime(format!("'{name}' expects {} argument(s), got {}", signature.arguments.len(), args.len())));
     }
     for (index, ty) in signature.arguments.iter().enumerate() {
-        if !ty.accepts(&args[index]) { return Err(EvalError::Runtime(format!("argument {} to '{name}' has the wrong type", index + 1))); }
+        if !ty.accepts(&args[index]) {
+            return Err(EvalError::Runtime(format!(
+                "argument {} to '{name}' has the wrong type: expected {}",
+                index + 1,
+                ty.name()
+            )));
+        }
     }
     Ok(())
 }

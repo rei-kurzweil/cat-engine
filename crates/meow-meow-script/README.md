@@ -45,6 +45,17 @@ registered names plus unregistered ASCII `[A-Z][A-Za-z0-9_]*` structural
 labels. `StrictRegistered` accepts only registered names and aliases; Mittens
 uses this policy.
 
+Runtime signatures expose fixed-width numeric types: `i8`, `i16`, `i32`,
+`i64`, `u8`, `u16`, `u32`, `u64`, `f32`, and `f64`. New `RuntimeSpec`s should
+use those types so the host boundary records its real contract. `Number`
+remains as a compatibility type for the preliminary flat builder API.
+
+The evaluator currently stores authored numeric values as `f64`. Until the
+runtime value representation preserves width and signedness, fixed-width
+integer signatures enforce integrality and range at the call boundary, and an
+`f32` signature rejects finite values outside the `f32` range. This is
+contextual boundary validation, not yet source-level numeric inference.
+
 `Runtime::standard()` provides the crate-owned `OpenUppercase` runtime without
 a builder. Unknown open components are unvalidated structural data, suitable
 for standalone trees and tools.

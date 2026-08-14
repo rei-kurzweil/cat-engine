@@ -212,6 +212,54 @@ pub(crate) fn event_arg_value(signal: &crate::engine::ecs::Signal) -> Value {
 }
 
 impl MeowMeowRunner {
+    /// Evaluate through `meow-meow-script` using the strict crate-owned
+    /// Mittens `RuntimeSpec`, then service host effects against the live ECS.
+    ///
+    /// This is the cutover entrypoint for the first component-spawn slice. It
+    /// intentionally does not fall back to the legacy evaluator.
+    pub fn eval_with_runtime_spec(
+        source: &str,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> EvalOutput {
+        let configured = match crate::scripting::runtime_config::build_mittens_runtime() {
+            Ok(configured) => configured,
+            Err(error) => {
+                return EvalOutput {
+                    intents: Vec::new(),
+                    errors: vec![format!("Mittens RuntimeSpec build failed: {error}")],
+                };
+            }
+        };
+
+        let mut intents = Vec::new();
+        let mut host = crate::scripting::host::MittensHost::new(world, emit, &mut intents)
+            .with_rx(rx)
+            .with_bindings(configured.bindings());
+        if let Some(render_assets) = render_assets {
+            host = host.with_render_assets(render_assets);
+        }
+
+        let result = configured
+            .runtime()
+            .session(host)
+            .map_err(|error| error.to_string())
+            .and_then(|mut session| session.eval(source).map_err(|error| error.to_string()));
+
+        match result {
+            Ok(_) => EvalOutput {
+                intents,
+                errors: Vec::new(),
+            },
+            Err(message) => EvalOutput {
+                intents,
+                errors: vec![message],
+            },
+        }
+    }
+
     /// Evaluate `source` without a live ECS world, collecting emitted intents
     /// and errors.
     ///

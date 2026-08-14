@@ -47,6 +47,9 @@ impl Host for EventStreamHost {
                 HostEvent::Method { component, component_type, method, args }
             }
             HostRequest::CallApi { api_id, args } => HostEvent::Api { id: api_id, args },
+            HostRequest::CallApiById { operation_id, .. } => {
+                return Err(HostError::unsupported(format!("{operation_id:?}")));
+            }
             other => return Err(HostError::unsupported(other.operation_name())),
         };
         let response = match &event {
