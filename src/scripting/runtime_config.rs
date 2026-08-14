@@ -16,22 +16,8 @@ pub enum MittensBinding {
     Smoke,
 }
 
-/// The two inseparable products of the Mittens runtime builder.
-#[derive(Debug)]
-pub struct MittensRuntime {
-    runtime: mms::Runtime,
-    bindings: mms::ImplementationBindings<MittensBinding>,
-}
-
-impl MittensRuntime {
-    pub fn runtime(&self) -> &mms::Runtime {
-        &self.runtime
-    }
-
-    pub fn bindings(&self) -> &mms::ImplementationBindings<MittensBinding> {
-        &self.bindings
-    }
-}
+/// The crate-owned runtime and matching Mittens bindings from one build.
+pub type MittensRuntime = mms::ConfiguredRuntime<MittensBinding>;
 
 /// Build the strict MMS vocabulary and its opaque engine binding table.
 pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> {
@@ -68,6 +54,18 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     mms::ValueType::Component,
                 )
             };
+            let booleans = |count| {
+                mms::ValueSignature::new(
+                    vec![mms::ValueType::Bool; count],
+                    mms::ValueType::Component,
+                )
+            };
+            let strings = |count| {
+                mms::ValueSignature::new(
+                    vec![mms::ValueType::String; count],
+                    mms::ValueType::Component,
+                )
+            };
             let no_args = || mms::ValueSignature::new(Vec::new(), mms::ValueType::Component);
             match canonical {
                 "Transform" => {
@@ -95,8 +93,36 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 }
                 "Bloom" => {
                     component
+                        .constructor("on", no_args())
+                        .constructor("off", no_args())
                         .constructor("intensity", floats(1))
-                        .builder_call("intensity", floats(1));
+                        .constructor("radius_ndc", floats(1))
+                        .constructor("emissive_scale", floats(1))
+                        .constructor("half_res", booleans(1))
+                        .constructor("output_texture", strings(1))
+                        .builder_call("enabled", booleans(1))
+                        .builder_call("intensity", floats(1))
+                        .builder_call("radius_ndc", floats(1))
+                        .builder_call("emissive_scale", floats(1))
+                        .builder_call("half_res", booleans(1))
+                        .builder_call("output_texture", strings(1));
+                }
+                "BlurPass" => {
+                    component
+                        .constructor("on", no_args())
+                        .constructor("off", no_args())
+                        .constructor("enabled", booleans(1))
+                        .constructor("radius_ndc", floats(1))
+                        .constructor("half_res", booleans(1))
+                        .builder_call("enabled", booleans(1))
+                        .builder_call("radius_ndc", floats(1))
+                        .builder_call("half_res", booleans(1));
+                }
+                "RenderGraph" => {
+                    component
+                        .constructor("on", no_args())
+                        .constructor("off", no_args())
+                        .builder_call("enabled", booleans(1));
                 }
                 "RendererSettings" => {
                     component
@@ -116,12 +142,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         );
     });
 
-    let build = builder.build()?;
-    let (spec, bindings) = build.into_parts();
-    Ok(MittensRuntime {
-        runtime: mms::Runtime::from_spec(spec),
-        bindings,
-    })
+    builder.build()
 }
 
 #[cfg(test)]
@@ -176,6 +197,12 @@ mod tests {
             .runtime()
             .materialize_component("RendererSettings.window_size(960, 720) {}")
             .is_ok());
+        configured
+            .runtime()
+            .materialize_component(
+                "RenderGraph { EmissivePass { BlurPass.radius_ndc(0.05).half_res(true) {} } Bloom.intensity(1.2) {} }"
+            )
+            .unwrap();
         for invalid in ["720.5", "-1", "4294967296"] {
             let error = configured
                 .runtime()
@@ -185,6 +212,16 @@ mod tests {
                 .unwrap_err()
                 .to_string();
             assert!(error.contains("expected u32"), "{error}");
+        }
+        for invalid in [
+            "Bloom.intensity(\"bright\") {}",
+            "BlurPass.half_res(1) {}",
+            "RenderGraph { enabled(1) }",
+        ] {
+            assert!(
+                configured.runtime().materialize_component(invalid).is_err(),
+                "invalid post-processing declaration was accepted: {invalid}"
+            );
         }
     }
 }

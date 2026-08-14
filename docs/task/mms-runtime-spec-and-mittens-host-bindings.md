@@ -121,12 +121,28 @@ Baseline verification on 2026-08-13:
   contextual: integer boundaries enforce integral/range checks and `f32`
   rejects finite overflow. Preserving numeric width and signedness in runtime
   values remains downstream work.
+- Changed `RuntimeSpecBuilder::build()` to return `ConfiguredRuntime<I>`, which
+  owns the compiled `Runtime` and its `ImplementationBindings<I>` together.
+  An opaque operation ID therefore cannot be accidentally paired with a
+  different compiled specification.
+- Declared the existing `RenderGraph`, `Bloom`, and `BlurPass` fluent
+  configuration surface used by the smoke, including boolean, string, and
+  `f32` validation. Invalid post-processing calls now fail before host
+  dispatch.
 - Added the graphical `runtime-spec-emissive-cubes` example using the same MMS
   scene as the headless smoke.
 - The `MusicNote` component remains excluded from the strict spec because its
   canonical name conflicts with the standard `MusicNote` builtin table. That
   spelling/namespace decision must be resolved before claiming complete
   component coverage.
+- Post-processing inventory exposed a parity seam: the crate evaluator accepts
+  declared fluent builder calls such as
+  `BlurPass.radius_ndc(0.05).half_res(true) {}`, while many existing Mittens
+  scenes use call-shaped entries inside component bodies, such as
+  `BlurPass { radius_ndc(0.05) half_res(true) }`. The latter currently reaches
+  ordinary function lookup and fails with `value is not callable`. Preserve
+  this authored behavior during the catalog cutover; do not mistake catalog
+  declaration coverage for evaluator parity.
 
 Smoke command:
 
@@ -213,8 +229,8 @@ cargo run -p mittens-engine --example runtime-spec-smoke
 
 - [ ] Inventory the public flat builder API and decide which names receive a
       temporary deprecated facade versus a direct pre-1.0 replacement.
-- [ ] Define the public build result containing the `RuntimeSpec` and opaque
-      implementation bindings without exposing Mittens types from
+- [x] Define the public build result containing the compiled `Runtime` and
+      opaque implementation bindings without exposing Mittens types from
       `meow-meow-script`.
 - [ ] Define opaque ID domains for every host-effectful declaration, meaning a
       vocabulary declaration whose implementation crosses the host boundary,

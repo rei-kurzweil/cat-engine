@@ -307,14 +307,22 @@ impl<I> ImplementationBindings<I> {
     }
 }
 
+/// The inseparable executable runtime and host bindings produced by one
+/// [`RuntimeSpecBuilder`] build.
+///
+/// An [`OperationId`] is meaningful only with the bindings from the same
+/// configured runtime, so this type prevents callers from compiling a spec
+/// and accidentally pairing it with a different binding table.
 #[derive(Debug)]
-pub struct RuntimeSpecBuild<I> {
-    pub spec: RuntimeSpec,
-    pub bindings: ImplementationBindings<I>,
+pub struct ConfiguredRuntime<I> {
+    runtime: Runtime,
+    bindings: ImplementationBindings<I>,
 }
 
-impl<I> RuntimeSpecBuild<I> {
-    pub fn into_parts(self) -> (RuntimeSpec, ImplementationBindings<I>) { (self.spec, self.bindings) }
+impl<I> ConfiguredRuntime<I> {
+    pub fn runtime(&self) -> &Runtime { &self.runtime }
+    pub fn spec(&self) -> &RuntimeSpec { self.runtime.spec() }
+    pub fn bindings(&self) -> &ImplementationBindings<I> { &self.bindings }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -390,11 +398,12 @@ impl<I> RuntimeSpecBuilder<I> {
             bindings: &mut self.bindings, next_operation_id: &mut self.next_operation_id };
         configure(&mut builder); self
     }
-    pub fn build(self) -> Result<RuntimeSpecBuild<I>, RuntimeSpecError> {
+    pub fn build(self) -> Result<ConfiguredRuntime<I>, RuntimeSpecError> {
         validate_runtime_spec(&self.components, &self.builtins, &self.apis)?;
         validate_bindings(&self.components, &self.builtins, &self.apis, &self.bindings)?;
-        Ok(RuntimeSpecBuild { spec: RuntimeSpec { component_name_policy: self.component_name_policy,
-            components: self.components, builtins: self.builtins, apis: self.apis },
+        let spec = RuntimeSpec { component_name_policy: self.component_name_policy,
+            components: self.components, builtins: self.builtins, apis: self.apis };
+        Ok(ConfiguredRuntime { runtime: Runtime::from_spec(spec),
             bindings: ImplementationBindings { entries: self.bindings } })
     }
     fn bind(&mut self, implementation: I) -> OperationId {
@@ -754,7 +763,7 @@ impl Runtime {
         let mut builder = RuntimeSpec::builder::<()>();
         builder.component_name_policy(ComponentNamePolicy::OpenUppercase).with_standard_builtins();
         let build = builder.build().expect("the standard runtime specification is valid");
-        Self::from_spec(build.spec)
+        build.runtime
     }
     pub fn spec(&self) -> &RuntimeSpec { &self.spec }
     pub fn component_names(&self) -> impl Iterator<Item = &str> { self.catalog.components.keys().map(String::as_str) }
@@ -1066,28 +1075,27 @@ mod tests {
             });
 
         let build = builder.build().unwrap();
-        let panel = build.spec.component("pane").unwrap();
+        let panel = build.spec().component("pane").unwrap();
         assert_eq!(panel.name(), "Panel");
         assert_eq!(panel.body_mode(), ComponentBodyMode::PropsOnly);
         assert_eq!(panel.properties().map(PropertyDeclaration::name).collect::<Vec<_>>(), vec!["title", "debug"]);
         assert_eq!(panel.signals().next().unwrap().fields().map(|(name, _)| name).collect::<Vec<_>>(), vec!["button"]);
 
         let ids = [
-            build.spec.builtins().find(|builtin| builtin.name() == "clock").unwrap().operation_id().unwrap(),
+            build.spec().builtins().find(|builtin| builtin.name() == "clock").unwrap().operation_id().unwrap(),
             panel.constructors().next().unwrap().operation_id().unwrap(),
             panel.properties().next().unwrap().operation_id().unwrap(),
             panel.method("show").unwrap().operation_id().unwrap(),
             panel.signal("click").unwrap().operation_id(),
-            build.spec.api(Some("log"), "write").unwrap().operation_id(),
+            build.spec().api(Some("log"), "write").unwrap().operation_id(),
         ];
-        assert_eq!(build.bindings.len(), ids.len());
-        assert_eq!(ids.map(|id| *build.bindings.get(id).unwrap()), [TestBinding::Clock, TestBinding::Construct,
+        assert_eq!(build.bindings().len(), ids.len());
+        assert_eq!(ids.map(|id| *build.bindings().get(id).unwrap()), [TestBinding::Clock, TestBinding::Construct,
             TestBinding::SetTitle, TestBinding::Show, TestBinding::Click, TestBinding::Log]);
 
-        let runtime = Runtime::from_spec(build.spec);
-        let tree = runtime.materialize_component("Pane.new(2) { title = \"hello\" }").unwrap();
+        let tree = build.runtime().materialize_component("Pane.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
-        assert!(runtime.materialize_component("Unknown {}").is_err());
+        assert!(build.runtime().materialize_component("Unknown {}").is_err());
     }
 
     #[test]
