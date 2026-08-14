@@ -8,7 +8,9 @@ BGC {
     C.rgba(0.015, 0.02, 0.04, 1.0) {}
 }
 AL.rgb(0.18, 0.20, 0.28) {}
-Bloom.intensity(1.2) {}
+RenderGraph {
+    Bloom.intensity(1.2) {}
+}
 
 // `T` proves strict RuntimeSpec alias resolution.
 T.position(0.0, 0.6, 6.0) {

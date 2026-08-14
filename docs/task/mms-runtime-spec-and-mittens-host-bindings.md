@@ -136,6 +136,79 @@ cargo run -p mittens-engine --example runtime-spec-smoke
 cargo run -p mittens-engine --example runtime-spec-emissive-cubes
 ```
 
+## Two-chunk momentum plan
+
+This is the bounded finish line for the RuntimeSpec cutover. It is deliberately
+not a promise to delete every legacy evaluator consumer in two changes. Module
+factories, delayed callbacks/keyframes, and the REPL retain legacy session and
+heap dependencies and remain separately tracked in
+[MMS evaluator deduplication](mms-evaluator-deduplication.md).
+
+### Chunk 1 — finish the declarative launch-scene boundary
+
+Goal: the RuntimeSpec smoke scene is described and constructed without a
+second authored vocabulary or legacy DTO conversion.
+
+- Correct the smoke scene to use the currently required explicit
+  `RenderGraph { Bloom {} }` topology and assert that post-processing is
+  active, not merely that a `BloomComponent` exists.
+- Replace the names-only transitional registration for the components used by
+  the smoke with complete constructor/builder/property declarations and
+  builder-adjacent Mittens bindings.
+- Make those component operations reach `MittensHost` with resolved opaque
+  identities and crate-owned values/tree data.
+- Remove `external_tree_to_legacy` and fresh legacy heap allocation from this
+  launch-scene path. Do not redesign component syntax or post-processing.
+- Add negative signature tests and a generated no-missing/no-orphan binding
+  test for this slice.
+
+Smoke gate:
+
+```sh
+cargo test -p meow-meow-script
+cargo test -p mittens-engine runtime_config
+cargo run -p mittens-engine --example runtime-spec-smoke
+cargo run -p mittens-engine --example runtime-spec-emissive-cubes
+```
+
+### Chunk 2 — make ordinary scene evaluation canonical
+
+Goal: normal one-shot scene/example evaluation delegates to the crate runtime
+instead of requiring callers to select `eval_with_runtime_spec`.
+
+- Rebase ordinary `MeowMeowRunner` one-shot world evaluation entrypoints on
+  the configured crate runtime and short-lived `MittensHost`.
+- Preserve the existing public runner facade and source-path/error behavior
+  needed by ordinary scenes; add a compatibility fixture before changing a
+  public signature.
+- Run a small representative scene corpus through the canonical path and
+  compare ECS topology, post-processing state, intents, and failures.
+- Delete only the legacy branches and DTO adapters made unreachable by this
+  cutover.
+- Keep module factories, callback/keyframe invocation, and REPL evaluation on
+  an explicitly frozen compatibility path. Do not partially redesign them in
+  this chunk.
+
+Smoke gate:
+
+```sh
+cargo test -p meow-meow-script
+cargo test -p mittens-engine scripting
+cargo run -p mittens-engine --example runtime-spec-smoke
+```
+
+### Hard stop / deferred work
+
+- No implicit `RenderGraph` behavior during these chunks. The design space is
+  recorded in the crate draft
+  [Implicit render graphs and post-processing composition](../../crates/meow-meow-script/docs/draft/implicit-render-graph-and-post-processing.md).
+- No fixed-width runtime numeric representation, typed declarations, or
+  inference work.
+- No module/factory, callback/keyframe, audio-lookahead, or REPL migration.
+- No attempt to delete `world_evaluator.rs` while those consumers still call
+  it. The useful outcome is one canonical ordinary scene path and a smaller,
+  frozen compatibility island.
+
 ## Boundary decisions to lock
 
 - [ ] Inventory the public flat builder API and decide which names receive a
