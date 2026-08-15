@@ -267,9 +267,10 @@ mod tests {
         let roots = session.host().roots();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].tree.component_type, "Scene");
+        assert_eq!(roots[0].tree.properties[0].name, "title");
         assert_eq!(
-            roots[0].tree.named,
-            [("title".into(), Value::String("smoke".into()))]
+            roots[0].tree.properties[0].value,
+            Value::String("smoke".into())
         );
         assert_eq!(roots[0].tree.children.len(), 2);
         assert!(

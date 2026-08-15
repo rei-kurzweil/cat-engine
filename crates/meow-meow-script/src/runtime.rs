@@ -729,11 +729,19 @@ impl fmt::Display for CatalogError { fn fmt(&self, f: &mut fmt::Formatter<'_>) -
 impl std::error::Error for CatalogError {}
 
 #[derive(Debug, Clone)]
+pub(crate) struct ComponentOperationIds {
+    pub factory: Option<OperationId>,
+    pub constructors: HashMap<String, OperationId>,
+    pub builder_calls: HashMap<String, OperationId>,
+    pub properties: HashMap<String, OperationId>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct Catalog {
     pub component_name_policy: ComponentNamePolicy,
     pub components: HashMap<String, Arc<ComponentSpec>>,
     pub canonical_components: Vec<Arc<ComponentSpec>>,
-    pub component_operation_ids: HashMap<String, OperationId>,
+    pub component_operations: HashMap<String, Arc<ComponentOperationIds>>,
     pub apis: HashMap<String, Arc<HostApiSpec>>,
     pub api_operation_ids: HashMap<String, OperationId>,
     pub namespaces: HashSet<String>,
@@ -753,7 +761,7 @@ impl Default for RuntimeBuilder {
     fn default() -> Self {
         Self { catalog: Catalog { component_name_policy: ComponentNamePolicy::StrictRegistered,
             components: HashMap::new(), canonical_components: vec![], apis: HashMap::new(),
-            component_operation_ids: HashMap::new(), api_operation_ids: HashMap::new(),
+            component_operations: HashMap::new(), api_operation_ids: HashMap::new(),
             namespaces: HashSet::new(), builtins: ["null", "range", "len", "query", "query_all", "Math", "MusicNote"].into_iter().map(str::to_owned).collect() } }
     }
 }
@@ -888,9 +896,21 @@ impl Runtime {
 fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
     let mut catalog = Catalog { component_name_policy: spec.component_name_policy, components: HashMap::new(),
         canonical_components: vec![], apis: HashMap::new(), namespaces: HashSet::new(),
-        component_operation_ids: HashMap::new(), api_operation_ids: HashMap::new(),
+        component_operations: HashMap::new(), api_operation_ids: HashMap::new(),
         builtins: spec.builtins.iter().map(|builtin| builtin.name.clone()).collect() };
     for declaration in &spec.components {
+        let operations = Arc::new(ComponentOperationIds {
+            factory: declaration.operation_id(),
+            constructors: declaration.constructors.iter().filter_map(|item| {
+                item.operation_id().map(|id| (item.name.to_lowercase(), id))
+            }).collect(),
+            builder_calls: declaration.builder_calls.iter().filter_map(|item| {
+                item.operation_id().map(|id| (item.name.to_lowercase(), id))
+            }).collect(),
+            properties: declaration.properties.iter().filter_map(|item| {
+                item.operation_id().map(|id| (item.name.to_lowercase(), id))
+            }).collect(),
+        });
         let component = Arc::new(ComponentSpec {
             name: declaration.name.clone(), aliases: declaration.aliases.clone(),
             constructors: declaration.constructors.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
@@ -902,9 +922,7 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
         });
         for name in std::iter::once(&component.name).chain(&component.aliases) {
             catalog.components.insert(name.to_lowercase(), component.clone());
-            if let Some(operation_id) = declaration.operation_id() {
-                catalog.component_operation_ids.insert(name.to_lowercase(), operation_id);
-            }
+            catalog.component_operations.insert(name.to_lowercase(), operations.clone());
         }
         catalog.canonical_components.push(component);
     }
@@ -1037,9 +1055,13 @@ mod tests {
     fn materializes_component_without_host_session() {
         let tree = runtime().materialize_component("panel.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
-        assert_eq!(tree.ctor_method, Some("new".into()));
-        assert_eq!(tree.ctor_args, vec![Value::Number(2.0)]);
-        assert_eq!(tree.named, vec![("title".into(), Value::String("hello".into()))]);
+        let constructor = tree.constructor.as_ref().unwrap();
+        assert_eq!(constructor.name, "new");
+        assert_eq!(constructor.operation_id, None);
+        assert_eq!(constructor.arguments, vec![Value::Number(2.0)]);
+        assert_eq!(tree.properties[0].name, "title");
+        assert_eq!(tree.properties[0].operation_id, None);
+        assert_eq!(tree.properties[0].value, Value::String("hello".into()));
     }
 
     #[test]
@@ -1099,6 +1121,7 @@ mod tests {
     enum TestBinding {
         Component,
         Construct,
+        Rounded,
         SetTitle,
         Show,
         Click,
@@ -1118,7 +1141,7 @@ mod tests {
                     .alias("Pane")
                     .body_mode(ComponentBodyMode::PropsOnly)
                     .host_constructor("new", ValueSignature::new(vec![ValueType::Number], ValueType::Component), TestBinding::Construct)
-                    .builder_call("rounded", ValueSignature::new(vec![ValueType::Number], ValueType::Component))
+                    .host_builder_call("rounded", ValueSignature::new(vec![ValueType::Number], ValueType::Component), TestBinding::Rounded)
                     .positional(ValueType::String)
                     .host_property("title", ValueType::String, TestBinding::SetTitle)
                     .property("debug", ValueType::Bool)
@@ -1140,21 +1163,35 @@ mod tests {
             build.spec().builtins().find(|builtin| builtin.name() == "clock").unwrap().operation_id().unwrap(),
             panel.operation_id().unwrap(),
             panel.constructors().next().unwrap().operation_id().unwrap(),
+            panel.builder_calls().next().unwrap().operation_id().unwrap(),
             panel.properties().next().unwrap().operation_id().unwrap(),
             panel.method("show").unwrap().operation_id().unwrap(),
             panel.signal("click").unwrap().operation_id(),
             build.spec().api(Some("log"), "write").unwrap().operation_id(),
         ];
         assert_eq!(build.bindings().len(), ids.len());
-        assert_eq!(ids.map(|id| *build.bindings().get(id).unwrap()), [TestBinding::Clock, TestBinding::Component, TestBinding::Construct,
+        assert_eq!(ids.map(|id| *build.bindings().get(id).unwrap()), [TestBinding::Clock, TestBinding::Component, TestBinding::Construct, TestBinding::Rounded,
             TestBinding::SetTitle, TestBinding::Show, TestBinding::Click, TestBinding::Log]);
 
         let tree = build.runtime().materialize_component("Pane.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
-        assert_eq!(tree.operation_id, panel.operation_id());
+        assert_eq!(tree.factory_operation_id, panel.operation_id());
+        assert_eq!(
+            tree.constructor.as_ref().and_then(|operation| operation.operation_id),
+            panel.constructors().next().unwrap().operation_id()
+        );
+        assert_eq!(
+            tree.properties[0].operation_id,
+            panel.properties().next().unwrap().operation_id()
+        );
         assert!(build.runtime().materialize_component("Unknown {}").is_err());
         let tree = build.runtime().materialize_component("Pane { rounded(3) }").unwrap();
-        assert_eq!(tree.calls, vec![("rounded".into(), vec![Value::Number(3.0)])]);
+        assert_eq!(tree.builder_calls[0].name, "rounded");
+        assert_eq!(
+            tree.builder_calls[0].operation_id,
+            panel.builder_calls().next().unwrap().operation_id()
+        );
+        assert_eq!(tree.builder_calls[0].arguments, vec![Value::Number(3.0)]);
         let error = build.runtime().materialize_component("Pane { missing(3) }").unwrap_err();
         assert!(error.to_string().contains("unknown builder call 'missing'"));
     }

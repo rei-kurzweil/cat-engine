@@ -6,7 +6,10 @@ use crate::ast::{
     BinOpKind, BlockStatement, ComponentExpression, ElseBranch, Expression, Statement, UnaryOpKind,
 };
 use crate::host::{CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest, HostResponse, TransportValue};
-use crate::object::{CeChild, HeapHandle, MaterializedCE, Object, ObjectId, RuntimeClosure, Value};
+use crate::object::{
+    CeChild, HeapHandle, MaterializedCE, MaterializedOperation, MaterializedProperty, Object,
+    ObjectId, RuntimeClosure, Value,
+};
 use crate::runtime::{api_key, Catalog, ComponentNamePolicy, ValueSignature};
 use crate::{MeowMeowParser, MeowMeowTokenizer};
 
@@ -519,18 +522,34 @@ impl<'a, H: Host> Evaluator<'a, H> {
             ));
         }
         let first = constructors.first().cloned();
+        let component_key = component.component_type.0.to_lowercase();
+        let operations = self.catalog.as_ref().and_then(|catalog| {
+            catalog.component_operations.get(&component_key).cloned()
+        });
         let mut tree = MaterializedCE {
             component_type: self.catalog.as_ref().map_or_else(
                 || component.component_type.0.clone(),
                 |catalog| catalog.components.get(&component.component_type.0.to_lowercase())
                     .map(|spec| spec.name.clone()).unwrap_or_else(|| component.component_type.0.clone())),
-            operation_id: self.catalog.as_ref().and_then(|catalog| catalog
-                .component_operation_ids.get(&component.component_type.0.to_lowercase()).copied()),
+            factory_operation_id: operations.as_ref().and_then(|ids| ids.factory),
             component_property_assignment_only: false,
-            ctor_method: first.as_ref().map(|(method, _)| method.clone()),
-            ctor_args: first.map(|(_, args)| args).unwrap_or_default(),
-            calls: constructors.into_iter().skip(1).collect(),
-            named: Vec::new(),
+            constructor: first.map(|(name, arguments)| MaterializedOperation {
+                operation_id: operations.as_ref().and_then(|ids| {
+                    ids.constructors.get(&name.to_lowercase()).copied()
+                }),
+                name,
+                arguments,
+            }),
+            builder_calls: constructors.into_iter().skip(1).map(|(name, arguments)| {
+                MaterializedOperation {
+                    operation_id: operations.as_ref().and_then(|ids| {
+                        ids.builder_calls.get(&name.to_lowercase()).copied()
+                    }),
+                    name,
+                    arguments,
+                }
+            }).collect(),
+            properties: Vec::new(),
             positionals: Vec::new(),
             deferred_block: None,
             children: Vec::new(),
@@ -540,7 +559,13 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 Statement::Reassign {
                     target: Expression::Identifier(name),
                     value,
-                } => tree.named.push((name.0.clone(), self.eval_expr(value)?)),
+                } => tree.properties.push(MaterializedProperty {
+                    operation_id: operations.as_ref().and_then(|ids| {
+                        ids.properties.get(&name.0.to_lowercase()).copied()
+                    }),
+                    name: name.0.clone(),
+                    value: self.eval_expr(value)?,
+                }),
                 Statement::Expression(Expression::Component(child)) => {
                     tree.children.push(CeChild::Spawn(self.materialize(child)?))
                 }
@@ -553,7 +578,13 @@ impl<'a, H: Host> Evaluator<'a, H> {
                                     .iter()
                                     .map(|arg| self.eval_expr(arg))
                                     .collect::<Result<Vec<_>, _>>()?;
-                                tree.calls.push((method.0.clone(), args));
+                                tree.builder_calls.push(MaterializedOperation {
+                                    operation_id: operations.as_ref().and_then(|ids| {
+                                        ids.builder_calls.get(&method.0.to_lowercase()).copied()
+                                    }),
+                                    name: method.0.clone(),
+                                    arguments: args,
+                                });
                                 continue;
                             }
                         }
@@ -591,17 +622,17 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     catalog.components.keys().map(String::as_str),
                 ));
             };
-            if let Some(method) = &tree.ctor_method {
-                let signature = spec.constructors.get(method).ok_or_else(|| unknown("constructor", method, spec.constructors.keys().map(String::as_str)))?;
-                validate_args(&format!("{}.{}", spec.name, method), signature, &tree.ctor_args)?;
+            if let Some(constructor) = &tree.constructor {
+                let signature = spec.constructors.get(&constructor.name).ok_or_else(|| unknown("constructor", &constructor.name, spec.constructors.keys().map(String::as_str)))?;
+                validate_args(&format!("{}.{}", spec.name, constructor.name), signature, &constructor.arguments)?;
             }
-            for (method, args) in &tree.calls {
-                let signature = spec.builder_calls.get(method).ok_or_else(|| unknown("builder call", method, spec.builder_calls.keys().map(String::as_str)))?;
-                validate_args(&format!("{}.{}", spec.name, method), signature, args)?;
+            for call in &tree.builder_calls {
+                let signature = spec.builder_calls.get(&call.name).ok_or_else(|| unknown("builder call", &call.name, spec.builder_calls.keys().map(String::as_str)))?;
+                validate_args(&format!("{}.{}", spec.name, call.name), signature, &call.arguments)?;
             }
-            for (property, value) in &tree.named {
-                let ty = spec.properties.get(property).ok_or_else(|| unknown("property", property, spec.properties.keys().map(String::as_str)))?;
-                if !ty.accepts(value) { return Err(EvalError::Runtime(format!("property '{}.{}' has the wrong value type", spec.name, property))); }
+            for property in &tree.properties {
+                let ty = spec.properties.get(&property.name).ok_or_else(|| unknown("property", &property.name, spec.properties.keys().map(String::as_str)))?;
+                if !ty.accepts(&property.value) { return Err(EvalError::Runtime(format!("property '{}.{}' has the wrong value type", spec.name, property.name))); }
             }
             for (index, value) in tree.positionals.iter().enumerate() {
                 let Some(ty) = spec.positional.get(index) else { return Err(EvalError::Runtime(format!("component '{}' does not accept positional value {}", spec.name, index + 1))); };

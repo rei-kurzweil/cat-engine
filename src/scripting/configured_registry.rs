@@ -41,8 +41,10 @@ pub(crate) fn try_spawn_tree(
     emit: &mut dyn SignalEmitter,
     initialize: bool,
 ) -> Option<Result<ComponentId, String>> {
-    if !tree_is_direct(tree, bindings) {
-        return None;
+    match tree_is_direct(tree, bindings) {
+        Ok(true) => {}
+        Ok(false) => return None,
+        Err(error) => return Some(Err(error)),
     }
     Some(spawn_tree_uninitialized(tree, bindings, world).map(|root| {
         if initialize {
@@ -55,23 +57,66 @@ pub(crate) fn try_spawn_tree(
 fn tree_is_direct(
     tree: &mms::MaterializedCE,
     bindings: &mms::ImplementationBindings<MittensBinding>,
-) -> bool {
-    if tree.deferred_block.is_some() {
-        return false;
+) -> Result<bool, String> {
+    if tree.deferred_block.is_some() || !tree.positionals.is_empty() {
+        return Ok(false);
     }
-    let Some(operation_id) = tree.operation_id else {
-        return false;
+    let Some(operation_id) = tree.factory_operation_id else {
+        return Ok(false);
     };
-    let Some(MittensBinding::Component(component)) = bindings.get(operation_id) else {
-        return false;
+    let component = match bindings.get(operation_id) {
+        Some(MittensBinding::Component(component)) => *component,
+        Some(binding) => {
+            return Err(format!(
+                "{operation_id:?} resolved to {binding:?}, not a component factory"
+            ));
+        }
+        None => return Err(format!("unknown component factory ID {operation_id:?}")),
     };
-    if *component != tree.component_type || !DIRECT_COMPONENTS.contains(component) {
-        return false;
+    if component != tree.component_type {
+        return Err(format!(
+            "component factory {operation_id:?} creates {component}, not {}",
+            tree.component_type
+        ));
     }
-    tree.children.iter().all(|child| match child {
-        mms::CeChild::Spawn(child) => tree_is_direct(child, bindings),
-        mms::CeChild::Attach(_) => true,
-    })
+    if !DIRECT_COMPONENTS.contains(&component) {
+        return Ok(false);
+    }
+    if let Some(constructor) = &tree.constructor {
+        let Some(id) = constructor.operation_id else { return Ok(false) };
+        match bindings.get(id) {
+            Some(MittensBinding::ComponentConstructor { component: bound_component, name })
+                if *bound_component == component && *name == constructor.name => {}
+            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} constructor '{}'", constructor.name)),
+            None => return Err(format!("unknown constructor ID {id:?}")),
+        }
+    }
+    for call in &tree.builder_calls {
+        let Some(id) = call.operation_id else { return Ok(false) };
+        match bindings.get(id) {
+            Some(MittensBinding::ComponentBuilderCall { component: bound_component, name })
+                if *bound_component == component && *name == call.name => {}
+            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} builder call '{}'", call.name)),
+            None => return Err(format!("unknown builder-call ID {id:?}")),
+        }
+    }
+    for property in &tree.properties {
+        let Some(id) = property.operation_id else { return Ok(false) };
+        match bindings.get(id) {
+            Some(MittensBinding::ComponentProperty { component: bound_component, name })
+                if *bound_component == component && *name == property.name => {}
+            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} property '{}'", property.name)),
+            None => return Err(format!("unknown property ID {id:?}")),
+        }
+    }
+    for child in &tree.children {
+        if let mms::CeChild::Spawn(child) = child {
+            if !tree_is_direct(child, bindings)? {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 
 fn spawn_tree_uninitialized(
@@ -79,7 +124,7 @@ fn spawn_tree_uninitialized(
     bindings: &mms::ImplementationBindings<MittensBinding>,
     world: &mut World,
 ) -> Result<ComponentId, String> {
-    let operation_id = tree.operation_id.ok_or_else(|| {
+    let operation_id = tree.factory_operation_id.ok_or_else(|| {
         format!(
             "{} has no configured component operation",
             tree.component_type
@@ -96,14 +141,14 @@ fn spawn_tree_uninitialized(
     let id = create_component(
         world,
         component,
-        tree.ctor_method.as_deref(),
-        &tree.ctor_args,
+        tree.constructor.as_ref().map(|constructor| constructor.name.as_str()),
+        tree.constructor.as_ref().map_or(&[], |constructor| constructor.arguments.as_slice()),
     )?;
 
-    for (method, args) in &tree.calls {
-        apply_call(world, id, component, method, args)?;
+    for call in &tree.builder_calls {
+        apply_call(world, id, component, &call.name, &call.arguments)?;
     }
-    apply_node_properties(world, id, &tree.named)?;
+    apply_node_properties(world, id, &tree.properties)?;
 
     if !tree.positionals.is_empty() {
         return Err(format!(
@@ -303,21 +348,21 @@ fn apply_call(
 fn apply_node_properties(
     world: &mut World,
     id: ComponentId,
-    properties: &[(String, mms::Value)],
+    properties: &[mms::MaterializedProperty],
 ) -> Result<(), String> {
-    for (name, value) in properties {
-        match name.as_str() {
+    for property in properties {
+        match property.name.as_str() {
             "name" | "id" => {
                 world
                     .get_component_record_mut(id)
                     .ok_or("component disappeared during construction")?
-                    .name = value_as_string(value)?.into();
+                    .name = value_as_string(&property.value)?.into();
             }
             "class" => {
                 let record = world
                     .get_component_record_mut(id)
                     .ok_or("component disappeared during construction")?;
-                record.classes = match value {
+                record.classes = match &property.value {
                     mms::Value::String(value) => {
                         value.split_whitespace().map(str::to_owned).collect()
                     }
@@ -328,7 +373,7 @@ fn apply_node_properties(
                         .into_iter()
                         .map(str::to_owned)
                         .collect(),
-                    _ => return Err("class expects a string or string array".into()),
+                    value => return Err(format!("class expects a string or string array, got {value:?}")),
                 };
             }
             other => return Err(format!("unsupported direct node property '{other}'")),
@@ -377,5 +422,62 @@ fn value_as_string(value: &mms::Value) -> Result<&str, String> {
     match value {
         mms::Value::String(value) => Ok(value),
         value => Err(format!("expected string, got {value:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mismatched_operation_id_is_rejected_before_world_mutation() {
+        let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
+        let mut tree = configured
+            .runtime()
+            .materialize_component("Transform.position(1.0, 2.0, 3.0) {}")
+            .unwrap();
+        tree.constructor.as_mut().unwrap().operation_id = tree.factory_operation_id;
+
+        let mut world = World::default();
+        let mut emit = crate::engine::ecs::CommandQueue::new();
+        let error = try_spawn_tree(
+            &tree,
+            configured.bindings(),
+            &mut world,
+            &mut emit,
+            false,
+        )
+        .expect("a configured-ID mismatch must not use the legacy fallback")
+        .unwrap_err();
+
+        assert!(error.contains("not Transform constructor 'position'"), "{error}");
+        assert_eq!(world.all_components().count(), 0);
+    }
+
+    #[test]
+    fn universal_properties_use_bound_ids_on_the_direct_path() {
+        let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
+        let tree = configured
+            .runtime()
+            .materialize_component(
+                "Transform { name = \"root\" class = [\"scene\", \"visible\"] }",
+            )
+            .unwrap();
+        assert!(tree.properties.iter().all(|property| property.operation_id.is_some()));
+
+        let mut world = World::default();
+        let mut emit = crate::engine::ecs::CommandQueue::new();
+        let id = try_spawn_tree(
+            &tree,
+            configured.bindings(),
+            &mut world,
+            &mut emit,
+            false,
+        )
+        .expect("bound universal properties should stay on the direct path")
+        .unwrap();
+        let record = world.get_component_record(id).unwrap();
+        assert_eq!(record.name, "root");
+        assert_eq!(record.classes, ["scene", "visible"]);
     }
 }

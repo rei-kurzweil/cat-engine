@@ -14,6 +14,18 @@ use meow_meow_script as mms;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MittensBinding {
     Component(&'static str),
+    ComponentConstructor {
+        component: &'static str,
+        name: &'static str,
+    },
+    ComponentBuilderCall {
+        component: &'static str,
+        name: &'static str,
+    },
+    ComponentProperty {
+        component: &'static str,
+        name: &'static str,
+    },
     Smoke,
 }
 
@@ -39,6 +51,64 @@ fn constructor_and_builder(
     component
         .constructor(name, signature.clone())
         .builder_call(name, signature);
+}
+
+fn host_constructor(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    canonical: &'static str,
+    name: &'static str,
+    signature: mms::ValueSignature,
+) {
+    component.host_constructor(
+        name,
+        signature,
+        MittensBinding::ComponentConstructor {
+            component: canonical,
+            name,
+        },
+    );
+}
+
+fn host_builder_call(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    canonical: &'static str,
+    name: &'static str,
+    signature: mms::ValueSignature,
+) {
+    component.host_builder_call(
+        name,
+        signature,
+        MittensBinding::ComponentBuilderCall {
+            component: canonical,
+            name,
+        },
+    );
+}
+
+fn host_property(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    canonical: &'static str,
+    name: &'static str,
+    value_type: mms::ValueType,
+) {
+    component.host_property(
+        name,
+        value_type,
+        MittensBinding::ComponentProperty {
+            component: canonical,
+            name,
+        },
+    );
+}
+
+fn host_constructor_and_builder(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    canonical: &'static str,
+    name: &'static str,
+    signature: mms::ValueSignature,
+) {
+    host_constructor(component, canonical, name, signature.clone());
+    host_builder_call(component, canonical, name, signature);
 }
 
 fn no_arg_constructors(component: &mut mms::ComponentBuilder<'_, MittensBinding>, names: &[&str]) {
@@ -84,6 +154,9 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
             }) {
                 component.alias(shortform.short);
             }
+            host_property(component, canonical, "name", mms::ValueType::String);
+            host_property(component, canonical, "id", mms::ValueType::String);
+            host_property(component, canonical, "class", mms::ValueType::Any);
 
             let floats = |count| component_signature(vec![mms::ValueType::F32; count]);
             let unsigned = |count| component_signature(vec![mms::ValueType::U32; count]);
@@ -94,7 +167,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
             match canonical {
                 "Transform" => {
                     for method in ["position", "scale", "rotation", "rotation_euler"] {
-                        constructor_and_builder(component, method, floats(3));
+                        host_constructor_and_builder(component, canonical, method, floats(3));
                     }
                     for method in ["rotation_quat", "quaternion", "quat"] {
                         constructor_and_builder(component, method, floats(4));
@@ -102,10 +175,10 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     constructor_and_builder(component, "looking_at", any(1));
                 }
                 "Renderable" => {
+                    host_constructor(component, canonical, "cube", no_args());
                     no_arg_constructors(
                         component,
                         &[
-                            "cube",
                             "circle2d",
                             "sphere",
                             "triangle",
@@ -188,14 +261,14 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         );
                 }
                 "Color" => {
-                    component.constructor("rgba", floats(4));
+                    host_constructor(component, canonical, "rgba", floats(4));
                 }
                 "Camera3D" => {
                     for method in ["enabled"] {
-                        constructor_and_builder(component, method, booleans(1));
+                        host_constructor_and_builder(component, canonical, method, booleans(1));
                     }
                     for method in ["fov", "near", "far"] {
-                        constructor_and_builder(component, method, floats(1));
+                        host_constructor_and_builder(component, canonical, method, floats(1));
                     }
                     constructor_and_builder(component, "target", strings(1));
                 }
@@ -207,17 +280,21 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         .builder_call("target", strings(1));
                 }
                 "Emissive" => {
-                    component
-                        .constructor("on", no_args())
-                        .constructor("off", no_args())
-                        .builder_call("intensity", floats(1));
+                    host_constructor(component, canonical, "on", no_args());
+                    host_constructor(component, canonical, "off", no_args());
+                    host_builder_call(component, canonical, "intensity", floats(1));
                 }
                 "AmbientLight" => {
-                    component.constructor("rgb", floats(3));
+                    host_constructor(component, canonical, "rgb", floats(3));
                 }
                 "DirectionalLight" | "PointLight" | "SpotLight" => {
-                    constructor_and_builder(component, "intensity", floats(1));
-                    constructor_and_builder(component, "color", floats(3));
+                    if canonical == "DirectionalLight" {
+                        host_constructor_and_builder(component, canonical, "intensity", floats(1));
+                        host_constructor_and_builder(component, canonical, "color", floats(3));
+                    } else {
+                        constructor_and_builder(component, "intensity", floats(1));
+                        constructor_and_builder(component, "color", floats(3));
+                    }
                     if canonical != "DirectionalLight" {
                         constructor_and_builder(component, "distance", floats(1));
                     }
@@ -227,43 +304,39 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     }
                 }
                 "Bloom" => {
-                    component
-                        .constructor("on", no_args())
-                        .constructor("off", no_args())
-                        .constructor("intensity", floats(1))
-                        .constructor("radius_ndc", floats(1))
-                        .constructor("emissive_scale", floats(1))
-                        .constructor("half_res", booleans(1))
-                        .constructor("output_texture", strings(1))
-                        .builder_call("enabled", booleans(1))
-                        .builder_call("intensity", floats(1))
-                        .builder_call("radius_ndc", floats(1))
-                        .builder_call("emissive_scale", floats(1))
-                        .builder_call("half_res", booleans(1))
-                        .builder_call("output_texture", strings(1));
+                    host_constructor(component, canonical, "on", no_args());
+                    host_constructor(component, canonical, "off", no_args());
+                    host_constructor(component, canonical, "intensity", floats(1));
+                    host_constructor(component, canonical, "radius_ndc", floats(1));
+                    host_constructor(component, canonical, "emissive_scale", floats(1));
+                    host_constructor(component, canonical, "half_res", booleans(1));
+                    host_constructor(component, canonical, "output_texture", strings(1));
+                    host_builder_call(component, canonical, "enabled", booleans(1));
+                    host_builder_call(component, canonical, "intensity", floats(1));
+                    host_builder_call(component, canonical, "radius_ndc", floats(1));
+                    host_builder_call(component, canonical, "emissive_scale", floats(1));
+                    host_builder_call(component, canonical, "half_res", booleans(1));
+                    host_builder_call(component, canonical, "output_texture", strings(1));
                 }
                 "BlurPass" => {
-                    component
-                        .constructor("on", no_args())
-                        .constructor("off", no_args())
-                        .constructor("enabled", booleans(1))
-                        .constructor("radius_ndc", floats(1))
-                        .constructor("half_res", booleans(1))
-                        .builder_call("enabled", booleans(1))
-                        .builder_call("radius_ndc", floats(1))
-                        .builder_call("half_res", booleans(1));
+                    host_constructor(component, canonical, "on", no_args());
+                    host_constructor(component, canonical, "off", no_args());
+                    host_constructor(component, canonical, "enabled", booleans(1));
+                    host_constructor(component, canonical, "radius_ndc", floats(1));
+                    host_constructor(component, canonical, "half_res", booleans(1));
+                    host_builder_call(component, canonical, "enabled", booleans(1));
+                    host_builder_call(component, canonical, "radius_ndc", floats(1));
+                    host_builder_call(component, canonical, "half_res", booleans(1));
                 }
                 "RenderGraph" => {
-                    component
-                        .constructor("on", no_args())
-                        .constructor("off", no_args())
-                        .builder_call("enabled", booleans(1));
+                    host_constructor(component, canonical, "on", no_args());
+                    host_constructor(component, canonical, "off", no_args());
+                    component.builder_call("enabled", booleans(1));
                 }
                 "RendererSettings" => {
-                    component
-                        .constructor("msaa_off", no_args())
-                        .constructor("window_size", unsigned(2))
-                        .builder_call("window_size", unsigned(2));
+                    host_constructor(component, canonical, "msaa_off", no_args());
+                    host_constructor(component, canonical, "window_size", unsigned(2));
+                    host_builder_call(component, canonical, "window_size", unsigned(2));
                 }
                 "Grid" => {
                     constructor_and_builder(component, "spacing", floats(1));
@@ -320,7 +393,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     component.builder_call("translation_basis", any(1));
                 }
                 "Pointer" => {
-                    component.constructor("disabled", no_args());
+                    host_constructor(component, canonical, "disabled", no_args());
                     constructor_and_builder(component, "debug_enable", booleans(1));
                     for method in [
                         "min_grab_distance",
@@ -988,10 +1061,14 @@ mod tests {
             {
                 continue;
             }
+            let component_properties = declaration
+                .properties()
+                .filter(|property| !matches!(property.name(), "name" | "id" | "class"))
+                .count();
             let has_schema = declaration.constructors().len() > 0
                 || declaration.builder_calls().len() > 0
                 || declaration.positionals().len() > 0
-                || declaration.properties().len() > 0
+                || component_properties > 0
                 || declaration.methods().len() > 0
                 || declaration.signals().len() > 0;
             if !has_schema {
@@ -1001,6 +1078,49 @@ mod tests {
         assert!(
             missing.is_empty(),
             "components silently fell back to names-only registration: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn direct_component_operations_resolve_to_matching_bindings() {
+        let configured = build_mittens_runtime().unwrap();
+        let tree = configured
+            .runtime()
+            .materialize_component(
+                "T.position(1.0, 2.0, 3.0).scale(2.0, 2.0, 2.0) { name = \"root\" }",
+            )
+            .unwrap();
+
+        assert_eq!(
+            configured.bindings().get(tree.factory_operation_id.unwrap()),
+            Some(&MittensBinding::Component("Transform"))
+        );
+        let constructor = tree.constructor.as_ref().unwrap();
+        assert_eq!(constructor.name, "position");
+        assert_eq!(
+            configured.bindings().get(constructor.operation_id.unwrap()),
+            Some(&MittensBinding::ComponentConstructor {
+                component: "Transform",
+                name: "position",
+            })
+        );
+        let call = &tree.builder_calls[0];
+        assert_eq!(call.name, "scale");
+        assert_eq!(
+            configured.bindings().get(call.operation_id.unwrap()),
+            Some(&MittensBinding::ComponentBuilderCall {
+                component: "Transform",
+                name: "scale",
+            })
+        );
+        let property = &tree.properties[0];
+        assert_eq!(property.name, "name");
+        assert_eq!(
+            configured.bindings().get(property.operation_id.unwrap()),
+            Some(&MittensBinding::ComponentProperty {
+                component: "Transform",
+                name: "name",
+            })
         );
     }
 }

@@ -143,15 +143,11 @@ impl mms::Host for MittensHost<'_> {
                         operation: format!("{operation_id:?}"),
                         message: "mittens.smoke expects no arguments".into(),
                     }),
-                    super::runtime_config::MittensBinding::Component(component) => {
-                        Err(mms::HostError {
-                            kind: mms::HostErrorKind::InvalidRequest,
-                            operation: format!("{operation_id:?}"),
-                            message: format!(
-                                "component factory '{component}' cannot be invoked as an API"
-                            ),
-                        })
-                    }
+                    binding => Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: format!("{binding:?} cannot be invoked as an API"),
+                    }),
                 }
             }
             R::Spawn { tree } => {
@@ -450,31 +446,36 @@ fn signal_kind(name: &str) -> Option<SignalKind> {
 fn external_tree_to_legacy(
     tree: mms::MaterializedCE,
 ) -> Result<legacy::MaterializedCE, mms::HostError> {
+    let (ctor_method, ctor_args) = tree.constructor.map_or_else(
+        || (None, Vec::new()),
+        |constructor| (Some(constructor.name), constructor.arguments),
+    );
     Ok(legacy::MaterializedCE {
         component_type: tree.component_type,
         component_property_assignment_only: tree.component_property_assignment_only,
-        ctor_method: tree.ctor_method,
-        ctor_args: tree
-            .ctor_args
+        ctor_method,
+        ctor_args: ctor_args
             .into_iter()
             .map(external_value_to_legacy)
             .collect::<Result<_, _>>()?,
         calls: tree
-            .calls
+            .builder_calls
             .into_iter()
-            .map(|(name, args)| {
+            .map(|call| {
                 Ok((
-                    name,
-                    args.into_iter()
+                    call.name,
+                    call.arguments.into_iter()
                         .map(external_value_to_legacy)
                         .collect::<Result<_, _>>()?,
                 ))
             })
             .collect::<Result<_, mms::HostError>>()?,
         named: tree
-            .named
+            .properties
             .into_iter()
-            .map(|(name, value)| Ok((name, external_value_to_legacy(value)?)))
+            .map(|property| {
+                Ok((property.name, external_value_to_legacy(property.value)?))
+            })
             .collect::<Result<_, mms::HostError>>()?,
         positionals: tree
             .positionals

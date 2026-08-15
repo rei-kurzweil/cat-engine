@@ -14,6 +14,7 @@ User-facing MMS documentation lives with the crate.
 ## Drafts
 
 - [Implicit render graphs and post-processing composition](draft/implicit-render-graph-and-post-processing.md)
+- [RuntimeSpec host binding model](draft/runtime-spec-host-binding-model.md)
 
 Most design analysis, active implementation tasks, and Mittens-specific
 runtime-boundary documentation remain in the workspace documentation while

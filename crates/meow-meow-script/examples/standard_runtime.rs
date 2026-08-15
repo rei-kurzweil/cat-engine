@@ -18,7 +18,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .first()
         .ok_or("the example emitted no component root")?;
     if root.tree.component_type != "Showcase"
-        || root.tree.named != [("title".into(), Value::String("Standalone MMS".into()))]
+        || root.tree.properties.len() != 1
+        || root.tree.properties[0].name != "title"
+        || root.tree.properties[0].value != Value::String("Standalone MMS".into())
         || root.tree.children.len() != 2
         || !matches!(&root.tree.children[0], CeChild::Spawn(child) if child.component_type == "Header")
         || !matches!(&root.tree.children[1], CeChild::Spawn(child) if child.component_type == "Content")
@@ -30,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "collected {} root: {} ({} fields, {} children)",
         roots.len(),
         root.tree.component_type,
-        root.tree.named.len(),
+        root.tree.properties.len(),
         root.tree.children.len(),
     );
 

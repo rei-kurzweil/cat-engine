@@ -31,24 +31,44 @@ pub struct RuntimeClosure {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MaterializedOperation {
+    /// Source-visible operation name retained for diagnostics and legacy
+    /// compatibility. Configured hosts dispatch with `operation_id`.
+    pub name: String,
+    /// Opaque identity resolved from the configured RuntimeSpec.
+    /// Open and legacy runtimes leave this unset.
+    pub operation_id: Option<crate::OperationId>,
+    pub arguments: Vec<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaterializedProperty {
+    /// Source-visible property name retained for diagnostics and legacy
+    /// compatibility. Configured hosts dispatch with `operation_id`.
+    pub name: String,
+    /// Opaque identity resolved from the configured RuntimeSpec.
+    /// Open and legacy runtimes leave this unset.
+    pub operation_id: Option<crate::OperationId>,
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct MaterializedCE {
     /// Component type name (short or full, e.g. `"T"` / `"Transform"`).
     pub component_type: String,
     /// Opaque host factory identity resolved from the configured RuntimeSpec.
     /// Open and legacy runtimes leave this unset.
-    pub operation_id: Option<crate::OperationId>,
+    pub factory_operation_id: Option<crate::OperationId>,
     /// When true, `name = expr` inside the CE body is captured as a named
     /// component property instead of a lexical reassignment.
     pub component_property_assignment_only: bool,
-    /// First constructor call method, e.g. `"position"` from `T.position(...)`.
-    pub ctor_method: Option<String>,
-    /// First constructor call args, evaluated.
-    pub ctor_args: Vec<Value>,
+    /// First constructor call, e.g. `"position"` from `T.position(...)`.
+    pub constructor: Option<MaterializedOperation>,
     /// Remaining chained constructor calls + body builder calls, in source order.
     /// e.g. `.scale(...)` after `.position(...)`, plus `fps_rotation()` in the body.
-    pub calls: Vec<(String, Vec<Value>)>,
+    pub builder_calls: Vec<MaterializedOperation>,
     /// Named property assignments from the body, e.g. `intensity = 0.9`.
-    pub named: Vec<(String, Value)>,
+    pub properties: Vec<MaterializedProperty>,
     /// String-type positional content (e.g. `Text { "hello " + name }`).
     pub positionals: Vec<Value>,
     /// Deferred executable block payload for components that own imperative

@@ -182,6 +182,33 @@ Baseline verification on 2026-08-13:
   explicit compatibility fallback. The conversion can be deleted after the
   remaining component implementations and deferred runtime values move.
 
+### 2026-08-15 operation-bearing materialization slice
+
+- Replaced the crate-owned materialized component DTO's parallel constructor
+  name/argument fields, call tuples, and property tuples with explicit
+  `MaterializedOperation` and `MaterializedProperty` values. Each retains its
+  source name for diagnostics and compatibility while carrying the opaque
+  `OperationId` resolved from the same `RuntimeSpec` build.
+- Renamed the component-level DTO identity to `factory_operation_id`, making
+  the distinction between the component factory and its nested operations
+  explicit before publishing this boundary.
+- Bound the launch-scene constructors and builder calls, plus the universal
+  `name`, `id`, and `class` properties, to distinct `MittensBinding` variants.
+  The direct adapter verifies the factory and every nested operation against
+  the matching binding before mutating the world.
+- A present but unknown or mismatched ID is now a typed host failure and never
+  falls through to matching name-based legacy behavior. An operation that is
+  still deliberately pure/unbound selects the explicit whole-tree
+  compatibility fallback before mutation.
+- `external_tree_to_legacy` now adapts the operation-bearing DTO only for that
+  fallback. Operation names remain in the compatibility payload, but they are
+  no longer authoritative on the configured direct path.
+
+Remaining boundary work: bind and migrate the rest of the component catalog,
+carry component-method IDs through `InvokeComponentMethod`, and remove the
+ordinary Spawn/Register conversion once no supported ordinary component tree
+requires it.
+
 Smoke command:
 
 ```sh
