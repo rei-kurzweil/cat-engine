@@ -13,6 +13,7 @@ use meow_meow_script as mms;
 /// build result prevents callers from reconstructing either half later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MittensBinding {
+    Component(&'static str),
     Smoke,
 }
 
@@ -77,6 +78,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
             continue;
         }
         builder.component(canonical, |component| {
+            component.host_implementation(MittensBinding::Component(canonical));
             for shortform in mms::COMPONENT_SHORTFORMS.iter().filter(|entry| {
                 entry.full == canonical && !entry.short.eq_ignore_ascii_case(canonical)
             }) {
@@ -860,6 +862,15 @@ mod tests {
                 .runtime()
                 .materialize_component(&format!("{name} {{}}"))
                 .unwrap_or_else(|error| panic!("component {name} is not parseable: {error}"));
+            let declaration = spec.component(name).unwrap();
+            let operation_id = declaration
+                .operation_id()
+                .unwrap_or_else(|| panic!("component {name} has no host factory operation"));
+            assert_eq!(
+                configured.bindings().get(operation_id),
+                Some(&MittensBinding::Component(name)),
+                "component {name} has the wrong host factory binding"
+            );
         }
         for shortform in mms::COMPONENT_SHORTFORMS {
             if shortform.full != "MusicNote"

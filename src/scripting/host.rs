@@ -17,6 +17,7 @@ pub struct MittensHost<'a> {
     pub emit: &'a mut dyn SignalEmitter,
     pub intents: &'a mut Vec<IntentValue>,
     bindings: Option<&'a mms::ImplementationBindings<super::runtime_config::MittensBinding>>,
+    legacy_component_fallbacks: usize,
 }
 
 impl<'a> MittensHost<'a> {
@@ -32,6 +33,7 @@ impl<'a> MittensHost<'a> {
             emit,
             intents,
             bindings: None,
+            legacy_component_fallbacks: 0,
         }
     }
 
@@ -50,6 +52,10 @@ impl<'a> MittensHost<'a> {
     ) -> Self {
         self.bindings = Some(bindings);
         self
+    }
+
+    pub fn legacy_component_fallbacks(&self) -> usize {
+        self.legacy_component_fallbacks
     }
 
     pub fn component_handle(id: ComponentId) -> mms::ComponentHandle {
@@ -137,9 +143,31 @@ impl mms::Host for MittensHost<'_> {
                         operation: format!("{operation_id:?}"),
                         message: "mittens.smoke expects no arguments".into(),
                     }),
+                    super::runtime_config::MittensBinding::Component(component) => {
+                        Err(mms::HostError {
+                            kind: mms::HostErrorKind::InvalidRequest,
+                            operation: format!("{operation_id:?}"),
+                            message: format!(
+                                "component factory '{component}' cannot be invoked as an API"
+                            ),
+                        })
+                    }
                 }
             }
             R::Spawn { tree } => {
+                if let Some(bindings) = self.bindings {
+                    if let Some(result) = super::configured_registry::try_spawn_tree(
+                        &tree, bindings, self.world, self.emit, true,
+                    ) {
+                        let component_type = tree.component_type.clone();
+                        let id = result.map_err(|error| mms::HostError::failure("spawn", error))?;
+                        return Ok(S::Component {
+                            handle: Self::component_handle(id),
+                            component_type,
+                        });
+                    }
+                }
+                self.legacy_component_fallbacks += 1;
                 let tree = external_tree_to_legacy(tree)?;
                 let result = if let Some(assets) = self.render_assets.as_deref_mut() {
                     crate::scripting::component_registry::with_live_render_assets(assets, || {
@@ -159,6 +187,20 @@ impl mms::Host for MittensHost<'_> {
                 })
             }
             R::Register { tree } => {
+                if let Some(bindings) = self.bindings {
+                    if let Some(result) = super::configured_registry::try_spawn_tree(
+                        &tree, bindings, self.world, self.emit, false,
+                    ) {
+                        let component_type = tree.component_type.clone();
+                        let id =
+                            result.map_err(|error| mms::HostError::failure("register", error))?;
+                        return Ok(S::Component {
+                            handle: Self::component_handle(id),
+                            component_type,
+                        });
+                    }
+                }
+                self.legacy_component_fallbacks += 1;
                 let tree = external_tree_to_legacy(tree)?;
                 let result = if let Some(assets) = self.render_assets.as_deref_mut() {
                     crate::scripting::component_registry::with_live_render_assets(assets, || {
@@ -586,5 +628,38 @@ mod tests {
             MittensHost::component_id(MittensHost::component_handle(id)),
             id
         );
+    }
+
+    #[test]
+    fn runtime_spec_smoke_uses_no_legacy_component_conversion() {
+        let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
+        let mut world = World::default();
+        let mut command_queue = crate::engine::ecs::CommandQueue::new();
+        let mut intents = Vec::new();
+        let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
+            .with_bindings(configured.bindings());
+        let mut session = configured.runtime().session(host).unwrap();
+
+        session
+            .eval(include_str!("../../examples/runtime-spec-smoke.mms"))
+            .unwrap();
+        session.eval("let cube = R.cube() {} T { cube }").unwrap();
+
+        assert_eq!(session.host().legacy_component_fallbacks(), 0);
+    }
+
+    #[test]
+    fn configured_components_outside_the_direct_slice_use_the_explicit_fallback() {
+        let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
+        let mut world = World::default();
+        let mut command_queue = crate::engine::ecs::CommandQueue::new();
+        let mut intents = Vec::new();
+        let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
+            .with_bindings(configured.bindings());
+        let mut session = configured.runtime().session(host).unwrap();
+
+        session.eval("Grid.spacing(1.0) {}").unwrap();
+
+        assert_eq!(session.host().legacy_component_fallbacks(), 1);
     }
 }

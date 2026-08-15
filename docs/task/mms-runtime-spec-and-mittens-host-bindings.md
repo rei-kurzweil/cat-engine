@@ -160,6 +160,28 @@ Baseline verification on 2026-08-13:
   signals, the `MusicNote` name collision, and direct opaque binding dispatch
   remain before the names-only fallback can be removed.
 
+### 2026-08-14 component-factory boundary slice
+
+- Added `RuntimeSpecBuilder::host_component`, giving a component declaration
+  itself an opaque host factory `OperationId`. This covers bare component
+  expressions such as `Camera3D {}` rather than assigning identities only to
+  named constructors and calls.
+- Configured materialization resolves that factory identity into every
+  `meow_meow_script::MaterializedCE`; open and legacy runtimes leave it unset.
+  Aliases resolve to the canonical component declaration and the same ID.
+- Mittens now registers every configured component as
+  `MittensBinding::Component(canonical_name)`, with a consistency test proving
+  that every non-conflicting registry component has exactly the matching
+  factory binding.
+- Added a direct RuntimeSpec component registry for the bounded launch-scene
+  slice (transforms, cube/color/emissive rendering, camera/pointer,
+  ambient/directional lighting, renderer settings, and post-processing). It
+  consumes the crate-owned MMS tree and values directly.
+- The shared smoke scene is asserted to take that direct path with zero calls
+  to `external_tree_to_legacy`, while components outside the slice retain an
+  explicit compatibility fallback. The conversion can be deleted after the
+  remaining component implementations and deferred runtime values move.
+
 Smoke command:
 
 ```sh

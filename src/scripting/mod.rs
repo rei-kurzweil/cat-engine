@@ -6,6 +6,7 @@ pub mod block_effect_analyzer {
 }
 pub mod component_method_registry;
 pub mod component_registry;
+mod configured_registry;
 pub mod host;
 pub mod world_evaluator;
 pub mod lowering {

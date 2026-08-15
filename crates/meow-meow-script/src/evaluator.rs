@@ -524,6 +524,8 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 || component.component_type.0.clone(),
                 |catalog| catalog.components.get(&component.component_type.0.to_lowercase())
                     .map(|spec| spec.name.clone()).unwrap_or_else(|| component.component_type.0.clone())),
+            operation_id: self.catalog.as_ref().and_then(|catalog| catalog
+                .component_operation_ids.get(&component.component_type.0.to_lowercase()).copied()),
             component_property_assignment_only: false,
             ctor_method: first.as_ref().map(|(method, _)| method.clone()),
             ctor_args: first.map(|(_, args)| args).unwrap_or_default(),

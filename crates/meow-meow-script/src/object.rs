@@ -34,6 +34,9 @@ pub struct RuntimeClosure {
 pub struct MaterializedCE {
     /// Component type name (short or full, e.g. `"T"` / `"Transform"`).
     pub component_type: String,
+    /// Opaque host factory identity resolved from the configured RuntimeSpec.
+    /// Open and legacy runtimes leave this unset.
+    pub operation_id: Option<crate::OperationId>,
     /// When true, `name = expr` inside the CE body is captured as a named
     /// component property instead of a lexical reassignment.
     pub component_property_assignment_only: bool,
