@@ -137,8 +137,12 @@ impl mms::Host for MittensHost<'_> {
                     });
                 };
                 match binding {
-                    super::runtime_config::MittensBinding::Smoke if args.is_empty() => Ok(S::Unit),
-                    super::runtime_config::MittensBinding::Smoke => Err(mms::HostError {
+                    super::runtime_config::MittensBinding::Api(
+                        super::runtime_config::MittensApi::Smoke,
+                    ) if args.is_empty() => Ok(S::Unit),
+                    super::runtime_config::MittensBinding::Api(
+                        super::runtime_config::MittensApi::Smoke,
+                    ) => Err(mms::HostError {
                         kind: mms::HostErrorKind::InvalidRequest,
                         operation: format!("{operation_id:?}"),
                         message: "mittens.smoke expects no arguments".into(),
@@ -446,10 +450,8 @@ fn signal_kind(name: &str) -> Option<SignalKind> {
 fn external_tree_to_legacy(
     tree: mms::MaterializedCE,
 ) -> Result<legacy::MaterializedCE, mms::HostError> {
-    let (ctor_method, ctor_args) = tree.constructor.map_or_else(
-        || (None, Vec::new()),
-        |constructor| (Some(constructor.name), constructor.arguments),
-    );
+    let ctor_method = tree.constructor.name;
+    let ctor_args = tree.constructor.arguments;
     Ok(legacy::MaterializedCE {
         component_type: tree.component_type,
         component_property_assignment_only: tree.component_property_assignment_only,
@@ -459,7 +461,7 @@ fn external_tree_to_legacy(
             .map(external_value_to_legacy)
             .collect::<Result<_, _>>()?,
         calls: tree
-            .builder_calls
+            .initializer_calls
             .into_iter()
             .map(|call| {
                 Ok((

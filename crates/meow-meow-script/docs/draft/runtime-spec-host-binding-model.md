@@ -1,8 +1,8 @@
 # RuntimeSpec host binding model
 
-Status: design draft; component factory and operation IDs are partially
-implemented, while typed handler bindings and signal registration remain
-future work.
+Status: design draft; constructor and initializer operation IDs are implemented
+for the direct launch-scene slice, while typed handler bindings and signal
+registration remain future work.
 
 Related:
 
@@ -228,17 +228,16 @@ context distinctly from an unknown operation.
 
 ## Current Mittens transition
 
-Mittens currently uses string-bearing `MittensBinding` variants as typed
-routing tokens and represents construction as a component factory plus an
-optional constructor operation. The RuntimeSpec launch-scene slice validates
-those tokens by operation ID before world mutation, but this is a transitional
-two-stage construction model and the final engine implementations still
-contain name matches.
+Mittens now selects exactly one `ComponentConstructor` for both bare and named
+component syntax. Construction-phase calls and properties resolve to
+`ComponentInitializer` bindings, with a call/property discriminator that
+prevents IDs from being exchanged accidentally. `Api` is active for the smoke
+binding; `ComponentMethod` and `Signal` are defined categories but are not yet
+carried by their host requests.
 
-The intended transition is to collapse the factory plus optional constructor
-into exactly one `ComponentConstructor`, split construction-phase builder and
-property bindings into `ComponentInitializer`, reserve `ComponentMethod` for
-checked live receivers, replace string tokens with typed variants or handlers,
-migrate implementation bodies out of the legacy component registries, carry
-method and signal IDs through the host protocol, and then delete the
-name-dispatch compatibility paths.
+The bindings are still string-bearing typed routing tokens, and the final
+engine implementations still contain name matches. The remaining transition
+is to replace those tokens with typed variants or handlers, migrate
+implementation bodies out of the legacy component registries, carry method
+and signal IDs through the host protocol, and then delete the name-dispatch
+compatibility paths.

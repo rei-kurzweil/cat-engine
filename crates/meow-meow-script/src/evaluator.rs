@@ -7,8 +7,8 @@ use crate::ast::{
 };
 use crate::host::{CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest, HostResponse, TransportValue};
 use crate::object::{
-    CeChild, HeapHandle, MaterializedCE, MaterializedOperation, MaterializedProperty, Object,
-    ObjectId, RuntimeClosure, Value,
+    CeChild, HeapHandle, MaterializedCE, MaterializedConstructor, MaterializedOperation,
+    MaterializedProperty, Object, ObjectId, RuntimeClosure, Value,
 };
 use crate::runtime::{api_key, Catalog, ComponentNamePolicy, ValueSignature};
 use crate::{MeowMeowParser, MeowMeowTokenizer};
@@ -531,16 +531,22 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 || component.component_type.0.clone(),
                 |catalog| catalog.components.get(&component.component_type.0.to_lowercase())
                     .map(|spec| spec.name.clone()).unwrap_or_else(|| component.component_type.0.clone())),
-            factory_operation_id: operations.as_ref().and_then(|ids| ids.factory),
             component_property_assignment_only: false,
-            constructor: first.map(|(name, arguments)| MaterializedOperation {
-                operation_id: operations.as_ref().and_then(|ids| {
-                    ids.constructors.get(&name.to_lowercase()).copied()
-                }),
-                name,
-                arguments,
-            }),
-            builder_calls: constructors.into_iter().skip(1).map(|(name, arguments)| {
+            constructor: first.map_or_else(
+                || MaterializedConstructor {
+                    name: None,
+                    operation_id: operations.as_ref().and_then(|ids| ids.default_constructor),
+                    arguments: Vec::new(),
+                },
+                |(name, arguments)| MaterializedConstructor {
+                    operation_id: operations.as_ref().and_then(|ids| {
+                        ids.constructors.get(&name.to_lowercase()).copied()
+                    }),
+                    name: Some(name),
+                    arguments,
+                },
+            ),
+            initializer_calls: constructors.into_iter().skip(1).map(|(name, arguments)| {
                 MaterializedOperation {
                     operation_id: operations.as_ref().and_then(|ids| {
                         ids.builder_calls.get(&name.to_lowercase()).copied()
@@ -578,7 +584,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
                                     .iter()
                                     .map(|arg| self.eval_expr(arg))
                                     .collect::<Result<Vec<_>, _>>()?;
-                                tree.builder_calls.push(MaterializedOperation {
+                                tree.initializer_calls.push(MaterializedOperation {
                                     operation_id: operations.as_ref().and_then(|ids| {
                                         ids.builder_calls.get(&method.0.to_lowercase()).copied()
                                     }),
@@ -622,11 +628,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     catalog.components.keys().map(String::as_str),
                 ));
             };
-            if let Some(constructor) = &tree.constructor {
-                let signature = spec.constructors.get(&constructor.name).ok_or_else(|| unknown("constructor", &constructor.name, spec.constructors.keys().map(String::as_str)))?;
-                validate_args(&format!("{}.{}", spec.name, constructor.name), signature, &constructor.arguments)?;
+            if let Some(name) = &tree.constructor.name {
+                let signature = spec.constructors.get(name).ok_or_else(|| unknown("constructor", name, spec.constructors.keys().map(String::as_str)))?;
+                validate_args(&format!("{}.{}", spec.name, name), signature, &tree.constructor.arguments)?;
             }
-            for call in &tree.builder_calls {
+            for call in &tree.initializer_calls {
                 let signature = spec.builder_calls.get(&call.name).ok_or_else(|| unknown("builder call", &call.name, spec.builder_calls.keys().map(String::as_str)))?;
                 validate_args(&format!("{}.{}", spec.name, call.name), signature, &call.arguments)?;
             }

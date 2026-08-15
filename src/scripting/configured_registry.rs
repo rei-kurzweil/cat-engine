@@ -15,7 +15,7 @@ use crate::engine::ecs::component::{
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 
 use super::host::MittensHost;
-use super::runtime_config::MittensBinding;
+use super::runtime_config::{ComponentInitializerKind, MittensBinding};
 
 const DIRECT_COMPONENTS: &[&str] = &[
     "AmbientLight",
@@ -61,52 +61,45 @@ fn tree_is_direct(
     if tree.deferred_block.is_some() || !tree.positionals.is_empty() {
         return Ok(false);
     }
-    let Some(operation_id) = tree.factory_operation_id else {
+    let Some(operation_id) = tree.constructor.operation_id else {
         return Ok(false);
     };
     let component = match bindings.get(operation_id) {
-        Some(MittensBinding::Component(component)) => *component,
+        Some(MittensBinding::ComponentConstructor { component, name })
+            if *name == tree.constructor.name.as_deref() => *component,
         Some(binding) => {
             return Err(format!(
-                "{operation_id:?} resolved to {binding:?}, not a component factory"
+                "{operation_id:?} resolved to {binding:?}, not the selected constructor for {}",
+                tree.component_type,
             ));
         }
-        None => return Err(format!("unknown component factory ID {operation_id:?}")),
+        None => return Err(format!("unknown component constructor ID {operation_id:?}")),
     };
     if component != tree.component_type {
         return Err(format!(
-            "component factory {operation_id:?} creates {component}, not {}",
+            "component constructor {operation_id:?} creates {component}, not {}",
             tree.component_type
         ));
     }
     if !DIRECT_COMPONENTS.contains(&component) {
         return Ok(false);
     }
-    if let Some(constructor) = &tree.constructor {
-        let Some(id) = constructor.operation_id else { return Ok(false) };
-        match bindings.get(id) {
-            Some(MittensBinding::ComponentConstructor { component: bound_component, name })
-                if *bound_component == component && *name == constructor.name => {}
-            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} constructor '{}'", constructor.name)),
-            None => return Err(format!("unknown constructor ID {id:?}")),
-        }
-    }
-    for call in &tree.builder_calls {
+    for call in &tree.initializer_calls {
         let Some(id) = call.operation_id else { return Ok(false) };
         match bindings.get(id) {
-            Some(MittensBinding::ComponentBuilderCall { component: bound_component, name })
+            Some(MittensBinding::ComponentInitializer { component: bound_component, name, kind: ComponentInitializerKind::Call })
                 if *bound_component == component && *name == call.name => {}
-            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} builder call '{}'", call.name)),
-            None => return Err(format!("unknown builder-call ID {id:?}")),
+            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} call initializer '{}'", call.name)),
+            None => return Err(format!("unknown call initializer ID {id:?}")),
         }
     }
     for property in &tree.properties {
         let Some(id) = property.operation_id else { return Ok(false) };
         match bindings.get(id) {
-            Some(MittensBinding::ComponentProperty { component: bound_component, name })
+            Some(MittensBinding::ComponentInitializer { component: bound_component, name, kind: ComponentInitializerKind::Property })
                 if *bound_component == component && *name == property.name => {}
-            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} property '{}'", property.name)),
-            None => return Err(format!("unknown property ID {id:?}")),
+            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} property initializer '{}'", property.name)),
+            None => return Err(format!("unknown property initializer ID {id:?}")),
         }
     }
     for child in &tree.children {
@@ -124,28 +117,29 @@ fn spawn_tree_uninitialized(
     bindings: &mms::ImplementationBindings<MittensBinding>,
     world: &mut World,
 ) -> Result<ComponentId, String> {
-    let operation_id = tree.factory_operation_id.ok_or_else(|| {
+    let operation_id = tree.constructor.operation_id.ok_or_else(|| {
         format!(
-            "{} has no configured component operation",
+            "{} has no configured constructor operation",
             tree.component_type
         )
     })?;
     let component = match bindings.get(operation_id) {
-        Some(MittensBinding::Component(component)) => *component,
+        Some(MittensBinding::ComponentConstructor { component, name })
+            if *name == tree.constructor.name.as_deref() => *component,
         _ => {
             return Err(format!(
-                "{operation_id:?} is not a Mittens component factory"
+                "{operation_id:?} is not the selected Mittens component constructor"
             ));
         }
     };
     let id = create_component(
         world,
         component,
-        tree.constructor.as_ref().map(|constructor| constructor.name.as_str()),
-        tree.constructor.as_ref().map_or(&[], |constructor| constructor.arguments.as_slice()),
+        tree.constructor.name.as_deref(),
+        &tree.constructor.arguments,
     )?;
 
-    for call in &tree.builder_calls {
+    for call in &tree.initializer_calls {
         apply_call(world, id, component, &call.name, &call.arguments)?;
     }
     apply_node_properties(world, id, &tree.properties)?;
@@ -434,9 +428,11 @@ mod tests {
         let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
         let mut tree = configured
             .runtime()
-            .materialize_component("Transform.position(1.0, 2.0, 3.0) {}")
+            .materialize_component(
+                "Transform.position(1.0, 2.0, 3.0).scale(2.0, 2.0, 2.0) {}",
+            )
             .unwrap();
-        tree.constructor.as_mut().unwrap().operation_id = tree.factory_operation_id;
+        tree.constructor.operation_id = tree.initializer_calls[0].operation_id;
 
         let mut world = World::default();
         let mut emit = crate::engine::ecs::CommandQueue::new();
@@ -450,7 +446,7 @@ mod tests {
         .expect("a configured-ID mismatch must not use the legacy fallback")
         .unwrap_err();
 
-        assert!(error.contains("not Transform constructor 'position'"), "{error}");
+        assert!(error.contains("not the selected constructor"), "{error}");
         assert_eq!(world.all_components().count(), 0);
     }
 

@@ -206,7 +206,7 @@ impl SignalDeclaration {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentDeclaration {
     name: String,
-    target: ImplementationTarget,
+    default_constructor: ImplementationTarget,
     aliases: Vec<String>,
     body_mode: ComponentBodyMode,
     constructors: Vec<CallableDeclaration>,
@@ -219,8 +219,8 @@ pub struct ComponentDeclaration {
 
 impl ComponentDeclaration {
     pub fn name(&self) -> &str { &self.name }
-    pub fn operation_id(&self) -> Option<OperationId> {
-        match self.target { ImplementationTarget::Pure => None, ImplementationTarget::Host(id) => Some(id) }
+    pub fn default_constructor_operation_id(&self) -> Option<OperationId> {
+        match self.default_constructor { ImplementationTarget::Pure => None, ImplementationTarget::Host(id) => Some(id) }
     }
     pub fn aliases(&self) -> impl ExactSizeIterator<Item = &str> { self.aliases.iter().map(String::as_str) }
     pub fn body_mode(&self) -> ComponentBodyMode { self.body_mode }
@@ -390,14 +390,14 @@ impl<I> RuntimeSpecBuilder<I> {
         self.builtins.push(BuiltinDeclaration { name: name.into(), signature, target: ImplementationTarget::Host(id) }); self
     }
     pub fn component(&mut self, name: impl Into<String>, configure: impl FnOnce(&mut ComponentBuilder<'_, I>)) -> &mut Self {
-        let declaration = ComponentDeclaration { name: name.into(), target: ImplementationTarget::Pure,
+        let declaration = ComponentDeclaration { name: name.into(), default_constructor: ImplementationTarget::Pure,
             aliases: vec![], body_mode: ComponentBodyMode::Standard,
             constructors: vec![], builder_calls: vec![], positionals: vec![], properties: vec![], methods: vec![], signals: vec![] };
         let mut builder = ComponentBuilder { declaration, bindings: &mut self.bindings, next_operation_id: &mut self.next_operation_id };
         configure(&mut builder);
         self.components.push(builder.declaration); self
     }
-    /// Declares a component whose factory is implemented by the host.
+    /// Declares a component whose default constructor is implemented by the host.
     pub fn host_component(
         &mut self,
         name: impl Into<String>,
@@ -405,7 +405,7 @@ impl<I> RuntimeSpecBuilder<I> {
         configure: impl FnOnce(&mut ComponentBuilder<'_, I>),
     ) -> &mut Self {
         let operation_id = self.bind(implementation);
-        let declaration = ComponentDeclaration { name: name.into(), target: ImplementationTarget::Host(operation_id),
+        let declaration = ComponentDeclaration { name: name.into(), default_constructor: ImplementationTarget::Host(operation_id),
             aliases: vec![], body_mode: ComponentBodyMode::Standard,
             constructors: vec![], builder_calls: vec![], positionals: vec![], properties: vec![], methods: vec![], signals: vec![] };
         let mut builder = ComponentBuilder { declaration, bindings: &mut self.bindings, next_operation_id: &mut self.next_operation_id };
@@ -444,10 +444,10 @@ pub struct ComponentBuilder<'a, I> {
 
 impl<I> ComponentBuilder<'_, I> {
     pub fn alias(&mut self, alias: impl Into<String>) -> &mut Self { self.declaration.aliases.push(alias.into()); self }
-    /// Marks this component's factory as host-implemented.
-    pub fn host_implementation(&mut self, implementation: I) -> &mut Self {
+    /// Marks this component's default constructor as host-implemented.
+    pub fn host_default_constructor(&mut self, implementation: I) -> &mut Self {
         let id = self.bind(implementation);
-        self.declaration.target = ImplementationTarget::Host(id);
+        self.declaration.default_constructor = ImplementationTarget::Host(id);
         self
     }
     pub fn body_mode(&mut self, mode: ComponentBodyMode) -> &mut Self { self.declaration.body_mode = mode; self }
@@ -584,7 +584,9 @@ fn validate_bindings<I>(components: &[ComponentDeclaration], builtins: &[Builtin
         if let Some(id) = builtin.operation_id() { declare(id, builtin.name.clone())?; }
     }
     for component in components {
-        if let Some(id) = component.operation_id() { declare(id, component.name.clone())?; }
+        if let Some(id) = component.default_constructor_operation_id() {
+            declare(id, format!("{}.constructor(default)", component.name))?;
+        }
         for item in &component.constructors {
             if let Some(id) = item.operation_id() { declare(id, format!("{}.constructor({})", component.name, item.name))?; }
         }
@@ -730,7 +732,7 @@ impl std::error::Error for CatalogError {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ComponentOperationIds {
-    pub factory: Option<OperationId>,
+    pub default_constructor: Option<OperationId>,
     pub constructors: HashMap<String, OperationId>,
     pub builder_calls: HashMap<String, OperationId>,
     pub properties: HashMap<String, OperationId>,
@@ -869,7 +871,7 @@ impl Runtime {
 
     fn from_legacy_catalog(catalog: Catalog) -> Self {
         let components = catalog.canonical_components.iter().map(|component| ComponentDeclaration {
-            name: component.name.clone(), target: ImplementationTarget::Pure,
+            name: component.name.clone(), default_constructor: ImplementationTarget::Pure,
             aliases: component.aliases.clone(), body_mode: ComponentBodyMode::Standard,
             constructors: component.constructors.iter().map(|(name, signature)| CallableDeclaration {
                 name: name.clone(), signature: signature.clone(), target: ImplementationTarget::Pure }).collect(),
@@ -900,7 +902,7 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
         builtins: spec.builtins.iter().map(|builtin| builtin.name.clone()).collect() };
     for declaration in &spec.components {
         let operations = Arc::new(ComponentOperationIds {
-            factory: declaration.operation_id(),
+            default_constructor: declaration.default_constructor_operation_id(),
             constructors: declaration.constructors.iter().filter_map(|item| {
                 item.operation_id().map(|id| (item.name.to_lowercase(), id))
             }).collect(),
@@ -1055,8 +1057,8 @@ mod tests {
     fn materializes_component_without_host_session() {
         let tree = runtime().materialize_component("panel.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
-        let constructor = tree.constructor.as_ref().unwrap();
-        assert_eq!(constructor.name, "new");
+        let constructor = &tree.constructor;
+        assert_eq!(constructor.name.as_deref(), Some("new"));
         assert_eq!(constructor.operation_id, None);
         assert_eq!(constructor.arguments, vec![Value::Number(2.0)]);
         assert_eq!(tree.properties[0].name, "title");
@@ -1119,7 +1121,7 @@ mod tests {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum TestBinding {
-        Component,
+        DefaultConstruct,
         Construct,
         Rounded,
         SetTitle,
@@ -1136,7 +1138,7 @@ mod tests {
             .component_name_policy(ComponentNamePolicy::StrictRegistered)
             .with_standard_builtins()
             .host_builtin("clock", ValueSignature::new(vec![], ValueType::Number), TestBinding::Clock)
-            .host_component("Panel", TestBinding::Component, |component| {
+            .host_component("Panel", TestBinding::DefaultConstruct, |component| {
                 component
                     .alias("Pane")
                     .body_mode(ComponentBodyMode::PropsOnly)
@@ -1161,7 +1163,7 @@ mod tests {
 
         let ids = [
             build.spec().builtins().find(|builtin| builtin.name() == "clock").unwrap().operation_id().unwrap(),
-            panel.operation_id().unwrap(),
+            panel.default_constructor_operation_id().unwrap(),
             panel.constructors().next().unwrap().operation_id().unwrap(),
             panel.builder_calls().next().unwrap().operation_id().unwrap(),
             panel.properties().next().unwrap().operation_id().unwrap(),
@@ -1170,14 +1172,13 @@ mod tests {
             build.spec().api(Some("log"), "write").unwrap().operation_id(),
         ];
         assert_eq!(build.bindings().len(), ids.len());
-        assert_eq!(ids.map(|id| *build.bindings().get(id).unwrap()), [TestBinding::Clock, TestBinding::Component, TestBinding::Construct, TestBinding::Rounded,
+        assert_eq!(ids.map(|id| *build.bindings().get(id).unwrap()), [TestBinding::Clock, TestBinding::DefaultConstruct, TestBinding::Construct, TestBinding::Rounded,
             TestBinding::SetTitle, TestBinding::Show, TestBinding::Click, TestBinding::Log]);
 
         let tree = build.runtime().materialize_component("Pane.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
-        assert_eq!(tree.factory_operation_id, panel.operation_id());
         assert_eq!(
-            tree.constructor.as_ref().and_then(|operation| operation.operation_id),
+            tree.constructor.operation_id,
             panel.constructors().next().unwrap().operation_id()
         );
         assert_eq!(
@@ -1185,13 +1186,17 @@ mod tests {
             panel.properties().next().unwrap().operation_id()
         );
         assert!(build.runtime().materialize_component("Unknown {}").is_err());
+        let tree = build.runtime().materialize_component("Pane {}").unwrap();
+        assert_eq!(tree.constructor.name, None);
+        assert_eq!(tree.constructor.arguments, Vec::<Value>::new());
+        assert_eq!(tree.constructor.operation_id, panel.default_constructor_operation_id());
         let tree = build.runtime().materialize_component("Pane { rounded(3) }").unwrap();
-        assert_eq!(tree.builder_calls[0].name, "rounded");
+        assert_eq!(tree.initializer_calls[0].name, "rounded");
         assert_eq!(
-            tree.builder_calls[0].operation_id,
+            tree.initializer_calls[0].operation_id,
             panel.builder_calls().next().unwrap().operation_id()
         );
-        assert_eq!(tree.builder_calls[0].arguments, vec![Value::Number(3.0)]);
+        assert_eq!(tree.initializer_calls[0].arguments, vec![Value::Number(3.0)]);
         let error = build.runtime().materialize_component("Pane { missing(3) }").unwrap_err();
         assert!(error.to_string().contains("unknown builder call 'missing'"));
     }

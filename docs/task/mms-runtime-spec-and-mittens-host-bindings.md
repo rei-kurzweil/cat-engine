@@ -209,6 +209,34 @@ carry component-method IDs through `InvokeComponentMethod`, and remove the
 ordinary Spawn/Register conversion once no supported ordinary component tree
 requires it.
 
+### 2026-08-15 constructor/initializer lifecycle slice
+
+- Collapsed the transitional component factory plus optional named
+  constructor representation into one selected `MaterializedConstructor`.
+  Bare `T {}` selects the RuntimeSpec default constructor, while
+  `T.position(...) {}` selects the named constructor; exactly one constructor
+  operation ID now crosses the host boundary.
+- Renamed materialized chained/body builder operations to
+  `initializer_calls`. They run against the newly created component during
+  authored tree assembly and are distinct from methods on live component
+  handles.
+- Replaced Mittens' `Component`, `ComponentBuilderCall`, and
+  `ComponentProperty` routing categories with `ComponentConstructor` and
+  `ComponentInitializer`. Initializer bindings retain a call-versus-property
+  kind so a mismatched operation ID fails closed even when spellings overlap.
+- Added the planned `ComponentMethod`, `Api`, and `Signal` binding categories.
+  The smoke API now uses `Api`; live methods and signals are category markers
+  only until their request protocols carry operation IDs.
+- The direct launch-scene adapter now constructs from the one selected
+  constructor binding and validates all initializer IDs before ECS mutation.
+  The legacy adapter reconstructs the old optional constructor only after a
+  whole tree has deliberately selected compatibility fallback.
+
+Remaining boundary work is unchanged: replace string payloads inside the
+transitional Mittens routing tokens with typed handlers, bind the remaining
+component implementations, and carry live method and signal IDs through their
+host requests.
+
 Smoke command:
 
 ```sh

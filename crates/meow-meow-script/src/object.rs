@@ -41,6 +41,19 @@ pub struct MaterializedOperation {
     pub arguments: Vec<Value>,
 }
 
+/// The single constructor selected by a component expression.
+///
+/// Bare syntax selects the component declaration's default constructor and
+/// therefore has no source-visible name. A leading named call selects an
+/// alternate constructor. In either case there is exactly one constructor;
+/// configured runtimes attach its opaque host operation identity here.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaterializedConstructor {
+    pub name: Option<String>,
+    pub operation_id: Option<crate::OperationId>,
+    pub arguments: Vec<Value>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MaterializedProperty {
     /// Source-visible property name retained for diagnostics and legacy
@@ -56,17 +69,16 @@ pub struct MaterializedProperty {
 pub struct MaterializedCE {
     /// Component type name (short or full, e.g. `"T"` / `"Transform"`).
     pub component_type: String,
-    /// Opaque host factory identity resolved from the configured RuntimeSpec.
-    /// Open and legacy runtimes leave this unset.
-    pub factory_operation_id: Option<crate::OperationId>,
     /// When true, `name = expr` inside the CE body is captured as a named
     /// component property instead of a lexical reassignment.
     pub component_property_assignment_only: bool,
-    /// First constructor call, e.g. `"position"` from `T.position(...)`.
-    pub constructor: Option<MaterializedOperation>,
-    /// Remaining chained constructor calls + body builder calls, in source order.
+    /// The one constructor selected by this expression. Bare `T {}` syntax
+    /// selects the default constructor; `T.position(...) {}` selects a named
+    /// constructor. Open and legacy runtimes leave its operation ID unset.
+    pub constructor: MaterializedConstructor,
+    /// Remaining chained constructor calls + body initializer calls, in source order.
     /// e.g. `.scale(...)` after `.position(...)`, plus `fps_rotation()` in the body.
-    pub builder_calls: Vec<MaterializedOperation>,
+    pub initializer_calls: Vec<MaterializedOperation>,
     /// Named property assignments from the body, e.g. `intensity = 0.9`.
     pub properties: Vec<MaterializedProperty>,
     /// String-type positional content (e.g. `Text { "hello " + name }`).

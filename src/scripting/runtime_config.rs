@@ -8,24 +8,41 @@ use meow_meow_script as mms;
 
 /// Engine implementations attached to host-effectful runtime declarations.
 ///
-/// The initial slice binds a smoke API; component spawning still uses the
-/// universal host protocol. Keeping this type and the completed table in the
-/// build result prevents callers from reconstructing either half later.
+/// Categories encode receiver lifecycle. Constructors have no receiver,
+/// initializers receive a newly created component during tree assembly, and
+/// methods receive a checked live component handle. Keeping this type and the
+/// completed table in the build result prevents callers from reconstructing
+/// either half later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MittensBinding {
-    Component(&'static str),
     ComponentConstructor {
         component: &'static str,
-        name: &'static str,
+        name: Option<&'static str>,
     },
-    ComponentBuilderCall {
+    ComponentInitializer {
+        component: &'static str,
+        name: &'static str,
+        kind: ComponentInitializerKind,
+    },
+    ComponentMethod {
         component: &'static str,
         name: &'static str,
     },
-    ComponentProperty {
+    Api(MittensApi),
+    Signal {
         component: &'static str,
         name: &'static str,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComponentInitializerKind {
+    Call,
+    Property,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MittensApi {
     Smoke,
 }
 
@@ -64,7 +81,7 @@ fn host_constructor(
         signature,
         MittensBinding::ComponentConstructor {
             component: canonical,
-            name,
+            name: Some(name),
         },
     );
 }
@@ -78,9 +95,10 @@ fn host_builder_call(
     component.host_builder_call(
         name,
         signature,
-        MittensBinding::ComponentBuilderCall {
+        MittensBinding::ComponentInitializer {
             component: canonical,
             name,
+            kind: ComponentInitializerKind::Call,
         },
     );
 }
@@ -94,9 +112,10 @@ fn host_property(
     component.host_property(
         name,
         value_type,
-        MittensBinding::ComponentProperty {
+        MittensBinding::ComponentInitializer {
             component: canonical,
             name,
+            kind: ComponentInitializerKind::Property,
         },
     );
 }
@@ -148,7 +167,10 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
             continue;
         }
         builder.component(canonical, |component| {
-            component.host_implementation(MittensBinding::Component(canonical));
+            component.host_default_constructor(MittensBinding::ComponentConstructor {
+                component: canonical,
+                name: None,
+            });
             for shortform in mms::COMPONENT_SHORTFORMS.iter().filter(|entry| {
                 entry.full == canonical && !entry.short.eq_ignore_ascii_case(canonical)
             }) {
@@ -910,7 +932,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         namespace.api(
             "smoke",
             mms::ValueSignature::new(Vec::new(), mms::ValueType::Null),
-            MittensBinding::Smoke,
+            MittensBinding::Api(MittensApi::Smoke),
         );
     });
 
@@ -937,12 +959,15 @@ mod tests {
                 .unwrap_or_else(|error| panic!("component {name} is not parseable: {error}"));
             let declaration = spec.component(name).unwrap();
             let operation_id = declaration
-                .operation_id()
-                .unwrap_or_else(|| panic!("component {name} has no host factory operation"));
+                .default_constructor_operation_id()
+                .unwrap_or_else(|| panic!("component {name} has no host default constructor"));
             assert_eq!(
                 configured.bindings().get(operation_id),
-                Some(&MittensBinding::Component(name)),
-                "component {name} has the wrong host factory binding"
+                Some(&MittensBinding::ComponentConstructor {
+                    component: name,
+                    name: None,
+                }),
+                "component {name} has the wrong host default constructor binding"
             );
         }
         for shortform in mms::COMPONENT_SHORTFORMS {
@@ -967,7 +992,7 @@ mod tests {
         let smoke_id = spec.api(Some("mittens"), "smoke").unwrap().operation_id();
         assert_eq!(
             configured.bindings().get(smoke_id),
-            Some(&MittensBinding::Smoke)
+            Some(&MittensBinding::Api(MittensApi::Smoke))
         );
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
         assert!(
@@ -1092,34 +1117,31 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            configured.bindings().get(tree.factory_operation_id.unwrap()),
-            Some(&MittensBinding::Component("Transform"))
-        );
-        let constructor = tree.constructor.as_ref().unwrap();
-        assert_eq!(constructor.name, "position");
-        assert_eq!(
-            configured.bindings().get(constructor.operation_id.unwrap()),
+            configured.bindings().get(tree.constructor.operation_id.unwrap()),
             Some(&MittensBinding::ComponentConstructor {
                 component: "Transform",
-                name: "position",
+                name: Some("position"),
             })
         );
-        let call = &tree.builder_calls[0];
+        assert_eq!(tree.constructor.name.as_deref(), Some("position"));
+        let call = &tree.initializer_calls[0];
         assert_eq!(call.name, "scale");
         assert_eq!(
             configured.bindings().get(call.operation_id.unwrap()),
-            Some(&MittensBinding::ComponentBuilderCall {
+            Some(&MittensBinding::ComponentInitializer {
                 component: "Transform",
                 name: "scale",
+                kind: ComponentInitializerKind::Call,
             })
         );
         let property = &tree.properties[0];
         assert_eq!(property.name, "name");
         assert_eq!(
             configured.bindings().get(property.operation_id.unwrap()),
-            Some(&MittensBinding::ComponentProperty {
+            Some(&MittensBinding::ComponentInitializer {
                 component: "Transform",
                 name: "name",
+                kind: ComponentInitializerKind::Property,
             })
         );
     }
