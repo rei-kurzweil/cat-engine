@@ -64,10 +64,19 @@ mod tests {
                     handle: ComponentHandle::from_raw(7),
                     component_type: "Fake".into(),
                 }),
-                HostRequest::InvokeComponentMethod { method, .. } if self.fail_methods => {
-                    Err(HostError::failure(method, "fake host rejected method"))
+                HostRequest::InvokeComponentMethod { operation_id, .. } if self.fail_methods => {
+                    Err(HostError::failure(
+                        format!("{operation_id:?}"),
+                        "fake host rejected method",
+                    ))
                 }
                 HostRequest::InvokeComponentMethod { .. } => {
+                    Ok(HostResponse::Value(Value::Number(42.0)))
+                }
+                HostRequest::InvokeComponentMethodByName { method, .. } if self.fail_methods => {
+                    Err(HostError::failure(method, "fake host rejected method"))
+                }
+                HostRequest::InvokeComponentMethodByName { .. } => {
                     Ok(HostResponse::Value(Value::Number(42.0)))
                 }
                 _ => Ok(HostResponse::Unit),
@@ -105,7 +114,10 @@ mod tests {
         let mut host = FakeHost::default();
         let result = eval_with_host("query(\"#target\").answer()", &mut host).unwrap();
         assert_eq!(result.value, Some(Value::Number(42.0)));
-        assert_eq!(host.operations, ["query", "invoke_component_method"]);
+        assert_eq!(
+            host.operations,
+            ["query", "invoke_component_method_by_name"]
+        );
     }
 
     #[test]

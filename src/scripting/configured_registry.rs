@@ -9,8 +9,8 @@ use meow_meow_script as mms;
 use crate::engine::ecs::component::{
     AmbientLightComponent, BackgroundColorComponent, BloomComponent, BlurPassComponent,
     Camera3DComponent, ColorComponent, DirectionalLightComponent, EmissiveComponent,
-    EmissivePassComponent, PointerComponent, RenderGraphComponent, RenderableComponent,
-    RendererSettingsComponent, TransformComponent,
+    EmissivePassComponent, PointerComponent, RaycastableComponent, RenderGraphComponent,
+    RenderableComponent, RendererSettingsComponent, TransformComponent,
 };
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 
@@ -28,6 +28,7 @@ const DIRECT_COMPONENTS: &[&str] = &[
     "Emissive",
     "EmissivePass",
     "Pointer",
+    "Raycastable",
     "RenderGraph",
     "Renderable",
     "RendererSettings",
@@ -203,6 +204,12 @@ fn create_component(
             Some("disabled") => PointerComponent::disabled(),
             _ => PointerComponent::new(),
         }),
+        "Raycastable" => world.add_component(match constructor {
+            Some("disabled") => RaycastableComponent::disabled(),
+            Some("drag_only") => RaycastableComponent::drag_only(),
+            Some("click_only") => RaycastableComponent::click_only(),
+            _ => RaycastableComponent::enabled(),
+        }),
         "DirectionalLight" => world.add_component(DirectionalLightComponent::new()),
         "RendererSettings" => world.add_component(match constructor {
             Some("msaa_off") => RendererSettingsComponent::msaa_off(),
@@ -224,6 +231,7 @@ fn create_component(
                 | ("AmbientLight", "rgb")
                 | ("RenderGraph", "on" | "off")
                 | ("Pointer", "disabled")
+                | ("Raycastable", "disabled" | "drag_only" | "click_only" | "enabled")
                 | ("RendererSettings", "msaa_off")
         );
         if !factory_only {

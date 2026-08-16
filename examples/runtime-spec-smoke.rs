@@ -1,20 +1,21 @@
 use mittens_engine::engine::ecs::SignalEmitter;
+use mittens_engine::engine::ecs::component::EmissiveComponent;
 use mittens_engine::engine::{self, ecs::World};
-use mittens_engine::scripting::MeowMeowRunner;
+use mittens_engine::scripting::RuntimeSpecSession;
 
 fn main() {
     let world = World::default();
     let mut universe = engine::Universe::new(world);
 
-    let output = MeowMeowRunner::eval_with_runtime_spec(
+    let (_script_session, intents) = RuntimeSpecSession::start(
         include_str!("runtime-spec-smoke.mms"),
         &mut universe.world,
         &mut universe.systems.rx,
         Some(&mut universe.render_assets),
         &mut universe.command_queue,
-    );
-    assert!(output.errors.is_empty(), "{}", output.errors.join("\n"));
-    for intent in output.intents {
+    )
+    .expect("RuntimeSpec evaluation failed");
+    for intent in intents {
         universe
             .command_queue
             .push_intent_now(engine::ecs::ComponentId::default(), intent);
@@ -49,6 +50,13 @@ fn main() {
     assert_eq!(
         normalized_names
             .iter()
+            .filter(|name| *name == "raycastable")
+            .count(),
+        3
+    );
+    assert_eq!(
+        normalized_names
+            .iter()
             .filter(|name| *name == "directionallight")
             .count(),
         1
@@ -60,12 +68,34 @@ fn main() {
             .count(),
         3
     );
+
+    let component_with_label = |label: &str| {
+        universe
+            .world
+            .all_components()
+            .find(|&id| universe.world.component_label(id) == Some(label))
+            .unwrap_or_else(|| panic!("missing component labelled '{label}'"))
+    };
+    let gallery = component_with_label("runtime-spec-cube-gallery");
+    for (color, expected_intensity) in [("red", 3.0), ("cyan", 2.4), ("violet", 3.6)] {
+        let cube = component_with_label(&format!("{color}-cube"));
+        let mesh = component_with_label(&format!("{color}-mesh"));
+        let glow = component_with_label(&format!("{color}-glow"));
+
+        assert_eq!(universe.world.parent_of(cube), Some(gallery));
+        assert_eq!(universe.world.parent_of(mesh), Some(cube));
+        assert_eq!(universe.world.parent_of(glow), Some(mesh));
+        let emissive = universe
+            .world
+            .get_component_by_id_as::<EmissiveComponent>(glow)
+            .expect("labelled glow is an Emissive component");
+        assert!((emissive.intensity - expected_intensity).abs() < f32::EPSILON);
+    }
+
     let post_processing = universe.visuals.post_processing();
     assert!(post_processing.is_active());
     let bloom = post_processing.bloom.as_ref().expect("bloom is configured");
-    assert!((bloom.intensity - 1.2).abs() < f32::EPSILON);
+    assert!((bloom.intensity - 1.8).abs() < f32::EPSILON);
 
-    println!(
-        "RuntimeSpec smoke passed: configured camera + light + three emissive cubes + active bloom"
-    );
+    println!("RuntimeSpec smoke passed: live-handle cube gallery + camera + light + active bloom");
 }

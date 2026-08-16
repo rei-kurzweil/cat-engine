@@ -1,8 +1,8 @@
 # RuntimeSpec host binding model
 
-Status: design draft; constructor and initializer operation IDs are implemented
-for the direct launch-scene slice, while typed handler bindings and signal
-registration remain future work.
+Status: design draft; constructor, initializer, component-method, API, and
+signal-registration operation IDs cross the configured host protocol. Callback
+leases and queued callback execution remain future work.
 
 Related:
 
@@ -138,11 +138,32 @@ functions. Several operation IDs may bind to the same reusable handler, but
 each host-effectful operation has exactly one binding-table entry in a given
 configured build.
 
+## Bound component lifecycle
+
+In a host-backed session, assigning a component expression registers one
+detached, uninitialized component and binds the returned live handle:
+
+```text
+let button = Transform.position(1, 2, 3) {}
+              ↓ RegisterComponent
+button = ComponentObject(handle)
+```
+
+Using that value inside a later component body produces `CeChild::Attach` for
+the same handle rather than materializing a second component. Initializing the
+emitted parent initializes the attached subtree. A bare live component in
+statement position uses `Attach { parent: None, .. }` to initialize it as a
+root. This lifecycle lets live methods and signal registration share the exact
+receiver identity created by the authored `let`.
+
 ## Signal bindings and handler registration
 
 A signal binding is not the authored callback and is not an emitted event
-instance. It associates a RuntimeSpec signal declaration with the host's
-signal identity and registration behavior.
+instance. It associates a top-level RuntimeSpec signal declaration with the
+host's signal identity and registration behavior. Signals are not nested below
+component declarations: the optional component passed to `on` is a routing
+scope, not the type that owns the event kind. `on_global` uses the same signal
+declaration without a component scope.
 
 For example, a Mittens binding could map the declaration for `Click` to the
 engine's `SignalKind::Click`. Registering an authored handler would then cross
@@ -164,15 +185,18 @@ An illustrative request is:
 
 ```rust,ignore
 RegisterSignalHandler {
-    signal_operation_id: OperationId,
-    receiver: Option<ComponentHandle>,
+    operation_id: OperationId,
+    scope: Option<ComponentHandle>,
+    name: Option<String>,
     callback: CallbackHandle,
 }
 ```
 
-The eventual protocol must also define session leases, handler removal,
-receiver liveness, queued event arguments, and failure after a session is
-released.
+This request, opaque route record, and transport-safe `CallbackInvocation`
+queue item are implemented. `Session::invoke_callback_invocation` validates
+callback ownership and converts the queued arguments back into session values.
+The persistent session driver must still define session leases, handler
+removal, queue ownership, and failure after a session is released.
 
 ## Illustrative handler shapes
 
@@ -232,12 +256,18 @@ Mittens now selects exactly one `ComponentConstructor` for both bare and named
 component syntax. Construction-phase calls and properties resolve to
 `ComponentInitializer` bindings, with a call/property discriminator that
 prevents IDs from being exchanged accidentally. `Api` is active for the smoke
-binding; `ComponentMethod` and `Signal` are defined categories but are not yet
-carried by their host requests.
+binding. Calls on live component values resolve to `ComponentMethod` IDs and
+cross an ID-only host request. `on` and `on_global` resolve top-level signal
+declarations and send only the signal operation ID, optional scope, optional
+handler name, and MMS-owned `CallbackHandle`. Mittens resolves that ID to an
+engine `SignalKind` and records an opaque `SignalCallbackRoute`. When supplied
+an Rx router and callback queue, the route enqueues a transport-safe
+`CallbackInvocation`; it does not retain a closure body or re-enter the legacy
+evaluator.
 
 The bindings are still string-bearing typed routing tokens, and the final
 engine implementations still contain name matches. The remaining transition
-is to replace those tokens with typed variants or handlers, migrate
-implementation bodies out of the legacy component registries, carry method
-and signal IDs through the host protocol, and then delete the name-dispatch
+is to replace those tokens with typed handlers, migrate implementation bodies
+out of the legacy component registries, connect resolved signal routes to the
+persistent session callback queue, and then delete the remaining name-dispatch
 compatibility paths.

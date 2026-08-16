@@ -10,7 +10,7 @@ use crate::object::{
     CeChild, HeapHandle, MaterializedCE, MaterializedConstructor, MaterializedOperation,
     MaterializedProperty, Object, ObjectId, RuntimeClosure, Value,
 };
-use crate::runtime::{api_key, Catalog, ComponentNamePolicy, ValueSignature};
+use crate::runtime::{Catalog, ComponentNamePolicy, SignalDeclaration, ValueSignature, api_key};
 use crate::{MeowMeowParser, MeowMeowTokenizer};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +124,12 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     value = Some(component_response(response, tree.component_type.clone())?);
                     self.emitted.push(tree);
                 } else {
+                    if let Value::ComponentObject { id, .. } = &evaluated {
+                        self.dispatch(HostRequest::Attach {
+                            parent: None,
+                            child: *id,
+                        })?;
+                    }
                     value = Some(evaluated);
                 }
             } else if let Flow::Return(returned) = self.eval_statement(statement)? {
@@ -156,6 +162,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
         match statement {
             Statement::Assignment(assignment) => {
                 let value = self.eval_expr(&assignment.value)?;
+                let value = self.register_live_component_value(value)?;
                 self.scopes
                     .last_mut()
                     .unwrap()
@@ -167,6 +174,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 value,
             } => {
                 let value = self.eval_expr(value)?;
+                let value = self.register_live_component_value(value)?;
                 for scope in self.scopes.iter_mut().rev() {
                     if scope.contains_key(&name.0) {
                         scope.insert(name.0.clone(), value);
@@ -195,8 +203,29 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     _ => Err(EvalError::Runtime("index reassignment requires a table".into())),
                 }
             }
+            Statement::Reassign {
+                target: Expression::BinaryOp {
+                    op: BinOpKind::Dot,
+                    lhs,
+                    rhs,
+                },
+                value,
+            } => {
+                let base = self.eval_expr(lhs)?;
+                let key = match rhs.as_ref() {
+                    Expression::Identifier(key) => key.0.clone(),
+                    _ => return Err(EvalError::Runtime("table field must be an identifier".into())),
+                };
+                let value = self.eval_expr(value)?;
+                match base {
+                    Value::Object(id) => id.with_map_mut(|map| map.insert(key, value))
+                        .ok_or_else(|| EvalError::Runtime("stale table reference".into()))
+                        .map(|_| Flow::Continue),
+                    _ => Err(EvalError::Runtime("field reassignment requires a table".into())),
+                }
+            }
             Statement::Reassign { .. } => Err(EvalError::Runtime(
-                "only identifier reassignment is supported by the pure evaluator".into(),
+                "unsupported reassignment target".into(),
             )),
             Statement::Return(value) => Ok(Flow::Return(match &value.value {
                 Some(expression) => self.eval_expr(expression)?,
@@ -208,6 +237,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     let tree = *tree;
                     self.emit_component(tree.clone())?;
                     self.emitted.push(tree);
+                } else if let Value::ComponentObject { id, .. } = value {
+                    self.dispatch(HostRequest::Attach {
+                        parent: None,
+                        child: id,
+                    })?;
                 }
                 Ok(Flow::Continue)
             }
@@ -389,6 +423,20 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 HostResponse::Transport(value) => transport_to_value(value),
             };
         }
+        if matches!(op, BinOpKind::Dot) {
+            let lhs = self.eval_expr(lhs)?;
+            let key = match rhs {
+                Expression::Identifier(key) => &key.0,
+                _ => return Err(EvalError::Runtime("table field must be an identifier".into())),
+            };
+            return match lhs {
+                Value::Map(values) => Ok(values.get(key).cloned().unwrap_or(Value::Null)),
+                Value::Object(id) => id
+                    .with_map(|values| values.get(key).cloned().unwrap_or(Value::Null))
+                    .ok_or_else(|| EvalError::Runtime("stale table reference".into())),
+                _ => Err(EvalError::Runtime("field access requires a table".into())),
+            };
+        }
         let lhs = self.eval_expr(lhs)?;
         let rhs = self.eval_expr(rhs)?;
         binary_values(op, lhs, rhs)
@@ -422,6 +470,8 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     };
                     return self.host_query(selector, None, name.0 == "query_all");
                 }
+                "on" => return self.register_signal_handler(&args, false),
+                "on_global" => return self.register_signal_handler(&args, true),
                 _ => {}
             }
             if let Some(Value::Function {
@@ -461,18 +511,49 @@ impl<'a, H: Host> Evaluator<'a, H> {
             let receiver = self.eval_expr(lhs)?;
             return match receiver {
                 Value::ComponentObject { id, component_type } => {
-                    if let Some(catalog) = &self.catalog {
-                        let spec = catalog.components.get(&component_type.to_lowercase())
-                            .ok_or_else(|| unknown("component", &component_type, catalog.components.keys().map(String::as_str)))?;
-                        let signature = spec.methods.get(&method).ok_or_else(|| unknown("component method", &method, spec.methods.keys().map(String::as_str)))?;
+                    let operation_id = if let Some(catalog) = &self.catalog {
+                        let spec = catalog
+                            .components
+                            .get(&component_type.to_lowercase())
+                            .ok_or_else(|| {
+                                unknown(
+                                    "component",
+                                    &component_type,
+                                    catalog.components.keys().map(String::as_str),
+                                )
+                            })?;
+                        let signature = spec.methods.get(&method).ok_or_else(|| {
+                            unknown(
+                                "component method",
+                                &method,
+                                spec.methods.keys().map(String::as_str),
+                            )
+                        })?;
                         validate_args(&format!("{component_type}.{method}"), signature, &args)?;
-                    }
-                    match self.dispatch(HostRequest::InvokeComponentMethod {
-                        component: id,
-                        component_type,
-                        method,
-                        args,
-                    })? {
+                        catalog
+                            .component_operations
+                            .get(&component_type.to_lowercase())
+                            .and_then(|operations| {
+                                operations.methods.get(&method.to_lowercase()).copied()
+                            })
+                    } else {
+                        None
+                    };
+                    let request = if let Some(operation_id) = operation_id {
+                        HostRequest::InvokeComponentMethod {
+                            operation_id,
+                            component: id,
+                            args,
+                        }
+                    } else {
+                        HostRequest::InvokeComponentMethodByName {
+                            component: id,
+                            component_type,
+                            method,
+                            args,
+                        }
+                    };
+                    match self.dispatch(request)? {
                         HostResponse::Value(value) => Ok(value),
                         HostResponse::Unit => Ok(Value::Null),
                         HostResponse::Transport(value) => transport_to_value(value),
@@ -504,6 +585,111 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
         }
         Err(EvalError::Runtime("value is not callable".into()))
+    }
+
+    /// In a session, a component expression assigned to a binding denotes one
+    /// detached, uninitialized live component. A later component body can
+    /// splice that exact handle through `CeChild::Attach`.
+    fn register_live_component_value(&mut self, value: Value) -> Result<Value, EvalError> {
+        let Value::ComponentExpr(tree) = value else {
+            return Ok(value);
+        };
+        if self.context.is_none() {
+            return Ok(Value::ComponentExpr(tree));
+        }
+        let component_type = tree.component_type.clone();
+        component_response(
+            self.dispatch(HostRequest::RegisterComponent { tree: *tree })?,
+            component_type,
+        )
+    }
+
+    fn register_signal_handler(
+        &mut self,
+        args: &[Value],
+        global: bool,
+    ) -> Result<Value, EvalError> {
+        let (scope, signal_index) = if global {
+            (None, 0)
+        } else {
+            let scope = match args.first() {
+                Some(Value::ComponentObject { id, .. }) => Some(*id),
+                _ => {
+                    return Err(EvalError::Runtime(
+                        "on expects a live component as argument 0".into(),
+                    ));
+                }
+            };
+            (scope, 1)
+        };
+        let signal = match args.get(signal_index) {
+            Some(Value::String(signal)) => signal.clone(),
+            _ => {
+                return Err(EvalError::Runtime(format!(
+                    "{} expects a signal name string as argument {signal_index}",
+                    if global { "on_global" } else { "on" }
+                )));
+            }
+        };
+        let trailing = &args[signal_index + 1..];
+        let (name, function) = match trailing {
+            [function @ Value::Function { .. }] => (None, function.clone()),
+            [Value::String(name), function @ Value::Function { .. }] => {
+                (Some(name.clone()), function.clone())
+            }
+            _ => {
+                return Err(EvalError::Runtime(format!(
+                    "{} expects a callback, optionally preceded by a handler name",
+                    if global { "on_global" } else { "on" }
+                )));
+            }
+        };
+
+        let operation_id = self.catalog.as_ref().and_then(|catalog| {
+            catalog
+                .signals
+                .get(&signal.to_lowercase())
+                .map(SignalDeclaration::operation_id)
+        });
+        if operation_id.is_none()
+            && self
+                .catalog
+                .as_ref()
+                .is_some_and(|catalog| !catalog.signals.is_empty())
+        {
+            let catalog = self.catalog.as_ref().unwrap();
+            return Err(unknown(
+                "signal",
+                &signal,
+                catalog.signals.values().map(SignalDeclaration::name),
+            ));
+        }
+        let context = self
+            .context
+            .as_deref_mut()
+            .ok_or_else(|| EvalError::Runtime("signal callbacks require a session".into()))?;
+        let callback = context.allocate_callback();
+        self.callbacks.insert(callback, function);
+        let request = match operation_id {
+            Some(operation_id) => HostRequest::RegisterSignalHandler {
+                operation_id,
+                scope,
+                name,
+                callback,
+            },
+            None => HostRequest::RegisterSignalHandlerByName {
+                scope,
+                signal,
+                name,
+                callback,
+            },
+        };
+        match self.dispatch(request)? {
+            HostResponse::Unit => Ok(Value::Null),
+            other => Err(EvalError::Runtime(format!(
+                "signal registration returned unexpected response {other:?}"
+            ))),
+        }
     }
 
     pub(crate) fn materialize(
@@ -776,7 +962,7 @@ fn adopt_component_response(context: &mut HostContext, response: &HostResponse) 
     }
 }
 
-fn transport_to_value(value: TransportValue) -> Result<Value, EvalError> {
+pub(crate) fn transport_to_value(value: TransportValue) -> Result<Value, EvalError> {
     Ok(match value {
         TransportValue::Null => Value::Null, TransportValue::Bool(v) => Value::Bool(v),
         TransportValue::Number(v) => Value::Number(v), TransportValue::String(v) => Value::String(v),

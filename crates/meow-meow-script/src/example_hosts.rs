@@ -2,16 +2,52 @@
 
 use std::io::Write;
 
-use crate::{ComponentHandle, Host, HostCapabilities, HostContext, HostError,
-    HostErrorKind, HostRequest, HostResponse, MaterializedCE, TransportValue};
+use crate::{
+    CallbackHandle, ComponentHandle, Host, HostCapabilities, HostContext, HostError, HostErrorKind,
+    HostRequest, HostResponse, MaterializedCE, OperationId, TransportValue,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostEvent {
-    Emit { handle: ComponentHandle, tree: MaterializedCE },
-    Register { handle: ComponentHandle, tree: MaterializedCE },
-    Attach { parent: Option<ComponentHandle>, child: ComponentHandle },
-    Method { component: ComponentHandle, component_type: String, method: String, args: Vec<crate::Value> },
-    Api { id: String, args: Vec<TransportValue> },
+    Emit {
+        handle: ComponentHandle,
+        tree: MaterializedCE,
+    },
+    Register {
+        handle: ComponentHandle,
+        tree: MaterializedCE,
+    },
+    Attach {
+        parent: Option<ComponentHandle>,
+        child: ComponentHandle,
+    },
+    MethodById {
+        component: ComponentHandle,
+        operation_id: OperationId,
+        args: Vec<crate::Value>,
+    },
+    Method {
+        component: ComponentHandle,
+        component_type: String,
+        method: String,
+        args: Vec<crate::Value>,
+    },
+    SignalById {
+        operation_id: OperationId,
+        scope: Option<ComponentHandle>,
+        name: Option<String>,
+        callback: CallbackHandle,
+    },
+    Signal {
+        signal: String,
+        scope: Option<ComponentHandle>,
+        name: Option<String>,
+        callback: CallbackHandle,
+    },
+    Api {
+        id: String,
+        args: Vec<TransportValue>,
+    },
 }
 
 /// An ordered in-memory event stream suitable for forwarding to a socket or
@@ -42,9 +78,60 @@ impl Host for EventStreamHost {
                 require_handle(context, child, "attach")?; if let Some(parent) = parent { require_handle(context, parent, "attach")?; }
                 HostEvent::Attach { parent, child }
             }
-            HostRequest::InvokeComponentMethod { component, component_type, method, args } => {
+            HostRequest::InvokeComponentMethod {
+                operation_id,
+                component,
+                args,
+            } => {
+                require_handle(context, component, "invoke_component_method")?;
+                HostEvent::MethodById {
+                    component,
+                    operation_id,
+                    args,
+                }
+            }
+            HostRequest::InvokeComponentMethodByName {
+                component,
+                component_type,
+                method,
+                args,
+            } => {
                 require_handle(context, component, "invoke_component_method")?;
                 HostEvent::Method { component, component_type, method, args }
+            }
+            HostRequest::RegisterSignalHandler {
+                operation_id,
+                scope,
+                name,
+                callback,
+            } => {
+                if let Some(scope) = scope {
+                    require_handle(context, scope, "register_signal_handler")?;
+                }
+                require_callback(context, callback, "register_signal_handler")?;
+                HostEvent::SignalById {
+                    operation_id,
+                    scope,
+                    name,
+                    callback,
+                }
+            }
+            HostRequest::RegisterSignalHandlerByName {
+                signal,
+                scope,
+                name,
+                callback,
+            } => {
+                if let Some(scope) = scope {
+                    require_handle(context, scope, "register_signal_handler_by_name")?;
+                }
+                require_callback(context, callback, "register_signal_handler_by_name")?;
+                HostEvent::Signal {
+                    signal,
+                    scope,
+                    name,
+                    callback,
+                }
             }
             HostRequest::CallApi { api_id, args } => HostEvent::Api { id: api_id, args },
             HostRequest::CallApiById { operation_id, .. } => {
@@ -88,12 +175,76 @@ fn require_handle(context: &HostContext, handle: ComponentHandle, operation: &st
         operation: operation.into(), message: format!("component handle {handle:?} is stale or foreign") }) }
 }
 
+fn require_callback(
+    context: &HostContext,
+    handle: CallbackHandle,
+    operation: &str,
+) -> Result<(), HostError> {
+    if context.owns_callback(handle) {
+        Ok(())
+    } else {
+        Err(HostError {
+            kind: HostErrorKind::ForeignHandle,
+            operation: operation.into(),
+            message: format!("callback handle {handle:?} is stale or foreign"),
+        })
+    }
+}
+
 fn event_json(event: &HostEvent) -> String {
     let (operation, handle, detail) = match event {
-        HostEvent::Emit { handle, tree } => ("emit", Some(*handle), format!("component={}", tree.component_type)),
-        HostEvent::Register { handle, tree } => ("register", Some(*handle), format!("component={}", tree.component_type)),
-        HostEvent::Attach { child, parent } => ("attach", Some(*child), format!("parent={parent:?}")),
-        HostEvent::Method { component, component_type, method, .. } => ("method", Some(*component), format!("component={component_type};method={method}")),
+        HostEvent::Emit { handle, tree } => (
+            "emit",
+            Some(*handle),
+            format!("component={}", tree.component_type),
+        ),
+        HostEvent::Register { handle, tree } => (
+            "register",
+            Some(*handle),
+            format!("component={}", tree.component_type),
+        ),
+        HostEvent::Attach { child, parent } => {
+            ("attach", Some(*child), format!("parent={parent:?}"))
+        }
+        HostEvent::MethodById {
+            component,
+            operation_id,
+            ..
+        } => (
+            "method",
+            Some(*component),
+            format!("operation_id={operation_id:?}"),
+        ),
+        HostEvent::Method {
+            component,
+            component_type,
+            method,
+            ..
+        } => (
+            "method",
+            Some(*component),
+            format!("component={component_type};method={method}"),
+        ),
+        HostEvent::SignalById {
+            operation_id,
+            scope,
+            callback,
+            ..
+        } => (
+            "signal",
+            *scope,
+            format!("operation_id={operation_id:?};callback={callback:?}"),
+        ),
+        HostEvent::Signal {
+            signal,
+            scope,
+            callback,
+            ..
+        } => (
+            "signal",
+            *scope,
+            format!("signal={signal};callback={callback:?}"),
+        ),
         HostEvent::Api { id, .. } => ("api", None, format!("id={id}")),
     };
     format!("{{\"operation\":\"{}\",\"handle\":{},\"detail\":\"{}\"}}",

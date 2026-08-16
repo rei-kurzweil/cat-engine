@@ -44,6 +44,14 @@ pub enum TransportValue {
     Callback(CallbackHandle),
 }
 
+/// A transport-safe request to invoke an MMS-owned callback on its session.
+/// Hosts may queue this value, but only the originating session can execute it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallbackInvocation {
+    pub callback: CallbackHandle,
+    pub args: Vec<TransportValue>,
+}
+
 /// Capabilities advertised by a host before a session is created.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostCapabilities {
@@ -132,13 +140,33 @@ pub enum HostRequest {
         scope: Option<ComponentHandle>,
         multiple: bool,
     },
-    RegisterHandler {
-        scope: ComponentHandle,
+    /// Register an MMS-owned callback for a configured signal. A signal scope
+    /// is optional; `None` denotes global registration.
+    RegisterSignalHandler {
+        operation_id: crate::OperationId,
+        scope: Option<ComponentHandle>,
+        name: Option<String>,
+        callback: CallbackHandle,
+    },
+    /// Compatibility request for open/legacy runtimes without configured
+    /// signal operation identities.
+    RegisterSignalHandlerByName {
+        scope: Option<ComponentHandle>,
         signal: String,
         name: Option<String>,
-        handler: Value,
+        callback: CallbackHandle,
     },
+    /// Invoke a configured method on a checked live component receiver. The
+    /// RuntimeSpec has already validated the method and arguments; the host
+    /// selects its implementation exclusively through `operation_id`.
     InvokeComponentMethod {
+        operation_id: crate::OperationId,
+        component: ComponentHandle,
+        args: Vec<Value>,
+    },
+    /// Compatibility request for open and legacy runtimes whose component
+    /// method declaration has no configured host operation identity.
+    InvokeComponentMethodByName {
         component: ComponentHandle,
         component_type: String,
         method: String,
@@ -190,8 +218,10 @@ impl HostRequest {
             Self::Register { .. } => "register",
             Self::Attach { .. } => "attach",
             Self::Query { .. } => "query",
-            Self::RegisterHandler { .. } => "register_handler",
+            Self::RegisterSignalHandler { .. } => "register_signal_handler",
+            Self::RegisterSignalHandlerByName { .. } => "register_signal_handler_by_name",
             Self::InvokeComponentMethod { .. } => "invoke_component_method",
+            Self::InvokeComponentMethodByName { .. } => "invoke_component_method_by_name",
             Self::CallApi { api_id, .. } => api_id,
             Self::CallApiById { .. } => "call_api_by_id",
             Self::AudioClipInstance { .. } => "audio_clip_instance",

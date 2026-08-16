@@ -1,5 +1,8 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use meow_meow_script as mms;
 
 use crate::engine::ecs::{ComponentId, IntentValue, RxWorld, SignalEmitter, World};
 use crate::engine::graphics::render_assets::RenderAssets;
@@ -14,6 +17,97 @@ use crate::scripting::world_evaluator::{
 pub struct EvalOutput {
     pub intents: Vec<IntentValue>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct IdleMittensHost;
+
+impl mms::Host for IdleMittensHost {}
+
+/// A crate-runtime MMS session retained between engine frames.
+///
+/// The idle session owns script scopes, tables, and callbacks without
+/// borrowing the engine. `service_callbacks` temporarily rebinds it to a live
+/// Mittens host while queued signal callbacks are being evaluated.
+pub struct RuntimeSpecSession {
+    configured: crate::scripting::runtime_config::MittensRuntime,
+    session: Option<mms::Session<IdleMittensHost>>,
+    callback_invocations: Arc<Mutex<Vec<mms::CallbackInvocation>>>,
+}
+
+impl RuntimeSpecSession {
+    pub fn start(
+        source: &str,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> Result<(Self, Vec<IntentValue>), String> {
+        let configured = crate::scripting::runtime_config::build_mittens_runtime()
+            .map_err(|error| format!("Mittens RuntimeSpec build failed: {error}"))?;
+        let callback_invocations = Arc::new(Mutex::new(Vec::new()));
+        let mut intents = Vec::new();
+        let mut host = crate::scripting::host::MittensHost::new(world, emit, &mut intents)
+            .with_rx(rx)
+            .with_bindings(configured.bindings())
+            .with_callback_invocations(Arc::clone(&callback_invocations));
+        if let Some(render_assets) = render_assets {
+            host = host.with_render_assets(render_assets);
+        }
+        let mut session = configured
+            .runtime()
+            .session(host)
+            .map_err(|error| error.to_string())?;
+        session.eval(source).map_err(|error| error.to_string())?;
+        let session = session.rebind_host(IdleMittensHost);
+
+        Ok((
+            Self {
+                configured,
+                session: Some(session),
+                callback_invocations,
+            },
+            intents,
+        ))
+    }
+
+    /// Drain callback invocations queued by Rx and run them against the live
+    /// engine host. Script table and closure identity persist across calls.
+    pub fn service_callbacks(
+        &mut self,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> EvalOutput {
+        let invocations = {
+            let mut queued = self.callback_invocations.lock().unwrap();
+            std::mem::take(&mut *queued)
+        };
+        if invocations.is_empty() {
+            return EvalOutput::default();
+        }
+
+        let idle = self.session.take().expect("RuntimeSpec session missing");
+        let mut intents = Vec::new();
+        let mut host = crate::scripting::host::MittensHost::new(world, emit, &mut intents)
+            .with_rx(rx)
+            .with_bindings(self.configured.bindings())
+            .with_callback_invocations(Arc::clone(&self.callback_invocations));
+        if let Some(render_assets) = render_assets {
+            host = host.with_render_assets(render_assets);
+        }
+        let mut session = idle.rebind_host(host);
+        let mut errors = Vec::new();
+        for invocation in invocations {
+            if let Err(error) = session.invoke_callback_invocation(invocation) {
+                errors.push(error.to_string());
+            }
+        }
+        self.session = Some(session.rebind_host(IdleMittensHost));
+
+        EvalOutput { intents, errors }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -928,5 +1022,65 @@ impl MeowMeowRunner {
 
         handle.shutdown_and_join();
         output
+    }
+}
+
+#[cfg(test)]
+mod runtime_spec_session_tests {
+    use super::*;
+    use crate::engine::ecs::component::EmissiveComponent;
+    use crate::engine::ecs::{CommandQueue, EventSignal, Signal};
+
+    #[test]
+    fn queued_click_callbacks_toggle_emissive_and_retain_table_state() {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut commands = CommandQueue::new();
+        let source = r#"
+            let glow = Emissive.on() { name = "glow" intensity(3.0) }
+            let cube = Transform { name = "cube" glow }
+            let state = { a = 0.0 }
+            on(cube, "Click", fn(event) {
+                if state.a == 0.0 {
+                    state.a = 1.0
+                    glow.set_intensity(0.15)
+                } else {
+                    state.a = 0.0
+                    glow.set_intensity(3.0)
+                }
+            })
+            cube
+        "#;
+        let (mut session, _) =
+            RuntimeSpecSession::start(source, &mut world, &mut rx, None, &mut commands).unwrap();
+        let labelled = |world: &World, label: &str| {
+            world
+                .all_components()
+                .find(|&id| world.component_label(id) == Some(label))
+                .unwrap()
+        };
+        let cube = labelled(&world, "cube");
+        let glow = labelled(&world, "glow");
+        let click = || {
+            Signal::event(
+                cube,
+                EventSignal::Click {
+                    raycaster: ComponentId::default(),
+                    renderable: cube,
+                    hit_point: [0.0; 3],
+                    screen_pos_px: None,
+                },
+            )
+        };
+
+        rx.dispatch_event_handlers(&mut world, &click());
+        let output = session.service_callbacks(&mut world, &mut rx, None, &mut commands);
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
+        assert_eq!(world.get_component_by_id_as::<EmissiveComponent>(glow).unwrap().intensity, 0.15);
+
+        rx.dispatch_event_handlers(&mut world, &click());
+        let output = session.service_callbacks(&mut world, &mut rx, None, &mut commands);
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
+        assert_eq!(world.get_component_by_id_as::<EmissiveComponent>(glow).unwrap().intensity, 3.0);
     }
 }

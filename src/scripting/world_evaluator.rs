@@ -22,7 +22,7 @@ use crate::scripting::ast::{
 };
 use crate::scripting::block_effect_analyzer::BlockEffectAnalyzer;
 use crate::scripting::component_method_registry::{
-    invoke_component_method, supports_component_method,
+    invoke_component_method, legacy_supports_component_method,
 };
 use crate::scripting::component_registry::{
     component_expr_uses_property_assignment_only, is_universal_component_named_prop,
@@ -1969,7 +1969,7 @@ fn eval_method_call(
 ) -> Result<Value, String> {
     match receiver {
         Value::TransformWorld { id } => {
-            if !supports_component_method("TransformWorld", method) {
+            if !legacy_supports_component_method("TransformWorld", method) {
                 return Err(format!("Transform.world: unknown method '{method}'"));
             }
             if let Some(world) = ctx.host_world {
@@ -2104,7 +2104,7 @@ fn eval_method_call(
                 return dispatch_query_result(result, handler, multiple, ctx);
             }
 
-            if supports_component_method(component_type, method) {
+            if legacy_supports_component_method(component_type, method) {
                 if let Some(world) = ctx.host_world {
                     let world = unsafe { &mut *world };
                     return invoke_component_method(

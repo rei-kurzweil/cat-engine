@@ -237,6 +237,91 @@ transitional Mittens routing tokens with typed handlers, bind the remaining
 component implementations, and carry live method and signal IDs through their
 host requests.
 
+### 2026-08-15 component-method operation-ID slice
+
+- Added method operation maps to the compiled RuntimeSpec catalog. Calls on a
+  live component value now resolve the already-validated component/method
+  declaration to its opaque `OperationId` before host dispatch.
+- Made the configured public request ID-only:
+  `InvokeComponentMethod { operation_id, component, args }`. Open and legacy
+  runtimes use the explicitly named `InvokeComponentMethodByName`
+  compatibility request instead of sharing an ambiguous request shape.
+- Declared and bound the existing universal live component operations and the
+  Transform, TransformWorld, PoseCapturePose, Emissive, Raycast,
+  AudioBandPassFilter, HttpClient, and HttpServer method surfaces in the
+  Mittens RuntimeSpec.
+- `MittensHost` now resolves the ID to exactly one `ComponentMethod` binding
+  before converting arguments or invoking engine behavior. Unknown IDs and
+  IDs from another binding category fail closed.
+- Renamed `supports_component_method` to
+  `legacy_supports_component_method`. Only the frozen engine-owned evaluator
+  consults it; configured MMS evaluation no longer performs a second
+  component/method string support check.
+
+The engine implementation function still receives the string-bearing typed
+binding token internally. Replacing those routing tokens and the match body
+with typed handlers is implementation cleanup that does not require another
+MMS host-protocol change.
+
+### 2026-08-15 signal-registration operation-ID slice
+
+- Moved signal declarations to the top level of `RuntimeSpec`. Mittens event
+  kinds are not owned by receiver component types: the component passed to
+  `on` is an optional routing scope, and `on_global` uses the same declaration
+  without one.
+- Added `on` and `on_global` to the crate evaluator. Configured runtimes resolve
+  the signal name before dispatch and send
+  `RegisterSignalHandler { operation_id, scope, name, callback }`; open/legacy
+  runtimes have an explicitly named compatibility request.
+- Callback closures remain in the MMS session callback table. The host sees
+  only an opaque `CallbackHandle`, and callback ownership is checked at the
+  contextual host boundary. A transport-safe `CallbackInvocation` is the
+  queue item returned to the originating session, whose
+  `invoke_callback_invocation` method validates ownership and performs value
+  conversion.
+- Declared and bound the current Mittens signal-kind vocabulary. `MittensHost`
+  resolves each signal ID to `MittensBinding::Signal` and produces a typed
+  `SignalCallbackRoute` containing the engine `SignalKind`, optional ECS scope,
+  optional handler name, and opaque callback handle. It no longer converts a
+  crate function value to a legacy value or synchronously calls
+  `world_evaluator` on this configured path. With Rx and a callback queue in
+  host context, emitted signals enqueue `CallbackInvocation` values.
+- The signal declarations currently use empty payload-field schemas. Inventory
+  of typed event payloads remains, as do persistent session leases, callback
+  queue ownership/draining, removal, and application-level callback execution.
+
+### 2026-08-15 live component and callback vertical slice
+
+- A component expression assigned or reassigned in a crate runtime session now
+  sends `RegisterComponent` and binds the returned live `ComponentObject`
+  instead of leaving a detached `ComponentExpr` in lexical scope.
+- Referencing that value inside a later component expression materializes
+  `CeChild::Attach`, preserving the registered component identity. Emitting a
+  bare live component sends `Attach { parent: None, .. }` so its deferred
+  initialization walk runs as a root.
+- Added an end-to-end Mittens test for the authored sequence
+  `let button = Transform...`, `on(button, "Click", callback)`, and
+  `Transform { button }`. It proves registration and attachment stay on the
+  direct crate-owned component path, Rx queues an opaque callback invocation,
+  and the callback can invoke an operation-ID-resolved live method on its
+  captured component handle without any legacy method fallback.
+- Expanded the shared headless/graphical emissive-cube scene so every glow,
+  mesh, and cube transform is first bound with `let` and then attached by its
+  live handle under a gallery root. The headless smoke verifies the resulting
+  topology, per-cube emissive intensity, active bloom, and zero legacy
+  component-conversion fallbacks.
+- Added `Session::rebind_host` and a retained Mittens `RuntimeSpecSession`.
+  Between frames the session owns its lexical tables, callbacks, heap, and
+  handle context without borrowing the engine; a frame hook temporarily binds
+  the live host and drains queued callback invocations before rendering.
+- The graphical smoke now makes all three meshes directly configured
+  `Raycastable` targets. Their MMS click handlers share a captured
+  `{ a, b, c }` table and toggle the corresponding live `Emissive` component
+  between dim and bright values. A headless event test clicks one target twice
+  and verifies both the component mutation and persistent table state.
+- Generalizing this retained-session ownership from the cutover runner into
+  the eventual application-wide `SessionClient` remains a later runner slice.
+
 Smoke command:
 
 ```sh
@@ -336,7 +421,7 @@ cargo run -p mittens-engine --example runtime-spec-smoke
 - [ ] Define how binding functions receive short-lived host context without
       embedding `World`, `RxWorld`, render assets, or Mittens types in crate
       DTOs.
-- [ ] Define the opaque callback-reference and enqueue seam needed for handler
+- [x] Define the opaque callback-reference and enqueue seam needed for handler
       registration without implementing callback leases or invocation here.
 - [ ] Define the transition rule: any temporary legacy lookup table must be
       generated from the built specification and must not be independently
@@ -367,8 +452,8 @@ catalog or permanently host-owned session.
   - component body mode, including `props_only`;
   - constructors and component-expression builder calls;
   - ordered positional fields and named properties;
-  - component methods and signatures; and
-  - signals and typed payload fields.
+  - component methods and signatures.
+- [x] Add top-level signal declarations with typed payload fields.
 - [x] Add nested global and namespaced declarations for pure builtins,
       host-dispatched builtins, and engine APIs.
 - [x] Let every host-effectful constructor, property, method, signal, builtin,
@@ -388,7 +473,7 @@ catalog or permanently host-owned session.
 - [x] Reject missing implementations for host-effectful declarations.
 - [x] Reject implementation bindings unreachable from a declaration.
 - [x] Reject ambiguous operation dispatch and duplicate operation IDs.
-- [x] Ensure the returned binding table contains no names, aliases,
+- [ ] Ensure the returned binding table contains no names, aliases,
       signatures, signal schemas, parser metadata, or capability sets.
 - [x] Add deterministic diagnostics identifying the declaration path that
       failed, such as `Transform.method(set_position)`.
@@ -400,9 +485,9 @@ catalog or permanently host-owned session.
       as `StrictRegistered`.
 - [ ] Resolve registered component body mode from `RuntimeSpec`; complete the
       focused `props_only` behavior task without an engine-local name map.
-- [ ] Make component methods and host APIs resolve to opaque operation IDs
+- [x] Make component methods and host APIs resolve to opaque operation IDs
       before producing a host request.
-- [ ] Carry opaque signal IDs in handler-registration requests.
+- [x] Carry opaque signal IDs in handler-registration requests.
 - [ ] Replace name-bearing audio and mutation dispatch with declared operation
       IDs where those operations are MMS vocabulary.
 - [ ] Ensure unknown names fail during validation and never reach the host.

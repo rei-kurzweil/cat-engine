@@ -25,6 +25,28 @@ impl Windowing {
         universe: crate::engine::Universe,
         user_input: UserInput,
     ) -> EngineResult<()> {
+        Self::run_app_with_input_and_frame_hook(universe, user_input, None)
+    }
+
+    /// Run a Universe and invoke `frame_hook` after each update and before
+    /// rendering. This lets retained application sessions service work that
+    /// was queued by systems during the update.
+    pub fn run_app_with_frame_hook(
+        universe: crate::engine::Universe,
+        frame_hook: impl FnMut(&mut crate::engine::Universe) + 'static,
+    ) -> EngineResult<()> {
+        Self::run_app_with_input_and_frame_hook(
+            universe,
+            UserInput::new(),
+            Some(Box::new(frame_hook)),
+        )
+    }
+
+    fn run_app_with_input_and_frame_hook(
+        universe: crate::engine::Universe,
+        user_input: UserInput,
+        frame_hook: Option<Box<dyn FnMut(&mut crate::engine::Universe)>>,
+    ) -> EngineResult<()> {
         let event_loop = EventLoop::new()
             .map_err(|error| EngineError::Windowing(format!("event loop init failed: {error}")))?;
         event_loop.set_control_flow(ControlFlow::Poll);
@@ -34,6 +56,7 @@ impl Windowing {
             universe: Some(universe),
             last_frame: None,
             user_input,
+            frame_hook,
             startup_error: None,
         };
 
@@ -54,6 +77,7 @@ struct App {
     universe: Option<crate::engine::Universe>,
     last_frame: Option<Instant>,
     user_input: UserInput,
+    frame_hook: Option<Box<dyn FnMut(&mut crate::engine::Universe)>>,
     startup_error: Option<EngineError>,
 }
 
@@ -155,6 +179,10 @@ impl ApplicationHandler for App {
                 let universe = self.universe.as_mut().expect("universe missing");
 
                 universe.update(dt, self.user_input.state());
+
+                if let Some(frame_hook) = self.frame_hook.as_mut() {
+                    frame_hook(universe);
+                }
 
                 universe.render();
 

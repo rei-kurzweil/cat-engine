@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use meow_meow_script as mms;
 use slotmap::{Key, KeyData};
@@ -9,6 +9,17 @@ use crate::engine::ecs::{ComponentId, IntentValue, RxWorld, SignalEmitter, Signa
 use crate::engine::graphics::RenderAssets;
 use crate::scripting::object as legacy;
 
+/// A resolved engine signal route whose callback remains owned by an MMS
+/// session. The session driver is responsible for retaining the session and
+/// invoking the callback asynchronously when the route fires.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalCallbackRoute {
+    pub kind: SignalKind,
+    pub scope: Option<ComponentId>,
+    pub name: Option<String>,
+    pub callback: mms::CallbackHandle,
+}
+
 /// Engine implementation of the host-neutral Meow Meow host contract.
 pub struct MittensHost<'a> {
     pub world: &'a mut World,
@@ -17,7 +28,10 @@ pub struct MittensHost<'a> {
     pub emit: &'a mut dyn SignalEmitter,
     pub intents: &'a mut Vec<IntentValue>,
     bindings: Option<&'a mms::ImplementationBindings<super::runtime_config::MittensBinding>>,
+    signal_routes: Option<&'a mut Vec<SignalCallbackRoute>>,
+    callback_invocations: Option<Arc<Mutex<Vec<mms::CallbackInvocation>>>>,
     legacy_component_fallbacks: usize,
+    legacy_method_fallbacks: usize,
 }
 
 impl<'a> MittensHost<'a> {
@@ -33,7 +47,10 @@ impl<'a> MittensHost<'a> {
             emit,
             intents,
             bindings: None,
+            signal_routes: None,
+            callback_invocations: None,
             legacy_component_fallbacks: 0,
+            legacy_method_fallbacks: 0,
         }
     }
 
@@ -54,8 +71,43 @@ impl<'a> MittensHost<'a> {
         self
     }
 
+    pub fn with_signal_routes(mut self, routes: &'a mut Vec<SignalCallbackRoute>) -> Self {
+        self.signal_routes = Some(routes);
+        self
+    }
+
+    pub fn signal_routes(&self) -> Option<&[SignalCallbackRoute]> {
+        self.signal_routes.as_deref().map(Vec::as_slice)
+    }
+
+    pub fn with_callback_invocations(
+        mut self,
+        invocations: Arc<Mutex<Vec<mms::CallbackInvocation>>>,
+    ) -> Self {
+        self.callback_invocations = Some(invocations);
+        self
+    }
+
     pub fn legacy_component_fallbacks(&self) -> usize {
         self.legacy_component_fallbacks
+    }
+
+    pub fn legacy_method_fallbacks(&self) -> usize {
+        self.legacy_method_fallbacks
+    }
+
+    /// Dispatch one engine event through the configured Rx routes. Script
+    /// handlers enqueue opaque callback invocations; they never re-enter MMS
+    /// from inside Rx dispatch.
+    pub fn dispatch_event_handlers(
+        &mut self,
+        signal: &crate::engine::ecs::Signal,
+    ) -> Result<(), mms::HostError> {
+        let Some(rx) = self.rx.as_deref_mut() else {
+            return Err(mms::HostError::unsupported("signal event dispatch"));
+        };
+        rx.dispatch_event_handlers(self.world, signal);
+        Ok(())
     }
 
     pub fn component_handle(id: ComponentId) -> mms::ComponentHandle {
@@ -82,6 +134,59 @@ impl<'a> MittensHost<'a> {
                 )
             })
     }
+
+    fn record_signal_route(
+        &mut self,
+        signal: &str,
+        scope: Option<mms::ComponentHandle>,
+        name: Option<String>,
+        callback: mms::CallbackHandle,
+    ) -> Result<mms::HostResponse, mms::HostError> {
+        let kind = signal_kind(signal).ok_or_else(|| {
+            mms::HostError::failure(
+                "register_signal_handler",
+                format!("unknown signal '{signal}'"),
+            )
+        })?;
+        let scope = scope
+            .map(|scope| self.existing_id(scope, "register_signal_handler"))
+            .transpose()?;
+        if self.signal_routes.is_none()
+            && (self.rx.is_none() || self.callback_invocations.is_none())
+        {
+            return Err(mms::HostError::unsupported("signal callback routing"));
+        }
+        if let Some(routes) = self.signal_routes.as_deref_mut() {
+            routes.push(SignalCallbackRoute {
+                kind,
+                scope,
+                name: name.clone(),
+                callback,
+            });
+        }
+        if let (Some(rx), Some(invocations)) =
+            (self.rx.as_deref_mut(), self.callback_invocations.as_ref())
+        {
+            let invocations = Arc::clone(invocations);
+            let enqueue = move |_world: &mut World,
+                                _emit: &mut dyn SignalEmitter,
+                                signal: &crate::engine::ecs::Signal| {
+                match event_arg_transport(signal) {
+                    Ok(argument) => invocations.lock().unwrap().push(mms::CallbackInvocation {
+                        callback,
+                        args: vec![argument],
+                    }),
+                    Err(error) => eprintln!("[mms] signal payload conversion error: {error}"),
+                }
+            };
+            if let Some(scope) = scope {
+                rx.add_handler_closure_named(kind, scope, name, enqueue);
+            } else {
+                rx.add_global_handler_closure_named(kind, name, enqueue);
+            }
+        }
+        Ok(mms::HostResponse::Unit)
+    }
 }
 
 impl mms::Host for MittensHost<'_> {
@@ -91,6 +196,28 @@ impl mms::Host for MittensHost<'_> {
             .fold(mms::HostCapabilities::default(), |capabilities, name| {
                 capabilities.supports_component(*name)
             })
+    }
+
+    fn dispatch_with_context(
+        &mut self,
+        context: &mut mms::HostContext,
+        request: mms::HostRequest,
+    ) -> Result<mms::HostResponse, mms::HostError> {
+        let callback = match &request {
+            mms::HostRequest::RegisterSignalHandler { callback, .. }
+            | mms::HostRequest::RegisterSignalHandlerByName { callback, .. } => Some(*callback),
+            _ => None,
+        };
+        if let Some(callback) = callback
+            && !context.owns_callback(callback)
+        {
+            return Err(mms::HostError {
+                kind: mms::HostErrorKind::ForeignHandle,
+                operation: request.operation_name().into(),
+                message: format!("callback handle {callback:?} is stale or foreign"),
+            });
+        }
+        self.dispatch(request)
     }
 
     fn dispatch(&mut self, request: mms::HostRequest) -> Result<mms::HostResponse, mms::HostError> {
@@ -279,11 +406,55 @@ impl mms::Host for MittensHost<'_> {
                 }
             }
             R::InvokeComponentMethod {
+                operation_id,
+                component,
+                args,
+            } => {
+                let id = self.existing_id(component, "invoke_component_method")?;
+                let Some(binding) = self
+                    .bindings
+                    .and_then(|bindings| bindings.get(operation_id))
+                else {
+                    return Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: "component method ID is not present in the Mittens binding table"
+                            .into(),
+                    });
+                };
+                let super::runtime_config::MittensBinding::ComponentMethod {
+                    component: component_type,
+                    name: method,
+                } = binding
+                else {
+                    return Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: format!("{binding:?} cannot be invoked as a component method"),
+                    });
+                };
+                let args = args
+                    .into_iter()
+                    .map(external_value_to_legacy)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let value = crate::scripting::component_method_registry::invoke_component_method(
+                    self.world,
+                    id,
+                    component_type,
+                    method,
+                    &args,
+                    |intent| self.intents.push(intent),
+                )
+                .map_err(|e| mms::HostError::failure(format!("{operation_id:?}"), e))?;
+                Ok(S::Value(legacy_value_to_external(value)?))
+            }
+            R::InvokeComponentMethodByName {
                 component,
                 component_type,
                 method,
                 args,
             } => {
+                self.legacy_method_fallbacks += 1;
                 let id = self.existing_id(component, "invoke_component_method")?;
                 let args = args
                     .into_iter()
@@ -323,45 +494,37 @@ impl mms::Host for MittensHost<'_> {
                     component_type: "AudioClip".into(),
                 })
             }
-            R::RegisterHandler {
+            R::RegisterSignalHandler {
+                operation_id,
+                scope,
+                name,
+                callback,
+            } => {
+                let Some(binding) = self
+                    .bindings
+                    .and_then(|bindings| bindings.get(operation_id))
+                else {
+                    return Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: "operation ID is not present in the Mittens binding table".into(),
+                    });
+                };
+                let super::runtime_config::MittensBinding::Signal { name: signal } = binding else {
+                    return Err(mms::HostError {
+                        kind: mms::HostErrorKind::InvalidRequest,
+                        operation: format!("{operation_id:?}"),
+                        message: format!("{binding:?} cannot register a signal handler"),
+                    });
+                };
+                self.record_signal_route(signal, scope, name, callback)
+            }
+            R::RegisterSignalHandlerByName {
                 scope,
                 signal,
                 name,
-                handler,
-            } => {
-                let scope = self.existing_id(scope, "register_handler")?;
-                let kind = signal_kind(&signal).ok_or_else(|| {
-                    mms::HostError::failure(
-                        "register_handler",
-                        format!("unknown signal '{signal}'"),
-                    )
-                })?;
-                let handler = external_value_to_legacy(handler)?;
-                let Some(rx) = self.rx.as_deref_mut() else {
-                    return Err(mms::HostError::unsupported("register_handler"));
-                };
-                let callback =
-                    move |world: &mut World,
-                          emit: &mut dyn SignalEmitter,
-                          signal: &crate::engine::ecs::Signal| {
-                        let arg = crate::scripting::runner::event_arg_value(signal);
-                        if let Err(error) = crate::scripting::world_evaluator::eval_mms_fn(
-                            &handler,
-                            vec![arg],
-                            None,
-                            Some(world),
-                            Some(emit),
-                        ) {
-                            eprintln!("[mms] handler error: {error}");
-                        }
-                    };
-                if let Some(name) = name {
-                    rx.add_handler_closure_named(kind, scope, Some(name), callback);
-                } else {
-                    rx.add_handler_closure(kind, scope, callback);
-                }
-                Ok(S::Unit)
-            }
+                callback,
+            } => self.record_signal_route(&signal, scope, name, callback),
             R::AudioOperation {
                 operation,
                 target,
@@ -444,6 +607,47 @@ fn signal_kind(name: &str) -> Option<SignalKind> {
         "HttpResponse" => SignalKind::HttpResponse,
         "HttpError" => SignalKind::HttpError,
         _ => return None,
+    })
+}
+
+fn event_arg_transport(
+    signal: &crate::engine::ecs::Signal,
+) -> Result<mms::TransportValue, mms::HostError> {
+    legacy_event_value_to_transport(crate::scripting::runner::event_arg_value(signal))
+}
+
+fn legacy_event_value_to_transport(
+    value: legacy::Value,
+) -> Result<mms::TransportValue, mms::HostError> {
+    Ok(match value {
+        legacy::Value::Null => mms::TransportValue::Null,
+        legacy::Value::Bool(value) => mms::TransportValue::Bool(value),
+        legacy::Value::Number(value) => mms::TransportValue::Number(value),
+        legacy::Value::String(value) | legacy::Value::Identifier(value) => {
+            mms::TransportValue::String(value)
+        }
+        legacy::Value::Array(values) => mms::TransportValue::Array(
+            values
+                .into_iter()
+                .map(legacy_event_value_to_transport)
+                .collect::<Result<_, _>>()?,
+        ),
+        legacy::Value::Map(values) => mms::TransportValue::Table(
+            values
+                .into_iter()
+                .map(|(name, value)| Ok((name, legacy_event_value_to_transport(value)?)))
+                .collect::<Result<_, mms::HostError>>()?,
+        ),
+        legacy::Value::ComponentObject { id, .. } => {
+            mms::TransportValue::Component(MittensHost::component_handle(id))
+        }
+        other => {
+            return Err(mms::HostError {
+                kind: mms::HostErrorKind::Conversion,
+                operation: "signal_payload".into(),
+                message: format!("event value {other:?} cannot enter the callback queue"),
+            });
+        }
     })
 }
 
@@ -637,10 +841,14 @@ mod tests {
     fn runtime_spec_smoke_uses_no_legacy_component_conversion() {
         let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
         let mut world = World::default();
+        let mut rx = RxWorld::default();
         let mut command_queue = crate::engine::ecs::CommandQueue::new();
         let mut intents = Vec::new();
+        let invocations = Arc::new(Mutex::new(Vec::new()));
         let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
-            .with_bindings(configured.bindings());
+            .with_bindings(configured.bindings())
+            .with_rx(&mut rx)
+            .with_callback_invocations(invocations);
         let mut session = configured.runtime().session(host).unwrap();
 
         session
@@ -664,5 +872,187 @@ mod tests {
         session.eval("Grid.spacing(1.0) {}").unwrap();
 
         assert_eq!(session.host().legacy_component_fallbacks(), 1);
+    }
+
+    #[test]
+    fn configured_component_methods_dispatch_by_operation_id() {
+        use mms::Host;
+
+        let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
+        let translation = configured
+            .spec()
+            .component("Transform")
+            .unwrap()
+            .method("translation")
+            .unwrap()
+            .operation_id()
+            .unwrap();
+        let smoke_api = configured
+            .spec()
+            .api(Some("mittens"), "smoke")
+            .unwrap()
+            .operation_id();
+
+        let mut world = World::default();
+        let id = world.add_component(
+            crate::engine::ecs::component::TransformComponent::new().with_position(1.0, 2.0, 3.0),
+        );
+        let mut command_queue = crate::engine::ecs::CommandQueue::new();
+        let mut intents = Vec::new();
+        let mut host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
+            .with_bindings(configured.bindings());
+
+        let response = host
+            .dispatch(mms::HostRequest::InvokeComponentMethod {
+                operation_id: translation,
+                component: MittensHost::component_handle(id),
+                args: Vec::new(),
+            })
+            .unwrap();
+        assert_eq!(
+            response,
+            mms::HostResponse::Value(mms::Value::Array(vec![
+                mms::Value::Number(1.0),
+                mms::Value::Number(2.0),
+                mms::Value::Number(3.0),
+            ]))
+        );
+
+        let error = host
+            .dispatch(mms::HostRequest::InvokeComponentMethod {
+                operation_id: smoke_api,
+                component: MittensHost::component_handle(id),
+                args: Vec::new(),
+            })
+            .unwrap_err();
+        assert_eq!(error.kind, mms::HostErrorKind::InvalidRequest);
+        assert!(
+            error
+                .message
+                .contains("cannot be invoked as a component method")
+        );
+    }
+
+    #[test]
+    fn configured_method_call_never_uses_the_by_name_compatibility_request() {
+        let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
+        let mut world = World::default();
+        let id = world.add_component(
+            crate::engine::ecs::component::TransformComponent::new().with_position(4.0, 5.0, 6.0),
+        );
+        world.get_component_record_mut(id).unwrap().name = "target".into();
+        let mut command_queue = crate::engine::ecs::CommandQueue::new();
+        let mut intents = Vec::new();
+        let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
+            .with_bindings(configured.bindings());
+        let mut session = configured.runtime().session(host).unwrap();
+
+        session.eval("query(\"#target\").translation()").unwrap();
+
+        assert_eq!(session.host().legacy_method_fallbacks(), 0);
+    }
+
+    #[test]
+    fn configured_signal_registration_resolves_to_an_opaque_mittens_route() {
+        let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
+        let click_id = configured.spec().signal("Click").unwrap().operation_id();
+        assert_eq!(
+            configured.bindings().get(click_id),
+            Some(&super::super::runtime_config::MittensBinding::Signal { name: "Click" })
+        );
+
+        let mut world = World::default();
+        let root = world.add_component(crate::engine::ecs::component::TransformComponent::new());
+        world.get_component_record_mut(root).unwrap().name = "signal-root".into();
+        let mut command_queue = crate::engine::ecs::CommandQueue::new();
+        let mut intents = Vec::new();
+        let mut routes = Vec::new();
+        let mut rx = RxWorld::default();
+        let invocations = Arc::new(Mutex::new(Vec::new()));
+        let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
+            .with_bindings(configured.bindings())
+            .with_signal_routes(&mut routes)
+            .with_rx(&mut rx)
+            .with_callback_invocations(Arc::clone(&invocations));
+        let mut session = configured.runtime().session(host).unwrap();
+
+        session
+            .eval("on(query(\"#signal-root\"), \"Click\", fn(event) {})")
+            .unwrap();
+        drop(session);
+
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].kind, SignalKind::Click);
+        assert!(routes[0].scope.is_some());
+
+        rx.dispatch_event_handlers(
+            &mut world,
+            &crate::engine::ecs::Signal::event(
+                root,
+                crate::engine::ecs::EventSignal::Click {
+                    raycaster: ComponentId::default(),
+                    renderable: root,
+                    hit_point: [0.0; 3],
+                    screen_pos_px: None,
+                },
+            ),
+        );
+        let invocations = invocations.lock().unwrap();
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(invocations[0].callback, routes[0].callback);
+        assert_eq!(invocations[0].args, vec![mms::TransportValue::Null]);
+    }
+
+    #[test]
+    fn let_bound_component_attaches_and_its_signal_callback_uses_the_live_handle() {
+        let configured = super::super::runtime_config::build_mittens_runtime().unwrap();
+        let mut world = World::default();
+        let mut command_queue = crate::engine::ecs::CommandQueue::new();
+        let mut intents = Vec::new();
+        let mut routes = Vec::new();
+        let mut rx = RxWorld::default();
+        let invocations = Arc::new(Mutex::new(Vec::new()));
+        let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
+            .with_bindings(configured.bindings())
+            .with_signal_routes(&mut routes)
+            .with_rx(&mut rx)
+            .with_callback_invocations(Arc::clone(&invocations));
+        let mut session = configured.runtime().session(host).unwrap();
+
+        session
+            .eval(
+                r#"
+                let button = Transform.position(1.0, 2.0, 3.0) { name = "live-button" }
+                on(button, "Click", fn(event) { return button.translation() })
+                Transform { name = "root" button }
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(session.host().legacy_component_fallbacks(), 0);
+        assert_eq!(session.host().legacy_method_fallbacks(), 0);
+        let button = session.host().signal_routes().unwrap()[0].scope.unwrap();
+        let event = crate::engine::ecs::Signal::event(
+            button,
+            crate::engine::ecs::EventSignal::Click {
+                raycaster: ComponentId::default(),
+                renderable: button,
+                hit_point: [0.0; 3],
+                screen_pos_px: None,
+            },
+        );
+        session.host_mut().dispatch_event_handlers(&event).unwrap();
+        let invocation = invocations.lock().unwrap().remove(0);
+        let result = session.invoke_callback_invocation(invocation).unwrap();
+
+        assert_eq!(
+            result,
+            mms::Value::Array(vec![
+                mms::Value::Number(1.0),
+                mms::Value::Number(2.0),
+                mms::Value::Number(3.0),
+            ])
+        );
+        assert_eq!(session.host().legacy_method_fallbacks(), 0);
     }
 }

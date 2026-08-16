@@ -6,7 +6,10 @@ use crate::engine::ecs::{ComponentId, IntentValue, PoseApplyMode, World};
 use crate::engine::transform::TransformSpace;
 use crate::scripting::object::Value;
 
-pub(crate) fn supports_component_method(component_type: &str, method: &str) -> bool {
+/// Compatibility vocabulary used only by the legacy engine-owned evaluator.
+/// Configured MMS runtimes validate methods through RuntimeSpec and dispatch
+/// them by OperationId without consulting this predicate.
+pub(crate) fn legacy_supports_component_method(component_type: &str, method: &str) -> bool {
     matches!(
         method,
         "attach" | "attach_clone" | "detach" | "remove_child" | "remove_subtree" | "set_color"

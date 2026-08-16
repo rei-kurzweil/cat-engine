@@ -30,7 +30,6 @@ pub enum MittensBinding {
     },
     Api(MittensApi),
     Signal {
-        component: &'static str,
         name: &'static str,
     },
 }
@@ -120,6 +119,22 @@ fn host_property(
     );
 }
 
+fn host_method(
+    component: &mut mms::ComponentBuilder<'_, MittensBinding>,
+    canonical: &'static str,
+    name: &'static str,
+    signature: mms::ValueSignature,
+) {
+    component.method(
+        name,
+        signature,
+        MittensBinding::ComponentMethod {
+            component: canonical,
+            name,
+        },
+    );
+}
+
 fn host_constructor_and_builder(
     component: &mut mms::ComponentBuilder<'_, MittensBinding>,
     canonical: &'static str,
@@ -186,6 +201,155 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
             let strings = |count| component_signature(vec![mms::ValueType::String; count]);
             let any = |count| component_signature(vec![mms::ValueType::Any; count]);
             let no_args = || component_signature([]);
+
+            let method = |arguments, result| mms::ValueSignature::new(arguments, result);
+            for (name, signature) in [
+                (
+                    "attach",
+                    method(vec![mms::ValueType::Component], mms::ValueType::Null),
+                ),
+                (
+                    "attach_clone",
+                    method(vec![mms::ValueType::Component], mms::ValueType::Null),
+                ),
+                ("detach", method(vec![], mms::ValueType::Null)),
+                (
+                    "remove_child",
+                    method(vec![mms::ValueType::U32], mms::ValueType::Null),
+                ),
+                ("remove_subtree", method(vec![], mms::ValueType::Null)),
+                (
+                    "set_color",
+                    method(vec![mms::ValueType::Array], mms::ValueType::Null),
+                ),
+            ] {
+                host_method(component, canonical, name, signature);
+            }
+
+            match canonical {
+                "Transform" => {
+                    host_method(
+                        component,
+                        canonical,
+                        "update_transform",
+                        method(vec![mms::ValueType::Array; 3], mms::ValueType::Null),
+                    );
+                    host_method(
+                        component,
+                        canonical,
+                        "look_at",
+                        method(vec![mms::ValueType::Array], mms::ValueType::Null),
+                    );
+                    host_method(
+                        component,
+                        canonical,
+                        "translation",
+                        method(vec![], mms::ValueType::Array),
+                    );
+                    host_method(
+                        component,
+                        canonical,
+                        "trs",
+                        mms::ValueSignature::with_optional(
+                            vec![mms::ValueType::Any],
+                            0,
+                            mms::ValueType::Any,
+                        ),
+                    );
+                }
+                "TransformWorld" => {
+                    host_method(
+                        component,
+                        canonical,
+                        "trs",
+                        mms::ValueSignature::with_optional(
+                            vec![mms::ValueType::Any],
+                            0,
+                            mms::ValueType::Any,
+                        ),
+                    );
+                }
+                "PoseCapturePose" => {
+                    for name in ["apply", "overlay"] {
+                        host_method(
+                            component,
+                            canonical,
+                            name,
+                            method(vec![mms::ValueType::Component], mms::ValueType::Null),
+                        );
+                    }
+                    host_method(
+                        component,
+                        canonical,
+                        "apply_blended",
+                        method(
+                            vec![mms::ValueType::Component, mms::ValueType::F32],
+                            mms::ValueType::Null,
+                        ),
+                    );
+                }
+                "Emissive" => {
+                    host_method(
+                        component,
+                        canonical,
+                        "set_intensity",
+                        method(vec![mms::ValueType::F32], mms::ValueType::Null),
+                    );
+                    for name in ["on", "off"] {
+                        host_method(
+                            component,
+                            canonical,
+                            name,
+                            method(vec![], mms::ValueType::Null),
+                        );
+                    }
+                }
+                "Raycast" => host_method(
+                    component,
+                    canonical,
+                    "request_raycast",
+                    method(vec![], mms::ValueType::Null),
+                ),
+                "AudioBandPassFilter" => host_method(
+                    component,
+                    canonical,
+                    "set_center_hz",
+                    method(vec![mms::ValueType::F32], mms::ValueType::Null),
+                ),
+                "HttpClient" => {
+                    for name in ["get", "delete"] {
+                        host_method(
+                            component,
+                            canonical,
+                            name,
+                            method(vec![mms::ValueType::String], mms::ValueType::Null),
+                        );
+                    }
+                    for name in ["post", "put"] {
+                        host_method(
+                            component,
+                            canonical,
+                            name,
+                            method(vec![mms::ValueType::String; 2], mms::ValueType::Null),
+                        );
+                    }
+                }
+                "HttpServer" => host_method(
+                    component,
+                    canonical,
+                    "reply_text",
+                    method(
+                        vec![
+                            mms::ValueType::Table,
+                            mms::ValueType::U16,
+                            mms::ValueType::String,
+                        ],
+                        mms::ValueType::Null,
+                    ),
+                ),
+                _ => {}
+            }
+
             match canonical {
                 "Transform" => {
                     for method in ["position", "scale", "rotation", "rotation_euler"] {
@@ -713,10 +877,9 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         .builder_call("plane", any(1));
                 }
                 "Raycastable" => {
-                    no_arg_constructors(
-                        component,
-                        &["disabled", "drag_only", "click_only", "enabled"],
-                    );
+                    for constructor in ["disabled", "drag_only", "click_only", "enabled"] {
+                        host_constructor(component, canonical, constructor, no_args());
+                    }
                     for method in ["pointer_events", "drag_continuation", "drag_mapping"] {
                         component.builder_call(method, strings(1));
                     }
@@ -928,6 +1091,41 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         });
     }
 
+    // Signals are event kinds whose optional component receiver is a routing
+    // scope, not an owning component type.
+    for name in [
+        "FrameTick",
+        "GLTFInitialized",
+        "Click",
+        "ToggleChanged",
+        "DataEvent",
+        "CollisionStarted",
+        "CollisionEnded",
+        "DragStart",
+        "DragMove",
+        "DragEnd",
+        "GrabStart",
+        "GrabEnd",
+        "ParentChanged",
+        "RayIntersected",
+        "Scrolling",
+        "TextInputChanged",
+        "TextInputFocusChanged",
+        "SelectionAdded",
+        "SelectionRemoved",
+        "SelectionChanged",
+        "SelectionCleared",
+        "XrButtonDown",
+        "XrButtonUp",
+        "XrButtonChanged",
+        "XrAxisChanged",
+        "HttpRequest",
+        "HttpResponse",
+        "HttpError",
+    ] {
+        builder.signal(name, Vec::new(), MittensBinding::Signal { name });
+    }
+
     builder.namespace("mittens", |namespace| {
         namespace.api(
             "smoke",
@@ -1090,12 +1288,25 @@ mod tests {
                 .properties()
                 .filter(|property| !matches!(property.name(), "name" | "id" | "class"))
                 .count();
+            let component_methods = declaration
+                .methods()
+                .filter(|method| {
+                    !matches!(
+                        method.name(),
+                        "attach"
+                            | "attach_clone"
+                            | "detach"
+                            | "remove_child"
+                            | "remove_subtree"
+                            | "set_color"
+                    )
+                })
+                .count();
             let has_schema = declaration.constructors().len() > 0
                 || declaration.builder_calls().len() > 0
                 || declaration.positionals().len() > 0
                 || component_properties > 0
-                || declaration.methods().len() > 0
-                || declaration.signals().len() > 0;
+                || component_methods > 0;
             if !has_schema {
                 missing.push(declaration.name());
             }
@@ -1144,5 +1355,21 @@ mod tests {
                 kind: ComponentInitializerKind::Property,
             })
         );
+
+        for name in ["translation", "attach"] {
+            let method = configured
+                .spec()
+                .component("Transform")
+                .unwrap()
+                .method(name)
+                .unwrap();
+            assert_eq!(
+                configured.bindings().get(method.operation_id().unwrap()),
+                Some(&MittensBinding::ComponentMethod {
+                    component: "Transform",
+                    name,
+                })
+            );
+        }
     }
 }
