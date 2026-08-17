@@ -52,24 +52,19 @@ pub struct CallbackInvocation {
     pub args: Vec<TransportValue>,
 }
 
-/// Capabilities advertised by a host before a session is created.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct HostCapabilities {
-    pub components: HashSet<String>,
-    pub component_operations: HashSet<String>,
-    pub api_ids: HashSet<String>,
+/// Stable identity of a source unit as resolved by its host.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SourceId(String);
+
+impl SourceId {
+    pub fn new(identity: impl Into<String>) -> Self { Self(identity.into()) }
+    pub fn as_str(&self) -> &str { &self.0 }
 }
 
-impl HostCapabilities {
-    pub fn supports_component(mut self, name: impl Into<String>) -> Self {
-        self.components.insert(name.into().to_lowercase()); self
-    }
-    pub fn supports_operation(mut self, operation: impl Into<String>) -> Self {
-        self.component_operations.insert(operation.into()); self
-    }
-    pub fn supports_api(mut self, id: impl Into<String>) -> Self {
-        self.api_ids.insert(id.into()); self
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedSource {
+    pub identity: SourceId,
+    pub source: String,
 }
 
 /// Allocator and ownership checker supplied to host dispatch.
@@ -181,31 +176,9 @@ pub enum HostRequest {
         operation_id: crate::OperationId,
         args: Vec<TransportValue>,
     },
-    AudioClipInstance {
-        source: ComponentHandle,
-        start_beat: Option<f64>,
-        stop_beat: Option<f64>,
-    },
-    AudioOperation {
-        operation: String,
-        target: Option<ComponentHandle>,
-        args: Vec<Value>,
-    },
-    ReplTree {
-        value: Value,
-        max_depth: Option<usize>,
-    },
-    ReplDump {
-        value: Value,
-    },
-    ReplHelp,
-    ReplClear,
-    /// A named engine mutation. The payload remains composed exclusively of
-    /// script-owned values so no engine type crosses the crate boundary.
-    EngineMutation {
-        operation: String,
-        targets: Vec<ComponentHandle>,
-        args: Vec<Value>,
+    LoadSource {
+        importer: Option<SourceId>,
+        specifier: String,
     },
 }
 
@@ -224,14 +197,7 @@ impl HostRequest {
             Self::InvokeComponentMethodByName { .. } => "invoke_component_method_by_name",
             Self::CallApi { api_id, .. } => api_id,
             Self::CallApiById { .. } => "call_api_by_id",
-            Self::AudioClipInstance { .. } => "audio_clip_instance",
-            Self::AudioOperation { operation, .. } | Self::EngineMutation { operation, .. } => {
-                operation
-            }
-            Self::ReplTree { .. } => "repl_tree",
-            Self::ReplDump { .. } => "repl_dump",
-            Self::ReplHelp => "repl_help",
-            Self::ReplClear => "repl_clear",
+            Self::LoadSource { .. } => "load_source",
         }
     }
 }
@@ -246,15 +212,19 @@ pub enum HostResponse {
     },
     Components(Vec<(ComponentHandle, String)>),
     Transport(TransportValue),
+    Source(LoadedSource),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostErrorKind {
     UnsupportedHostOperation,
+    UnavailableContext,
     InvalidRequest,
     HostFailure,
     ForeignHandle,
+    StaleHandle,
     Conversion,
+    SourceFailure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +241,16 @@ impl HostError {
             kind: HostErrorKind::UnsupportedHostOperation,
             message: format!("host operation '{operation}' is unavailable"),
             operation,
+        }
+    }
+
+    /// The operation is part of the configured runtime, but the short-lived
+    /// host servicing this call does not currently have the required service.
+    pub fn unavailable(operation: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            kind: HostErrorKind::UnavailableContext,
+            operation: operation.into(),
+            message: message.into(),
         }
     }
 
@@ -298,8 +278,6 @@ pub trait Host {
     fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, HostError> {
         Err(HostError::unsupported(request.operation_name()))
     }
-
-    fn capabilities(&self) -> HostCapabilities { HostCapabilities::default() }
 
     fn dispatch_with_context(
         &mut self,

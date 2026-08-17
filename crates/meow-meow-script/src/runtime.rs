@@ -6,8 +6,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use crate::{CallbackHandle, EvalError, Evaluation, Evaluator, Expression, HeapHandle, Host,
-    HostCapabilities, HostContext, Hostless, MaterializedCE, MeowMeowParser, MeowMeowTokenizer,
-    Statement, Value};
+    HostContext, Hostless, MaterializedCE, MeowMeowParser, MeowMeowTokenizer, Statement, Value};
 
 static NEXT_SESSION_TAG: AtomicU32 = AtomicU32::new(1);
 
@@ -368,6 +367,7 @@ pub enum RuntimeSpecErrorKind {
     DuplicateName,
     NameConflict,
     InvalidNesting,
+    InvalidSignature,
     ConflictingSignature,
     MissingImplementation,
     OrphanImplementation,
@@ -626,6 +626,7 @@ fn validate_runtime_spec(
     let mut global_names = HashMap::<String, String>::new();
     for builtin in builtins {
         validate_declaration_name(&builtin.name, &builtin.name)?;
+        validate_signature(&builtin.name, &builtin.signature)?;
         claim_name(&mut global_names, &builtin.name, &builtin.name)?;
     }
     for component in components {
@@ -690,6 +691,10 @@ fn validate_runtime_spec(
     for signal in signals {
         let mut fields = HashSet::new();
         for (field, _) in &signal.fields {
+            validate_declaration_name(
+                field,
+                &format!("signal({}).field({field})", signal.name),
+            )?;
             if !fields.insert(field.to_lowercase()) {
                 return Err(spec_error(
                     RuntimeSpecErrorKind::DuplicateName,
@@ -701,7 +706,9 @@ fn validate_runtime_spec(
     }
     let mut namespaces = HashMap::<String, String>::new();
     for api in apis {
-        validate_declaration_name(&api.name, &api_path(api.namespace.as_deref(), &api.name))?;
+        let path = api_path(api.namespace.as_deref(), &api.name);
+        validate_declaration_name(&api.name, &path)?;
+        validate_signature(&path, &api.signature)?;
         if let Some(namespace) = &api.namespace {
             validate_declaration_name(namespace, namespace)?;
             if !namespaces.contains_key(&namespace.to_lowercase()) {
@@ -730,13 +737,30 @@ fn validate_declaration_name(name: &str, path: &str) -> Result<(), RuntimeSpecEr
 fn validate_named(component: &str, kind: &str, items: impl Iterator<Item = (String, ValueSignature)>) -> Result<(), RuntimeSpecError> {
     let mut seen = HashMap::<String, ValueSignature>::new();
     for (name, signature) in items {
-        validate_declaration_name(&name, &format!("{component}.{kind}({name})"))?;
+        let path = format!("{component}.{kind}({name})");
+        validate_declaration_name(&name, &path)?;
+        validate_signature(&path, &signature)?;
         let key = name.to_lowercase();
         if let Some(previous) = seen.get(&key) {
             let error_kind = if previous == &signature { RuntimeSpecErrorKind::DuplicateName } else { RuntimeSpecErrorKind::ConflictingSignature };
             return Err(spec_error(error_kind, format!("{component}.{kind}({name})"), format!("duplicate {kind} '{name}'")));
         }
         seen.insert(key, signature);
+    }
+    Ok(())
+}
+
+fn validate_signature(path: &str, signature: &ValueSignature) -> Result<(), RuntimeSpecError> {
+    if signature.minimum_arguments > signature.arguments.len() {
+        return Err(spec_error(
+            RuntimeSpecErrorKind::InvalidSignature,
+            path.into(),
+            format!(
+                "minimum argument count {} exceeds {} declared arguments",
+                signature.minimum_arguments,
+                signature.arguments.len()
+            ),
+        ));
     }
     Ok(())
 }
@@ -825,7 +849,6 @@ impl ValueSignature {
         result: ValueType,
     ) -> Self {
         let arguments = arguments.into();
-        assert!(minimum_arguments <= arguments.len());
         Self { arguments, minimum_arguments, result, variadic: false }
     }
     pub fn any() -> Self {
@@ -838,10 +861,8 @@ impl ValueSignature {
     }
 }
 
-pub type ComponentCallback = Arc<dyn Fn(&mut MaterializedCE) -> Result<(), String> + Send + Sync>;
-
-#[derive(Clone)]
-pub struct ComponentSpec {
+#[derive(Debug, Clone)]
+pub(crate) struct ComponentSpec {
     pub name: String,
     pub aliases: Vec<String>,
     pub constructors: HashMap<String, ValueSignature>,
@@ -849,64 +870,13 @@ pub struct ComponentSpec {
     pub properties: HashMap<String, ValueType>,
     pub positional: Vec<ValueType>,
     pub methods: HashMap<String, ValueSignature>,
-    pub required_capability: Option<String>,
-    pub normalize: Option<ComponentCallback>,
-    pub validate: Option<ComponentCallback>,
-}
-
-impl fmt::Debug for ComponentSpec {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ComponentSpec").field("name", &self.name).field("aliases", &self.aliases).finish_non_exhaustive()
-    }
-}
-
-impl ComponentSpec {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), aliases: vec![], constructors: HashMap::new(),
-            builder_calls: HashMap::new(), properties: HashMap::new(), positional: vec![],
-            methods: HashMap::new(), required_capability: None, normalize: None, validate: None }
-    }
-    pub fn alias(mut self, alias: impl Into<String>) -> Self { self.aliases.push(alias.into()); self }
-    pub fn constructor(mut self, name: impl Into<String>, signature: ValueSignature) -> Self { self.constructors.insert(name.into(), signature); self }
-    pub fn builder_call(mut self, name: impl Into<String>, signature: ValueSignature) -> Self { self.builder_calls.insert(name.into(), signature); self }
-    pub fn property(mut self, name: impl Into<String>, ty: ValueType) -> Self { self.properties.insert(name.into(), ty); self }
-    pub fn positional(mut self, ty: ValueType) -> Self { self.positional.push(ty); self }
-    pub fn method(mut self, name: impl Into<String>, signature: ValueSignature) -> Self { self.methods.insert(name.into(), signature); self }
-    pub fn requires(mut self, capability: impl Into<String>) -> Self { self.required_capability = Some(capability.into()); self }
-    pub fn normalize_with(mut self, callback: impl Fn(&mut MaterializedCE) -> Result<(), String> + Send + Sync + 'static) -> Self { self.normalize = Some(Arc::new(callback)); self }
-    pub fn validate_with(mut self, callback: impl Fn(&mut MaterializedCE) -> Result<(), String> + Send + Sync + 'static) -> Self { self.validate = Some(Arc::new(callback)); self }
 }
 
 #[derive(Debug, Clone)]
-pub struct HostApiSpec {
+pub(crate) struct HostApiSpec {
     pub id: String,
-    pub namespace: Option<String>,
-    pub name: String,
     pub signature: ValueSignature,
-    pub required_capability: String,
 }
-
-impl HostApiSpec {
-    pub fn function(name: impl Into<String>, signature: ValueSignature) -> Self {
-        let name = name.into(); Self { id: name.clone(), namespace: None, name,
-            signature, required_capability: String::new() }
-    }
-    pub fn method(namespace: impl Into<String>, name: impl Into<String>, signature: ValueSignature) -> Self {
-        let namespace = namespace.into(); let name = name.into();
-        Self { id: format!("{namespace}.{name}"), namespace: Some(namespace), name, signature,
-            required_capability: String::new() }
-    }
-    pub fn id(mut self, id: impl Into<String>) -> Self { self.id = id.into(); self }
-    pub fn requires(mut self, capability: impl Into<String>) -> Self { self.required_capability = capability.into(); self }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CatalogErrorKind { DuplicateName, NameConflict, CapabilityMismatch }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CatalogError { pub kind: CatalogErrorKind, pub name: String, pub message: String }
-impl fmt::Display for CatalogError { fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.message) } }
-impl std::error::Error for CatalogError {}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ComponentOperationIds {
@@ -921,7 +891,6 @@ pub(crate) struct ComponentOperationIds {
 pub(crate) struct Catalog {
     pub component_name_policy: ComponentNamePolicy,
     pub components: HashMap<String, Arc<ComponentSpec>>,
-    pub canonical_components: Vec<Arc<ComponentSpec>>,
     pub component_operations: HashMap<String, Arc<ComponentOperationIds>>,
     pub apis: HashMap<String, Arc<HostApiSpec>>,
     pub api_operation_ids: HashMap<String, OperationId>,
@@ -936,90 +905,17 @@ impl Catalog {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RuntimeBuilder { catalog: Catalog }
-
-impl Default for RuntimeBuilder {
-    fn default() -> Self {
-        Self {
-            catalog: Catalog {
-                component_name_policy: ComponentNamePolicy::StrictRegistered,
-                components: HashMap::new(),
-                canonical_components: vec![],
-                apis: HashMap::new(),
-                component_operations: HashMap::new(),
-                api_operation_ids: HashMap::new(),
-                signals: HashMap::new(),
-                namespaces: HashSet::new(),
-                builtins: [
-                    "null",
-                    "range",
-                    "len",
-                    "query",
-                    "query_all",
-                    "on",
-                    "on_global",
-                    "Math",
-                    "MusicNote",
-                ]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            },
-        }
-    }
-}
-
-impl RuntimeBuilder {
-    pub fn new() -> Self { Self::default() }
-    pub fn component_name_policy(&mut self, policy: ComponentNamePolicy) -> &mut Self {
-        self.catalog.component_name_policy = policy; self
-    }
-    pub fn register_builtin(&mut self, name: impl Into<String>) -> Result<&mut Self, CatalogError> {
-        let name = name.into(); self.ensure_free(&name)?; self.catalog.builtins.insert(name); Ok(self)
-    }
-    pub fn register_component(&mut self, spec: ComponentSpec) -> Result<&mut Self, CatalogError> {
-        let spec = Arc::new(spec);
-        for name in std::iter::once(&spec.name).chain(&spec.aliases) { self.ensure_free(name)?; }
-        for name in std::iter::once(&spec.name).chain(&spec.aliases) {
-            self.catalog.components.insert(name.to_lowercase(), spec.clone());
-        }
-        self.catalog.canonical_components.push(spec); Ok(self)
-    }
-    pub fn register_host_api(&mut self, spec: HostApiSpec) -> Result<&mut Self, CatalogError> {
-        if let Some(namespace) = &spec.namespace {
-            if !self.catalog.namespaces.contains(namespace) { self.ensure_free(namespace)?; }
-            self.catalog.namespaces.insert(namespace.clone());
-        } else { self.ensure_free(&spec.name)?; }
-        let key = api_key(spec.namespace.as_deref(), &spec.name);
-        if self.catalog.apis.contains_key(&key) { return Err(duplicate(&key)); }
-        self.catalog.apis.insert(key, Arc::new(spec)); Ok(self)
-    }
-    fn ensure_free(&self, name: &str) -> Result<(), CatalogError> {
-        let lower = name.to_lowercase();
-        if self.catalog.components.contains_key(&lower) || self.catalog.builtins.iter().any(|v| v.eq_ignore_ascii_case(name))
-            || self.catalog.namespaces.iter().any(|v| v.eq_ignore_ascii_case(name))
-            || self.catalog.apis.values().any(|api| api.namespace.is_none() && api.name.eq_ignore_ascii_case(name)) {
-            return Err(duplicate(name));
-        } Ok(())
-    }
-    pub fn build(self) -> Runtime { Runtime::from_legacy_catalog(self.catalog) }
-}
-
-fn duplicate(name: &str) -> CatalogError { CatalogError { kind: CatalogErrorKind::DuplicateName, name: name.into(), message: format!("catalog name '{name}' is already registered") } }
 pub(crate) fn api_key(namespace: Option<&str>, name: &str) -> String { namespace.map_or_else(|| name.to_lowercase(), |ns| format!("{}.{}", ns.to_lowercase(), name.to_lowercase())) }
 
 #[derive(Debug, Clone)]
 pub struct Runtime {
     spec: Arc<RuntimeSpec>,
     pub(crate) catalog: Arc<Catalog>,
-    check_host_capabilities: bool,
 }
 impl Runtime {
-    pub fn builder() -> RuntimeBuilder { RuntimeBuilder::new() }
     pub fn from_spec(spec: RuntimeSpec) -> Self {
         let catalog = compile_catalog(&spec);
-        Self { spec: Arc::new(spec), catalog: Arc::new(catalog), check_host_capabilities: false }
+        Self { spec: Arc::new(spec), catalog: Arc::new(catalog) }
     }
     pub fn standard() -> Self {
         let mut builder = RuntimeSpec::builder::<()>();
@@ -1059,100 +955,16 @@ impl Runtime {
             HashMap::new(),
             self.catalog.clone(),
             &mut context,
+            None,
+            HashMap::new(),
         );
         evaluator.materialize(component)
     }
-    pub fn session<H: Host>(&self, host: H) -> Result<Session<H>, CatalogError> {
-        if self.check_host_capabilities {
-            check_capabilities(&self.catalog, &host.capabilities())?;
-        }
+    pub fn session<H: Host>(&self, host: H) -> Session<H> {
         let tag = NEXT_SESSION_TAG.fetch_add(1, Ordering::Relaxed);
-        Ok(Session { runtime: self.clone(), host, scopes: vec![HashMap::from([("null".into(), Value::Null)])],
-            heap: HeapHandle::new(), callbacks: HashMap::new(), context: HostContext::new(tag) })
-    }
-
-    fn from_legacy_catalog(catalog: Catalog) -> Self {
-        let components = catalog
-            .canonical_components
-            .iter()
-            .map(|component| ComponentDeclaration {
-                name: component.name.clone(),
-                default_constructor: ImplementationTarget::Pure,
-                aliases: component.aliases.clone(),
-                body_mode: ComponentBodyMode::Standard,
-                constructors: component
-                    .constructors
-                    .iter()
-                    .map(|(name, signature)| CallableDeclaration {
-                        name: name.clone(),
-                        signature: signature.clone(),
-                        target: ImplementationTarget::Pure,
-                    })
-                    .collect(),
-                builder_calls: component
-                    .builder_calls
-                    .iter()
-                    .map(|(name, signature)| CallableDeclaration {
-                        name: name.clone(),
-                        signature: signature.clone(),
-                        target: ImplementationTarget::Pure,
-                    })
-                    .collect(),
-                positionals: component.positional.clone(),
-                properties: component
-                    .properties
-                    .iter()
-                    .map(|(name, value_type)| PropertyDeclaration {
-                        name: name.clone(),
-                        value_type: value_type.clone(),
-                        target: ImplementationTarget::Pure,
-                    })
-                    .collect(),
-                methods: component
-                    .methods
-                    .iter()
-                    .map(|(name, signature)| CallableDeclaration {
-                        name: name.clone(),
-                        signature: signature.clone(),
-                        target: ImplementationTarget::Pure,
-                    })
-                    .collect(),
-            })
-            .collect();
-        let builtins = catalog
-            .builtins
-            .iter()
-            .map(|name| BuiltinDeclaration {
-                name: name.clone(),
-                signature: ValueSignature::any(),
-                target: ImplementationTarget::Pure,
-            })
-            .collect();
-        let apis = catalog
-            .apis
-            .values()
-            .enumerate()
-            .map(|(index, api)| ApiDeclaration {
-                namespace: api.namespace.clone(),
-                name: api.name.clone(),
-                signature: api.signature.clone(),
-                operation_id: OperationId(
-                    u32::try_from(index + 1).expect("legacy API count exceeds operation ID space"),
-                ),
-            })
-            .collect();
-        let spec = RuntimeSpec {
-            component_name_policy: catalog.component_name_policy,
-            components,
-            builtins,
-            apis,
-            signals: vec![],
-        };
-        Self {
-            spec: Arc::new(spec),
-            catalog: Arc::new(catalog),
-            check_host_capabilities: true,
-        }
+        Session { runtime: self.clone(), host, scopes: vec![HashMap::from([("null".into(), Value::Null)])],
+            heap: HeapHandle::new(), callbacks: HashMap::new(), module_cache: HashMap::new(),
+            context: HostContext::new(tag) }
     }
 }
 
@@ -1160,7 +972,6 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
     let mut catalog = Catalog {
         component_name_policy: spec.component_name_policy,
         components: HashMap::new(),
-        canonical_components: vec![],
         apis: HashMap::new(),
         namespaces: HashSet::new(),
         component_operations: HashMap::new(),
@@ -1207,41 +1018,22 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
             properties: declaration.properties.iter().map(|item| (item.name.clone(), item.value_type.clone())).collect(),
             positional: declaration.positionals.clone(),
             methods: declaration.methods.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
-            required_capability: None, normalize: None, validate: None,
         });
         for name in std::iter::once(&component.name).chain(&component.aliases) {
             catalog.components.insert(name.to_lowercase(), component.clone());
             catalog.component_operations.insert(name.to_lowercase(), operations.clone());
         }
-        catalog.canonical_components.push(component);
     }
     for declaration in &spec.apis {
         if let Some(namespace) = &declaration.namespace { catalog.namespaces.insert(namespace.clone()); }
         let id = api_key(declaration.namespace.as_deref(), &declaration.name);
         catalog.api_operation_ids.insert(id.clone(), declaration.operation_id);
-        catalog.apis.insert(id.clone(), Arc::new(HostApiSpec { id, namespace: declaration.namespace.clone(),
-            name: declaration.name.clone(), signature: declaration.signature.clone(), required_capability: String::new() }));
+        catalog.apis.insert(id.clone(), Arc::new(HostApiSpec {
+            id,
+            signature: declaration.signature.clone(),
+        }));
     }
     catalog
-}
-
-fn check_capabilities(catalog: &Catalog, host: &HostCapabilities) -> Result<(), CatalogError> {
-    for component in &catalog.canonical_components {
-        if !host.components.contains(&component.name.to_lowercase()) {
-            return Err(CatalogError { kind: CatalogErrorKind::CapabilityMismatch, name: component.name.clone(),
-                message: format!("host does not support component '{}'", component.name) });
-        }
-        if let Some(capability) = &component.required_capability {
-            if !host.component_operations.contains(capability) { return Err(CatalogError { kind: CatalogErrorKind::CapabilityMismatch,
-                name: capability.clone(), message: format!("host is missing component capability '{capability}'") }); }
-        }
-    }
-    for api in catalog.apis.values() {
-        let required = if api.required_capability.is_empty() { &api.id } else { &api.required_capability };
-        if !host.api_ids.contains(required) { return Err(CatalogError { kind: CatalogErrorKind::CapabilityMismatch,
-            name: required.clone(), message: format!("host is missing API capability '{required}'") }); }
-    }
-    Ok(())
 }
 
 pub struct Session<H: Host> {
@@ -1250,45 +1042,104 @@ pub struct Session<H: Host> {
     pub(crate) scopes: Vec<HashMap<String, Value>>,
     pub(crate) heap: HeapHandle,
     pub(crate) callbacks: HashMap<CallbackHandle, Value>,
+    module_cache: HashMap<crate::SourceId, Value>,
     pub(crate) context: HostContext,
 }
 
 impl<H: Host> Session<H> {
-    /// Preserve this session's lexical state, callbacks, heap, and handle
-    /// ownership while replacing the host used for subsequent effects.
+    /// Temporarily service this session through another host.
     ///
-    /// This is intended for embedders whose live host borrows application
-    /// state only while evaluation or callback work is actively running.
-    pub fn rebind_host<N: Host>(self, host: N) -> Session<N> {
-        Session {
-            runtime: self.runtime,
+    /// The active session is scoped to `service` and cannot escape it. Once
+    /// the closure returns, the original host is restored while lexical
+    /// state, callbacks, heap identity, and handle ownership remain attached
+    /// to this session and its original runtime.
+    pub fn with_host<N: Host, R>(
+        self,
+        host: N,
+        service: impl FnOnce(&mut Session<N>) -> R,
+    ) -> (Self, R) {
+        let Session {
+            runtime,
+            host: parked_host,
+            scopes,
+            heap,
+            callbacks,
+            module_cache,
+            context,
+        } = self;
+        let mut active = Session {
+            runtime,
             host,
-            scopes: self.scopes,
-            heap: self.heap,
-            callbacks: self.callbacks,
-            context: self.context,
-        }
+            scopes,
+            heap,
+            callbacks,
+            module_cache,
+            context,
+        };
+        let result = service(&mut active);
+        let Session {
+            runtime,
+            host: _,
+            scopes,
+            heap,
+            callbacks,
+            module_cache,
+            context,
+        } = active;
+        (
+            Session {
+                runtime,
+                host: parked_host,
+                scopes,
+                heap,
+                callbacks,
+                module_cache,
+                context,
+            },
+            result,
+        )
     }
 
     pub fn eval(&mut self, source: &str) -> Result<Evaluation, EvalError> {
+        self.eval_with_source_id(source, None)
+    }
+
+    pub fn eval_with_source_id(
+        &mut self,
+        source: &str,
+        source_id: Option<crate::SourceId>,
+    ) -> Result<Evaluation, EvalError> {
         let scopes = std::mem::take(&mut self.scopes);
         let callbacks = std::mem::take(&mut self.callbacks);
+        let module_cache = std::mem::take(&mut self.module_cache);
         let mut evaluator = Evaluator::for_session(&mut self.host, scopes, self.heap.clone(), callbacks,
-            self.runtime.catalog.clone(), &mut self.context);
+            self.runtime.catalog.clone(), &mut self.context, source_id, module_cache);
         let result = evaluator.evaluate(source);
-        let (scopes, callbacks) = evaluator.into_session_state();
-        self.scopes = scopes; self.callbacks = callbacks; result
+        let (scopes, callbacks, module_cache) = evaluator.into_session_state();
+        self.scopes = scopes; self.callbacks = callbacks; self.module_cache = module_cache; result
     }
     pub fn invoke_callback(&mut self, handle: CallbackHandle, args: Vec<Value>) -> Result<Value, EvalError> {
-        if !self.context.owns_callback(handle) { return Err(EvalError::Runtime(format!("stale or foreign callback {handle:?}"))); }
-        let callback = self.callbacks.get(&handle).cloned().ok_or_else(|| EvalError::Runtime(format!("unknown callback {handle:?}")))?;
+        if !self.context.owns_callback(handle) {
+            return Err(crate::HostError {
+                kind: crate::HostErrorKind::ForeignHandle,
+                operation: "invoke_callback".into(),
+                message: format!("callback handle {handle:?} belongs to another session"),
+            }.into());
+        }
+        let callback = self.callbacks.get(&handle).cloned().ok_or_else(|| crate::HostError {
+            kind: crate::HostErrorKind::StaleHandle,
+            operation: "invoke_callback".into(),
+            message: format!("callback handle {handle:?} is no longer retained by this session"),
+        })?;
         let scopes = std::mem::take(&mut self.scopes); let callbacks = std::mem::take(&mut self.callbacks);
+        let module_cache = std::mem::take(&mut self.module_cache);
         let mut evaluator = Evaluator::for_session(&mut self.host, scopes, self.heap.clone(), callbacks,
-            self.runtime.catalog.clone(), &mut self.context);
+            self.runtime.catalog.clone(), &mut self.context, None, module_cache);
         let result = evaluator.invoke_value(callback, args);
-        let (scopes, callbacks) = evaluator.into_session_state();
+        let (scopes, callbacks, module_cache) = evaluator.into_session_state();
         self.scopes = scopes;
         self.callbacks = callbacks;
+        self.module_cache = module_cache;
         result
     }
     pub fn invoke_callback_invocation(
@@ -1296,10 +1147,14 @@ impl<H: Host> Session<H> {
         invocation: crate::CallbackInvocation,
     ) -> Result<Value, EvalError> {
         if !self.context.owns_callback(invocation.callback) {
-            return Err(EvalError::Runtime(format!(
-                "stale or foreign callback {:?}",
-                invocation.callback
-            )));
+            return Err(crate::HostError {
+                kind: crate::HostErrorKind::ForeignHandle,
+                operation: "invoke_callback".into(),
+                message: format!(
+                    "callback handle {:?} belongs to another session",
+                    invocation.callback
+                ),
+            }.into());
         }
         for argument in &invocation.args {
             adopt_transport_components(&mut self.context, argument);
@@ -1345,13 +1200,11 @@ mod tests {
     use crate::{EventStreamHost, HostError, HostRequest, HostResponse, TransportValue};
 
     struct FixedHandleHost {
-        capabilities: HostCapabilities,
         handle: crate::ComponentHandle,
         requests: Vec<HostRequest>,
     }
 
     impl crate::Host for FixedHandleHost {
-        fn capabilities(&self) -> HostCapabilities { self.capabilities.clone() }
         fn dispatch_with_context(&mut self, _context: &mut HostContext, request: HostRequest) -> Result<HostResponse, HostError> {
             self.requests.push(request.clone());
             match request {
@@ -1371,27 +1224,41 @@ mod tests {
         }
     }
 
-    fn runtime() -> Runtime {
-        let mut builder = Runtime::builder();
-        builder.register_component(ComponentSpec::new("Panel").alias("panel")
-            .constructor("new", ValueSignature::new(vec![ValueType::Number], ValueType::Component))
-            .property("title", ValueType::String)
-            .method("show", ValueSignature::new(vec![], ValueType::Null))
-            .normalize_with(|tree| { tree.component_type = "Panel".into(); Ok(()) })).unwrap();
-        builder.register_host_api(HostApiSpec::method("log", "write",
-            ValueSignature::new(vec![ValueType::String], ValueType::Null)).requires("log.write")).unwrap();
-        builder.register_host_api(HostApiSpec::method("sink", "write",
-            ValueSignature::new(vec![ValueType::Any], ValueType::Null)).requires("sink.write")).unwrap();
-        builder.build()
-    }
-
-    fn capabilities() -> HostCapabilities {
-        HostCapabilities::default().supports_component("Panel").supports_api("log.write").supports_api("sink.write")
+    fn runtime() -> ConfiguredRuntime<()> {
+        let mut builder = RuntimeSpec::builder();
+        builder.with_standard_builtins();
+        builder.host_component("Panel", (), |component| {
+            component
+                .host_constructor(
+                    "new",
+                    ValueSignature::new(vec![ValueType::Number], ValueType::Component),
+                    (),
+                )
+                .host_property("title", ValueType::String, ())
+                .method("show", ValueSignature::new(vec![], ValueType::Null), ());
+        });
+        builder.namespace("log", |namespace| {
+            namespace.api(
+                "write",
+                ValueSignature::new(vec![ValueType::String], ValueType::Null),
+                (),
+            );
+        });
+        builder.namespace("sink", |namespace| {
+            namespace.api(
+                "write",
+                ValueSignature::new(vec![ValueType::Any], ValueType::Null),
+                (),
+            );
+        });
+        builder.signal("Click", Vec::<(String, ValueType)>::new(), ());
+        builder.build().unwrap()
     }
 
     #[test]
     fn catalog_parses_lowercase_aliases_and_issues_handles() {
-        let mut session = runtime().session(EventStreamHost::new(capabilities())).unwrap();
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
         session.eval("panel.new(2) { title = \"hello\" }").unwrap();
         let crate::HostEvent::Emit { handle, tree } = &session.host().events[0] else { panic!() };
         assert!(session.context().owns_component(*handle));
@@ -1401,8 +1268,9 @@ mod tests {
     #[test]
     fn emitted_component_identity_comes_from_host_response() {
         let handle = crate::ComponentHandle::from_raw(0xfeed_face);
-        let host = FixedHandleHost { capabilities: capabilities(), handle, requests: vec![] };
-        let mut session = runtime().session(host).unwrap();
+        let host = FixedHandleHost { handle, requests: vec![] };
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(host);
         let result = session.eval("panel.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(result.value, Some(Value::ComponentObject { id: handle, component_type: "Panel".into() }));
         assert!(session.context().owns_component(handle));
@@ -1411,20 +1279,22 @@ mod tests {
 
     #[test]
     fn materializes_component_without_host_session() {
-        let tree = runtime().materialize_component("panel.new(2) { title = \"hello\" }").unwrap();
+        let runtime = runtime();
+        let tree = runtime.runtime().materialize_component("panel.new(2) { title = \"hello\" }").unwrap();
         assert_eq!(tree.component_type, "Panel");
         let constructor = &tree.constructor;
         assert_eq!(constructor.name.as_deref(), Some("new"));
-        assert_eq!(constructor.operation_id, None);
+        assert!(constructor.operation_id.is_some());
         assert_eq!(constructor.arguments, vec![Value::Number(2.0)]);
         assert_eq!(tree.properties[0].name, "title");
-        assert_eq!(tree.properties[0].operation_id, None);
+        assert!(tree.properties[0].operation_id.is_some());
         assert_eq!(tree.properties[0].value, Value::String("hello".into()));
     }
 
     #[test]
     fn bindings_and_table_identity_persist_between_evaluations() {
-        let mut session = runtime().session(EventStreamHost::new(capabilities())).unwrap();
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
         session.eval("let table = { value = 1 }; let alias = table").unwrap();
         session.eval("alias[\"value\"] = 9").unwrap();
         let result = session.eval("table[\"value\"]").unwrap();
@@ -1433,27 +1303,29 @@ mod tests {
 
     #[test]
     fn namespace_api_is_transport_safe() {
-        let mut session = runtime().session(EventStreamHost::new(capabilities())).unwrap();
+        let runtime = runtime();
+        let api_id = runtime
+            .spec()
+            .api(Some("log"), "write")
+            .unwrap()
+            .operation_id();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
         session.eval("log.write(\"hello\")").unwrap();
-        assert!(matches!(&session.host().events[0], crate::HostEvent::Api { id, args }
-            if id == "log.write" && args == &vec![TransportValue::String("hello".into())]));
+        assert!(matches!(&session.host().events[0], crate::HostEvent::ApiById { operation_id, args }
+            if *operation_id == api_id && args == &vec![TransportValue::String("hello".into())]));
     }
 
     #[test]
-    fn duplicate_and_capability_failures_are_typed() {
-        let mut builder = Runtime::builder();
-        builder.register_component(ComponentSpec::new("Panel")).unwrap();
-        assert_eq!(builder.register_component(ComponentSpec::new("panel")).unwrap_err().kind, CatalogErrorKind::DuplicateName);
-        let error = match builder.build().session(EventStreamHost::new(HostCapabilities::default())) {
-            Err(error) => error,
-            Ok(_) => panic!("expected capability mismatch"),
-        };
-        assert_eq!(error.kind, CatalogErrorKind::CapabilityMismatch);
+    fn duplicate_runtime_spec_names_are_typed() {
+        let mut builder = RuntimeSpec::builder::<()>();
+        builder.component("Panel", |_| {}).component("panel", |_| {});
+        assert_eq!(builder.build().unwrap_err().kind, RuntimeSpecErrorKind::NameConflict);
     }
 
     #[test]
     fn suggestions_and_schema_validation_are_reported() {
-        let mut session = runtime().session(EventStreamHost::new(capabilities())).unwrap();
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
         let error = session.eval("panel.neew(2)").unwrap_err().to_string();
         assert!(error.contains("did you mean 'new'"), "{error}");
         let error = session.eval("panel.new(\"bad\")").unwrap_err().to_string();
@@ -1462,7 +1334,8 @@ mod tests {
 
     #[test]
     fn host_boundary_rejects_cyclic_tables() {
-        let mut session = runtime().session(EventStreamHost::new(capabilities())).unwrap();
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
         session.eval("let table = { label = \"root\" }; table[\"self\"] = table").unwrap();
         let error = session.eval("sink.write(table)").unwrap_err().to_string();
         assert!(error.contains("cyclic table"), "{error}");
@@ -1470,7 +1343,8 @@ mod tests {
 
     #[test]
     fn dotted_unknown_component_suggests_registered_names() {
-        let mut session = runtime().session(EventStreamHost::new(capabilities())).unwrap();
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
         let error = session.eval("panal.new(2)").unwrap_err().to_string();
         assert!(error.contains("did you mean 'panel'"), "{error}");
     }
@@ -1585,11 +1459,10 @@ mod tests {
 
         let show_id = panel.method("show").unwrap().operation_id().unwrap();
         let host = FixedHandleHost {
-            capabilities: HostCapabilities::default(),
             handle: crate::ComponentHandle::from_raw(7),
             requests: Vec::new(),
         };
-        let mut session = build.runtime().session(host).unwrap();
+        let mut session = build.runtime().session(host);
         session.eval("query(\"#panel\").show()").unwrap();
         assert!(matches!(
             session.host().requests.last(),
@@ -1615,6 +1488,25 @@ mod tests {
         let error = builder.build().unwrap_err();
         assert_eq!(error.kind, RuntimeSpecErrorKind::NameConflict);
         assert_eq!(error.path, "Panel.alias(panel)");
+    }
+
+    #[test]
+    fn runtime_spec_rejects_invalid_signatures_and_signal_fields_at_build_time() {
+        let mut builder = RuntimeSpec::builder::<()>();
+        builder.host_api(
+            "broken",
+            ValueSignature::with_optional(vec![ValueType::Number], 2, ValueType::Null),
+            (),
+        );
+        let error = builder.build().unwrap_err();
+        assert_eq!(error.kind, RuntimeSpecErrorKind::InvalidSignature);
+        assert_eq!(error.path, "broken");
+
+        let mut builder = RuntimeSpec::builder::<()>();
+        builder.signal("Click", vec![("bad.field".into(), ValueType::String)], ());
+        let error = builder.build().unwrap_err();
+        assert_eq!(error.kind, RuntimeSpecErrorKind::InvalidNesting);
+        assert_eq!(error.path, "signal(Click).field(bad.field)");
     }
 
     #[test]
@@ -1678,11 +1570,10 @@ mod tests {
         let configured = builder.build().unwrap();
         let click_id = configured.spec().signal("Click").unwrap().operation_id();
         let host = FixedHandleHost {
-            capabilities: HostCapabilities::default(),
             handle: crate::ComponentHandle::from_raw(7),
             requests: Vec::new(),
         };
-        let mut session = configured.runtime().session(host).unwrap();
+        let mut session = configured.runtime().session(host);
 
         session
             .eval("let button = Panel {}; on(button, \"Click\", fn(event) { return event })")
@@ -1721,13 +1612,13 @@ mod tests {
     }
 
     #[test]
-    fn rebinding_a_session_preserves_callback_state() {
+    fn a_scoped_host_lease_preserves_callback_state() {
         let host = FixedHandleHost {
-            capabilities: capabilities(),
             handle: crate::ComponentHandle::from_raw(42),
             requests: vec![],
         };
-        let mut session = runtime().session(host).unwrap();
+        let runtime = runtime();
+        let mut session = runtime.runtime().session(host);
         session
             .eval(
                 "let state = { value = 0 }; let panel = Panel {}; on(panel, \"Click\", fn(event) { state.value = state.value + 1; return state.value })",
@@ -1735,8 +1626,95 @@ mod tests {
             .unwrap();
         let callback = *session.callbacks.keys().next().unwrap();
 
-        let mut session = session.rebind_host(crate::Hostless);
-        assert_eq!(session.invoke_callback(callback, vec![Value::Null]).unwrap(), Value::Number(1.0));
-        assert_eq!(session.invoke_callback(callback, vec![Value::Null]).unwrap(), Value::Number(2.0));
+        let (session, values) = session.with_host(crate::Hostless, |session| {
+            [
+                session.invoke_callback(callback, vec![Value::Null]).unwrap(),
+                session.invoke_callback(callback, vec![Value::Null]).unwrap(),
+            ]
+        });
+        assert_eq!(values, [Value::Number(1.0), Value::Number(2.0)]);
+        assert!(session.context().owns_callback(callback));
+    }
+
+    #[test]
+    fn callback_invocation_distinguishes_foreign_and_stale_handles() {
+        let make_session = || {
+            runtime().runtime()
+                .session(FixedHandleHost {
+                    handle: crate::ComponentHandle::from_raw(42),
+                    requests: vec![],
+                })
+        };
+        let mut owner = make_session();
+        owner
+            .eval("let panel = Panel {}; on(panel, \"Click\", fn(event) {})")
+            .unwrap();
+        let callback = *owner.callbacks.keys().next().unwrap();
+
+        let mut other = make_session();
+        let EvalError::Host(error) = other.invoke_callback(callback, vec![]).unwrap_err() else {
+            panic!("expected a typed foreign callback error")
+        };
+        assert_eq!(error.kind, crate::HostErrorKind::ForeignHandle);
+
+        owner.callbacks.remove(&callback);
+        let EvalError::Host(error) = owner.invoke_callback(callback, vec![]).unwrap_err() else {
+            panic!("expected a typed stale callback error")
+        };
+        assert_eq!(error.kind, crate::HostErrorKind::StaleHandle);
+    }
+
+    #[test]
+    fn imports_are_resolved_by_the_host_against_the_importer_identity() {
+        #[derive(Default)]
+        struct SourceHost {
+            requests: Vec<(Option<crate::SourceId>, String)>,
+        }
+
+        impl crate::Host for SourceHost {
+            fn dispatch(
+                &mut self,
+                request: HostRequest,
+            ) -> Result<HostResponse, HostError> {
+                let HostRequest::LoadSource { importer, specifier } = request else {
+                    return Err(HostError::unsupported(request.operation_name()));
+                };
+                self.requests.push((importer.clone(), specifier.clone()));
+                match specifier.as_str() {
+                    "child.mms" => Ok(HostResponse::Source(crate::LoadedSource {
+                        identity: crate::SourceId::new("/virtual/child.mms"),
+                        source: "import { answer } from \"nested.mms\"; export let value = answer"
+                            .into(),
+                    })),
+                    "nested.mms" => Ok(HostResponse::Source(crate::LoadedSource {
+                        identity: crate::SourceId::new("/virtual/nested.mms"),
+                        source: "export let answer = 7".into(),
+                    })),
+                    _ => Err(HostError::failure("load_source", "unknown fixture")),
+                }
+            }
+        }
+
+        let mut session = Runtime::standard().session(SourceHost::default());
+        let evaluation = session
+            .eval_with_source_id(
+                "import { value } from \"child.mms\"; value",
+                Some(crate::SourceId::new("/virtual/root.mms")),
+            )
+            .unwrap();
+        assert_eq!(evaluation.value, Some(Value::Number(7.0)));
+        assert_eq!(
+            session.host().requests,
+            vec![
+                (
+                    Some(crate::SourceId::new("/virtual/root.mms")),
+                    "child.mms".into(),
+                ),
+                (
+                    Some(crate::SourceId::new("/virtual/child.mms")),
+                    "nested.mms".into(),
+                ),
+            ]
+        );
     }
 }

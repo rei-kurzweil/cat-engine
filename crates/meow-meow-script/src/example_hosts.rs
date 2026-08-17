@@ -3,8 +3,8 @@
 use std::io::Write;
 
 use crate::{
-    CallbackHandle, ComponentHandle, Host, HostCapabilities, HostContext, HostError, HostErrorKind,
-    HostRequest, HostResponse, MaterializedCE, OperationId, TransportValue,
+    CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest,
+    HostResponse, MaterializedCE, OperationId, TransportValue,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,22 +48,28 @@ pub enum HostEvent {
         id: String,
         args: Vec<TransportValue>,
     },
+    ApiById {
+        operation_id: OperationId,
+        args: Vec<TransportValue>,
+    },
 }
 
 /// An ordered in-memory event stream suitable for forwarding to a socket or
 /// message broker by an embedding application.
 #[derive(Debug, Clone)]
 pub struct EventStreamHost {
-    capabilities: HostCapabilities,
     pub events: Vec<HostEvent>,
 }
 
 impl EventStreamHost {
-    pub fn new(capabilities: HostCapabilities) -> Self { Self { capabilities, events: vec![] } }
+    pub fn new() -> Self { Self { events: vec![] } }
+}
+
+impl Default for EventStreamHost {
+    fn default() -> Self { Self::new() }
 }
 
 impl Host for EventStreamHost {
-    fn capabilities(&self) -> HostCapabilities { self.capabilities.clone() }
     fn dispatch_with_context(&mut self, context: &mut HostContext, request: HostRequest) -> Result<HostResponse, HostError> {
         let event = match request {
             HostRequest::Emit { tree } => {
@@ -134,8 +140,8 @@ impl Host for EventStreamHost {
                 }
             }
             HostRequest::CallApi { api_id, args } => HostEvent::Api { id: api_id, args },
-            HostRequest::CallApiById { operation_id, .. } => {
-                return Err(HostError::unsupported(format!("{operation_id:?}")));
+            HostRequest::CallApiById { operation_id, args } => {
+                HostEvent::ApiById { operation_id, args }
             }
             other => return Err(HostError::unsupported(other.operation_name())),
         };
@@ -154,13 +160,12 @@ pub struct JsonLinesHost<W: Write> {
 }
 
 impl<W: Write> JsonLinesHost<W> {
-    pub fn new(writer: W, capabilities: HostCapabilities) -> Self { Self { inner: EventStreamHost::new(capabilities), writer } }
+    pub fn new(writer: W) -> Self { Self { inner: EventStreamHost::new(), writer } }
     pub fn into_inner(self) -> W { self.writer }
     pub fn into_inner_ref(&self) -> &W { &self.writer }
 }
 
 impl<W: Write> Host for JsonLinesHost<W> {
-    fn capabilities(&self) -> HostCapabilities { self.inner.capabilities() }
     fn dispatch_with_context(&mut self, context: &mut HostContext, request: HostRequest) -> Result<HostResponse, HostError> {
         let response = self.inner.dispatch_with_context(context, request)?;
         let event = self.inner.events.last().expect("successful dispatch records an event");
@@ -246,6 +251,9 @@ fn event_json(event: &HostEvent) -> String {
             format!("signal={signal};callback={callback:?}"),
         ),
         HostEvent::Api { id, .. } => ("api", None, format!("id={id}")),
+        HostEvent::ApiById { operation_id, .. } => {
+            ("api", None, format!("operation_id={operation_id:?}"))
+        }
     };
     format!("{{\"operation\":\"{}\",\"handle\":{},\"detail\":\"{}\"}}",
         escape(operation), handle.map_or_else(|| "null".into(), |h| h.into_raw().to_string()), escape(&detail))

@@ -3,7 +3,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::ast::{
-    BinOpKind, BlockStatement, ComponentExpression, ElseBranch, Expression, Statement, UnaryOpKind,
+    BinOpKind, BlockStatement, ComponentExpression, ElseBranch, Expression, ImportItem, Statement,
+    UnaryOpKind,
 };
 use crate::host::{CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest, HostResponse, TransportValue};
 use crate::object::{
@@ -11,7 +12,7 @@ use crate::object::{
     MaterializedProperty, Object, ObjectId, RuntimeClosure, Value,
 };
 use crate::runtime::{Catalog, ComponentNamePolicy, SignalDeclaration, ValueSignature, api_key};
-use crate::{MeowMeowParser, MeowMeowTokenizer};
+use crate::{MeowMeowParser, MeowMeowTokenizer, SourceId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvalError {
@@ -63,6 +64,9 @@ pub struct Evaluator<'a, H: Host> {
     callbacks: HashMap<CallbackHandle, Value>,
     catalog: Option<Arc<Catalog>>,
     context: Option<&'a mut HostContext>,
+    source_id: Option<SourceId>,
+    module_cache: HashMap<SourceId, Value>,
+    module_depth: usize,
 }
 
 impl<'a, H: Host> Evaluator<'a, H> {
@@ -77,6 +81,9 @@ impl<'a, H: Host> Evaluator<'a, H> {
             callbacks: HashMap::new(),
             catalog: None,
             context: None,
+            source_id: None,
+            module_cache: HashMap::new(),
+            module_depth: 0,
         }
     }
 
@@ -87,33 +94,23 @@ impl<'a, H: Host> Evaluator<'a, H> {
         callbacks: HashMap<CallbackHandle, Value>,
         catalog: Arc<Catalog>,
         context: &'a mut HostContext,
+        source_id: Option<SourceId>,
+        module_cache: HashMap<SourceId, Value>,
     ) -> Self {
-        Self { host, scopes, emitted: vec![], heap, callbacks, catalog: Some(catalog), context: Some(context) }
+        Self { host, scopes, emitted: vec![], heap, callbacks, catalog: Some(catalog), context: Some(context),
+            source_id, module_cache, module_depth: 0 }
     }
 
-    pub(crate) fn into_session_state(self) -> (Vec<HashMap<String, Value>>, HashMap<CallbackHandle, Value>) {
-        (self.scopes, self.callbacks)
+    pub(crate) fn into_session_state(self) -> (
+        Vec<HashMap<String, Value>>,
+        HashMap<CallbackHandle, Value>,
+        HashMap<SourceId, Value>,
+    ) {
+        (self.scopes, self.callbacks, self.module_cache)
     }
 
     pub fn evaluate(&mut self, source: &str) -> Result<Evaluation, EvalError> {
-        let tokens = MeowMeowTokenizer::new(source)
-            .tokenize()
-            .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
-        let parser = if let Some(catalog) = &self.catalog {
-            match catalog.component_name_policy {
-                ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names(
-                    tokens,
-                    catalog.components.keys().cloned(),
-                ),
-                ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names(
-                    tokens,
-                    catalog.components.keys().cloned(),
-                ),
-            }
-        } else { MeowMeowParser::new(tokens) };
-        let statements = parser
-            .parse_program()
-            .map_err(|e| EvalError::Parse(e.message))?;
+        let statements = self.parse(source)?;
         let mut value = None;
         for statement in &statements {
             if let Statement::Expression(expression) = statement {
@@ -143,6 +140,27 @@ impl<'a, H: Host> Evaluator<'a, H> {
         })
     }
 
+    fn parse(&self, source: &str) -> Result<Vec<Statement>, EvalError> {
+        let tokens = MeowMeowTokenizer::new(source)
+            .tokenize()
+            .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
+        let parser = if let Some(catalog) = &self.catalog {
+            match catalog.component_name_policy {
+                ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names(
+                    tokens,
+                    catalog.components.keys().cloned(),
+                ),
+                ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names(
+                    tokens,
+                    catalog.components.keys().cloned(),
+                ),
+            }
+        } else { MeowMeowParser::new(tokens) };
+        parser
+            .parse_program()
+            .map_err(|e| EvalError::Parse(e.message))
+    }
+
     fn eval_block(&mut self, block: &BlockStatement) -> Result<Flow, EvalError> {
         self.scopes.push(HashMap::new());
         let result = (|| {
@@ -162,7 +180,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
         match statement {
             Statement::Assignment(assignment) => {
                 let value = self.eval_expr(&assignment.value)?;
-                let value = self.register_live_component_value(value)?;
+                let value = if self.module_depth == 0 {
+                    self.register_live_component_value(value)?
+                } else {
+                    value
+                };
                 self.scopes
                     .last_mut()
                     .unwrap()
@@ -235,7 +257,9 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 let value = self.eval_expr(expression)?;
                 if let Value::ComponentExpr(tree) = value {
                     let tree = *tree;
-                    self.emit_component(tree.clone())?;
+                    if self.module_depth == 0 {
+                        self.emit_component(tree.clone())?;
+                    }
                     self.emitted.push(tree);
                 } else if let Value::ComponentObject { id, .. } = value {
                     self.dispatch(HostRequest::Attach {
@@ -298,10 +322,93 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
             Statement::Break => Ok(Flow::Break),
             Statement::Continue => Ok(Flow::LoopContinue),
-            Statement::Import { .. } => Err(EvalError::Runtime(
-                "filesystem imports require a capable host".into(),
-            )),
+            Statement::Import { items, path } => self.eval_import(items, path),
         }
+    }
+
+    fn eval_import(&mut self, items: &[ImportItem], specifier: &str) -> Result<Flow, EvalError> {
+        let response = self.dispatch(HostRequest::LoadSource {
+            importer: self.source_id.clone(),
+            specifier: specifier.into(),
+        })?;
+        let HostResponse::Source(loaded) = response else {
+            return Err(EvalError::Host(HostError {
+                kind: HostErrorKind::InvalidRequest,
+                operation: "load_source".into(),
+                message: "host returned a non-source response".into(),
+            }));
+        };
+        let module = if let Some(module) = self.module_cache.get(&loaded.identity).cloned() {
+            module
+        } else {
+            let identity = loaded.identity.clone();
+            let module = self.eval_module_source(&loaded.source, identity.clone())?;
+            self.module_cache.insert(identity, module.clone());
+            module
+        };
+        let Value::Module { named, sequence, .. } = module else {
+            unreachable!("module cache contains only module values")
+        };
+        for item in items {
+            let (local, value) = match item {
+                ImportItem::Named(name) => (name.0.clone(), named.get(&name.0).cloned()),
+                ImportItem::NamedAlias { name, alias } => {
+                    (alias.0.clone(), named.get(&name.0).cloned())
+                }
+                ImportItem::PositionalAlias { index, alias } => (
+                    alias.0.clone(),
+                    sequence
+                        .get(*index)
+                        .cloned()
+                        .map(|tree| Value::ComponentExpr(Box::new(tree))),
+                ),
+            };
+            let value = value.ok_or_else(|| {
+                EvalError::Runtime(format!(
+                    "import item for '{local}' is unavailable from '{specifier}'"
+                ))
+            })?;
+            self.scopes.last_mut().unwrap().insert(local, value);
+        }
+        Ok(Flow::Continue)
+    }
+
+    fn eval_module_source(&mut self, source: &str, identity: SourceId) -> Result<Value, EvalError> {
+        let statements = self.parse(source)?;
+        let previous_source = self.source_id.replace(identity);
+        self.module_depth += 1;
+        self.scopes.push(HashMap::new());
+        let emitted_start = self.emitted.len();
+        let result = (|| {
+            let mut named = HashMap::new();
+            for statement in &statements {
+                self.eval_statement(statement)?;
+                if let Statement::Assignment(assignment) = statement
+                    && assignment.exported
+                {
+                    let value = self.lookup(&assignment.name.0).cloned().ok_or_else(|| {
+                        EvalError::Runtime(format!(
+                            "export '{}' was not bound",
+                            assignment.name.0
+                        ))
+                    })?;
+                    named.insert(assignment.name.0.clone(), value);
+                }
+            }
+            let sequence = self.emitted.split_off(emitted_start);
+            Ok(Value::Module {
+                named,
+                sequence,
+                heap: self.heap.clone(),
+            })
+        })();
+        if result.is_err() {
+            self.emitted.truncate(emitted_start);
+        }
+        self.scopes.pop();
+        self.module_depth -= 1;
+        self.source_id = previous_source;
+        result
     }
 
     fn eval_expr(&mut self, expression: &Expression) -> Result<Value, EvalError> {
@@ -421,6 +528,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     "query returned multiple components".into(),
                 )),
                 HostResponse::Transport(value) => transport_to_value(value),
+                HostResponse::Source(_) => Err(EvalError::Host(HostError {
+                    kind: HostErrorKind::InvalidRequest,
+                    operation: "query".into(),
+                    message: "host returned source data for a query".into(),
+                })),
             };
         }
         if matches!(op, BinOpKind::Dot) {
@@ -830,8 +942,6 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 let Some(ty) = spec.positional.get(index) else { return Err(EvalError::Runtime(format!("component '{}' does not accept positional value {}", spec.name, index + 1))); };
                 if !ty.accepts(value) { return Err(EvalError::Runtime(format!("positional value {} for '{}' has the wrong type", index + 1, spec.name))); }
             }
-            if let Some(normalize) = &spec.normalize { normalize(&mut tree).map_err(EvalError::Runtime)?; }
-            if let Some(validate) = &spec.validate { validate(&mut tree).map_err(EvalError::Runtime)?; }
         }
         Ok(tree)
     }
@@ -947,6 +1057,8 @@ fn response_to_query_value(response: HostResponse) -> Result<Value, EvalError> {
         HostResponse::Component { handle, component_type } => Ok(Value::ComponentObject { id: handle, component_type }),
         HostResponse::Components(values) => Ok(Value::Array(values.into_iter().map(|(id, component_type)| Value::ComponentObject { id, component_type }).collect())),
         HostResponse::Value(value) => Ok(value), HostResponse::Transport(value) => transport_to_value(value), HostResponse::Unit => Ok(Value::Null),
+        HostResponse::Source(_) => Err(EvalError::Host(HostError { kind: HostErrorKind::InvalidRequest,
+            operation: "query".into(), message: "host returned source data for a query".into() })),
     }
 }
 

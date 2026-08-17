@@ -1,7 +1,7 @@
 use meow_meow_script::{CeChild, Runner, Value};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut runner = Runner::standard()?;
+    let mut runner = Runner::standard();
 
     runner.eval(
         r#"

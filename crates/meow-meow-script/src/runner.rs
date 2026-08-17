@@ -1,6 +1,4 @@
-use crate::{
-    CatalogError, EvalError, Evaluation, Evaluator, Host, Hostless, Runtime, Session, StandardHost,
-};
+use crate::{EvalError, Evaluation, Evaluator, Host, Hostless, Runtime, Session, StandardHost};
 
 /// Generic runner façade. Its private synchronous session is an initial
 /// standalone implementation; the persistent worker can replace it without
@@ -10,10 +8,10 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub fn standard() -> Result<Self, CatalogError> {
-        Ok(Self {
-            session: Runtime::standard().session(StandardHost::new())?,
-        })
+    pub fn standard() -> Self {
+        Self {
+            session: Runtime::standard().session(StandardHost::new()),
+        }
     }
 
     pub fn eval(&mut self, source: &str) -> Result<Evaluation, EvalError> {
@@ -92,7 +90,7 @@ mod tests {
 
     #[test]
     fn standard_runner_collects_open_component_output() {
-        let mut runner = Runner::standard().unwrap();
+        let mut runner = Runner::standard();
         runner.eval("SmokeRoot { SmokeChild {} }").unwrap();
 
         assert_eq!(runner.host().roots().len(), 1);

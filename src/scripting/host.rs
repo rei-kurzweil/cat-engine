@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use meow_meow_script as mms;
 use slotmap::{Key, KeyData};
 
-use crate::engine::ecs::component::AudioClipComponent;
 use crate::engine::ecs::{ComponentId, IntentValue, RxWorld, SignalEmitter, SignalKind, World};
 use crate::engine::graphics::RenderAssets;
 use crate::scripting::object as legacy;
@@ -104,7 +103,10 @@ impl<'a> MittensHost<'a> {
         signal: &crate::engine::ecs::Signal,
     ) -> Result<(), mms::HostError> {
         let Some(rx) = self.rx.as_deref_mut() else {
-            return Err(mms::HostError::unsupported("signal event dispatch"));
+            return Err(mms::HostError::unavailable(
+                "register_signal_handler",
+                "the current Mittens host lease has no signal routing service",
+            ));
         };
         rx.dispatch_event_handlers(self.world, signal);
         Ok(())
@@ -154,7 +156,10 @@ impl<'a> MittensHost<'a> {
         if self.signal_routes.is_none()
             && (self.rx.is_none() || self.callback_invocations.is_none())
         {
-            return Err(mms::HostError::unsupported("signal callback routing"));
+            return Err(mms::HostError::unavailable(
+                "register_signal_handler",
+                "the current Mittens host lease has no callback queue or Rx service",
+            ));
         }
         if let Some(routes) = self.signal_routes.as_deref_mut() {
             routes.push(SignalCallbackRoute {
@@ -190,14 +195,6 @@ impl<'a> MittensHost<'a> {
 }
 
 impl mms::Host for MittensHost<'_> {
-    fn capabilities(&self) -> mms::HostCapabilities {
-        crate::scripting::component_registry::SUPPORTED_COMPONENT_NAMES
-            .iter()
-            .fold(mms::HostCapabilities::default(), |capabilities, name| {
-                capabilities.supports_component(*name)
-            })
-    }
-
     fn dispatch_with_context(
         &mut self,
         context: &mut mms::HostContext,
@@ -471,29 +468,6 @@ impl mms::Host for MittensHost<'_> {
                 .map_err(|e| mms::HostError::failure("invoke_component_method", e))?;
                 Ok(S::Value(legacy_value_to_external(value)?))
             }
-            R::AudioClipInstance {
-                source,
-                start_beat,
-                stop_beat,
-            } => {
-                let source = self.existing_id(source, "audio_clip_instance")?;
-                let source = self
-                    .world
-                    .get_component_by_id_as::<AudioClipComponent>(source)
-                    .ok_or_else(|| {
-                        mms::HostError::failure("audio_clip_instance", "source is not an AudioClip")
-                    })?;
-                let mut clip = AudioClipComponent::instance_of(source);
-                if let Some(start) = start_beat {
-                    clip.start_beat = start;
-                }
-                clip.stop_beat = stop_beat;
-                let id = self.world.add_component(clip);
-                Ok(S::Component {
-                    handle: Self::component_handle(id),
-                    component_type: "AudioClip".into(),
-                })
-            }
             R::RegisterSignalHandler {
                 operation_id,
                 scope,
@@ -525,53 +499,42 @@ impl mms::Host for MittensHost<'_> {
                 name,
                 callback,
             } => self.record_signal_route(&signal, scope, name, callback),
-            R::AudioOperation {
-                operation,
-                target,
-                args,
-            } => {
-                let targets = target.into_iter().collect();
-                self.dispatch(R::EngineMutation {
-                    operation,
-                    targets,
-                    args,
-                })
-            }
-            R::EngineMutation {
-                operation,
-                targets,
-                args,
-            } => {
-                // The legacy engine still owns its concrete mutation enum. Route
-                // named operations through component-method dispatch where possible.
-                let Some(target) = targets.first().copied() else {
-                    return Err(mms::HostError::failure(
-                        &operation,
-                        "mutation requires a target",
-                    ));
+            R::LoadSource { importer, specifier } => {
+                let requested = std::path::Path::new(&specifier);
+                let path = if requested.is_absolute() {
+                    requested.to_path_buf()
+                } else {
+                    let importer = importer.as_ref().ok_or_else(|| mms::HostError {
+                        kind: mms::HostErrorKind::SourceFailure,
+                        operation: "load_source".into(),
+                        message: format!(
+                            "relative import '{specifier}' has no importer identity"
+                        ),
+                    })?;
+                    std::path::Path::new(importer.as_str())
+                        .parent()
+                        .ok_or_else(|| mms::HostError {
+                            kind: mms::HostErrorKind::SourceFailure,
+                            operation: "load_source".into(),
+                            message: format!("importer '{}' has no parent", importer.as_str()),
+                        })?
+                        .join(requested)
                 };
-                let id = self.existing_id(target, &operation)?;
-                let component_type = self
-                    .world
-                    .component_name(id)
-                    .unwrap_or("Component")
-                    .to_owned();
-                let args = args
-                    .into_iter()
-                    .map(external_value_to_legacy)
-                    .collect::<Result<Vec<_>, _>>()?;
-                let value = crate::scripting::component_method_registry::invoke_component_method(
-                    self.world,
-                    id,
-                    &component_type,
-                    &operation,
-                    &args,
-                    |intent| self.intents.push(intent),
-                )
-                .map_err(|e| mms::HostError::failure(&operation, e))?;
-                Ok(S::Value(legacy_value_to_external(value)?))
+                let path = path.canonicalize().map_err(|error| mms::HostError {
+                    kind: mms::HostErrorKind::SourceFailure,
+                    operation: "load_source".into(),
+                    message: format!("cannot resolve '{}': {error}", path.display()),
+                })?;
+                let source = std::fs::read_to_string(&path).map_err(|error| mms::HostError {
+                    kind: mms::HostErrorKind::SourceFailure,
+                    operation: "load_source".into(),
+                    message: format!("cannot read '{}': {error}", path.display()),
+                })?;
+                Ok(S::Source(mms::LoadedSource {
+                    identity: mms::SourceId::new(path.to_string_lossy()),
+                    source,
+                }))
             }
-            R::ReplTree { .. } | R::ReplDump { .. } | R::ReplHelp | R::ReplClear => Ok(S::Unit),
         }
     }
 }
@@ -849,7 +812,7 @@ mod tests {
             .with_bindings(configured.bindings())
             .with_rx(&mut rx)
             .with_callback_invocations(invocations);
-        let mut session = configured.runtime().session(host).unwrap();
+        let mut session = configured.runtime().session(host);
 
         session
             .eval(include_str!("../../examples/runtime-spec-smoke.mms"))
@@ -867,7 +830,7 @@ mod tests {
         let mut intents = Vec::new();
         let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
             .with_bindings(configured.bindings());
-        let mut session = configured.runtime().session(host).unwrap();
+        let mut session = configured.runtime().session(host);
 
         session.eval("Grid.spacing(1.0) {}").unwrap();
 
@@ -945,7 +908,7 @@ mod tests {
         let mut intents = Vec::new();
         let host = MittensHost::new(&mut world, &mut command_queue, &mut intents)
             .with_bindings(configured.bindings());
-        let mut session = configured.runtime().session(host).unwrap();
+        let mut session = configured.runtime().session(host);
 
         session.eval("query(\"#target\").translation()").unwrap();
 
@@ -974,7 +937,7 @@ mod tests {
             .with_signal_routes(&mut routes)
             .with_rx(&mut rx)
             .with_callback_invocations(Arc::clone(&invocations));
-        let mut session = configured.runtime().session(host).unwrap();
+        let mut session = configured.runtime().session(host);
 
         session
             .eval("on(query(\"#signal-root\"), \"Click\", fn(event) {})")
@@ -1017,7 +980,7 @@ mod tests {
             .with_signal_routes(&mut routes)
             .with_rx(&mut rx)
             .with_callback_invocations(Arc::clone(&invocations));
-        let mut session = configured.runtime().session(host).unwrap();
+        let mut session = configured.runtime().session(host);
 
         session
             .eval(

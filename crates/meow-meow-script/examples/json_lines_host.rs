@@ -1,12 +1,11 @@
 use meow_meow_script::{
-    ComponentSpec, HostApiSpec, HostCapabilities, JsonLinesHost, Runtime, ValueSignature,
-    ValueType,
+    ConfiguredRuntime, JsonLinesHost, RuntimeSpec, ValueSignature, ValueType,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = configured_runtime()?;
-    let host = JsonLinesHost::new(Vec::new(), configured_capabilities());
-    let mut session = runtime.session(host)?;
+    let host = JsonLinesHost::new(Vec::new());
+    let mut session = runtime.runtime().session(host);
 
     session.eval(
         r#"
@@ -24,31 +23,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn configured_runtime() -> Result<Runtime, Box<dyn std::error::Error>> {
-    let mut builder = Runtime::builder();
-    builder.register_component(
-        ComponentSpec::new("Button")
-            .alias("button")
-            .constructor(
+fn configured_runtime() -> Result<ConfiguredRuntime<&'static str>, Box<dyn std::error::Error>> {
+    let mut builder = RuntimeSpec::builder();
+    builder.with_standard_builtins();
+    builder.host_component("Button", "Button.default", |component| {
+        component
+            .host_constructor(
                 "new",
                 ValueSignature::new(vec![ValueType::String], ValueType::Component),
+                "Button.new",
             )
-            .property("label", ValueType::String)
-            .method("click", ValueSignature::new(vec![], ValueType::Null)),
-    )?;
-    builder.register_host_api(
-        HostApiSpec::method(
-            "audit",
+            .host_property("label", ValueType::String, "Button.label")
+            .method(
+                "click",
+                ValueSignature::new(vec![], ValueType::Null),
+                "Button.click",
+            );
+    });
+    builder.namespace("audit", |namespace| {
+        namespace.api(
             "write",
             ValueSignature::new(vec![ValueType::String], ValueType::Null),
-        )
-        .requires("audit.write"),
-    )?;
-    Ok(builder.build())
-}
-
-fn configured_capabilities() -> HostCapabilities {
-    HostCapabilities::default()
-        .supports_component("Button")
-        .supports_api("audit.write")
+            "audit.write",
+        );
+    });
+    Ok(builder.build()?)
 }

@@ -194,9 +194,50 @@ impl Host for StandardHost {
                 self.attachments.push(LocalAttachment { parent, child });
                 Ok(HostResponse::Unit)
             }
+            HostRequest::LoadSource { importer, specifier } => {
+                let path = resolve_source_path(importer.as_ref(), &specifier)?;
+                let source = std::fs::read_to_string(&path).map_err(|error| HostError {
+                    kind: HostErrorKind::SourceFailure,
+                    operation: "load_source".into(),
+                    message: format!("cannot read '{}': {error}", path.display()),
+                })?;
+                Ok(HostResponse::Source(crate::LoadedSource {
+                    identity: crate::SourceId::new(path.to_string_lossy()),
+                    source,
+                }))
+            }
             other => Err(HostError::unsupported(other.operation_name())),
         }
     }
+}
+
+fn resolve_source_path(
+    importer: Option<&crate::SourceId>,
+    specifier: &str,
+) -> Result<std::path::PathBuf, HostError> {
+    let requested = std::path::Path::new(specifier);
+    let path = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        let importer = importer.ok_or_else(|| HostError {
+            kind: HostErrorKind::SourceFailure,
+            operation: "load_source".into(),
+            message: format!("relative import '{specifier}' has no importer identity"),
+        })?;
+        std::path::Path::new(importer.as_str())
+            .parent()
+            .ok_or_else(|| HostError {
+                kind: HostErrorKind::SourceFailure,
+                operation: "load_source".into(),
+                message: format!("importer '{}' has no parent", importer.as_str()),
+            })?
+            .join(requested)
+    };
+    path.canonicalize().map_err(|error| HostError {
+        kind: HostErrorKind::SourceFailure,
+        operation: "load_source".into(),
+        message: format!("cannot resolve '{}': {error}", path.display()),
+    })
 }
 
 fn require_collected(
@@ -243,14 +284,14 @@ fn require_local_handle(
 mod tests {
     use super::*;
     use crate::{
-        CeChild, ComponentNamePolicy, EvalError, EventStreamHost, HostCapabilities, HostEvent,
-        Runtime, Value,
+        CeChild, ComponentNamePolicy, EvalError, EventStreamHost, HostEvent, Runtime, RuntimeSpec,
+        Value,
     };
 
     #[test]
     fn standard_runtime_collects_open_component_forest_in_authored_order() {
         let runtime = Runtime::standard();
-        let mut session = runtime.session(StandardHost::new()).unwrap();
+        let mut session = runtime.session(StandardHost::new());
 
         session
             .eval(
@@ -283,9 +324,10 @@ mod tests {
 
     #[test]
     fn strict_runtime_rejects_unregistered_component_names() {
-        let mut builder = Runtime::builder();
+        let mut builder = RuntimeSpec::builder::<()>();
         builder.component_name_policy(ComponentNamePolicy::StrictRegistered);
-        let mut session = builder.build().session(StandardHost::new()).unwrap();
+        let runtime = builder.build().unwrap();
+        let mut session = runtime.runtime().session(StandardHost::new());
 
         let EvalError::Runtime(message) = session.eval("UnknownComponent {}").unwrap_err() else {
             panic!("expected strict catalog validation error")
@@ -299,7 +341,7 @@ mod tests {
     #[test]
     fn standard_host_returns_typed_errors_for_engine_only_operations() {
         let runtime = Runtime::standard();
-        let mut session = runtime.session(StandardHost::new()).unwrap();
+        let mut session = runtime.session(StandardHost::new());
 
         let EvalError::Host(error) = session.eval("query(\"#engine\")").unwrap_err() else {
             panic!("expected typed host error")
@@ -311,8 +353,8 @@ mod tests {
     #[test]
     fn standard_runtime_accepts_a_custom_host_without_a_builder() {
         let runtime = Runtime::standard();
-        let host = EventStreamHost::new(HostCapabilities::default());
-        let mut session = runtime.session(host).unwrap();
+        let host = EventStreamHost::new();
+        let mut session = runtime.session(host);
 
         session.eval("CustomRoot { CustomChild {} }").unwrap();
 

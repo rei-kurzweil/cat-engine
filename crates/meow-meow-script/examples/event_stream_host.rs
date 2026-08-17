@@ -1,12 +1,11 @@
 use meow_meow_script::{
-    ComponentSpec, EventStreamHost, HostApiSpec, HostCapabilities, Runtime, ValueSignature,
-    ValueType,
+    ConfiguredRuntime, EventStreamHost, RuntimeSpec, ValueSignature, ValueType,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = configured_runtime()?;
-    let host = EventStreamHost::new(configured_capabilities());
-    let mut session = runtime.session(host)?;
+    let host = EventStreamHost::new();
+    let mut session = runtime.runtime().session(host);
 
     session.eval(
         r#"
@@ -28,35 +27,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn configured_runtime() -> Result<Runtime, Box<dyn std::error::Error>> {
-    let mut builder = Runtime::builder();
-    builder.register_component(
-        ComponentSpec::new("Panel")
-            .alias("panel")
-            .constructor(
+fn configured_runtime() -> Result<ConfiguredRuntime<&'static str>, Box<dyn std::error::Error>> {
+    let mut builder = RuntimeSpec::builder();
+    builder.with_standard_builtins();
+    builder.host_component("Panel", "Panel.default", |component| {
+        component
+            .host_constructor(
                 "new",
                 ValueSignature::new(vec![ValueType::Number], ValueType::Component),
+                "Panel.new",
             )
-            .property("title", ValueType::String)
-            .method("show", ValueSignature::new(vec![], ValueType::Null))
-            .normalize_with(|tree| {
-                tree.component_type = "Panel".to_string();
-                Ok(())
-            }),
-    )?;
-    builder.register_host_api(
-        HostApiSpec::method(
-            "telemetry",
+            .host_property("title", ValueType::String, "Panel.title")
+            .method(
+                "show",
+                ValueSignature::new(vec![], ValueType::Null),
+                "Panel.show",
+            );
+    });
+    builder.namespace("telemetry", |namespace| {
+        namespace.api(
             "record",
             ValueSignature::new(vec![ValueType::Any], ValueType::Null),
-        )
-        .requires("telemetry.record"),
-    )?;
-    Ok(builder.build())
-}
-
-fn configured_capabilities() -> HostCapabilities {
-    HostCapabilities::default()
-        .supports_component("Panel")
-        .supports_api("telemetry.record")
+            "telemetry.record",
+        );
+    });
+    Ok(builder.build()?)
 }

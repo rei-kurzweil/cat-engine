@@ -14,6 +14,7 @@ evaluation, sessions, and the host protocol.
 This is a coordinating roadmap. Detailed inventories and implementation notes
 remain in:
 
+- [Runtime cutover and legacy deletion](mms-mittens-runtime-cutover-and-legacy-deletion.md)
 - [MMS RuntimeSpec and MittensHost bindings](mms-runtime-spec-and-mittens-host-bindings.md)
 - [MMS evaluator deduplication](mms-evaluator-deduplication.md)
 - [Mittens host and MMS runtime boundary](../meow_meow/spec/mittens-host-and-runtime-boundary.md)
@@ -32,18 +33,32 @@ does not establish a stable crate boundary.
 
 ### 1. Harden the persistent-session boundary
 
-- [ ] Replace unrestricted host rebinding with a scoped host lease or an
+- [x] Replace unrestricted host rebinding with a scoped host lease or an
       equivalently constrained session API.
-- [ ] Make callback ownership by an originating session/runtime explicit and
+- [x] Make callback ownership by an originating session/runtime explicit and
       enforceable.
-- [ ] Serialize entry into a session and return a typed error when required
+- [x] Serialize entry into a session and return a typed error when required
       live host context is unavailable.
-- [ ] Decide which current session/callback types are stable public API and
+- [x] Decide which current session/callback types are stable public API and
       keep temporary Mittens frame-loop scaffolding internal where possible.
-- [ ] Do not implement terminal/socket attachment as part of this phase; use
+- [x] Do not implement terminal/socket attachment as part of this phase; use
       the attachable-session draft only to avoid closing off that design.
 
+The stable primitive is the MMS-owned `Session` plus its scoped `with_host`
+lease. Callback handles are accepted only by their originating session. The
+Mittens `RuntimeSpecSession` remains a private-state convenience driver around
+that contract; it does not define a second session model.
+
 ### 2. Cut the ordinary runner over
+
+Cutover probe (2026-08-16): routing the ordinary runner directly through the
+configured MMS evaluator passed 194 of 237 scripting tests. The durable blocker
+is lifecycle ownership: the ordinary `EvalOutput`-only facade currently has no
+place to retain the MMS `Session` that owns callbacks and module state after the
+initial evaluation returns. The ordinary path remains on the explicitly named
+legacy evaluator for now; no compatibility fallback was added. Remaining probe
+failures also identify component-signature and language-parity work for later
+vertical slices.
 
 - [ ] Make the ordinary `MeowMeowRunner` evaluation path use the crate-owned
       evaluator and its `ConfiguredRuntime` without requiring callers to opt
@@ -56,11 +71,11 @@ does not establish a stable crate boundary.
 
 ### 3. Remove parallel vocabulary and configuration surfaces
 
-- [ ] Derive or remove `HostCapabilities` rather than advertising a second
+- [x] Derive or remove `HostCapabilities` rather than advertising a second
       host schema beside `RuntimeSpec`.
 - [ ] Remove string-based component-method support checks and derive or remove
       `SUPPORTED_COMPONENT_NAMES` and similar lists.
-- [ ] Audit the flat `RuntimeBuilder`, `ComponentSpec`, and `HostApiSpec`
+- [x] Audit the flat `RuntimeBuilder`, `ComponentSpec`, and `HostApiSpec`
       surfaces; remove, deprecate, or clearly subordinate them so 0.8 does not
       stabilize two competing configuration systems.
 - [ ] Ensure implementation bindings contain behavior only, not copied names,
@@ -81,7 +96,7 @@ does not establish a stable crate boundary.
 
 ### 5. Validate and audit the contract
 
-- [ ] Reject duplicate or conflicting declarations, invalid nesting and body
+- [x] Reject duplicate or conflicting declarations, invalid nesting and body
       modes, unknown signature types, missing bindings, and orphan bindings.
 - [ ] Add generated consistency tests proving each effectful declaration has
       exactly one compatible binding.

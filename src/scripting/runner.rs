@@ -27,8 +27,8 @@ impl mms::Host for IdleMittensHost {}
 /// A crate-runtime MMS session retained between engine frames.
 ///
 /// The idle session owns script scopes, tables, and callbacks without
-/// borrowing the engine. `service_callbacks` temporarily rebinds it to a live
-/// Mittens host while queued signal callbacks are being evaluated.
+/// borrowing the engine. `service_callbacks` lends it a live Mittens host only
+/// for the duration of queued callback evaluation.
 pub struct RuntimeSpecSession {
     configured: crate::scripting::runtime_config::MittensRuntime,
     session: Option<mms::Session<IdleMittensHost>>,
@@ -54,12 +54,9 @@ impl RuntimeSpecSession {
         if let Some(render_assets) = render_assets {
             host = host.with_render_assets(render_assets);
         }
-        let mut session = configured
-            .runtime()
-            .session(host)
-            .map_err(|error| error.to_string())?;
-        session.eval(source).map_err(|error| error.to_string())?;
-        let session = session.rebind_host(IdleMittensHost);
+        let session = configured.runtime().session(IdleMittensHost);
+        let (session, evaluation) = session.with_host(host, |session| session.eval(source));
+        evaluation.map_err(|error| error.to_string())?;
 
         Ok((
             Self {
@@ -97,14 +94,16 @@ impl RuntimeSpecSession {
         if let Some(render_assets) = render_assets {
             host = host.with_render_assets(render_assets);
         }
-        let mut session = idle.rebind_host(host);
-        let mut errors = Vec::new();
-        for invocation in invocations {
-            if let Err(error) = session.invoke_callback_invocation(invocation) {
-                errors.push(error.to_string());
+        let (idle, errors) = idle.with_host(host, |session| {
+            let mut errors = Vec::new();
+            for invocation in invocations {
+                if let Err(error) = session.invoke_callback_invocation(invocation) {
+                    errors.push(error.to_string());
+                }
             }
-        }
-        self.session = Some(session.rebind_host(IdleMittensHost));
+            errors
+        });
+        self.session = Some(idle);
 
         EvalOutput { intents, errors }
     }
@@ -318,6 +317,24 @@ impl MeowMeowRunner {
         render_assets: Option<&mut RenderAssets>,
         emit: &mut dyn SignalEmitter,
     ) -> EvalOutput {
+        Self::eval_with_runtime_spec_at_path(
+            source,
+            None,
+            world,
+            rx,
+            render_assets,
+            emit,
+        )
+    }
+
+    fn eval_with_runtime_spec_at_path(
+        source: &str,
+        source_path: Option<&str>,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> EvalOutput {
         let configured = match crate::scripting::runtime_config::build_mittens_runtime() {
             Ok(configured) => configured,
             Err(error) => {
@@ -336,11 +353,23 @@ impl MeowMeowRunner {
             host = host.with_render_assets(render_assets);
         }
 
+        let source_id = match source_path {
+            Some(path) => match source_identity(path) {
+                Ok(identity) => Some(identity),
+                Err(error) => {
+                    return EvalOutput {
+                        intents,
+                        errors: vec![error],
+                    };
+                }
+            },
+            None => None,
+        };
         let result = configured
             .runtime()
             .session(host)
-            .map_err(|error| error.to_string())
-            .and_then(|mut session| session.eval(source).map_err(|error| error.to_string()));
+            .eval_with_source_id(source, source_id)
+            .map_err(|error| error.to_string());
 
         match result {
             Ok(_) => EvalOutput {
@@ -705,6 +734,27 @@ impl MeowMeowRunner {
         source_path: Option<&str>,
         world: &mut World,
         rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> EvalOutput {
+        Self::eval_with_legacy_world_evaluator(
+            source,
+            source_path,
+            world,
+            rx,
+            render_assets,
+            emit,
+        )
+    }
+
+    /// Migration-only implementation retained for parity fixtures while the
+    /// crate-owned evaluator becomes the ordinary runner.
+    #[allow(dead_code)]
+    fn eval_with_legacy_world_evaluator(
+        source: &str,
+        source_path: Option<&str>,
+        world: &mut World,
+        rx: &mut RxWorld,
         mut render_assets: Option<&mut RenderAssets>,
         emit: &mut dyn SignalEmitter,
     ) -> EvalOutput {
@@ -1023,6 +1073,24 @@ impl MeowMeowRunner {
         handle.shutdown_and_join();
         output
     }
+}
+
+fn source_identity(path: &str) -> Result<mms::SourceId, String> {
+    let path = std::path::Path::new(path);
+    let resolved = match path.canonicalize() {
+        Ok(path) => path,
+        Err(_) => {
+            let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+            let parent = parent.canonicalize().map_err(|error| {
+                format!("cannot resolve source path '{}': {error}", path.display())
+            })?;
+            let file_name = path.file_name().ok_or_else(|| {
+                format!("source path '{}' has no file name", path.display())
+            })?;
+            parent.join(file_name)
+        }
+    };
+    Ok(mms::SourceId::new(resolved.to_string_lossy()))
 }
 
 #[cfg(test)]

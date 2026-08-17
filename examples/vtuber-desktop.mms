@@ -7,7 +7,7 @@
 import { pose as relaxed_pose_factory } from "assets/components/poses/bisket/000-relaxed.pose.mms"
 
 // --- Renderer settings ---
-RendererSettings.msaa_off() {
+RendererSettings {
     window_size(1280, 960)
 }
 
