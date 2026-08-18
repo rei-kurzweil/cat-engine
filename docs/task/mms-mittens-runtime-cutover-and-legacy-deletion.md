@@ -68,12 +68,12 @@ Do not hide this with a legacy fallback.
   - another design that makes ownership and serialized entry equally clear.
 - [ ] Ensure the chosen result still exposes the immediate evaluation output
       needed by existing callers.
-- [ ] Define how a root script supplies its `SourceId` so relative imports do
+- [x] Define how a root script supplies its `SourceId` so relative imports do
       not depend on the process working directory.
-- [ ] Define explicit close/drop behavior for callbacks, module state, and any
+- [x] Define explicit close/drop behavior for callbacks, module state, and any
       queued host invocations.
-- [ ] Add tests for two independent sessions using the same configured runtime.
-- [ ] Add tests proving callbacks cannot run through the wrong session or
+- [x] Add tests for two independent sessions using the same configured runtime.
+- [x] Add tests proving callbacks cannot run through the wrong session or
       without required live Mittens context.
 - [ ] Route the ordinary runner through `ConfiguredRuntime` and the crate-owned
       evaluator.
@@ -235,4 +235,3 @@ Only after explicit authorization:
 - [ ] Remove tests that exercise only deleted internals while preserving or
       relocating all observable-behavior regression coverage.
 - [ ] Run the full workspace and release smoke-test baseline again.
-

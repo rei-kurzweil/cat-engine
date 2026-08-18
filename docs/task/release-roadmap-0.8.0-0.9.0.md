@@ -52,7 +52,7 @@ The implementation is tracked by
       name fields and builder calls.
 - [x] Remove the old AVC bone-name MMS and Rust configuration surface.
 - [x] Update the maintained avatar examples and mapping presets.
-- [ ] Record the deliberate AVC API break and migration path in the 0.8 release
+- [x] Record the deliberate AVC API break and migration path in the 0.8 release
       notes.
 - [ ] Complete any final desktop/headset smoke checks selected for the release.
 
@@ -151,4 +151,3 @@ Fixed-width MMS numerics, intrinsic collection/string/numeric methods, typed
 binding syntax, inference, static checking, transpilation, and language-server
 work do not gate 0.9 unless they deliberately change the supported runtime
 specification or boundary protocol.
-

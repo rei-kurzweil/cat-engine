@@ -2,7 +2,7 @@
 
 Date: 2026-08-06
 
-Status: implemented for `mittens-engine 0.8.0`; release notes and final smoke checks remain
+Status: implemented for `mittens-engine 0.8.0`; final smoke checks remain
 
 ## Contract
 

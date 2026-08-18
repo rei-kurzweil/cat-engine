@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -30,12 +31,18 @@ impl mms::Host for IdleMittensHost {}
 /// borrowing the engine. `service_callbacks` lends it a live Mittens host only
 /// for the duration of queued callback evaluation.
 pub struct RuntimeSpecSession {
-    configured: crate::scripting::runtime_config::MittensRuntime,
+    configured: Arc<crate::scripting::runtime_config::MittensRuntime>,
     session: Option<mms::Session<IdleMittensHost>>,
     callback_invocations: Arc<Mutex<Vec<mms::CallbackInvocation>>>,
+    callback_delivery_enabled: Arc<AtomicBool>,
 }
 
 impl RuntimeSpecSession {
+    /// Start a retained MMS execution using the default Mittens runtime.
+    ///
+    /// This compatibility convenience preserves the original immediate
+    /// intent result. New callers that need a canonical root source identity
+    /// should use [`Self::start_at_path`] or [`Self::start_with_source_id`].
     pub fn start(
         source: &str,
         world: &mut World,
@@ -43,19 +50,100 @@ impl RuntimeSpecSession {
         render_assets: Option<&mut RenderAssets>,
         emit: &mut dyn SignalEmitter,
     ) -> Result<(Self, Vec<IntentValue>), String> {
-        let configured = crate::scripting::runtime_config::build_mittens_runtime()
-            .map_err(|error| format!("Mittens RuntimeSpec build failed: {error}"))?;
+        let configured = Arc::new(
+            crate::scripting::runtime_config::build_mittens_runtime()
+                .map_err(|error| format!("Mittens RuntimeSpec build failed: {error}"))?,
+        );
+        let (session, output) = Self::start_with_runtime(
+            configured,
+            source,
+            None,
+            world,
+            rx,
+            render_assets,
+            emit,
+        )?;
+        Ok((session, output.intents))
+    }
+
+    /// Start a retained execution whose root source is `path`.
+    ///
+    /// The path is canonicalized before evaluation, so nested imports are
+    /// resolved relative to the source rather than the process working
+    /// directory.
+    pub fn start_at_path(
+        source: &str,
+        path: &str,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> Result<(Self, EvalOutput), String> {
+        Self::start_with_source_id(
+            source,
+            Some(source_identity(path)?),
+            world,
+            rx,
+            render_assets,
+            emit,
+        )
+    }
+
+    /// Start a retained execution with an explicit canonical root identity.
+    ///
+    /// Pass `None` only for source that cannot import relative modules.
+    pub fn start_with_source_id(
+        source: &str,
+        source_id: Option<mms::SourceId>,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> Result<(Self, EvalOutput), String> {
+        let configured = Arc::new(
+            crate::scripting::runtime_config::build_mittens_runtime()
+                .map_err(|error| format!("Mittens RuntimeSpec build failed: {error}"))?,
+        );
+        Self::start_with_runtime(
+            configured,
+            source,
+            source_id,
+            world,
+            rx,
+            render_assets,
+            emit,
+        )
+    }
+
+    /// Start a retained execution from a caller-provided configured runtime.
+    ///
+    /// A configured runtime is immutable and may be shared by independent
+    /// sessions. Each returned session retains its own callbacks, module
+    /// cache, captured tables, and source identity.
+    pub fn start_with_runtime(
+        configured: Arc<crate::scripting::runtime_config::MittensRuntime>,
+        source: &str,
+        source_id: Option<mms::SourceId>,
+        world: &mut World,
+        rx: &mut RxWorld,
+        render_assets: Option<&mut RenderAssets>,
+        emit: &mut dyn SignalEmitter,
+    ) -> Result<(Self, EvalOutput), String> {
         let callback_invocations = Arc::new(Mutex::new(Vec::new()));
+        let callback_delivery_enabled = Arc::new(AtomicBool::new(true));
         let mut intents = Vec::new();
         let mut host = crate::scripting::host::MittensHost::new(world, emit, &mut intents)
             .with_rx(rx)
             .with_bindings(configured.bindings())
-            .with_callback_invocations(Arc::clone(&callback_invocations));
+            .with_callback_invocations(Arc::clone(&callback_invocations))
+            .with_callback_delivery_enabled(Arc::clone(&callback_delivery_enabled));
         if let Some(render_assets) = render_assets {
             host = host.with_render_assets(render_assets);
         }
         let session = configured.runtime().session(IdleMittensHost);
-        let (session, evaluation) = session.with_host(host, |session| session.eval(source));
+        let (session, evaluation) = session.with_host(host, |session| {
+            session.eval_with_source_id(source, source_id)
+        });
         evaluation.map_err(|error| error.to_string())?;
 
         Ok((
@@ -63,9 +151,28 @@ impl RuntimeSpecSession {
                 configured,
                 session: Some(session),
                 callback_invocations,
+                callback_delivery_enabled,
             },
-            intents,
+            EvalOutput {
+                intents,
+                errors: Vec::new(),
+            },
         ))
+    }
+
+    /// Disable callback delivery and release the crate-owned session state.
+    ///
+    /// Existing engine-side Rx registrations become inert immediately. Their
+    /// physical removal remains the responsibility of the owning engine
+    /// lifecycle, but they cannot enqueue or execute callbacks after close.
+    pub fn close(&mut self) {
+        self.callback_delivery_enabled.store(false, Ordering::Release);
+        self.callback_invocations.lock().unwrap().clear();
+        self.session = None;
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.session.is_none()
     }
 
     /// Drain callback invocations queued by Rx and run them against the live
@@ -77,6 +184,12 @@ impl RuntimeSpecSession {
         render_assets: Option<&mut RenderAssets>,
         emit: &mut dyn SignalEmitter,
     ) -> EvalOutput {
+        if self.is_closed() {
+            return EvalOutput {
+                intents: Vec::new(),
+                errors: vec!["Mittens RuntimeSpec session is closed".into()],
+            };
+        }
         let invocations = {
             let mut queued = self.callback_invocations.lock().unwrap();
             std::mem::take(&mut *queued)
@@ -85,12 +198,13 @@ impl RuntimeSpecSession {
             return EvalOutput::default();
         }
 
-        let idle = self.session.take().expect("RuntimeSpec session missing");
+        let idle = self.session.take().expect("checked above");
         let mut intents = Vec::new();
         let mut host = crate::scripting::host::MittensHost::new(world, emit, &mut intents)
             .with_rx(rx)
             .with_bindings(self.configured.bindings())
-            .with_callback_invocations(Arc::clone(&self.callback_invocations));
+            .with_callback_invocations(Arc::clone(&self.callback_invocations))
+            .with_callback_delivery_enabled(Arc::clone(&self.callback_delivery_enabled));
         if let Some(render_assets) = render_assets {
             host = host.with_render_assets(render_assets);
         }
@@ -106,6 +220,12 @@ impl RuntimeSpecSession {
         self.session = Some(idle);
 
         EvalOutput { intents, errors }
+    }
+}
+
+impl Drop for RuntimeSpecSession {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -1150,5 +1270,94 @@ mod runtime_spec_session_tests {
         let output = session.service_callbacks(&mut world, &mut rx, None, &mut commands);
         assert!(output.errors.is_empty(), "{:?}", output.errors);
         assert_eq!(world.get_component_by_id_as::<EmissiveComponent>(glow).unwrap().intensity, 3.0);
+    }
+
+    #[test]
+    fn configured_runtime_sessions_are_isolated_and_close_disables_callback_delivery() {
+        let configured = Arc::new(crate::scripting::runtime_config::build_mittens_runtime().unwrap());
+        let source = r#"
+            let root = Transform { name = "session-one" }
+            on(root, "Click", fn(event) {})
+            root
+        "#;
+        let mut first_world = World::default();
+        let mut first_rx = RxWorld::default();
+        let mut first_commands = CommandQueue::new();
+        let (mut first, output) = RuntimeSpecSession::start_with_runtime(
+            configured.clone(),
+            source,
+            None,
+            &mut first_world,
+            &mut first_rx,
+            None,
+            &mut first_commands,
+        )
+        .unwrap();
+        assert!(output.errors.is_empty());
+
+        let mut second_world = World::default();
+        let mut second_rx = RxWorld::default();
+        let mut second_commands = CommandQueue::new();
+        let (mut second, output) = RuntimeSpecSession::start_with_runtime(
+            configured,
+            "Transform { name = \"session-two\" }",
+            None,
+            &mut second_world,
+            &mut second_rx,
+            None,
+            &mut second_commands,
+        )
+        .unwrap();
+        assert!(output.errors.is_empty());
+
+        let root = first_world
+            .all_components()
+            .find(|&id| first_world.component_label(id) == Some("session-one"))
+            .unwrap();
+        first_rx.dispatch_event_handlers(
+            &mut first_world,
+            &Signal::event(
+                root,
+                EventSignal::Click {
+                    raycaster: ComponentId::default(),
+                    renderable: root,
+                    hit_point: [0.0; 3],
+                    screen_pos_px: None,
+                },
+            ),
+        );
+        let invocation = first.callback_invocations.lock().unwrap().pop().unwrap();
+        second.callback_invocations.lock().unwrap().push(invocation);
+        let output = second.service_callbacks(
+            &mut second_world,
+            &mut second_rx,
+            None,
+            &mut second_commands,
+        );
+        assert_eq!(output.errors.len(), 1);
+        assert!(output.errors[0].contains("belongs to another session"));
+
+        first.close();
+        assert!(first.is_closed());
+        first_rx.dispatch_event_handlers(
+            &mut first_world,
+            &Signal::event(
+                root,
+                EventSignal::Click {
+                    raycaster: ComponentId::default(),
+                    renderable: root,
+                    hit_point: [0.0; 3],
+                    screen_pos_px: None,
+                },
+            ),
+        );
+        assert!(first.callback_invocations.lock().unwrap().is_empty());
+        let output = first.service_callbacks(
+            &mut first_world,
+            &mut first_rx,
+            None,
+            &mut first_commands,
+        );
+        assert_eq!(output.errors, vec!["Mittens RuntimeSpec session is closed"]);
     }
 }

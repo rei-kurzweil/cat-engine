@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use meow_meow_script as mms;
@@ -29,6 +30,7 @@ pub struct MittensHost<'a> {
     bindings: Option<&'a mms::ImplementationBindings<super::runtime_config::MittensBinding>>,
     signal_routes: Option<&'a mut Vec<SignalCallbackRoute>>,
     callback_invocations: Option<Arc<Mutex<Vec<mms::CallbackInvocation>>>>,
+    callback_delivery_enabled: Option<Arc<AtomicBool>>,
     legacy_component_fallbacks: usize,
     legacy_method_fallbacks: usize,
 }
@@ -48,6 +50,7 @@ impl<'a> MittensHost<'a> {
             bindings: None,
             signal_routes: None,
             callback_invocations: None,
+            callback_delivery_enabled: None,
             legacy_component_fallbacks: 0,
             legacy_method_fallbacks: 0,
         }
@@ -84,6 +87,14 @@ impl<'a> MittensHost<'a> {
         invocations: Arc<Mutex<Vec<mms::CallbackInvocation>>>,
     ) -> Self {
         self.callback_invocations = Some(invocations);
+        self
+    }
+
+    /// Gate callback delivery for the lifetime of the session that owns the
+    /// queued invocations. Closing that session disables its Rx routes even if
+    /// the engine has not yet removed their host-side registrations.
+    pub fn with_callback_delivery_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
+        self.callback_delivery_enabled = Some(enabled);
         self
     }
 
@@ -173,9 +184,16 @@ impl<'a> MittensHost<'a> {
             (self.rx.as_deref_mut(), self.callback_invocations.as_ref())
         {
             let invocations = Arc::clone(invocations);
+            let delivery_enabled = self.callback_delivery_enabled.as_ref().map(Arc::clone);
             let enqueue = move |_world: &mut World,
                                 _emit: &mut dyn SignalEmitter,
                                 signal: &crate::engine::ecs::Signal| {
+                if delivery_enabled
+                    .as_ref()
+                    .is_some_and(|enabled| !enabled.load(Ordering::Acquire))
+                {
+                    return;
+                }
                 match event_arg_transport(signal) {
                     Ok(argument) => invocations.lock().unwrap().push(mms::CallbackInvocation {
                         callback,
