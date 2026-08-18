@@ -17,6 +17,7 @@ pub mod camera_system;
 pub mod camera_visualization_system;
 pub mod clipping_system;
 pub mod clock_system;
+pub mod combine_mesh_system;
 pub(crate) mod collision_geometry;
 pub mod collision_response_system;
 pub mod collision_shape_inference;
@@ -92,6 +93,7 @@ pub use camera_system::{Camera3D, CameraHandle, CameraSystem};
 pub use camera_visualization_system::{CameraVisualizationRequest, CameraVisualizationSystem};
 pub use clipping_system::ClippingSystem;
 pub use clock_system::{ClockDriver, ClockSystem};
+pub use combine_mesh_system::CombineMeshSystem;
 pub use collision_response_system::CollisionResponseSystem;
 pub use collision_system::CollisionSystem;
 pub use collision_visualization_system::{

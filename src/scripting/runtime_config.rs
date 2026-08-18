@@ -446,6 +446,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                             ),
                         );
                 }
+                "CombineMesh" => no_arg_constructors(component, &["keep_transforms"]),
                 "Color" => {
                     host_constructor(component, canonical, "rgba", floats(4));
                 }

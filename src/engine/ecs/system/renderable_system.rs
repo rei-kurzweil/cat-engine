@@ -1,4 +1,3 @@
-use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::component::BackgroundColorComponent;
 use crate::engine::ecs::component::OverlayComponent;
 use crate::engine::ecs::component::{
@@ -6,10 +5,11 @@ use crate::engine::ecs::component::{
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
     RendererSettingsComponent, TransparentCutoutComponent, UVComponent,
 };
+use crate::engine::ecs::ComponentId;
 
-use crate::engine::ecs::World;
 use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformSystem;
+use crate::engine::ecs::World;
 use crate::engine::graphics::bounds::Aabb;
 use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Transform};
 use crate::engine::graphics::{GpuRenderable, VisualWorld};
@@ -942,6 +942,7 @@ impl RenderableSystem {
         let _ = self.pending_uv.remove(&component);
         let _ = self.pending_color.remove(&component);
         let _ = self.pending_opacity.remove(&component);
+        let _ = self.pending_cutout.remove(&component);
         let _ = self.pending_emissive.remove(&component);
         let _ = self.pending_quant_steps.remove(&component);
 
@@ -950,6 +951,16 @@ impl RenderableSystem {
                 let _ = visuals.remove(handle);
             }
         }
+    }
+
+    /// Remove a source that is represented by a CombineMesh output instead.
+    pub fn suppress_renderable(
+        &mut self,
+        world: &mut World,
+        visuals: &mut VisualWorld,
+        component: ComponentId,
+    ) {
+        self.remove_renderable(world, visuals, component);
     }
 
     /// Register a renderable by walking the component graph in `World`.
@@ -1392,12 +1403,12 @@ impl System for RenderableSystem {
 #[cfg(test)]
 mod tests {
     use super::RenderableSystem;
-    use crate::engine::ecs::CommandQueue;
-    use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         BackgroundComponent, ColorComponent, EmissiveComponent, OpacityComponent, OverlayComponent,
         RenderableComponent, TextComponent, TransformComponent, TransparentCutoutComponent,
     };
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::World;
     use crate::engine::graphics::primitives::MeshHandle;
     use crate::engine::graphics::{CpuMesh, MeshUploader, RenderAssets, VisualWorld};
 

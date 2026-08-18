@@ -15,6 +15,7 @@ use crate::engine::ecs::component::{
     AudioOscillator, AudioOscillatorComponent, AudioOutputComponent, AudioTriggerMode,
     AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent, BackgroundComponent,
     BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing, Camera2DComponent,
+    CombineMeshComponent,
     Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
     CollisionResponseComponent, CollisionShape, CollisionShapeComponent, ColorComponent,
     ControllerHand, ControllerPoseKind, DataComponent, DataValue, DirectionalLightComponent,
@@ -125,6 +126,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "InspectLayout",
     "Keyframe",
     "CollisionResponse",
+    "CombineMesh",
     "LayoutBounds",
     "LayoutRoot",
     "LightQuantization",
@@ -1578,6 +1580,11 @@ fn create_component(
             }
             Ok(id)
         }
+        "CombineMesh" => match ctor {
+            Some("keep_transforms") => add!(CombineMeshComponent::keep_transforms()),
+            None => add!(CombineMeshComponent::default()),
+            Some(method) => return Err(format!("CombineMesh: unknown constructor '{method}'")),
+        },
         "Background" => {
             let id = world.add_component(BackgroundComponent::new());
             if let Some(method) = ctor {

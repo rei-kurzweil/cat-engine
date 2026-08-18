@@ -83,8 +83,10 @@ vertex_in_combined_local = inverse(world(root basis)) * world(descendant) * vert
 ```
 
 This preserves the initial scene appearance and lets moving an ancestor of the
-combine root move the output normally.  Moving any transform *inside* the
-group requires a rebuild (unless a later format supports per-part transforms).
+combine root move the output normally.  Phase 1 treats internal transforms as
+bake-time authoring data: after the first bake, moving a transform *inside* the
+group does not move an individual part or trigger a rebuild.  A future explicit
+rebuild/edit workflow (or per-part transforms) can make such edits live.
 
 Suggested constructors/serialization:
 
@@ -233,8 +235,8 @@ is rejected in MVP.  The latter is simpler and preserves the stated
   deformation.  Phase 2 adds an explicit *current-pose snapshot* path for
   skinned meshes; it bakes their deformed vertices at rebuild time and does not
   keep the combined output live-skinned.
-- No independent descendant transform animation after build; it dirties and
-  rebuilds the group.
+- No independent descendant transform animation after build; phase 1 leaves
+  the baked output unchanged rather than moving an individual part.
 - No source-level `StencilClip`, render-to-texture, custom pipeline, or other
   per-instance renderer state unless the group format supports it explicitly.
 - Phase 1 disables source BVH/raycast registrations and makes the output

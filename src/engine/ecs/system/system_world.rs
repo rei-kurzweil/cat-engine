@@ -1,10 +1,8 @@
 use super::World;
-use crate::engine::ecs::ComponentId;
-use crate::engine::ecs::RxWorld;
-use crate::engine::ecs::SignalKind;
 use crate::engine::ecs::component::{
     AvatarBodyYawComponent, AvatarControlComponent, IKChainComponent,
 };
+use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::ArmatureVisualizationSystem;
 use crate::engine::ecs::system::BvhSystem;
 use crate::engine::ecs::system::CameraSystem;
@@ -13,6 +11,7 @@ use crate::engine::ecs::system::ClockSystem;
 use crate::engine::ecs::system::CollisionResponseSystem;
 use crate::engine::ecs::system::CollisionSystem;
 use crate::engine::ecs::system::CollisionVisualizationSystem;
+use crate::engine::ecs::system::CombineMeshSystem;
 use crate::engine::ecs::system::GLTFSystem;
 use crate::engine::ecs::system::GltfBoundsVisualizationSystem;
 use crate::engine::ecs::system::HttpClientSystem;
@@ -41,7 +40,6 @@ use crate::engine::ecs::system::TransformStreamSystem;
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::system::TransitionSystem;
 use crate::engine::ecs::system::XrSystem;
-use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::{AnimationSystem, AudioSystem};
 use crate::engine::ecs::system::{
     AssetSystem, AvatarBodyYawSystem, AvatarControlSystem, Cursor3dSystem, EditorContextSystem,
@@ -49,6 +47,9 @@ use crate::engine::ecs::system::{
     GridSystem, HeadPoseBodyXzFollowSystem, IKSystem, LayoutSystem, SecondaryMotionSystem,
     SelectionSystem, TransformGizmoSystem,
 };
+use crate::engine::ecs::ComponentId;
+use crate::engine::ecs::RxWorld;
+use crate::engine::ecs::SignalKind;
 use crate::engine::graphics::{RenderAssets, RenderUploader, VisualWorld};
 use crate::engine::user_input::InputState;
 use crate::engine::vr_perf::VrPerfPreXrCpu;
@@ -92,6 +93,7 @@ pub struct SystemWorld {
     pub camera_visualization: crate::engine::ecs::system::CameraVisualizationSystem,
     pub collision_response: CollisionResponseSystem,
     pub skinned_mesh: SkinnedMeshSystem,
+    pub combine_mesh: CombineMeshSystem,
     pub renderable: RenderableSystem,
     pub clipping: ClippingSystem,
     pub renderer_stats: RendererStatsSystem,
@@ -154,8 +156,6 @@ pub struct SystemWorld {
 #[cfg(test)]
 mod tests {
     use super::SystemWorld;
-    use crate::engine::ecs::CommandQueue;
-    use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         AvatarControlComponent, BoneRestPoseComponent, ColorComponent, ComponentRef, GLTFComponent,
         MirrorComponent, PoseCapturePoseComponent, PoseTargetRef, RaycastableComponent,
@@ -163,6 +163,8 @@ mod tests {
         StencilClipComponent, TextureComponent, TransformComponent,
     };
     use crate::engine::ecs::system::System;
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::World;
     use crate::engine::ecs::{IntentValue, PoseApplyMode, SignalEmitter};
     use crate::engine::graphics::primitives::{MaterialHandle, MeshHandle, TextureHandle};
     use crate::engine::graphics::{
@@ -526,18 +528,14 @@ mod tests {
         world.init_component_tree(root, &mut queue);
         systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
 
-        assert!(
-            world
-                .get_component_by_id_as::<RenderableComponent>(clip_bg_renderable)
-                .and_then(|r| r.get_handle())
-                .is_none()
-        );
-        assert!(
-            world
-                .get_component_by_id_as::<RenderableComponent>(content_renderable)
-                .and_then(|r| r.get_handle())
-                .is_none()
-        );
+        assert!(world
+            .get_component_by_id_as::<RenderableComponent>(clip_bg_renderable)
+            .and_then(|r| r.get_handle())
+            .is_none());
+        assert!(world
+            .get_component_by_id_as::<RenderableComponent>(content_renderable)
+            .and_then(|r| r.get_handle())
+            .is_none());
 
         systems.prepare_render(
             &mut world,
@@ -661,12 +659,10 @@ mod tests {
             .expect("runtime texture handle");
         let visual_instance = visuals.instance(handle).expect("visual instance");
         assert_eq!(visual_instance.texture, Some(runtime_handle));
-        assert!(
-            systems
-                .render_to_texture
-                .producer_requests()
-                .any(|request| request.selector == mirror_key)
-        );
+        assert!(systems
+            .render_to_texture
+            .producer_requests()
+            .any(|request| request.selector == mirror_key));
     }
 
     #[test]
@@ -1824,6 +1820,9 @@ impl SystemWorld {
         visuals: &mut VisualWorld,
         component: ComponentId,
     ) {
+        if self.combine_mesh.owner_of(world, component).is_some() {
+            return;
+        }
         self.renderable
             .register_renderable(world, visuals, component);
 
@@ -2449,6 +2448,17 @@ impl SystemWorld {
         // Ensure any imported assets are registered before renderables try to resolve meshes/textures.
         self.gltf
             .flush_imports(render_assets, &mut self.texture, uploader);
+
+        let collapse_roots = self.combine_mesh.reconcile_and_build(
+            world,
+            visuals,
+            render_assets,
+            uploader,
+            &mut self.renderable,
+        );
+        for source_root in collapse_roots {
+            self.remove_subtree_immediate(world, visuals, source_root);
+        }
 
         let flushed_renderables =
             self.renderable

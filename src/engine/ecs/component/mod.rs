@@ -25,6 +25,7 @@ pub mod camera_xr;
 pub mod clock;
 pub mod collision;
 pub mod collision_response;
+pub mod combine_mesh;
 pub mod collision_shape;
 pub mod color;
 pub mod component_ref;
@@ -109,6 +110,7 @@ pub mod uv;
 
 pub use self::gltf::GLTFComponent;
 pub use crate::engine::ecs::system::model::collision_types::{CollisionMode, CollisionShape};
+pub use combine_mesh::CombineMeshComponent;
 pub use ambient_light::AmbientLightComponent;
 pub use animation::AnimationComponent;
 pub use animation::AnimationState;
