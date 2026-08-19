@@ -5,6 +5,7 @@ use crate::engine::ecs::component::{
     AvatarBodyYawComponent, AvatarControlComponent, IKChainComponent,
 };
 use crate::engine::ecs::system::ArmatureVisualizationSystem;
+use crate::engine::ecs::system::BoundsVisualizationSystem;
 use crate::engine::ecs::system::BvhSystem;
 use crate::engine::ecs::system::CameraSystem;
 use crate::engine::ecs::system::ClippingSystem;
@@ -131,6 +132,7 @@ pub struct SystemWorld {
     pub transform_gizmo: TransformGizmoSystem,
 
     pub bounds: BoundsSystem,
+    pub bounds_visualization: BoundsVisualizationSystem,
     pub layout: LayoutSystem,
 
     pub gltf: GLTFSystem,
@@ -2838,8 +2840,9 @@ impl SystemWorld {
             .lock()
             .expect("editor context state mutex poisoned")
             .bounds_visible;
-        self.gltf_bounds_visualization.tick_with_queue(
+        self.bounds_visualization.tick_with_queue(
             world,
+            &mut self.gltf_bounds_visualization,
             &self.gltf,
             &self.mesh_bounds,
             mesh_bounds_visible,
