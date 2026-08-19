@@ -23,22 +23,21 @@ fn brace_xz(x, y, angle) {
 }
 
 export fn truss() {
-    // The rails overhang the braced section by two bays (2 × 1.125) on both
-    // ends, so they read as continuous structural beams rather than stopping
-    // flush with the outermost diagonal.
-    let length = 13.5
+    // The rails overhang the braced section by three bays (3 × 1.125) on both
+    // ends, so they visibly extend one full brace segment beyond the outermost
+    // diagonal.
+    let length = 15.75
     let half_length = length / 2.0
     let half_width = 0.65
     let brace_angle = 0.857072 // atan(1.3 / 1.125): equilateral-triangle bays
 
-    return T {
+    return CombineMesh {
         name = "truss"
-        CombineMesh {
-            // Four long X rails at the corners of the YZ square.
-            rail(0.0,  half_width,  half_width, half_length, 0.13)
-            rail(0.0,  half_width, -half_width, half_length, 0.13)
-            rail(0.0, -half_width,  half_width, half_length, 0.13)
-            rail(0.0, -half_width, -half_width, half_length, 0.13)
+        // Four long X rails at the corners of the YZ square.
+        rail(0.0,  half_width,  half_width, half_length, 0.13)
+        rail(0.0,  half_width, -half_width, half_length, 0.13)
+        rail(0.0, -half_width,  half_width, half_length, 0.13)
+        rail(0.0, -half_width, -half_width, half_length, 0.13)
 
             // Alternating diagonals on both XY faces (front/back).
             brace_xy(-3.9375,  half_width,  brace_angle)
@@ -77,6 +76,5 @@ export fn truss() {
             brace_xz( 1.6875, -half_width, -brace_angle)
             brace_xz( 2.8125, -half_width,  brace_angle)
             brace_xz( 3.9375, -half_width, -brace_angle)
-        }
     }
 }
