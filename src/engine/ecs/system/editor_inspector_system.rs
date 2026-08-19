@@ -39,6 +39,16 @@ impl EditorInspectorSystem {
             asset_system,
         );
     }
+
+    pub fn refresh_world_panel_after_topology_change(
+        &mut self,
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        editor_root: ComponentId,
+    ) {
+        self.stopgap_mms
+            .refresh_world_panel_after_topology_change(world, emit, editor_root);
+    }
 }
 
 #[cfg(test)]
@@ -1389,13 +1399,12 @@ mod tests {
     }
 
     #[test]
-    fn setup_panels_for_editor_parent_changed_does_not_live_refresh_cached_world_rows() {
+    fn setup_panels_for_editor_parent_changed_refreshes_only_world_rows() {
         let mut world = World::default();
         let mut emit = CommandQueue::new();
         let mut visuals = VisualWorld::default();
         let mut render_assets = RenderAssets::new();
         let mut systems = SystemWorld::new();
-        let mut inspector = EditorInspectorSystem::new();
 
         let editor_root =
             world.add_component_boxed_named("editor_root", Box::new(EditorComponent::new()));
@@ -1407,9 +1416,11 @@ mod tests {
             world.add_component_boxed_named("child_transform", Box::new(TransformComponent::new()));
         let _ = world.add_child(editor_root, scene_root);
         let _ = world.add_child(editor_root, sibling_root);
+        let _ = world.add_child(scene_root, child_transform);
 
+        let (rx, inspector) = (&mut systems.rx, &mut systems.editor_inspector);
         inspector.setup_panels_for_editor(
-            &mut systems.rx,
+            rx,
             &mut world,
             &mut render_assets,
             &mut emit,
@@ -1424,13 +1435,13 @@ mod tests {
 
         let runtime_ui_root = find_named_root(&world, "editor_runtime_ui_root");
         assert_eq!(row_text(&world, runtime_ui_root, "#item_1"), "scene_root");
-        assert_eq!(row_text(&world, runtime_ui_root, "#item_2"), "sibling_root");
+        assert_eq!(row_text(&world, runtime_ui_root, "#item_2"), "  child_transform");
+        assert_eq!(row_text(&world, runtime_ui_root, "#item_3"), "sibling_root");
 
         emit.push_intent_now(
             editor_root,
-            IntentValue::Attach {
-                parent: scene_root,
-                child: child_transform,
+            IntentValue::Detach {
+                component_id: child_transform,
             },
         );
         flush_runtime_updates(
@@ -1442,30 +1453,7 @@ mod tests {
         );
 
         assert_eq!(row_text(&world, runtime_ui_root, "#item_2"), "sibling_root");
-        assert!(
-            world.find_component(runtime_ui_root, "#item_3").is_none(),
-            "world panel should stay stable until an explicit refresh"
-        );
-
-        emit.push_intent_now(
-            editor_root,
-            IntentValue::Attach {
-                parent: sibling_root,
-                child: child_transform,
-            },
-        );
-        flush_runtime_updates(
-            &mut systems,
-            &mut world,
-            &mut visuals,
-            &mut render_assets,
-            &mut emit,
-        );
-        assert_eq!(row_text(&world, runtime_ui_root, "#item_2"), "sibling_root");
-        assert!(
-            world.find_component(runtime_ui_root, "#item_3").is_none(),
-            "world panel should stay stable until an explicit refresh"
-        );
+        assert!(world.find_component(runtime_ui_root, "#item_3").is_none());
     }
 
     #[test]

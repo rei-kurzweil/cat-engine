@@ -482,6 +482,10 @@ pub enum IntentValue {
     RemoveSubtree {
         component_id: ComponentId,
     },
+    /// Internal editor projection update, coalesced by the editor workspace.
+    RefreshEditorWorldPanel {
+        editor_root: ComponentId,
+    },
 
     AudioGraphRebuild {
         component_id: ComponentId,
@@ -920,6 +924,7 @@ impl IntentValue {
             IntentValue::RemoveChild { .. } => "remove_child",
             IntentValue::RemoveChildren { .. } => "remove_children",
             IntentValue::RemoveSubtree { .. } => "remove_subtree",
+            IntentValue::RefreshEditorWorldPanel { .. } => "refresh_editor_world_panel",
 
             IntentValue::AudioGraphRebuild { .. } => "audio_graph_rebuild",
             IntentValue::RequestRaycast { .. } => "request_raycast",

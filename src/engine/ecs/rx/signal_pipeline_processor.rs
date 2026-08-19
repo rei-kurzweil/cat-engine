@@ -163,6 +163,7 @@ impl SignalPipelineProcessor {
 
             IntentValue::Noop
             | IntentValue::RetryXrRuntime
+            | IntentValue::RefreshEditorWorldPanel { .. }
             | IntentValue::Print { .. }
             | IntentValue::ReplExec { .. }
             | IntentValue::Attach { .. }
@@ -308,6 +309,7 @@ impl SignalPipelineProcessor {
             | IntentValue::RemoveSignalRouteUpward { .. }
             | IntentValue::Noop
             | IntentValue::RetryXrRuntime
+            | IntentValue::RefreshEditorWorldPanel { .. }
             | IntentValue::Print { .. }
             | IntentValue::ReplExec { .. }
             | IntentValue::Attach { .. }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::engine::ecs::component::SelectionEntry;
@@ -26,6 +26,7 @@ pub(crate) struct EditorWorkspaceRuntime {
     refresh_handler_editor_roots: Arc<Mutex<Vec<ComponentId>>>,
     runtime_ui_root: Arc<Mutex<Option<ComponentId>>>,
     mounted_panels: Arc<Mutex<HashMap<PanelKind, PanelInstance>>>,
+    pending_world_panel_topology_refreshes: Arc<Mutex<HashSet<ComponentId>>>,
 }
 
 impl EditorWorkspaceRuntime {
@@ -83,6 +84,12 @@ impl EditorWorkspaceRuntime {
 
     pub(crate) fn mounted_panels_handle(&self) -> Arc<Mutex<HashMap<PanelKind, PanelInstance>>> {
         Arc::clone(&self.mounted_panels)
+    }
+
+    pub(crate) fn pending_world_panel_topology_refreshes(
+        &self,
+    ) -> &Arc<Mutex<HashSet<ComponentId>>> {
+        &self.pending_world_panel_topology_refreshes
     }
 
     pub(crate) fn find_panel_mount_root(&self, world: &World) -> Option<ComponentId> {

@@ -47,7 +47,7 @@ use crate::engine::ecs::system::{
     GridSystem, HeadPoseBodyXzFollowSystem, IKSystem, LayoutSystem, SecondaryMotionSystem,
     SelectionSystem, TransformGizmoSystem,
 };
-use crate::engine::ecs::ComponentId;
+use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter};
 use crate::engine::ecs::RxWorld;
 use crate::engine::ecs::SignalKind;
 use crate::engine::graphics::{RenderAssets, RenderUploader, VisualWorld};
@@ -2457,6 +2457,16 @@ impl SystemWorld {
             &mut self.renderable,
         );
         for source_root in collapse_roots {
+            if let Some(old_parent) = world.parent_of(source_root) {
+                queue.push_event(
+                    source_root,
+                    EventSignal::ParentChanged {
+                        child: source_root,
+                        old_parent: Some(old_parent),
+                        new_parent: None,
+                    },
+                );
+            }
             self.remove_subtree_immediate(world, visuals, source_root);
         }
 

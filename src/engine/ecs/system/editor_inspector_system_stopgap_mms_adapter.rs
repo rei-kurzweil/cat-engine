@@ -34,9 +34,11 @@ use crate::engine::ecs::system::editor::workspace::{
 use crate::engine::ecs::system::editor::world_panel::{
     AuthoredWorldPanelSceneModel, PANEL_CONTENT_SLOT_SELECTOR, WORLD_PANEL_ROOT_SELECTOR,
     WORLD_PANEL_SELECTION_NAME, WORLD_PANEL_SELECTION_SELECTOR, WorldPanelModel,
-    apply_world_panel_semantic_selection, build_world_panel_model, handle_panel_button_click,
-    handle_world_panel_item_click, panel_status_text, rebuild_world_panel_scene_model,
-    register_editor_root, rerender_world_panel_content, rerender_world_panel_status,
+    AuthoredSceneNodePolicy, apply_world_panel_semantic_selection, authored_scene_node_policy,
+    build_world_panel_model, handle_panel_button_click, handle_world_panel_item_click,
+    panel_status_text, rebuild_world_panel_scene_model,
+    register_editor_root, rerender_world_panel_content, rerender_world_panel_for_context,
+    rerender_world_panel_status,
     sync_world_panel_selection, world_panel_scene_path,
 };
 use crate::engine::ecs::system::panel_system::{
@@ -239,6 +241,46 @@ impl EditorInspectorSystemStopgapMmsAdapter {
             return;
         }
         self.workspace_runtime.mark_panel_handler_installed();
+
+        let topology_installed_editor_roots =
+            Arc::clone(self.workspace_runtime.installed_editor_roots());
+        let topology_pending_refreshes = Arc::clone(
+            self.workspace_runtime
+                .pending_world_panel_topology_refreshes(),
+        );
+        rx.add_global_handler_closure_named(
+            SignalKind::ParentChanged,
+            Some("editor_world_panel_topology_refresh".to_string()),
+            move |world, emit, signal| {
+                let Some(EventSignal::ParentChanged {
+                    child,
+                    old_parent,
+                    new_parent,
+                }) = signal.event.as_ref()
+                else {
+                    return;
+                };
+                let Some(editor_root) = editor_root_for_topology_change(
+                    world,
+                    *child,
+                    *old_parent,
+                    *new_parent,
+                    &topology_installed_editor_roots,
+                ) else {
+                    return;
+                };
+
+                let mut pending = topology_pending_refreshes
+                    .lock()
+                    .expect("world panel topology refresh mutex poisoned");
+                if pending.insert(editor_root) {
+                    emit.push_intent_now(
+                        editor_root,
+                        IntentValue::RefreshEditorWorldPanel { editor_root },
+                    );
+                }
+            },
+        );
 
         rx.add_handler_closure(
             SignalKind::Click,
@@ -889,9 +931,40 @@ impl EditorInspectorSystemStopgapMmsAdapter {
             },
         );
 
-        // Intentionally no ParentChanged-scoped full refresh here. Runtime systems such as
-        // AvatarControl re-parent large authored subtrees during the first tick, and rebuilding
-        // the cached world-panel model on every such mutation can wedge the first frame.
+    }
+
+    pub fn refresh_world_panel_after_topology_change(
+        &mut self,
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        editor_root: ComponentId,
+    ) {
+        let was_pending = self
+            .workspace_runtime
+            .pending_world_panel_topology_refreshes()
+            .lock()
+            .expect("world panel topology refresh mutex poisoned")
+            .remove(&editor_root);
+        let has_world_panel = self.selected_panels.contains(&EditorPanel::World);
+        if !was_pending || !has_world_panel {
+            return;
+        }
+        let Some(panel_query_root) = self.workspace_runtime.current_runtime_ui_root() else {
+            return;
+        };
+        let editor_context = self.editor_context();
+        rerender_world_panel_for_context(
+            world,
+            emit,
+            panel_query_root,
+            &editor_context,
+            &self.world_panel_scene_model,
+            self.workspace_runtime.installed_editor_roots(),
+            &mut *self
+                .data_renderer
+                .lock()
+                .expect("data renderer mutex poisoned"),
+        );
     }
 
     fn editor_context(&self) -> EditorContextState {
@@ -1004,6 +1077,32 @@ impl EditorInspectorSystemStopgapMmsAdapter {
         );
         editor_memory_marker("editor refresh_world_panels:end");
     }
+}
+
+fn editor_root_for_topology_change(
+    world: &World,
+    child: ComponentId,
+    old_parent: Option<ComponentId>,
+    new_parent: Option<ComponentId>,
+    installed_editor_roots: &Arc<Mutex<Vec<ComponentId>>>,
+) -> Option<ComponentId> {
+    let roots = installed_editor_roots
+        .lock()
+        .expect("installed editor roots mutex poisoned")
+        .clone();
+    for start in [Some(child), new_parent, old_parent].into_iter().flatten() {
+        let mut current = Some(start);
+        while let Some(component) = current {
+            if authored_scene_node_policy(world, component) == AuthoredSceneNodePolicy::Skip {
+                break;
+            }
+            if roots.contains(&component) {
+                return Some(component);
+            }
+            current = world.parent_of(component);
+        }
+    }
+    None
 }
 
 fn refresh_all_panel_models(
