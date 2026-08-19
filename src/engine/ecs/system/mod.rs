@@ -17,13 +17,13 @@ pub mod camera_system;
 pub mod camera_visualization_system;
 pub mod clipping_system;
 pub mod clock_system;
-pub mod combine_mesh_system;
 pub(crate) mod collision_geometry;
 pub mod collision_response_system;
 pub mod collision_shape_inference;
 pub mod collision_shape_resolver;
 pub mod collision_system;
 pub mod collision_visualization_system;
+pub mod combine_mesh_system;
 pub mod cursor_3d;
 pub mod data_renderer_system;
 pub mod draggable_system;
@@ -51,6 +51,7 @@ pub mod input_xr_gamepad_system;
 pub mod joint_basis_retargeting_system;
 pub mod layout;
 pub mod light_system;
+pub mod mesh_bounds_system;
 pub mod mirror_system;
 pub mod model;
 pub mod music_system;
@@ -93,12 +94,12 @@ pub use camera_system::{Camera3D, CameraHandle, CameraSystem};
 pub use camera_visualization_system::{CameraVisualizationRequest, CameraVisualizationSystem};
 pub use clipping_system::ClippingSystem;
 pub use clock_system::{ClockDriver, ClockSystem};
-pub use combine_mesh_system::CombineMeshSystem;
 pub use collision_response_system::CollisionResponseSystem;
 pub use collision_system::CollisionSystem;
 pub use collision_visualization_system::{
     CollisionVisualizationMode, CollisionVisualizationRequest, CollisionVisualizationSystem,
 };
+pub use combine_mesh_system::CombineMeshSystem;
 pub use cursor_3d::Cursor3dSystem;
 pub use data_renderer_system::{
     DataRendererSystem, DetailRendererSpec, ItemRendererSpec, RendererSpec, UiDetailItem, UiItem,
@@ -132,6 +133,7 @@ pub use joint_basis_retargeting_system::{
 };
 pub use layout::LayoutSystem;
 pub use light_system::LightSystem;
+pub use mesh_bounds_system::{MeshBoundsSystem, MeshOutputBounds, MeshOutputKind};
 pub use mirror_system::MirrorSystem;
 pub use music_system::MusicSystem;
 pub use openxr_system::OpenXRSystem as XrSystem;

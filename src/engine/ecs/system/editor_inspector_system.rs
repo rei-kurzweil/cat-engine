@@ -1435,7 +1435,10 @@ mod tests {
 
         let runtime_ui_root = find_named_root(&world, "editor_runtime_ui_root");
         assert_eq!(row_text(&world, runtime_ui_root, "#item_1"), "scene_root");
-        assert_eq!(row_text(&world, runtime_ui_root, "#item_2"), "  child_transform");
+        assert_eq!(
+            row_text(&world, runtime_ui_root, "#item_2"),
+            "  child_transform"
+        );
         assert_eq!(row_text(&world, runtime_ui_root, "#item_3"), "sibling_root");
 
         emit.push_intent_now(

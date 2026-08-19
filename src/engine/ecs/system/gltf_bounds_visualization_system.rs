@@ -1,9 +1,10 @@
 use crate::engine::ecs::component::{
-    BoundsComponent, ColorComponent, ComponentRef, EmissiveComponent, GLTFComponent, MeshComponent,
-    OpacityComponent, OverlayComponent, RaycastableComponent, RenderableComponent,
-    SelectableComponent, SerializeComponent, TransformComponent, TransformParentComponent,
+    BoundsComponent, ColorComponent, ComponentRef, EditorComponent, EmissiveComponent,
+    GLTFComponent, MeshComponent, OpacityComponent, OverlayComponent, RaycastableComponent,
+    RenderableComponent, SelectableComponent, SerializeComponent, TransformComponent,
+    TransformParentComponent,
 };
-use crate::engine::ecs::system::GLTFSystem;
+use crate::engine::ecs::system::{GLTFSystem, MeshBoundsSystem, MeshOutputKind};
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
 use crate::engine::graphics::RenderAssets;
 use crate::engine::graphics::VisualWorld;
@@ -19,10 +20,12 @@ struct BoundsMarker {
     root: ComponentId,
 }
 
-/// Draws imported GLTF mesh bounds without inserting debug nodes into the GLTF hierarchy.
+/// Draws imported GLTF and generated mesh-output bounds without inserting
+/// debug nodes into authored hierarchies.
 #[derive(Debug, Default)]
 pub struct GltfBoundsVisualizationSystem {
     markers: HashMap<ComponentId, Vec<BoundsMarker>>,
+    mesh_output_markers: HashMap<ComponentId, BoundsMarker>,
 }
 
 impl GltfBoundsVisualizationSystem {
@@ -30,6 +33,8 @@ impl GltfBoundsVisualizationSystem {
         &mut self,
         world: &mut World,
         gltf_system: &GLTFSystem,
+        mesh_bounds: &MeshBoundsSystem,
+        mesh_bounds_visible: bool,
         _visuals: &mut VisualWorld,
         render_assets: &mut RenderAssets,
         emit: &mut dyn SignalEmitter,
@@ -49,6 +54,8 @@ impl GltfBoundsVisualizationSystem {
                 self.remove_markers(emit, gltf_id);
             }
         }
+
+        self.sync_mesh_output_markers(world, render_assets, emit, mesh_bounds, mesh_bounds_visible);
     }
 
     fn cleanup(&mut self, world: &World) {
@@ -133,6 +140,78 @@ impl GltfBoundsVisualizationSystem {
             );
         }
     }
+
+    fn sync_mesh_output_markers(
+        &mut self,
+        world: &mut World,
+        render_assets: &mut RenderAssets,
+        emit: &mut dyn SignalEmitter,
+        mesh_bounds: &MeshBoundsSystem,
+        visible: bool,
+    ) {
+        let outputs: Vec<_> = mesh_bounds
+            .outputs()
+            .filter(|output| {
+                output.kind == MeshOutputKind::CombineMesh
+                    && is_within_editor_scope(world, output.owner)
+            })
+            .collect();
+        let live_owners: HashSet<_> = outputs.iter().map(|output| output.owner).collect();
+
+        let stale: Vec<_> = self
+            .mesh_output_markers
+            .iter()
+            .filter_map(|(&owner, marker)| {
+                (!live_owners.contains(&owner)
+                    || world.get_component_record(marker.root).is_none()
+                    || world.get_component_record(marker.target).is_none())
+                .then_some((owner, marker.root))
+            })
+            .collect();
+        for (owner, root) in stale {
+            self.mesh_output_markers.remove(&owner);
+            emit.push_intent_now(root, IntentValue::RemoveSubtree { component_id: root });
+        }
+
+        if !visible {
+            for marker in self.mesh_output_markers.values() {
+                emit.push_intent_now(
+                    marker.root,
+                    IntentValue::RemoveSubtree {
+                        component_id: marker.root,
+                    },
+                );
+            }
+            self.mesh_output_markers.clear();
+            return;
+        }
+
+        for output in outputs {
+            if self.mesh_output_markers.contains_key(&output.owner)
+                || world.get_component_record(output.owner).is_none()
+            {
+                continue;
+            }
+            let marker = spawn_marker(world, render_assets, emit, output.owner, output.local);
+            self.mesh_output_markers.insert(output.owner, marker);
+        }
+    }
+}
+
+/// Bounds overlays are an editor aid.  Generated outputs only qualify when
+/// their stable owner lives below an authored `ED {}` root.
+fn is_within_editor_scope(world: &World, owner: ComponentId) -> bool {
+    let mut current = Some(owner);
+    while let Some(component) = current {
+        if world
+            .get_component_by_id_as::<EditorComponent>(component)
+            .is_some()
+        {
+            return true;
+        }
+        current = world.parent_of(component);
+    }
+    false
 }
 
 fn spawn_marker(
@@ -151,7 +230,7 @@ fn spawn_marker(
         .expect("bounds target must exist")
         .guid;
     let root = world.add_component_boxed_named(
-        "gltf_bounds_marker",
+        "mesh_bounds_marker",
         Box::new(
             TransformParentComponent::new().with_target_source(ComponentRef::Guid(target_guid)),
         ),

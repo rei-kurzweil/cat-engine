@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
+use crate::engine::ecs::ComponentId;
+use crate::engine::ecs::World;
 use crate::engine::ecs::component::{
     CombineMeshComponent, RenderableComponent, TransformGizmoComponent,
 };
-use crate::engine::ecs::system::{RenderableSystem, TransformSystem};
-use crate::engine::ecs::ComponentId;
-use crate::engine::ecs::World;
+use crate::engine::ecs::system::{
+    MeshBoundsSystem, MeshOutputKind, RenderableSystem, TransformSystem,
+};
+use crate::engine::graphics::bounds::Aabb;
 use crate::engine::graphics::mesh::CpuMesh;
 use crate::engine::graphics::primitives::{GpuRenderable, InstanceHandle, Transform};
 use crate::engine::graphics::{MeshUploader, RenderAssets, VisualWorld};
@@ -57,6 +60,7 @@ impl CombineMeshSystem {
         assets: &mut RenderAssets,
         uploader: &mut dyn MeshUploader,
         renderables: &mut RenderableSystem,
+        mesh_bounds: &mut MeshBoundsSystem,
     ) -> Vec<ComponentId> {
         let mut collapse_roots = Vec::new();
         let roots: Vec<_> = world
@@ -67,14 +71,18 @@ impl CombineMeshSystem {
                     .is_some()
             })
             .collect();
-        self.outputs.retain(|root, output| {
-            if roots.contains(root) {
-                true
-            } else {
+        let removed_roots: Vec<_> = self
+            .outputs
+            .keys()
+            .copied()
+            .filter(|root| !roots.contains(root))
+            .collect();
+        for root in removed_roots {
+            if let Some(output) = self.outputs.remove(&root) {
                 visuals.remove(output.handle);
-                false
             }
-        });
+            mesh_bounds.remove(root);
+        }
 
         for root in roots {
             let sources = self.sources_for_root(world, root);
@@ -93,12 +101,14 @@ impl CombineMeshSystem {
                     {
                         let _ = visuals.update_model(output.handle, root_model);
                         output.root_model = root_model;
+                        mesh_bounds.update_model(root, root_model);
                     }
                     continue;
                 }
                 if let Some(old) = self.outputs.remove(&root) {
                     visuals.remove(old.handle);
                 }
+                mesh_bounds.remove(root);
                 continue;
             }
             let Some(root_model) = TransformSystem::world_model(world, root) else {
@@ -114,11 +124,15 @@ impl CombineMeshSystem {
                 if old.root_model != root_model {
                     let _ = visuals.update_model(old.handle, root_model);
                     old.root_model = root_model;
+                    mesh_bounds.update_model(root, root_model);
                 }
                 continue;
             }
 
             let Some((mesh, material)) = bake(world, assets, root_inverse, &sources) else {
+                continue;
+            };
+            let Some(local_bounds) = local_bounds(&mesh) else {
                 continue;
             };
             let cpu_mesh = assets.register_mesh(mesh);
@@ -128,6 +142,12 @@ impl CombineMeshSystem {
             if let Some(old) = self.outputs.remove(&root) {
                 visuals.remove(old.handle);
             }
+            mesh_bounds.register_or_update(
+                root,
+                local_bounds,
+                root_model,
+                MeshOutputKind::CombineMesh,
+            );
             let handle = visuals.register(
                 root,
                 GpuRenderable::new(gpu_mesh, material),
@@ -223,6 +243,16 @@ fn bake(
     (!vertices.is_empty()).then(|| (CpuMesh::new(vertices, indices), material))
 }
 
+fn local_bounds(mesh: &CpuMesh) -> Option<Aabb> {
+    Aabb::from_points(
+        &mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex.pos)
+            .collect::<Vec<_>>(),
+    )
+}
+
 fn fingerprint(
     world: &World,
     root: ComponentId,
@@ -254,8 +284,8 @@ fn fingerprint(
 mod tests {
     use super::*;
     use crate::engine::ecs::component::TransformComponent;
-    use crate::engine::graphics::primitives::CpuMeshHandle;
     use crate::engine::graphics::MaterialHandle;
+    use crate::engine::graphics::primitives::CpuMeshHandle;
 
     #[test]
     fn bakes_descendants_and_uses_first_material() {

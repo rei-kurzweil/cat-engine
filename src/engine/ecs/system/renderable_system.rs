@@ -1,3 +1,4 @@
+use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::component::BackgroundColorComponent;
 use crate::engine::ecs::component::OverlayComponent;
 use crate::engine::ecs::component::{
@@ -5,11 +6,10 @@ use crate::engine::ecs::component::{
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
     RendererSettingsComponent, TransparentCutoutComponent, UVComponent,
 };
-use crate::engine::ecs::ComponentId;
 
+use crate::engine::ecs::World;
 use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformSystem;
-use crate::engine::ecs::World;
 use crate::engine::graphics::bounds::Aabb;
 use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Transform};
 use crate::engine::graphics::{GpuRenderable, VisualWorld};
@@ -1403,12 +1403,12 @@ impl System for RenderableSystem {
 #[cfg(test)]
 mod tests {
     use super::RenderableSystem;
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         BackgroundComponent, ColorComponent, EmissiveComponent, OpacityComponent, OverlayComponent,
         RenderableComponent, TextComponent, TransformComponent, TransparentCutoutComponent,
     };
-    use crate::engine::ecs::CommandQueue;
-    use crate::engine::ecs::World;
     use crate::engine::graphics::primitives::MeshHandle;
     use crate::engine::graphics::{CpuMesh, MeshUploader, RenderAssets, VisualWorld};
 

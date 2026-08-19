@@ -52,7 +52,7 @@ T.position(0.0, 8.0, -2.0) {
 
 // Desktop fly camera: local -Z is forward.
 I.speed(2.8) {
-    InputTransformMode.forward_z() { fps_rotation() roll_axis_y() }
+    InputTransformMode.forward_z() { roll_axis_z() }
     T.position(0.0, 2.2, 13.5) {
         C3D { Pointer {} }
     }

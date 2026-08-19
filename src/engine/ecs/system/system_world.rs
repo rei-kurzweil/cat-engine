@@ -1,8 +1,9 @@
 use super::World;
+use crate::engine::ecs::RxWorld;
+use crate::engine::ecs::SignalKind;
 use crate::engine::ecs::component::{
     AvatarBodyYawComponent, AvatarControlComponent, IKChainComponent,
 };
-use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::ArmatureVisualizationSystem;
 use crate::engine::ecs::system::BvhSystem;
 use crate::engine::ecs::system::CameraSystem;
@@ -19,6 +20,7 @@ use crate::engine::ecs::system::HttpServerSystem;
 use crate::engine::ecs::system::InputSystem;
 use crate::engine::ecs::system::InputXRGamepadSystem;
 use crate::engine::ecs::system::LightSystem;
+use crate::engine::ecs::system::MeshBoundsSystem;
 use crate::engine::ecs::system::MirrorSystem;
 use crate::engine::ecs::system::MusicSystem;
 use crate::engine::ecs::system::PipelineSystem;
@@ -40,6 +42,7 @@ use crate::engine::ecs::system::TransformStreamSystem;
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::system::TransitionSystem;
 use crate::engine::ecs::system::XrSystem;
+use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::{AnimationSystem, AudioSystem};
 use crate::engine::ecs::system::{
     AssetSystem, AvatarBodyYawSystem, AvatarControlSystem, Cursor3dSystem, EditorContextSystem,
@@ -48,8 +51,6 @@ use crate::engine::ecs::system::{
     SelectionSystem, TransformGizmoSystem,
 };
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter};
-use crate::engine::ecs::RxWorld;
-use crate::engine::ecs::SignalKind;
 use crate::engine::graphics::{RenderAssets, RenderUploader, VisualWorld};
 use crate::engine::user_input::InputState;
 use crate::engine::vr_perf::VrPerfPreXrCpu;
@@ -94,6 +95,7 @@ pub struct SystemWorld {
     pub collision_response: CollisionResponseSystem,
     pub skinned_mesh: SkinnedMeshSystem,
     pub combine_mesh: CombineMeshSystem,
+    pub mesh_bounds: MeshBoundsSystem,
     pub renderable: RenderableSystem,
     pub clipping: ClippingSystem,
     pub renderer_stats: RendererStatsSystem,
@@ -156,6 +158,8 @@ pub struct SystemWorld {
 #[cfg(test)]
 mod tests {
     use super::SystemWorld;
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         AvatarControlComponent, BoneRestPoseComponent, ColorComponent, ComponentRef, GLTFComponent,
         MirrorComponent, PoseCapturePoseComponent, PoseTargetRef, RaycastableComponent,
@@ -163,8 +167,6 @@ mod tests {
         StencilClipComponent, TextureComponent, TransformComponent,
     };
     use crate::engine::ecs::system::System;
-    use crate::engine::ecs::CommandQueue;
-    use crate::engine::ecs::World;
     use crate::engine::ecs::{IntentValue, PoseApplyMode, SignalEmitter};
     use crate::engine::graphics::primitives::{MaterialHandle, MeshHandle, TextureHandle};
     use crate::engine::graphics::{
@@ -528,14 +530,18 @@ mod tests {
         world.init_component_tree(root, &mut queue);
         systems.process_commands(&mut world, &mut visuals, &mut render_assets, &mut queue);
 
-        assert!(world
-            .get_component_by_id_as::<RenderableComponent>(clip_bg_renderable)
-            .and_then(|r| r.get_handle())
-            .is_none());
-        assert!(world
-            .get_component_by_id_as::<RenderableComponent>(content_renderable)
-            .and_then(|r| r.get_handle())
-            .is_none());
+        assert!(
+            world
+                .get_component_by_id_as::<RenderableComponent>(clip_bg_renderable)
+                .and_then(|r| r.get_handle())
+                .is_none()
+        );
+        assert!(
+            world
+                .get_component_by_id_as::<RenderableComponent>(content_renderable)
+                .and_then(|r| r.get_handle())
+                .is_none()
+        );
 
         systems.prepare_render(
             &mut world,
@@ -659,10 +665,12 @@ mod tests {
             .expect("runtime texture handle");
         let visual_instance = visuals.instance(handle).expect("visual instance");
         assert_eq!(visual_instance.texture, Some(runtime_handle));
-        assert!(systems
-            .render_to_texture
-            .producer_requests()
-            .any(|request| request.selector == mirror_key));
+        assert!(
+            systems
+                .render_to_texture
+                .producer_requests()
+                .any(|request| request.selector == mirror_key)
+        );
     }
 
     #[test]
@@ -2455,6 +2463,7 @@ impl SystemWorld {
             render_assets,
             uploader,
             &mut self.renderable,
+            &mut self.mesh_bounds,
         );
         for source_root in collapse_roots {
             if let Some(old_parent) = world.parent_of(source_root) {
@@ -2823,9 +2832,17 @@ impl SystemWorld {
 
         self.armature_visualization
             .tick_with_queue(world, &self.gltf, visuals, queue, dt_sec);
+        let mesh_bounds_visible = self
+            .editor_context
+            .shared_state()
+            .lock()
+            .expect("editor context state mutex poisoned")
+            .bounds_visible;
         self.gltf_bounds_visualization.tick_with_queue(
             world,
             &self.gltf,
+            &self.mesh_bounds,
+            mesh_bounds_visible,
             visuals,
             render_assets,
             queue,

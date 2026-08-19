@@ -32,13 +32,12 @@ use crate::engine::ecs::system::editor::workspace::{
     EditorWorkspaceRuntime, install_panel_focus_sync_handler,
 };
 use crate::engine::ecs::system::editor::world_panel::{
-    AuthoredWorldPanelSceneModel, PANEL_CONTENT_SLOT_SELECTOR, WORLD_PANEL_ROOT_SELECTOR,
-    WORLD_PANEL_SELECTION_NAME, WORLD_PANEL_SELECTION_SELECTOR, WorldPanelModel,
-    AuthoredSceneNodePolicy, apply_world_panel_semantic_selection, authored_scene_node_policy,
+    AuthoredSceneNodePolicy, AuthoredWorldPanelSceneModel, PANEL_CONTENT_SLOT_SELECTOR,
+    WORLD_PANEL_ROOT_SELECTOR, WORLD_PANEL_SELECTION_NAME, WORLD_PANEL_SELECTION_SELECTOR,
+    WorldPanelModel, apply_world_panel_semantic_selection, authored_scene_node_policy,
     build_world_panel_model, handle_panel_button_click, handle_world_panel_item_click,
-    panel_status_text, rebuild_world_panel_scene_model,
-    register_editor_root, rerender_world_panel_content, rerender_world_panel_for_context,
-    rerender_world_panel_status,
+    panel_status_text, rebuild_world_panel_scene_model, register_editor_root,
+    rerender_world_panel_content, rerender_world_panel_for_context, rerender_world_panel_status,
     sync_world_panel_selection, world_panel_scene_path,
 };
 use crate::engine::ecs::system::panel_system::{
@@ -930,7 +929,6 @@ impl EditorInspectorSystemStopgapMmsAdapter {
                 );
             },
         );
-
     }
 
     pub fn refresh_world_panel_after_topology_change(

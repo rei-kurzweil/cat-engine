@@ -173,8 +173,7 @@ mod grip_aim_tests {
             [6.0, 7.0, 8.0]
         );
 
-        joints[openxr::HandJointEXT::MIDDLE_DISTAL] =
-            joints[openxr::HandJointEXT::MIDDLE_PROXIMAL];
+        joints[openxr::HandJointEXT::MIDDLE_DISTAL] = joints[openxr::HandJointEXT::MIDDLE_PROXIMAL];
         assert!(OpenXRSystem::select_hand_root_pose(&joints).is_none());
     }
 }

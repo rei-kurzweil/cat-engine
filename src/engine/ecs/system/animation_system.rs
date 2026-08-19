@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::engine::ecs::component::{
     AnimationComponent, AnimationState, AnimationStepDirection, KeyframeComponent,
 };
+use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::animation_keyframe_evaluator::AnimationKeyframeEvaluator;
 use crate::engine::ecs::system::animation_scheduler::AnimationScheduler;
-use crate::engine::ecs::system::System;
 use crate::engine::ecs::{ComponentId, RxWorld, World};
 use crate::engine::graphics::VisualWorld;
 use crate::engine::user_input::InputState;
@@ -380,13 +380,13 @@ impl System for AnimationSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ecs::component::{AudioOscillatorComponent, TransformComponent};
     use crate::engine::ecs::IntentValue;
+    use crate::engine::ecs::component::{AudioOscillatorComponent, TransformComponent};
     use crate::scripting::ast::{
         BinOpKind, BlockStatement, CallExpression, Expression, Ident, Statement,
     };
     use crate::scripting::object::{RuntimeClosure, Value};
-    use crate::scripting::world_evaluator::{eval_runtime_closure, RuntimeClosureExecMode};
+    use crate::scripting::world_evaluator::{RuntimeClosureExecMode, eval_runtime_closure};
     use std::collections::HashMap;
     use std::sync::Arc;
 
