@@ -25,8 +25,7 @@ use crate::engine::ecs::system::object_placement_preview::{
     create_preview_shell, update_preview_pose,
 };
 use crate::engine::ecs::system::paint_placement::{
-    PlacementError, resolve_placement_pose, resolve_surface_aligned_pose_from_frame,
-    resolve_surface_placement_frame,
+    PlacementError, resolve_surface_aligned_pose_from_frame, resolve_surface_placement_frame,
 };
 use crate::engine::ecs::{
     ComponentId, EventSignal, IntentValue, RxWorld, Signal, SignalEmitter, SignalKind, World,
@@ -309,6 +308,22 @@ pub struct EditorPaintSystem {
     shared_panel_handlers_installed: bool,
     shared_state: Arc<Mutex<PaintState>>,
     shared_templates: Arc<Mutex<Vec<PaintAssetTemplate>>>,
+    pending_effects: Arc<Mutex<Vec<PaintEffectRequest>>>,
+}
+
+/// A paint event has already updated the reactive state, but its world mutation
+/// needs the frame-owned renderer assets.  Keep this request data-only so the
+/// borrow remains explicit and scoped to `SystemWorld::process_signals`.
+#[derive(Debug, Clone)]
+struct PaintEffectRequest {
+    panel_query_root: ComponentId,
+    grid_system: GridSystem,
+    templates: Arc<Mutex<Vec<PaintAssetTemplate>>>,
+    editor_context_state: Arc<Mutex<EditorContextState>>,
+    stroke_runtime: Option<Arc<Mutex<PaintStrokeRuntime>>>,
+    old_state: PaintState,
+    new_state: PaintState,
+    event: PaintEvent,
 }
 
 impl EditorPaintSystem {
@@ -341,6 +356,7 @@ impl EditorPaintSystem {
                 Arc::clone(&self.shared_state),
                 Arc::clone(&editor_context_state),
                 Arc::clone(&self.shared_templates),
+                Arc::clone(&self.pending_effects),
             );
             bootstrap_paint_state(world, panel_query_root, &self.shared_state);
         }
@@ -359,8 +375,41 @@ impl EditorPaintSystem {
             Arc::clone(&self.shared_state),
             editor_context_state,
             Arc::clone(&self.shared_templates),
+            Arc::clone(&self.pending_effects),
             stroke_runtime,
         );
+    }
+
+    /// Executes effects queued by reactive handlers immediately after their
+    /// source event, while `SystemWorld` owns the sole mutable RenderAssets
+    /// borrow for this frame.
+    pub fn process_pending_effects(
+        &mut self,
+        world: &mut World,
+        render_assets: &mut crate::engine::graphics::RenderAssets,
+        emit: &mut dyn SignalEmitter,
+    ) {
+        let requests = std::mem::take(
+            &mut *self
+                .pending_effects
+                .lock()
+                .expect("paint effects mutex poisoned"),
+        );
+        for request in requests {
+            apply_paint_side_effects(
+                world,
+                render_assets,
+                emit,
+                request.panel_query_root,
+                &request.grid_system,
+                &request.templates,
+                &request.editor_context_state,
+                &request.old_state,
+                &request.new_state,
+                &request.event,
+                request.stroke_runtime.as_ref(),
+            );
+        }
     }
 }
 
@@ -372,12 +421,14 @@ fn install_shared_panel_handlers(
     paint_state: Arc<Mutex<PaintState>>,
     editor_context_state: Arc<Mutex<EditorContextState>>,
     templates: Arc<Mutex<Vec<PaintAssetTemplate>>>,
+    pending_effects: Arc<Mutex<Vec<PaintEffectRequest>>>,
 ) {
     let _ = world;
 
     let state = Arc::clone(&paint_state);
     let ctx = Arc::clone(&editor_context_state);
     let tpl = Arc::clone(&templates);
+    let pending = Arc::clone(&pending_effects);
     let asset_grid_system = grid_system.clone();
     rx.add_handler_closure_named(
         SignalKind::DataEvent,
@@ -397,9 +448,8 @@ fn install_shared_panel_handlers(
                 item: label,
                 component,
             };
-            handle_paint_event(
+            enqueue_paint_event(
                 world,
-                emit,
                 panel_query_root,
                 &asset_grid_system,
                 &tpl,
@@ -407,6 +457,7 @@ fn install_shared_panel_handlers(
                 &ctx,
                 None,
                 &event,
+                &pending,
             );
         },
     );
@@ -414,6 +465,7 @@ fn install_shared_panel_handlers(
     let state = Arc::clone(&paint_state);
     let ctx = Arc::clone(&editor_context_state);
     let tpl = Arc::clone(&templates);
+    let pending = Arc::clone(&pending_effects);
     rx.add_handler_closure_named(
         SignalKind::SelectionChanged,
         panel_query_root,
@@ -462,9 +514,8 @@ fn install_shared_panel_handlers(
                     item: label,
                     component,
                 };
-                handle_paint_event(
+                enqueue_paint_event(
                     world,
-                    emit,
                     panel_query_root,
                     &grid_system,
                     &tpl,
@@ -472,6 +523,7 @@ fn install_shared_panel_handlers(
                     &ctx,
                     None,
                     &event,
+                    &pending,
                 );
                 return;
             }
@@ -498,9 +550,8 @@ fn install_shared_panel_handlers(
                     component,
                     rgba,
                 };
-                handle_paint_event(
+                enqueue_paint_event(
                     world,
-                    emit,
                     panel_query_root,
                     &grid_system,
                     &tpl,
@@ -508,6 +559,7 @@ fn install_shared_panel_handlers(
                     &ctx,
                     None,
                     &event,
+                    &pending,
                 );
             }
         },
@@ -522,6 +574,7 @@ fn install_editor_scene_handlers(
     paint_state: Arc<Mutex<PaintState>>,
     editor_context_state: Arc<Mutex<EditorContextState>>,
     templates: Arc<Mutex<Vec<PaintAssetTemplate>>>,
+    pending_effects: Arc<Mutex<Vec<PaintEffectRequest>>>,
     stroke_runtime: Arc<Mutex<PaintStrokeRuntime>>,
 ) {
     for signal_kind in [
@@ -535,6 +588,7 @@ fn install_editor_scene_handlers(
         let editor_context = Arc::clone(&editor_context_state);
         let shared_templates = Arc::clone(&templates);
         let runtime = Arc::clone(&stroke_runtime);
+        let pending_effects = Arc::clone(&pending_effects);
         let grid_system = grid_system.clone();
         rx.add_handler_closure_named(
             signal_kind,
@@ -547,9 +601,8 @@ fn install_editor_scene_handlers(
                     return;
                 };
 
-                handle_paint_event(
+                enqueue_paint_event(
                     world,
-                    emit,
                     panel_query_root,
                     &grid_system,
                     &shared_templates,
@@ -557,15 +610,15 @@ fn install_editor_scene_handlers(
                     &editor_context,
                     Some(&runtime),
                     &event,
+                    &pending_effects,
                 );
             },
         );
     }
 }
 
-fn handle_paint_event(
+fn enqueue_paint_event(
     world: &mut World,
-    emit: &mut dyn SignalEmitter,
     panel_query_root: ComponentId,
     grid_system: &GridSystem,
     templates: &Arc<Mutex<Vec<PaintAssetTemplate>>>,
@@ -573,6 +626,7 @@ fn handle_paint_event(
     editor_context_state: &Arc<Mutex<EditorContextState>>,
     stroke_runtime: Option<&Arc<Mutex<PaintStrokeRuntime>>>,
     event: &PaintEvent,
+    pending_effects: &Arc<Mutex<Vec<PaintEffectRequest>>>,
 ) {
     let total_start = Instant::now();
     if PAINT_DEBUG_LOGS {
@@ -590,31 +644,26 @@ fn handle_paint_event(
         (old_state, new_state)
     };
     paint_perf(
-        "handle_paint_event.reduce",
+        "enqueue_paint_event.reduce",
         reduce_start,
         format!("event={event:?}"),
     );
 
-    let effects_start = Instant::now();
-    apply_paint_side_effects(
-        world,
-        emit,
-        panel_query_root,
-        grid_system,
-        templates,
-        editor_context_state,
-        &old_state,
-        &new_state,
-        event,
-        stroke_runtime,
-    );
+    pending_effects
+        .lock()
+        .expect("paint effects mutex poisoned")
+        .push(PaintEffectRequest {
+            panel_query_root,
+            grid_system: grid_system.clone(),
+            templates: Arc::clone(templates),
+            editor_context_state: Arc::clone(editor_context_state),
+            stroke_runtime: stroke_runtime.cloned(),
+            old_state,
+            new_state,
+            event: event.clone(),
+        });
     paint_perf(
-        "handle_paint_event.side_effects",
-        effects_start,
-        format!("event={event:?}"),
-    );
-    paint_perf(
-        "handle_paint_event.total",
+        "enqueue_paint_event.total",
         total_start,
         format!("event={event:?}"),
     );
@@ -791,6 +840,7 @@ fn paint_event_from_editor_signal(
 
 fn apply_paint_side_effects(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     panel_query_root: ComponentId,
     grid_system: &GridSystem,
@@ -837,6 +887,7 @@ fn apply_paint_side_effects(
         } if Some(*editor) == active_editor => {
             status_override = handle_scene_click(
                 world,
+                render_assets,
                 emit,
                 *editor,
                 panel_query_root,
@@ -870,6 +921,7 @@ fn apply_paint_side_effects(
                 ) {
                     let preview_session = start_preview_session_for_tool(
                         world,
+                        render_assets,
                         emit,
                         *editor,
                         *renderable,
@@ -924,6 +976,7 @@ fn apply_paint_side_effects(
         } if Some(*editor) == active_editor => {
             status_override = handle_stroke_move(
                 world,
+                render_assets,
                 emit,
                 *editor,
                 panel_query_root,
@@ -1226,6 +1279,7 @@ fn handle_free_draw_stroke_move(
 
 fn handle_spray_can_click(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     context: &PaintContext<'_>,
@@ -1251,6 +1305,7 @@ fn handle_spray_can_click(
 
     Some(place_asset(
         world,
+        render_assets,
         emit,
         context.destination_editor,
         renderable,
@@ -1263,6 +1318,7 @@ fn handle_spray_can_click(
 
 fn handle_spray_can_stroke_move(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     context: &PaintContext<'_>,
@@ -1304,6 +1360,7 @@ fn handle_spray_can_stroke_move(
 
         Some(place_asset(
             world,
+            render_assets,
             emit,
             context.destination_editor,
             renderable,
@@ -1421,6 +1478,7 @@ fn handle_color_stroke_move(
 
 fn handle_scene_click(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     panel_query_root: ComponentId,
@@ -1462,6 +1520,7 @@ fn handle_scene_click(
         PaintTool::GridTool => None,
         PaintTool::SprayCan => handle_spray_can_click(
             world,
+            render_assets,
             emit,
             editor_root,
             &context,
@@ -1514,6 +1573,7 @@ fn handle_scene_click(
 
 fn handle_stroke_move(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     panel_query_root: ComponentId,
@@ -1563,6 +1623,7 @@ fn handle_stroke_move(
         ),
         PaintTool::SprayCan => handle_spray_can_stroke_move(
             world,
+            render_assets,
             emit,
             editor_root,
             &context,
@@ -1718,6 +1779,7 @@ struct PaintActivityStatus {
 
 fn start_preview_session_for_tool(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     target_renderable: ComponentId,
@@ -1729,6 +1791,7 @@ fn start_preview_session_for_tool(
     match selected_tool {
         PaintTool::FreeDraw => start_paint_preview_session(
             world,
+            render_assets,
             emit,
             editor_root,
             target_renderable,
@@ -1750,6 +1813,7 @@ fn start_preview_session_for_tool(
 
 fn start_paint_preview_session(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     target_renderable: ComponentId,
@@ -1768,7 +1832,13 @@ fn start_paint_preview_session(
         }
     };
     let scene_parent = resolve_scene_parent(world, context.destination_editor);
-    let asset_root = match spawn_asset_subtree(world, emit, asset, context.selected_color) {
+    let asset_root = match spawn_asset_subtree(
+        world,
+        render_assets,
+        emit,
+        asset,
+        context.selected_color,
+    ) {
         Ok(asset_root) => asset_root,
         Err(error) => {
             if paint_stroke_debug_enabled() {
@@ -1806,10 +1876,11 @@ fn start_paint_preview_session(
                     asset.key,
                 );
             }
+            let _ = world.remove_component_subtree(raycastable_root);
             return None;
         }
     };
-    let local_min_z = match asset_local_min_z(world, preview_root) {
+    let local_min_z = match asset_local_min_z(world, render_assets, preview_root) {
         Some(local_min_z) => local_min_z,
         None => {
             if paint_stroke_debug_enabled() {
@@ -1818,6 +1889,7 @@ fn start_paint_preview_session(
                     asset.key,
                 );
             }
+            let _ = world.remove_component_subtree(raycastable_root);
             return None;
         }
     };
@@ -1830,6 +1902,7 @@ fn start_paint_preview_session(
                     asset.key,
                 );
             }
+            let _ = world.remove_component_subtree(raycastable_root);
             return None;
         }
     };
@@ -1946,6 +2019,7 @@ fn paint_activity_status(
 
 fn place_asset(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     editor_root: ComponentId,
     target_renderable: ComponentId,
@@ -1956,27 +2030,37 @@ fn place_asset(
 ) -> String {
     let scene_parent = resolve_scene_parent(world, editor_root);
 
-    let asset_root = match spawn_asset_subtree(world, emit, asset, selected_color) {
+    let asset_root = match spawn_asset_subtree(world, render_assets, emit, asset, selected_color) {
         Ok(asset_root) => asset_root,
         Err(error) => return error,
     };
 
-    let pose =
-        match resolve_placement_pose(world, target_renderable, hit_point, asset_root, grid_snap) {
-            Ok(pose) => pose,
+    let Some(local_min_z) = asset_local_min_z(world, render_assets, asset_root) else {
+        let _ = world.remove_component_subtree(asset_root);
+        return "paint failed: asset bounds unavailable".to_string();
+    };
+    let frame =
+        match resolve_surface_placement_frame(world, target_renderable, hit_point, grid_snap) {
+            Ok(frame) => frame,
             Err(PlacementError::UnsupportedSurface) => {
                 let _ = world.remove_component_subtree(asset_root);
                 return "paint inactive: unsupported target surface".to_string();
-            }
-            Err(PlacementError::MissingAssetBounds) => {
-                let _ = world.remove_component_subtree(asset_root);
-                return "paint failed: asset bounds unavailable".to_string();
             }
             Err(PlacementError::MissingTargetTransform) => {
                 let _ = world.remove_component_subtree(asset_root);
                 return "paint failed: target transform unavailable".to_string();
             }
+            Err(PlacementError::MissingAssetBounds) => {
+                unreachable!("surface frame cannot require asset bounds")
+            }
         };
+    let pose = match resolve_surface_aligned_pose_from_frame(&frame, local_min_z) {
+        Ok(pose) => pose,
+        Err(_) => {
+            let _ = world.remove_component_subtree(asset_root);
+            return "paint failed: placement pose unavailable".to_string();
+        }
+    };
 
     let raycastable_root = world.add_component_boxed_named(
         "painted_asset_raycastable",
@@ -2018,15 +2102,17 @@ fn place_asset(
 
 fn spawn_asset_subtree(
     world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
     emit: &mut dyn SignalEmitter,
     asset: &PaintAssetTemplate,
     selected_color: [f32; 4],
 ) -> Result<ComponentId, String> {
-    let asset_root = MeowMeowRunner::spawn_mms_module_component_uninitialized(
+    let asset_root = MeowMeowRunner::spawn_mms_module_component_uninitialized_with_assets(
         &asset.module,
         &asset.export_name,
         default_asset_args(asset, selected_color),
         world,
+        Some(render_assets),
         emit,
     )
     .map_err(|error| format!("paint failed: asset spawn error: {error}"))?;
@@ -2035,9 +2121,21 @@ fn spawn_asset_subtree(
     Ok(asset_root)
 }
 
-fn asset_local_min_z(world: &World, root: ComponentId) -> Option<f32> {
-    crate::engine::ecs::system::paint_placement::measure_subtree_local_bounds(world, root)
-        .map(|bounds| bounds.min[2])
+fn asset_local_min_z(
+    world: &World,
+    render_assets: &crate::engine::graphics::RenderAssets,
+    root: ComponentId,
+) -> Option<f32> {
+    match crate::engine::ecs::system::bounds_system::BoundsSystem::measure_renderable_subtree_bounds(
+        world,
+        render_assets,
+        root,
+    ) {
+        crate::engine::ecs::system::bounds_system::RenderableBoundsMeasure::Measured(bounds) => {
+            Some(bounds.min[2])
+        }
+        crate::engine::ecs::system::bounds_system::RenderableBoundsMeasure::Unmeasurable => None,
+    }
 }
 
 fn sanitize_painted_asset_subtree(world: &mut World, root: ComponentId) {
@@ -2715,11 +2813,11 @@ mod tests {
         std::fs::write(
             dir.join("paint_asset.mms"),
             r#"
-                export fn cube_stamp() {
+                export fn heart_stamp() {
                     return T {
                         T.scale(0.2, 0.2, 0.2) {
                             C.rgba(1.0, 0.2, 0.2, 1.0) {
-                                Renderable.cube()
+                                Renderable.heart(32)
                             }
                         }
                     }

@@ -2,7 +2,7 @@
 
 Date: 2026-08-20
 
-Status: discovery tracker; no implementation architecture selected
+Status: implementation checkpoint; typed same-frame effects selected
 
 Related:
 
@@ -61,6 +61,23 @@ semantics, or a general asset-browser redesign.
   acceptable split.
 - Failure must be visible in Paint status/logging; it must not silently become
   `preview_root=None`.
+
+## Selected implementation checkpoint: 2026-08-20
+
+Paint's reactive handlers now reduce state and enqueue a data-only paint-effect
+request. `SystemWorld::process_signals` executes that request immediately after
+the source event while it owns the only mutable `RenderAssets` borrow. Free
+Draw preview and Spray Can placement both use the runner's scoped
+`spawn_mms_module_component_uninitialized_with_assets(...)` entry point.
+
+Placement bounds are also measured through the live `RenderAssets` CPU-mesh
+registry, so dynamically registered procedural meshes such as `heart(32)` are
+measurable. Preview setup removes its temporary subtree if later frame, bounds,
+or pose setup fails.
+
+This is Option B constrained to same-frame synchronous execution: it preserves
+immediate preview feedback without a global mutable renderer-assets pointer or
+an asynchronous placement queue.
 
 ## Options to compare
 
@@ -157,4 +174,3 @@ ownership solution is otherwise clear.
 - No global mutable renderer-assets escape hatch or long-lived alias is added.
 - Failure messages identify the failed stage and do not leak partially spawned
   preview subtrees.
-

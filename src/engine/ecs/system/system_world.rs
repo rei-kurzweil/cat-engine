@@ -1231,6 +1231,8 @@ impl SystemWorld {
                     }
                     processed += 1;
                     self.rx.dispatch_event_handlers(world, &env);
+                    self.editor_paint
+                        .process_pending_effects(world, render_assets, queue);
                 }
                 if !leftover.is_empty() {
                     self.rx.requeue_ready_events(leftover);
