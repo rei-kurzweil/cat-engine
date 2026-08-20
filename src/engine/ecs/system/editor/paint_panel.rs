@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn authored_paint_panel_exposes_color_but_not_fill() {
-        let panel = include_str!("../../../../../assets/components/panels.mms");
+        let panel = include_str!("../../../../../assets/components/internal/panels.mms");
         let icons = include_str!("../../../../../assets/components/icons.mms");
 
         assert!(panel.contains(

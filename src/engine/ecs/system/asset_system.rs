@@ -75,14 +75,25 @@ impl AssetSystem {
 
         for entry in entries {
             let entry = entry.map_err(|e| format!("cannot read assets dir entry: {e}"))?;
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("mms") {
-                println!("[AssetSystem][debug] scanning asset module: {:?}", path);
-                self.load_module(path)?;
+            let candidate = entry.path();
+            if Self::is_catalog_candidate(path, &candidate) {
+                println!("[AssetSystem][debug] scanning asset module: {:?}", candidate);
+                self.load_module(candidate)?;
             }
         }
 
         Ok(())
+    }
+
+    /// Returns whether a path is a public Asset catalog entry.
+    ///
+    /// The catalog intentionally considers only regular `.mms` files that are direct children
+    /// of its configured root. Nested modules, including `internal/`, remain importable through
+    /// `load_module` and MMS imports but are not placeable Asset-panel entries.
+    fn is_catalog_candidate(asset_root: &Path, candidate: &Path) -> bool {
+        candidate.parent() == Some(asset_root)
+            && candidate.is_file()
+            && candidate.extension().and_then(|extension| extension.to_str()) == Some("mms")
     }
 
     pub fn load_module(&mut self, path: PathBuf) -> Result<(), String> {
@@ -184,7 +195,7 @@ impl AssetSystem {
     ) -> Result<ComponentId, String> {
         let asset_header_path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/components/asset_module_header.mms"
+            "/assets/components/internal/asset_module_header.mms"
         );
 
         MeowMeowRunner::spawn_mms_module_component_from_file(
@@ -247,7 +258,7 @@ impl AssetSystem {
     }
 
     fn assets_panel_asset_path() -> &'static str {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms")
+        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
     }
 
     pub fn spawn_assets_panel(
@@ -438,7 +449,7 @@ impl AssetSystem {
     ) -> Result<ComponentId, String> {
         let asset_item_path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/components/asset_item.mms"
+            "/assets/components/internal/asset_item.mms"
         );
         let module = self.modules.get(&item.module_id).ok_or_else(|| {
             format!(
@@ -673,6 +684,63 @@ mod tests {
         assert_eq!(system.items.len(), 1);
         assert_eq!(system.items[0].export_name, "example");
         assert!(system.items[0].title.contains("test_asset::example"));
+    }
+
+    #[test]
+    fn scan_assets_dir_catalogs_only_direct_public_modules() {
+        let tmp_dir = temp_asset_directory();
+        let public_path = tmp_dir.join("public_asset.mms");
+        let internal_dir = tmp_dir.join("internal");
+        let internal_path = internal_dir.join("editor_only.mms");
+        std::fs::create_dir_all(&internal_dir).expect("create internal directory");
+        std::fs::write(&public_path, "export fn public_factory() { T {} }")
+            .expect("write public asset module");
+        std::fs::write(&internal_path, "export fn editor_factory() { T {} }")
+            .expect("write internal asset module");
+
+        let mut system = AssetSystem::new();
+        system.scan_assets_dir(&tmp_dir).expect("scan assets dir");
+
+        assert_eq!(
+            system
+                .items
+                .iter()
+                .map(|item| item.export_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["public_factory"],
+            "nested internal modules must not become Asset catalog entries"
+        );
+
+        system
+            .load_module(internal_path)
+            .expect("internal modules remain explicitly loadable");
+        assert!(
+            system
+                .items
+                .iter()
+                .any(|item| item.export_name == "editor_factory"),
+            "the catalog boundary must not restrict generic module loading"
+        );
+    }
+
+    #[test]
+    fn scan_assets_dir_keeps_public_button_and_icons_modules_catalog_eligible() {
+        let tmp_dir = temp_asset_directory();
+        std::fs::write(tmp_dir.join("button.mms"), "export fn button() { T {} }")
+            .expect("write public button module");
+        std::fs::write(tmp_dir.join("icons.mms"), "export fn icon() { T {} }")
+            .expect("write public icons module");
+
+        let mut system = AssetSystem::new();
+        system.scan_assets_dir(&tmp_dir).expect("scan assets dir");
+
+        let exports = system
+            .items
+            .iter()
+            .map(|item| item.export_name.as_str())
+            .collect::<HashSet<_>>();
+        assert!(exports.contains("button"));
+        assert!(exports.contains("icon"));
     }
 
     #[test]

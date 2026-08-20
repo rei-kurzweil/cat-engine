@@ -2020,7 +2020,7 @@ fn accordion_example_gives_responder_text_distinct_line_boxes() {
 #[test]
 fn accordion_factory_removes_body_and_emits_one_way_restore_request() {
     let src = r##"
-        import { accordion, accordion_body } from "../assets/components/ui/accordion.mms"
+        import { accordion, accordion_body } from "../assets/components/internal/ui/accordion.mms"
 
         let panel = accordion({
             root_name = "test_accordion"
@@ -3671,8 +3671,8 @@ fn eval_panel_component_factories_from_assets() {
     std::fs::write(
         &user_path,
         r#"
-import { world_panel } from "../assets/components/panels.mms"
-import { inspector_panel } from "../assets/components/panels.mms"
+import { world_panel } from "../assets/components/internal/panels.mms"
+import { inspector_panel } from "../assets/components/internal/panels.mms"
 
 let world_items = ["Root", "Camera", "Light"]
 let inspector_items = ["Transform {}", "Style {}"]
@@ -3693,7 +3693,7 @@ inspector_panel("Inspector", inspector_items)
 #[test]
 fn load_module_file_exposes_named_exports_as_evaluated_values() {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let module_path = workspace_root.join("assets/components/panels.mms");
+    let module_path = workspace_root.join("assets/components/internal/panels.mms");
 
     let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
         .expect("expected module to load");
@@ -3711,6 +3711,75 @@ fn load_module_file_exposes_named_exports_as_evaluated_values() {
         Some(Value::Function { .. })
     ));
 }
+
+#[test]
+fn moved_editor_internal_modules_materialize_from_their_runtime_paths() {
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rgba = Value::Array(vec![
+        Value::Number(0.2),
+        Value::Number(0.3),
+        Value::Number(0.4),
+        Value::Number(1.0),
+    ]);
+    let modules = [
+        (
+            "assets/components/internal/panels.mms",
+            "color_panel",
+            vec![
+                Value::String("Color".to_string()),
+                rgba.clone(),
+                rgba.clone(),
+            ],
+        ),
+        (
+            "assets/components/internal/panel_items.mms",
+            "world_panel_status",
+            vec![Value::String("ready".to_string())],
+        ),
+        (
+            "assets/components/internal/assets_content.mms",
+            "assets_content",
+            vec![Value::Array(Vec::new()), rgba.clone()],
+        ),
+        (
+            "assets/components/internal/asset_item.mms",
+            "asset_item",
+            vec![
+                Value::String("asset".to_string()),
+                Value::String("asset-key".to_string()),
+                rgba.clone(),
+            ],
+        ),
+        (
+            "assets/components/internal/asset_module_header.mms",
+            "asset_module_header",
+            vec![Value::String("module".to_string())],
+        ),
+        (
+            "assets/components/internal/inspector_details.mms",
+            "inspector_details",
+            vec![
+                Value::String("Transform".to_string()),
+                Value::String("component-id".to_string()),
+                Value::String("guid".to_string()),
+            ],
+        ),
+    ];
+
+    for (relative_path, export_name, args) in modules {
+        let path = workspace_root.join(relative_path);
+        let component = MeowMeowRunner::materialize_mms_module_component_from_file(
+            path.to_str().expect("UTF-8 module path"),
+            export_name,
+            args,
+            None,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{relative_path}::{export_name} must materialize: {error}"));
+        assert!(!component.component_type.is_empty());
+    }
+}
+
 
 #[test]
 fn toggle_icon_factories_accept_default_and_custom_colors() {
@@ -3937,7 +4006,7 @@ fn voxel_terrain_custom_palette_tracks_cube_height_layers() {
 #[test]
 fn call_mms_module_fn_invokes_exported_factory_function() {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let module_path = workspace_root.join("assets/components/panels.mms");
+    let module_path = workspace_root.join("assets/components/internal/panels.mms");
 
     let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
         .expect("expected module to load");
@@ -4351,7 +4420,7 @@ fn eval_world_panel_content_rows_are_queryable_by_index_name() {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let source_path = workspace_root.join("target/_mms_test_world_panel_content_names.mms");
     let source = r##"
-import { world_panel_content } from "../assets/components/panel_items.mms"
+import { world_panel_content } from "../assets/components/internal/panel_items.mms"
 
 let root = world_panel_content(["Root", "Camera", "Light"])
 let rows_mount = root.query("#rows_mount")

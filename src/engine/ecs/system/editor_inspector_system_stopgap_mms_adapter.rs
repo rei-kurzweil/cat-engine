@@ -390,7 +390,7 @@ impl EditorInspectorSystemStopgapMmsAdapter {
                         return;
                     }
                     let Ok(ce) = crate::scripting::runner::MeowMeowRunner::materialize_mms_module_component_from_file(
-                        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms"),
+                        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms"),
                         "inspector_panel_body",
                         Vec::new(),
                         Some(world),

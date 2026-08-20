@@ -4,7 +4,7 @@
 // Right: the event carries accordion_body_mount to examples/accordion.rs,
 //        which repopulates the body from native Rust code.
 
-import { accordion, accordion_body } from "../assets/components/ui/accordion.mms"
+import { accordion, accordion_body } from "../assets/components/internal/ui/accordion.mms"
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 
 RendererSettings {

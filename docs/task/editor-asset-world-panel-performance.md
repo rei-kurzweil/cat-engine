@@ -63,11 +63,10 @@ We have useful groundwork, but not viewport list virtualization:
 | --- | --- |
 | Local/world bounds source | `BoundsComponent` and BVH refactor prepared the data path. |
 | General non-raycastable BVH/frustum query | planned, not implemented. |
-| Event-driven stencil-clip CPU culling | separately designed and deferred. |
-| Layout-owned scrolling + scissor | interim scrolling exists; layout/scissor implementation remains deferred. |
+| Stencil masking plus CPU-side `VisualWorld` exclusion | separately designed and deferred; stencil remains the exact GPU mask while conservative CPU exclusion omits fully outside instances before stream construction. |
 | Panel row/tile viewport windowing | not implemented. |
 
-The planned clip culling is renderer-wide, event-driven, and conservative. A
+The planned stencil-mask/`VisualWorld` exclusion work is renderer-wide, event-driven, and conservative. A
 panel window is a UI projection concern: it decides which row/tile subtrees to
 materialize and which previews to keep live. They may share geometry and
 visibility information later, but neither should be blocked on the other.
@@ -97,24 +96,15 @@ and expensive preview instantiation before viewport virtualization exists.
 
 ### 2. Separate editor-internal MMS modules from placeable assets
 
-Move editor UI MMS modules under `assets/components/internal/` and make asset
-discovery explicitly exclude that subtree. Inventory all runtime paths and MMS
-imports before moving files; panel shell/item/header modules and reusable UI
-imports are not necessarily all the same class of asset.
+Editor UI MMS modules live under `assets/components/internal/`. Asset discovery
+is deliberately shallow: only direct `.mms` children of the configured asset
+root are catalog candidates, so the `internal/` subtree can never become
+Asset-panel entries. `button.mms` and `icons.mms` remain public top-level
+modules.
 
-The final rule should be path/category metadata, not the current
-`module_name.contains("panel")` preview exception. The Asset panel should
-expose user/placeable factories, while editor-internal modules remain importable
-by the editor runtime but never become asset-browser entries by accident.
-
-Questions:
-
-- should generic reusable UI factories be internal too, or merely excluded from
-  the default placeable catalog?
-- does discovery remain shallow with a designated public directory, or become
-  recursive with an explicit `internal/` exclusion and stable path identity?
-- how will imports and tests update without accidentally changing module names,
-  asset keys, or serialized scene references?
+This is a catalog boundary, not a generic module-loading restriction. Internal
+modules remain explicitly loadable/importable by the editor runtime and tests;
+they are only excluded from the placeable Asset catalog.
 
 ### 3. Viewport-window heuristic for rows and wrapping asset tiles
 
@@ -186,4 +176,3 @@ viewport-level policies.
 - Panel windowing does not depend on completing global CPU frustum/clip culling.
 - Measurements demonstrate the intended improvement on a reproducible large
   catalog and large World tree.
-

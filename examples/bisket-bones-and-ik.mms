@@ -13,7 +13,7 @@
 // (`InspectLayout` semantics); its "Load" button disables it. Per-tree toggle
 // so the rest of the scene stays clean.
 
-import { world_panel } from "../assets/components/panels.mms"
+import { world_panel } from "../assets/components/internal/panels.mms"
 
 // ── Renderer settings ─────────────────────────────────────────────────────────
 RendererSettings {

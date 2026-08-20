@@ -1,6 +1,6 @@
 // accordion.mms — retained-title, removable-body editor shell (=^･ω･^=)
 
-import { accordion_down_arrow_icon } from "../icons.mms"
+import { accordion_down_arrow_icon } from "../../icons.mms"
 
 // Options:
 //   root_name        public name of the inner draggable panel transform

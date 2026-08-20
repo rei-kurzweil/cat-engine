@@ -523,7 +523,7 @@ pub(crate) fn inspector_panel_instance_id_on_root(
 fn inspector_details_asset_path() -> &'static str {
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/assets/components/inspector_details.mms"
+        "/assets/components/internal/inspector_details.mms"
     )
 }
 
@@ -1185,7 +1185,7 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
 
     let shell_spec = PanelShellSpec {
         panel_kind: PanelKind::Inspector,
-        asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms")
+        asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
             .to_string(),
         export_name: "inspector_panel".to_string(),
         args: vec![
@@ -1218,7 +1218,7 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
             (PanelControlKind::TitleLabel, "#title_label".to_string()),
         ]),
         body_spec: Some(crate::engine::ecs::system::panel_system::PanelBodySpec {
-            asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/panels.mms")
+            asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
                 .to_string(),
             export_name: "inspector_panel_body".to_string(),
             args: Vec::new(),

@@ -18,7 +18,7 @@ I {
     }
 }
 
-import { world_panel } from "../assets/components/panels.mms"
+import { world_panel } from "../assets/components/internal/panels.mms"
 
 let TEXT_SCALE = 0.08
 let WORLD_PANEL_WIDTH_GU = 29.5

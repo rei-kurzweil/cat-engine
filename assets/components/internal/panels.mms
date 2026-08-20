@@ -16,7 +16,7 @@ import {
     erase_icon,
     grid_tool_icon,
     grid_visibility_icon,
-} from "./icons.mms"
+} from "../icons.mms"
 import { accordion, accordion_body } from "./ui/accordion.mms"
 
 

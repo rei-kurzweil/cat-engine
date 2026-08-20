@@ -455,7 +455,7 @@ pub static WORLD_PANEL_ROW_SPEC: LazyLock<ItemRendererSpec> =
 fn world_panel_status_asset_path() -> &'static str {
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/assets/components/panel_items.mms"
+        "/assets/components/internal/panel_items.mms"
     )
 }
 
