@@ -10,6 +10,30 @@ This document describes the current grid-snapping behavior across:
 It is an overview of the current implementation and the intended direction.
 It is not yet a strict final spec.
 
+## 2026-08-19 paint investigation correction
+
+General object/gizmo snapping to the workspace-selected grid is not being
+treated as a blocker for the paint-stroke investigation. Paint has a narrower
+handoff problem:
+
+- gizmo translation resolves an object's binding and then
+  `EditorContextState.active_grid_owner_transform`;
+- Paint's `PaintContext::grid_snap` resolves only a grid owning the hit
+  renderable; and
+- committed grid live geometry is intentionally non-raycastable.
+
+Consequently, the selected-grid -> ordinary scene hit -> snapped paint path is
+not established by the current source or tests, even though selected-grid
+object manipulation works. See
+[Current paint-stroke pipeline investigation](../analysis/grid-aware-paint-stroke-current-pipeline.md).
+
+There is also an unresolved terminology/phase issue. `GridStep.cell` currently
+rounds to `(u * spacing, v * spacing)`, a grid-line intersection. Some planning
+documents use "cell" for the area between lines and place its center at
+`((u + 0.5) * spacing, (v + 0.5) * spacing)`. Free Draw, Line, and Spray Can
+must not generate paths until the paint lattice is explicitly defined as
+intersection-addressed, cell-centered, or address-plus-anchor-phase.
+
 ## Goals
 
 Grid snapping should make placement and manipulation feel coherent across editor workflows.

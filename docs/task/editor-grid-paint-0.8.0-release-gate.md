@@ -28,8 +28,9 @@ in
   not yet share one authoritative frame/spacing/anchor contract.
 - Several grid panel, cursor routing, orientation, preview, and placement bugs
   remain open across overlapping task and bug documents.
-- `PaintTool::Line` is exposed by the panel but is deliberately rejected by the
-  activity gate; the current test asserts that Line places nothing.
+- `PaintTool::Line` is exposed by the panel. General paint activation can accept
+  it, the status path calls it unsupported, and its effect/preview handlers are
+  no-ops; the current test asserts that Line places nothing.
 - Color selection is shared paint state. Placement tools use it for new assets;
   the Color tool applies a renderable-local tint to only the raycast-hit
   primitive. `Fill` remains a distinct, unsupported tool and is not exposed in
@@ -161,11 +162,14 @@ Use three explicit inputs:
 
 - [ ] A grid visual does not have to win the scene raycast for the selected
       grid to quantize a scene-surface hit.
-- [ ] Grid-local cell indices are the durable deduplication unit.
+- [ ] Decide whether Paint addresses grid-line intersections, cell centers, or
+      an address plus explicit anchor phase; use the resulting grid-local
+      address as the durable deduplication unit.
 - [ ] Paint retains the scene hit's contact/normal policy while quantizing only
       the selected grid's in-plane coordinates.
-- [ ] A cell-centered asset is translated to the center of its chosen cell;
-      cell boundaries therefore land on grid lines.
+- [ ] Make asset placement follow the selected paint-lattice/anchor policy;
+      do not silently mix the current intersection-based `GridStep.cell` with
+      half-cell-centered placement.
 - [ ] A placement cannot emit two committed objects for the same grid/cell key
       within one stroke.
 - [ ] Snapping behavior and inactive reasons are visible in Paint status/UI.
@@ -174,6 +178,13 @@ Use three explicit inputs:
 
 Line is a consumer of the stable grid and paint primitives. Do not implement a
 third private snapping model.
+
+The lifecycle and cell-generation details below are a working hypothesis, not
+an accepted architecture. Validate them alongside Free Draw and Spray Can in
+[Grid-aware paint stroke interaction model](grid-aware-paint-stroke-interaction-model.md)
+before implementation. In particular, first decide whether grid endpoints and
+paths are tool-local gesture state, a shared transient grid-gesture model, or a
+general editor grid-subselection model.
 
 ### Interaction lifecycle
 
@@ -199,9 +210,9 @@ does not silently switch coordinate systems mid-stroke.
       zero-length segments.
 - [ ] Deduplicate by `(grid identity, cell_u, cell_v)` while preserving stable
       start-to-end order.
-- [ ] Place each asset at the center of its grid cell:
-  `((u + 0.5) * spacing, (v + 0.5) * spacing)` in the appropriate grid-local
-  axes, then transform to world/parent space.
+- [ ] Place each asset using the paint lattice/anchor policy selected by the
+      discovery task, then transform the resulting grid-local point to
+      world/parent space.
 - [ ] Use the initial valid surface frame for MVP orientation/contact;
       per-sample reprojection onto arbitrary curved geometry is deferred.
 - [ ] Preview and committed assets use the same generated cell set and pose
@@ -240,6 +251,7 @@ Release-critical trackers:
 - [Grid Tool and surface placement follow-ups](grid-tool-and-surface-placement-followups.md)
 - [Grid panel select/delete/hide/gizmo](grid-panel-select-delete-hide-and-gizmo.md)
 - [Unified grid snap mode](unified-grid-snap-mode-mms-gizmo-and-paint.md)
+- [Grid-aware paint stroke interaction model](grid-aware-paint-stroke-interaction-model.md)
 
 Focused bugs:
 
