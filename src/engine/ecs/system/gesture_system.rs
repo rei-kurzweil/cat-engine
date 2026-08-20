@@ -127,6 +127,37 @@ impl GestureSystem {
         })
     }
 
+    fn debug_paint_stroke_enabled() -> bool {
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            let value = std::env::var("MITTENS_DEBUG_PAINT_STROKE").unwrap_or_default();
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn trace_paint_gesture_move(
+        pointer: ComponentId,
+        pointer_class: Option<GesturePointerClass>,
+        raycaster: ComponentId,
+        captured_renderable: ComponentId,
+        mapping: DragMapping,
+        mapped_point: [f32; 3],
+        current_ray: Option<([f32; 3], [f32; 3])>,
+        live_renderable: Option<ComponentId>,
+        live_hit_point: Option<[f32; 3]>,
+    ) {
+        if !Self::debug_paint_stroke_enabled() {
+            return;
+        }
+        eprintln!(
+            "paint_stroke_trace layer=gesture phase=move pointer={pointer:?} class={pointer_class:?} raycaster={raycaster:?} captured_renderable={captured_renderable:?} live_renderable={live_renderable:?} mapping={mapping:?} ray={current_ray:?} live_hit={live_hit_point:?} mapped={mapped_point:?}"
+        );
+    }
+
     pub fn begin_frame(&mut self) {
         if let Ok(mut hits) = self.ray_hits_sorted.lock() {
             hits.clear();
@@ -540,6 +571,18 @@ impl GestureSystem {
                 DragMappingPolicy::Auto | DragMappingPolicy::ContactHit => DragMapping::ContactHit,
             };
 
+            if Self::debug_paint_stroke_enabled() {
+                let pointer_class = if is_screen_pointer {
+                    GesturePointerClass::Desktop
+                } else {
+                    GesturePointerClass::Spatial
+                };
+                eprintln!(
+                    "paint_stroke_trace layer=gesture phase=start pointer={pointer_cid:?} class={pointer_class:?} raycaster={raycaster:?} captured_renderable={renderable:?} click_renderable={:?} continuation={continuation:?} mapping={mapping:?} ray_origin={origin:?} ray_direction={dir:?} mapped={drag_hit_point:?}",
+                    click_hit.map(|hit| hit.3),
+                );
+            }
+
             let debug_mapping_surface_root = match mapping {
                 DragMapping::StartRayPlane {
                     point_world,
@@ -610,6 +653,15 @@ impl GestureSystem {
                 || pointer_system.raycast_for_pointer(pointer_cid).is_none()
             {
                 if let Some(mut state) = self.states.remove(&pointer_cid) {
+                    if Self::debug_paint_stroke_enabled() && state.dragging {
+                        eprintln!(
+                            "paint_stroke_trace layer=gesture phase=cancel reason=pointer_or_raycaster_missing pointer={pointer_cid:?} class={:?} raycaster={:?} captured_renderable={:?} last_mapped={:?}",
+                            state.press_pointer_class,
+                            state.drag_raycaster,
+                            state.drag_renderable,
+                            state.last_hit_point,
+                        );
+                    }
                     Self::remove_debug_mapping_surface(&mut state, rx);
                 }
                 continue;
@@ -652,6 +704,29 @@ impl GestureSystem {
                         DragMapping::ContactHit,
                     ));
 
+                let (live_renderable, live_hit_point, current_ray, pointer_class) =
+                    if Self::debug_paint_stroke_enabled() {
+                        let live_drag_hit = pointer_hits.iter().find(|hit| hit.6.captures_drag());
+                        (
+                            live_drag_hit.map(|hit| hit.3),
+                            live_drag_hit.map(|hit| {
+                                [
+                                    hit.4[0] + hit.5[0] * hit.1,
+                                    hit.4[1] + hit.5[1] * hit.1,
+                                    hit.4[2] + hit.5[2] * hit.1,
+                                ]
+                            }),
+                            raycast_system
+                                .current_ray(active_rc)
+                                .map(|ray| (ray.origin_world, ray.direction_world)),
+                            self.states
+                                .get(&pointer_cid)
+                                .and_then(|state| state.press_pointer_class),
+                        )
+                    } else {
+                        (None, None, None, None)
+                    };
+
                 let has_target_contact = pointer_hits
                     .iter()
                     .any(|h| h.2 == active_rc && h.3 == active_renderable);
@@ -687,6 +762,17 @@ impl GestureSystem {
                                             screen_pos_px: None,
                                             screen_delta_px: None,
                                         },
+                                    );
+                                    Self::trace_paint_gesture_move(
+                                        pointer_cid,
+                                        pointer_class,
+                                        active_rc,
+                                        active_renderable,
+                                        mapping,
+                                        hit_point,
+                                        current_ray,
+                                        live_renderable,
+                                        live_hit_point,
                                     );
                                     state.last_hit_point = Some(hit_point);
                                 }
@@ -739,6 +825,17 @@ impl GestureSystem {
                                                 screen_delta_px,
                                             },
                                         );
+                                        Self::trace_paint_gesture_move(
+                                            pointer_cid,
+                                            pointer_class,
+                                            active_rc,
+                                            active_renderable,
+                                            mapping,
+                                            cur,
+                                            current_ray,
+                                            live_renderable,
+                                            live_hit_point,
+                                        );
                                     }
                                 }
                                 let state = self.states.get_mut(&pointer_cid).unwrap();
@@ -789,6 +886,17 @@ impl GestureSystem {
                                                 screen_delta_px,
                                             },
                                         );
+                                        Self::trace_paint_gesture_move(
+                                            pointer_cid,
+                                            pointer_class,
+                                            active_rc,
+                                            active_renderable,
+                                            mapping,
+                                            cur,
+                                            current_ray,
+                                            live_renderable,
+                                            live_hit_point,
+                                        );
                                     }
                                 }
                                 state.last_hit_point = Some(cur);
@@ -810,6 +918,26 @@ impl GestureSystem {
                         if let (Some(active_rc), Some(active_renderable)) =
                             (state.drag_raycaster, state.drag_renderable)
                         {
+                            if Self::debug_paint_stroke_enabled() {
+                                let current_ray = raycast_system
+                                    .current_ray(active_rc)
+                                    .map(|ray| (ray.origin_world, ray.direction_world));
+                                let live_drag_hit = hits
+                                    .iter()
+                                    .find(|hit| hit.2 == active_rc && hit.6.captures_drag());
+                                let live_renderable = live_drag_hit.map(|hit| hit.3);
+                                let live_hit_point = live_drag_hit.map(|hit| {
+                                    [
+                                        hit.4[0] + hit.5[0] * hit.1,
+                                        hit.4[1] + hit.5[1] * hit.1,
+                                        hit.4[2] + hit.5[2] * hit.1,
+                                    ]
+                                });
+                                eprintln!(
+                                    "paint_stroke_trace layer=gesture phase=end pointer={pointer_cid:?} class={:?} raycaster={active_rc:?} captured_renderable={active_renderable:?} live_renderable={live_renderable:?} ray={current_ray:?} live_hit={live_hit_point:?} last_mapped={:?}",
+                                    state.press_pointer_class, state.last_hit_point,
+                                );
+                            }
                             rx.push_event(
                                 active_renderable,
                                 EventSignal::DragEnd {

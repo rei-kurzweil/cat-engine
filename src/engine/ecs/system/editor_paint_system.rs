@@ -1,10 +1,11 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use crate::engine::ecs::component::{
-    DataComponent, DataValue, EditorComponent, OptionComponent, RaycastableComponent,
-    SelectableComponent, SelectionComponent, TransformComponent, TransformGizmoComponent,
+    ColorComponent, DataComponent, DataValue, EditorComponent, EmissiveComponent, OptionComponent,
+    OverlayComponent, RaycastableComponent, RenderableComponent, SelectableComponent,
+    SelectionComponent, SerializeComponent, TransformComponent, TransformGizmoComponent,
 };
 use crate::engine::ecs::system::editor::context::{
     EDITOR_WORKSPACE_ASSET_SELECTION_CHANGED, EDITOR_WORKSPACE_COLOR_SELECTION_CHANGED,
@@ -65,6 +66,241 @@ struct PaintStrokeRuntime {
     last_grid_step: Option<GridStep>,
     last_placed_position: Option<[f32; 3]>,
     preview_session: Option<PlacementPreviewSession>,
+    debug_markers: Option<PaintStrokeDebugMarkers>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PaintStrokeDebugMarkers {
+    start: ComponentId,
+    mapped: ComponentId,
+    selected_grid_snap: Option<ComponentId>,
+    actual_paint_snap: Option<ComponentId>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PaintGridDiagnostic {
+    owner_transform: ComponentId,
+    spacing: f32,
+    local_point: [f32; 3],
+    address: [i32; 2],
+    snapped_world: [f32; 3],
+}
+
+fn paint_grid_diagnostic_trace(diagnostic: Option<PaintGridDiagnostic>) -> String {
+    match diagnostic {
+        Some(diagnostic) => format!(
+            "owner={:?},spacing={:.6},local={:?},address={:?},snapped={:?}",
+            diagnostic.owner_transform,
+            diagnostic.spacing,
+            diagnostic.local_point,
+            diagnostic.address,
+            diagnostic.snapped_world,
+        ),
+        None => "none".to_string(),
+    }
+}
+
+fn paint_stroke_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        let value = std::env::var("MITTENS_DEBUG_PAINT_STROKE").unwrap_or_default();
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn transform_debug_point(matrix: [[f32; 4]; 4], point: [f32; 3]) -> [f32; 3] {
+    [
+        matrix[0][0] * point[0] + matrix[1][0] * point[1] + matrix[2][0] * point[2] + matrix[3][0],
+        matrix[0][1] * point[0] + matrix[1][1] * point[1] + matrix[2][1] * point[2] + matrix[3][1],
+        matrix[0][2] * point[0] + matrix[1][2] * point[1] + matrix[2][2] * point[2] + matrix[3][2],
+    ]
+}
+
+fn paint_grid_diagnostic(
+    active: crate::engine::ecs::system::grid_system::ActiveGrid,
+    point_world: [f32; 3],
+) -> PaintGridDiagnostic {
+    let local_point = transform_debug_point(active.inverse_world, point_world);
+    let snapped = GridSystem::snap_hit(&active, point_world);
+    PaintGridDiagnostic {
+        owner_transform: active.owner_transform,
+        spacing: active.spacing,
+        local_point,
+        address: snapped.step.cell,
+        snapped_world: snapped.point_world,
+    }
+}
+
+fn selected_grid_diagnostic(
+    world: &World,
+    grid_system: &GridSystem,
+    editor_context: &EditorContextState,
+    point_world: [f32; 3],
+) -> Option<PaintGridDiagnostic> {
+    let owner = editor_context.active_grid_owner_transform?;
+    grid_system
+        .active_grid_for_owner_transform(world, owner)
+        .map(|active| paint_grid_diagnostic(active, point_world))
+}
+
+fn actual_paint_grid_diagnostic(
+    world: &World,
+    grid_system: &GridSystem,
+    renderable: ComponentId,
+    point_world: [f32; 3],
+) -> Option<PaintGridDiagnostic> {
+    grid_system
+        .grid_hit_context_for_renderable(world, renderable)
+        .map(|active| paint_grid_diagnostic(active, point_world))
+}
+
+fn spawn_paint_debug_marker(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    name: &str,
+    point_world: [f32; 3],
+    color_rgba: [f32; 4],
+    scale: f32,
+) -> ComponentId {
+    let root = world.add_component_boxed_named(
+        name,
+        Box::new(
+            TransformComponent::new()
+                .with_position(point_world[0], point_world[1], point_world[2])
+                .with_scale(scale, scale, scale),
+        ),
+    );
+    let serialize = world.add_component(SerializeComponent::off());
+    let selectable = world.add_component(SelectableComponent::off());
+    let overlay = world.add_component(OverlayComponent::new());
+    let renderable = world.add_component(RenderableComponent::sphere());
+    let raycastable = world.add_component(RaycastableComponent::disabled());
+    let color = world.add_component(ColorComponent::rgba(
+        color_rgba[0],
+        color_rgba[1],
+        color_rgba[2],
+        color_rgba[3],
+    ));
+    let emissive = world.add_component(EmissiveComponent::on());
+    let _ = world.add_child(root, serialize);
+    let _ = world.add_child(root, selectable);
+    let _ = world.add_child(root, overlay);
+    let _ = world.add_child(overlay, renderable);
+    let _ = world.add_child(renderable, raycastable);
+    let _ = world.add_child(renderable, color);
+    let _ = world.add_child(renderable, emissive);
+    world.init_component_tree(root, emit);
+    root
+}
+
+fn update_paint_debug_marker(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    marker: ComponentId,
+    point_world: [f32; 3],
+) {
+    let Some(transform) = world.get_component_by_id_as_mut::<TransformComponent>(marker) else {
+        return;
+    };
+    transform.transform.translation = point_world;
+    transform.transform.recompute_model();
+    emit.push_intent_now(
+        marker,
+        IntentValue::UpdateTransform {
+            component_id: marker,
+            translation: point_world,
+            rotation_quat_xyzw: transform.transform.rotation,
+            scale: transform.transform.scale,
+        },
+    );
+}
+
+impl PaintStrokeDebugMarkers {
+    fn spawn(
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        mapped_point: [f32; 3],
+        selected_grid: Option<PaintGridDiagnostic>,
+        actual_paint_grid: Option<PaintGridDiagnostic>,
+    ) -> Self {
+        Self {
+            start: spawn_paint_debug_marker(
+                world,
+                emit,
+                "paint_debug_start_green",
+                mapped_point,
+                [0.15, 1.0, 0.25, 1.0],
+                0.085,
+            ),
+            mapped: spawn_paint_debug_marker(
+                world,
+                emit,
+                "paint_debug_mapped_magenta",
+                mapped_point,
+                [1.0, 0.1, 0.85, 1.0],
+                0.065,
+            ),
+            selected_grid_snap: selected_grid.map(|diagnostic| {
+                spawn_paint_debug_marker(
+                    world,
+                    emit,
+                    "paint_debug_selected_grid_cyan",
+                    diagnostic.snapped_world,
+                    [0.05, 0.95, 1.0, 1.0],
+                    0.06,
+                )
+            }),
+            actual_paint_snap: actual_paint_grid.map(|diagnostic| {
+                spawn_paint_debug_marker(
+                    world,
+                    emit,
+                    "paint_debug_actual_snap_yellow",
+                    diagnostic.snapped_world,
+                    [1.0, 0.85, 0.05, 1.0],
+                    0.045,
+                )
+            }),
+        }
+    }
+
+    fn update(
+        &self,
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        mapped_point: [f32; 3],
+        selected_grid: Option<PaintGridDiagnostic>,
+        actual_paint_grid: Option<PaintGridDiagnostic>,
+    ) {
+        update_paint_debug_marker(world, emit, self.mapped, mapped_point);
+        if let (Some(marker), Some(diagnostic)) = (self.selected_grid_snap, selected_grid) {
+            update_paint_debug_marker(world, emit, marker, diagnostic.snapped_world);
+        }
+        if let (Some(marker), Some(diagnostic)) = (self.actual_paint_snap, actual_paint_grid) {
+            update_paint_debug_marker(world, emit, marker, diagnostic.snapped_world);
+        }
+    }
+
+    fn remove(self, emit: &mut dyn SignalEmitter) {
+        for marker in [
+            Some(self.start),
+            Some(self.mapped),
+            self.selected_grid_snap,
+            self.actual_paint_snap,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            emit.push_intent_now(
+                marker,
+                IntentValue::RemoveSubtree {
+                    component_id: marker,
+                },
+            );
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -569,6 +805,14 @@ fn apply_paint_side_effects(
     let editor_context = current_editor_context(editor_context_state);
     update_last_scene_interacted_editor(world, editor_context_state, event);
     let active_editor = event_active_editor(event).or(editor_context.active_editor);
+    trace_paint_stroke_event(
+        world,
+        grid_system,
+        new_state,
+        &editor_context,
+        event,
+        active_editor,
+    );
     paint_perf(
         "apply_paint_side_effects.context",
         total_start,
@@ -610,9 +854,11 @@ fn apply_paint_side_effects(
             renderable,
             hit_point,
         } if Some(*editor) == active_editor => {
-            let _ = hit_point;
             if let Some(runtime) = stroke_runtime {
                 let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
+                if let Some(markers) = runtime.debug_markers.take() {
+                    markers.remove(emit);
+                }
                 if let Some(context) = resolve_paint_context(
                     world,
                     grid_system,
@@ -622,22 +868,49 @@ fn apply_paint_side_effects(
                     &editor_context,
                     templates,
                 ) {
+                    let preview_session = start_preview_session_for_tool(
+                        world,
+                        emit,
+                        *editor,
+                        *renderable,
+                        *hit_point,
+                        new_state.selected_tool.clone(),
+                        &context,
+                        &editor_context,
+                    );
+                    let selected_grid =
+                        selected_grid_diagnostic(world, grid_system, &editor_context, *hit_point);
+                    let actual_paint_grid =
+                        actual_paint_grid_diagnostic(world, grid_system, *renderable, *hit_point);
+                    let debug_markers = paint_stroke_debug_enabled().then(|| {
+                        PaintStrokeDebugMarkers::spawn(
+                            world,
+                            emit,
+                            *hit_point,
+                            selected_grid,
+                            actual_paint_grid,
+                        )
+                    });
+                    if paint_stroke_debug_enabled() {
+                        let selected_grid_trace = paint_grid_diagnostic_trace(selected_grid);
+                        let actual_paint_grid_trace =
+                            paint_grid_diagnostic_trace(actual_paint_grid);
+                        eprintln!(
+                            "paint_stroke_trace layer=paint phase=runtime_start editor={editor:?} tool={:?} captured_renderable={renderable:?} preview_root={:?} selected_grid=({selected_grid_trace}) actual_paint_grid=({actual_paint_grid_trace})",
+                            new_state.selected_tool,
+                            preview_session
+                                .as_ref()
+                                .map(|session| session.preview_root_component_id),
+                        );
+                    }
                     *runtime = PaintStrokeRuntime {
                         active: true,
                         captured_renderable: Some(*renderable),
                         non_grid_placed: false,
                         last_grid_step: None,
                         last_placed_position: None,
-                        preview_session: start_preview_session_for_tool(
-                            world,
-                            emit,
-                            *editor,
-                            *renderable,
-                            *hit_point,
-                            new_state.selected_tool.clone(),
-                            &context,
-                            &editor_context,
-                        ),
+                        preview_session,
+                        debug_markers,
                     };
                 } else {
                     *runtime = PaintStrokeRuntime::default();
@@ -662,11 +935,30 @@ fn apply_paint_side_effects(
                 *renderable,
                 *hit_point,
             );
+            if paint_stroke_debug_enabled()
+                && let Some(runtime) = stroke_runtime
+                && let Ok(runtime) = runtime.lock()
+                && let Some(markers) = runtime.debug_markers
+            {
+                let selected_grid =
+                    selected_grid_diagnostic(world, grid_system, &editor_context, *hit_point);
+                let actual_paint_grid =
+                    actual_paint_grid_diagnostic(world, grid_system, *renderable, *hit_point);
+                markers.update(world, emit, *hit_point, selected_grid, actual_paint_grid);
+            }
         }
         PaintEvent::StrokeEnded { .. } => {
             if let Some(runtime) = stroke_runtime {
                 let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
                 if let Some(session) = runtime.preview_session.take() {
+                    if paint_stroke_debug_enabled() {
+                        eprintln!(
+                            "paint_stroke_trace layer=paint phase=commit preview_root={:?} placement_kind={:?} captured_grid={:?}",
+                            session.preview_root_component_id,
+                            session.placement_kind,
+                            session.grid_owner_transform,
+                        );
+                    }
                     commit_preview(world, session.preview_root_component_id);
                     retain_paint_preview_grid_binding(world, &session);
                     if session.placement_kind == PlacementKind::Grid {
@@ -694,6 +986,9 @@ fn apply_paint_side_effects(
                     }
                     status_override = Some("paint placed".to_string());
                 }
+                if let Some(markers) = runtime.debug_markers.take() {
+                    markers.remove(emit);
+                }
                 *runtime = PaintStrokeRuntime::default();
             }
         }
@@ -704,6 +999,11 @@ fn apply_paint_side_effects(
         event_specific_start,
         format!("event={event:?} status_override={status_override:?}"),
     );
+    if paint_stroke_debug_enabled() {
+        eprintln!(
+            "paint_stroke_trace layer=paint phase=effect event={event:?} status={status_override:?}"
+        );
+    }
 
     let update_status_start = Instant::now();
     update_paint_status(
@@ -761,6 +1061,55 @@ fn event_active_editor(event: &PaintEvent) -> Option<ComponentId> {
         | PaintEvent::ToolSelectionChanged { .. }
         | PaintEvent::PanelFocusChanged { .. } => None,
     }
+}
+
+fn trace_paint_stroke_event(
+    world: &World,
+    grid_system: &GridSystem,
+    paint_state: &PaintState,
+    editor_context: &EditorContextState,
+    event: &PaintEvent,
+    active_editor: Option<ComponentId>,
+) {
+    if !paint_stroke_debug_enabled() {
+        return;
+    }
+    let (phase, renderable, point_world) = match event {
+        PaintEvent::StrokeStarted {
+            renderable,
+            hit_point,
+            ..
+        } => ("start", Some(*renderable), Some(*hit_point)),
+        PaintEvent::StrokeMoved {
+            renderable,
+            hit_point,
+            ..
+        } => ("move", Some(*renderable), Some(*hit_point)),
+        PaintEvent::StrokeEnded { .. } => ("end", None, None),
+        PaintEvent::SceneClick {
+            renderable,
+            hit_point,
+            ..
+        } => ("click", Some(*renderable), Some(*hit_point)),
+        PaintEvent::ToolSelectionChanged { .. } => ("tool_changed", None, None),
+        PaintEvent::AssetSelectionChanged { .. } => ("asset_changed", None, None),
+        PaintEvent::ColorSelectionChanged { .. } => ("color_changed", None, None),
+        PaintEvent::PanelFocusChanged { .. } => ("focus_changed", None, None),
+        PaintEvent::ActiveEditorChanged { .. } => ("active_editor_changed", None, None),
+        PaintEvent::WorldPanelSelectionChanged { .. } => ("world_selection_changed", None, None),
+        PaintEvent::EditorSelectionChanged { .. } => ("editor_selection_changed", None, None),
+    };
+    let selected_grid = point_world
+        .and_then(|point| selected_grid_diagnostic(world, grid_system, editor_context, point));
+    let actual_paint_grid = renderable.zip(point_world).and_then(|(renderable, point)| {
+        actual_paint_grid_diagnostic(world, grid_system, renderable, point)
+    });
+    let selected_grid_trace = paint_grid_diagnostic_trace(selected_grid);
+    let actual_paint_grid_trace = paint_grid_diagnostic_trace(actual_paint_grid);
+    eprintln!(
+        "paint_stroke_trace layer=paint phase={phase} editor={active_editor:?} tool={:?} stroke={:?} renderable={renderable:?} mapped={point_world:?} selected_grid=({selected_grid_trace}) actual_paint_grid=({actual_paint_grid_trace})",
+        paint_state.selected_tool, paint_state.stroke,
+    );
 }
 
 fn random_offset_xz(max_dist: f32) -> [f32; 3] {
@@ -1407,9 +1756,30 @@ fn start_paint_preview_session(
     hit_point: [f32; 3],
     context: &PaintContext<'_>,
 ) -> Option<PlacementPreviewSession> {
-    let asset = context.asset?;
+    let asset = match context.asset {
+        Some(asset) => asset,
+        None => {
+            if paint_stroke_debug_enabled() {
+                eprintln!(
+                    "paint_stroke_trace layer=paint phase=preview_start_failed stage=missing_asset"
+                );
+            }
+            return None;
+        }
+    };
     let scene_parent = resolve_scene_parent(world, context.destination_editor);
-    let asset_root = spawn_asset_subtree(world, emit, asset, context.selected_color).ok()?;
+    let asset_root = match spawn_asset_subtree(world, emit, asset, context.selected_color) {
+        Ok(asset_root) => asset_root,
+        Err(error) => {
+            if paint_stroke_debug_enabled() {
+                eprintln!(
+                    "paint_stroke_trace layer=paint phase=preview_start_failed stage=spawn_asset asset_key={:?} error={error}",
+                    asset.key,
+                );
+            }
+            return None;
+        }
+    };
     let preview_root =
         world.add_component_boxed_named("painted_asset_root", Box::new(TransformComponent::new()));
     let raycastable_root = world.add_component_boxed_named(
@@ -1422,11 +1792,47 @@ fn start_paint_preview_session(
     create_preview_shell(world, preview_root, emit, PlacementPreviewStyle::default());
     world.init_component_tree(raycastable_root, emit);
     let grid_snap = context.grid_snap(world, target_renderable, hit_point);
-    let frame =
-        resolve_surface_placement_frame(world, target_renderable, hit_point, grid_snap).ok()?;
-    let pose =
-        resolve_surface_aligned_pose_from_frame(&frame, asset_local_min_z(world, preview_root)?)
-            .ok()?;
+    let frame = match resolve_surface_placement_frame(
+        world,
+        target_renderable,
+        hit_point,
+        grid_snap,
+    ) {
+        Ok(frame) => frame,
+        Err(error) => {
+            if paint_stroke_debug_enabled() {
+                eprintln!(
+                    "paint_stroke_trace layer=paint phase=preview_start_failed stage=surface_frame asset_key={:?} error={error:?}",
+                    asset.key,
+                );
+            }
+            return None;
+        }
+    };
+    let local_min_z = match asset_local_min_z(world, preview_root) {
+        Some(local_min_z) => local_min_z,
+        None => {
+            if paint_stroke_debug_enabled() {
+                eprintln!(
+                    "paint_stroke_trace layer=paint phase=preview_start_failed stage=asset_bounds asset_key={:?}",
+                    asset.key,
+                );
+            }
+            return None;
+        }
+    };
+    let pose = match resolve_surface_aligned_pose_from_frame(&frame, local_min_z) {
+        Ok(pose) => pose,
+        Err(error) => {
+            if paint_stroke_debug_enabled() {
+                eprintln!(
+                    "paint_stroke_trace layer=paint phase=preview_start_failed stage=placement_pose asset_key={:?} error={error:?}",
+                    asset.key,
+                );
+            }
+            return None;
+        }
+    };
     update_preview_pose(world, emit, preview_root, pose);
     Some(PlacementPreviewSession {
         active_editor: editor_root,
@@ -1435,7 +1841,7 @@ fn start_paint_preview_session(
         target_renderable: Some(target_renderable),
         last_valid_placement_frame: Some(frame),
         grid_owner_transform: grid_snap.map(|snap| snap.grid_owner_transform),
-        local_min_z: asset_local_min_z(world, preview_root)?,
+        local_min_z,
     })
 }
 
@@ -2084,6 +2490,59 @@ mod tests {
             GridSystem::bound_grid_transform(&world, wrapper),
             Some(grid_owner)
         );
+    }
+
+    #[test]
+    fn paint_debug_marker_is_noninteractive_nonserializable_and_movable() {
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let marker = spawn_paint_debug_marker(
+            &mut world,
+            &mut emit,
+            "paint_debug_test_marker",
+            [1.0, 2.0, 3.0],
+            [0.1, 0.9, 1.0, 1.0],
+            0.1,
+        );
+
+        let mut stack = vec![marker];
+        let mut selectable_off = false;
+        let mut serialize_off = false;
+        let mut raycastable_off = false;
+        while let Some(node) = stack.pop() {
+            selectable_off |= world
+                .get_component_by_id_as::<SelectableComponent>(node)
+                .is_some_and(|component| !component.enabled);
+            serialize_off |= world
+                .get_component_by_id_as::<SerializeComponent>(node)
+                .is_some_and(|component| !component.enabled);
+            raycastable_off |= world
+                .get_component_by_id_as::<RaycastableComponent>(node)
+                .is_some_and(|component| !component.enable);
+            stack.extend(world.children_of(node));
+        }
+        assert!(selectable_off);
+        assert!(serialize_off);
+        assert!(raycastable_off);
+
+        update_paint_debug_marker(&mut world, &mut emit, marker, [4.0, 5.0, 6.0]);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<TransformComponent>(marker)
+                .expect("marker transform")
+                .transform
+                .translation,
+            [4.0, 5.0, 6.0],
+        );
+    }
+
+    #[test]
+    fn paint_stroke_debug_example_evaluates() {
+        let output = MeowMeowRunner::eval_with_path(
+            include_str!("../../../../examples/paint-stroke-debug.mms"),
+            "examples/paint-stroke-debug.mms",
+        );
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
     }
 
     impl TextureUploader for TestUploader {

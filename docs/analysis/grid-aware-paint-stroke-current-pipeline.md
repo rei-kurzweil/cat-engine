@@ -10,6 +10,34 @@ Related:
 - [Editor grid and paint 0.8.0 release gate](../task/editor-grid-paint-0.8.0-release-gate.md)
 - [Grid snapping](../spec/grid-snapping.md)
 - [Paint system reducer](../draft/paint-system-reducer.md)
+- [Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md)
+
+## Live instrumentation follow-up
+
+An opt-in diagnostic layer now makes this source-derived model testable in the
+running editor. `MITTENS_DEBUG_PAINT_STROKE=1` enables structured gesture and
+Paint records plus transient in-world markers for gesture start, mapped point,
+editor-selected-grid snap, and Paint's actual hit-owned-grid snap. The
+`paint-stroke-debug` example supplies adjacent targets and differently oriented
+grids for desktop/XR comparisons. These diagnostics do not alter tool effects;
+in particular, Line remains a no-op baseline.
+
+### Confirmed desktop Free Draw failure: 2026-08-20
+
+A focused drag entirely within one diagnostic wall target reached Paint with a
+valid selected asset (`assets/components/primitives.mms::heart`) and valid
+gesture mapping, but preview startup failed before a preview root was created:
+
+```text
+phase=preview_start_failed stage=spawn_asset
+error=paint failed: asset spawn error: procedural Renderable constructors require live RenderAssets
+```
+
+This is the first blocking failure in the observed Free Draw path. It precedes
+grid selection, grid snapping, preview pose, commit, and cross-renderable
+continuity. `start_paint_preview_session` and Spray Can's `place_asset` both
+use `spawn_asset_subtree`, so Spray Can is expected to share this procedural
+asset-instantiation blocker; that remains to be confirmed in the live scene.
 
 ## Scope
 

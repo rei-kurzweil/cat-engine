@@ -4,6 +4,9 @@ Date: 2026-08-06
 
 Status: active, untriaged `mittens-engine 0.8.0` release gate
 
+Live reproduction aid:
+[Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md).
+
 ## Purpose
 
 Restore the editor's object-creation workflow before publishing

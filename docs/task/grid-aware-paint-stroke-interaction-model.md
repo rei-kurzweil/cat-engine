@@ -13,6 +13,8 @@ Related:
 - [Paint system reducer](../draft/paint-system-reducer.md)
 - [Paint system reducer event model](../analysis/paint-system-reducer-event-model.md)
 - [Current paint-stroke pipeline investigation](../analysis/grid-aware-paint-stroke-current-pipeline.md)
+- [Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md)
+- [Paint procedural RenderAssets instantiation](paint-procedural-render-assets-instantiation.md)
 
 ## Purpose
 
@@ -241,9 +243,11 @@ Compare the candidates using:
 
 ## Investigation plan
 
+- [x] Add opt-in gesture/Paint traces, in-world point markers, and a dedicated
+      desktop/XR diagnostic scene so live investigation has observable inputs.
 - [ ] Record live desktop and XR event traces for click, short drag, long drag,
       pointer cancellation, and a drag across adjacent renderables.
-- [ ] Reproduce Free Draw in the running editor and identify whether activation,
+- [x] Reproduce Free Draw in the running editor and identify whether activation,
       raycast continuity, preview lifecycle, or commit is the first failure.
 - [x] Record from source the current selected-grid inputs available at stroke start and on
       every move, including grid owner identity, world transform, axes, spacing,

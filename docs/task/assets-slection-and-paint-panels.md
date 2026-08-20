@@ -116,6 +116,8 @@ Add flexible grid helpers for editor placement, snapping, and procedural placeme
 - `assets/components/button.mms` — existing MMS factory pattern for UI elements
 - `docs/task/mms-asset-component-panels.md` — previous work on calling MMS factories from rust
 - `assets/components/` — source of asset factory modules for the new panel
+- [Asset and World panel performance](editor-asset-world-panel-performance.md)
+- [Paint procedural RenderAssets instantiation](paint-procedural-render-assets-instantiation.md)
 
 ## Later enhancements
 
