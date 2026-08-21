@@ -263,6 +263,37 @@ Code note confirmed on 2026-06-14:
 - it does not currently move the cursor to the exact selected transform / gizmo pose
 - for intended semantics, see `docs/task/shared-3d-cursor-and-selection-vs-surface-placement.md`
 
+#### Regression observation: 2026-08-21
+
+The desktop grid/paint repro now shows a concrete mode-dependent failure rather
+than merely an unclear policy:
+
+| Workspace mode | Observed Grid Tool / grid-paint behavior |
+| --- | --- |
+| `3D Cursor` | The only mode that currently behaves as expected. |
+| `Select` | Grid painting behaves incorrectly. |
+| `Select + Cursor` | Grid painting behaves incorrectly. |
+
+This must be treated as an input-routing regression. With Paint focused and a
+grid-aware paint tool active, scene drag ownership and grid-address resolution
+must be identical in all three workspace modes. `Select` may still update
+selection, and `Select + Cursor` may still update the cursor according to its
+own contract, but neither may consume, remap, cancel, or otherwise alter the
+paint gesture.
+
+Required trace for the same desktop pointer drag in all three modes:
+
+- raycast winner and whether it is a grid analytic-plane or scene hit;
+- handler order/consumption for selection, cursor, gesture, and paint;
+- `DragStart` delivery, captured editor/grid, and resolved address; and
+- preview and commit pose.
+
+Acceptance addition:
+
+- Given the same selected grid, Paint focus/tool/asset, and pointer ray,
+  `Select`, `3D Cursor`, and `Select + Cursor` produce the same paint start,
+  address sequence, preview pose, and committed result.
+
 ### 7. Cursor mode currently seems editor-root specific
 
 Observed behavior:

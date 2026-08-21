@@ -26,6 +26,20 @@ or grid-address cause but must not be conflated:
 Repeated independent strokes are not automatically deduplicated by this task;
 their intended occupancy/overwrite policy needs an explicit product decision.
 
+### Mode and analytic-plane observations (2026-08-21)
+
+- With an equivalent selected grid and Paint setup, `3D Cursor` mode is the
+  only workspace mode observed to paint correctly. `Select` and `Select +
+  Cursor` change grid-paint behavior and are regressions.
+- Intersecting an ordinary raycastable object near/behind the grid can start
+  Free Draw. Intersecting only the unobscured grid plane in empty space cannot.
+  The selected-grid analytic-plane drag-start path is therefore not live.
+
+The detailed routing work belongs in
+[Grid Tool and Surface Placement Follow-ups](grid-tool-and-surface-placement-followups.md);
+the analytic-plane contract and its integration work belong in
+[Grid-aware paint stroke interaction model](grid-aware-paint-stroke-interaction-model.md).
+
 ## Isolated reproduction
 
 Use the desktop-only scene:

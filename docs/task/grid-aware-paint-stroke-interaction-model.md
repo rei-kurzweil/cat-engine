@@ -40,6 +40,40 @@ provisional placements.
 - Without a selected enabled grid, Free Draw and Spray retain their legacy
   surface behaviour. Line is inactive and reports that it requires a grid.
 
+### Live integration failure: analytic-plane drag start (2026-08-21)
+
+The pure finite-plane helper has unit coverage, but the live paint gesture does
+not currently honor this contract. In the desktop-only `paint-grids-desktop`
+repro, a Free Draw stroke can start when the pointer intersects ordinary
+raycastable geometry near or behind the selected grid. It does **not** start
+when the pointer intersects only the visible finite grid plane in empty space.
+
+This demonstrates a wiring/raycast-candidate failure, not evidence that the
+analytic intersection math itself is wrong. The runtime is still requiring a
+scene renderable hit before it emits or accepts paint `DragStart`, rather than
+considering the selected enabled grid's analytic plane as an eligible nearest
+candidate.
+
+Required investigation:
+
+- At pointer activation, compare the nearest scene/BVH hit with
+  `GridSystem::intersect_captured_grid_plane(...)` for the selected grid.
+- Feed the nearer finite analytic-plane result into the same gesture/pointer
+  candidate arbitration used for scene hits, with stable target ownership.
+- Trace why an empty-space plane result is absent, rejected, or lost before
+  Paint receives `DragStart`.
+- Preserve ordinary geometry behavior when it is genuinely nearer than the
+  grid plane; this is not a request for the grid to win through foreground
+  geometry.
+
+Acceptance addition:
+
+- Free Draw can begin on an unobscured, in-bounds selected-grid plane with no
+  scene renderable behind it.
+- If a scene surface is nearer than that plane, normal scene-hit behavior wins.
+- Starting from an analytic plane produces the captured grid address, plane
+  contact, preview, and commit defined by this tracker.
+
 ## Purpose
 
 Figure out the interaction and data model needed to make Free Draw, Spray Can,
