@@ -6282,13 +6282,14 @@ fn roundtrip_emissive_pass() {
 
 #[test]
 fn roundtrip_grid_component_with_dimensions() {
-    use crate::engine::ecs::component::GridComponent;
+    use crate::engine::ecs::component::{GridComponent, GridVisualSpace};
     let original = GridComponent::new(0.5)
         .with_size_x(24)
         .with_size_z(12)
         .with_enabled(false)
         .with_hidden(true)
-        .with_selectable(false);
+        .with_selectable(false)
+        .with_visual_space(GridVisualSpace::World);
     let (world, id) = roundtrip_component(original);
     let got = world.get_component_by_id_as::<GridComponent>(id).unwrap();
     assert!((got.spacing - 0.5).abs() < 1e-6);
@@ -6297,6 +6298,7 @@ fn roundtrip_grid_component_with_dimensions() {
     assert!(!got.enabled);
     assert!(got.hidden);
     assert!(!got.selectable);
+    assert_eq!(got.visual_space, GridVisualSpace::World);
 }
 
 #[test]

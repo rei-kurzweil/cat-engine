@@ -1,10 +1,10 @@
-use crate::engine::graphics::MeshUploader;
-use crate::engine::graphics::MsaaMode;
-use crate::engine::graphics::TextureUploader;
 use crate::engine::graphics::mesh::CpuMesh;
 use crate::engine::graphics::primitives::MeshHandle;
 use crate::engine::graphics::primitives::TextureHandle;
 use crate::engine::graphics::visual_world::VisualWorld;
+use crate::engine::graphics::MeshUploader;
+use crate::engine::graphics::MsaaMode;
+use crate::engine::graphics::TextureUploader;
 use std::sync::Arc;
 use winit::window::Window;
 
@@ -63,15 +63,14 @@ mod vulkano_backend {
     use super::RendererPerfCounters;
     use std::collections::HashMap;
     use std::mem::size_of;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    use crate::engine::ecs::ComponentId;
     use crate::engine::ecs::system::render_to_texture_system::INTERNAL_RENDERER_STENCIL_CLIP_DEBUG_SELECTOR;
-    use crate::engine::graphics::MsaaMode;
+    use crate::engine::ecs::ComponentId;
     use crate::engine::graphics::deformation::{
-        GpuActiveMorph, GpuBaseDeformationVertex, GpuDeformationJob, GpuDeformationSkinVertex,
-        GpuDeformationWorkgroup, GpuDeformedVertex, GpuMorphDelta, build_workgroups,
+        build_workgroups, GpuActiveMorph, GpuBaseDeformationVertex, GpuDeformationJob,
+        GpuDeformationSkinVertex, GpuDeformationWorkgroup, GpuDeformedVertex, GpuMorphDelta,
     };
     use crate::engine::graphics::mesh::{CpuMesh, CpuVertex};
     use crate::engine::graphics::pipeline_descriptor_set_layouts::PipelineDescriptorSetLayouts;
@@ -83,10 +82,11 @@ mod vulkano_backend {
     use crate::engine::graphics::visual_world::{TextureFiltering, VisualWorld};
     use crate::engine::graphics::vulkano_swapchain::VulkanoSwapchainState;
     use crate::engine::graphics::vulkano_texture_upload;
+    use crate::engine::graphics::MsaaMode;
     use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
     use vulkano::command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, CopyImageInfo,
-        PrimaryCommandBufferAbstract, allocator::StandardCommandBufferAllocator,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        CopyBufferInfo, CopyImageInfo, PrimaryCommandBufferAbstract,
     };
     use vulkano::command_buffer::{
         ClearAttachment, ClearRect, RenderingAttachmentInfo, RenderingAttachmentResolveInfo,
@@ -126,9 +126,6 @@ mod vulkano_backend {
         PipelineDescriptorSetLayoutCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
     };
 
-    use vulkano::DeviceSize;
-    use vulkano::Version;
-    use vulkano::VulkanObject;
     use vulkano::format::Format;
     use vulkano::image::sampler::{
         Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode,
@@ -140,6 +137,9 @@ mod vulkano_backend {
     use vulkano::render_pass::{AttachmentLoadOp, AttachmentStoreOp};
     use vulkano::swapchain::{self, SwapchainPresentInfo};
     use vulkano::sync::{self, GpuFuture};
+    use vulkano::DeviceSize;
+    use vulkano::Version;
+    use vulkano::VulkanObject;
     use vulkano::{Validated, VulkanError};
     use vulkano_util::context::{VulkanoConfig, VulkanoContext};
     use winit::window::Window;
@@ -600,7 +600,13 @@ mod vulkano_backend {
             material: crate::engine::graphics::MaterialHandle,
             quant_steps: f32,
         ) -> MaterialUBO {
-            let quant_steps = if quant_steps.is_finite() {
+            let quant_steps = if material == crate::engine::graphics::MaterialHandle::GRID_MESH {
+                if quant_steps.is_finite() {
+                    quant_steps.signum() * quant_steps.abs().max(1e-4)
+                } else {
+                    1.0
+                }
+            } else if quant_steps.is_finite() {
                 quant_steps.clamp(1.0, 64.0)
             } else {
                 3.0
@@ -639,7 +645,7 @@ mod vulkano_backend {
                 }
                 crate::engine::graphics::MaterialHandle::GRID_MESH => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
-                    quant_steps: 1.0,
+                    quant_steps,
                     emissive: 1,
                     _pad0: 0,
                     _pad1: 0,

@@ -1,5 +1,8 @@
 # Assets selection and paint panels
 
+Related active follow-up: [Editor Grid and Assets panel widths](editor-grid-and-assets-panel-widths.md)
+tracks the current shared Assets-panel width increase.
+
 ## Context
 
 We want an editor workflow for asset discovery, preview, selection, and surface painting in the engine.

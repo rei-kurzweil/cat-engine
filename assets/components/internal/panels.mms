@@ -714,7 +714,9 @@ export fn inspector_panel(title, items, title_color, panel_background_color, ite
 
 // ── asset_panel ───────────────────────────────────────────────────────────────
 
-let ASSET_PANEL_WIDTH_GU = 39.0
+// 39.0 GU baseline × 1.20. Keep this at the shared shell source so every
+// editor layout receives the same readable Assets-panel width.
+let ASSET_PANEL_WIDTH_GU = 46.8
 let ASSET_PANEL_CONTENT_HEIGHT_GU = 57.0
 let ASSET_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + ASSET_PANEL_CONTENT_HEIGHT_GU
 
@@ -751,7 +753,9 @@ export fn asset_panel(title, items, title_color, panel_background_color, item_ba
 
 // ── grid_panel ───────────────────────────────────────────────────────────────
 
-let GRID_PANEL_WIDTH_GU = 29.5
+// 29.5 GU baseline × 1.45. Grid rows now include Local/World alongside the
+// existing visibility, enablement, binding, and deletion controls.
+let GRID_PANEL_WIDTH_GU = 42.775
 let GRID_PANEL_CONTENT_HEIGHT_GU = 51.0
 let GRID_PANEL_ADD_BUTTON_HEIGHT_GU = 3.0
 let GRID_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + GRID_PANEL_CONTENT_HEIGHT_GU + GAP_GU + GRID_PANEL_ADD_BUTTON_HEIGHT_GU

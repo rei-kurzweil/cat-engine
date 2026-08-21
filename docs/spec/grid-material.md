@@ -9,6 +9,11 @@ world-space derivatives. No texture lookups, no CPU-side geometry subdivision.
 Both support a logarithmic mode that shows 2–3 overlapping octaves simultaneously,
 with coarser levels drawn with progressively thicker lines.
 
+> Current implementation follow-up: [Grid visual-coordinate-space tracker](../task/grid-visual-coordinate-space-tracker.md)
+> defines the Local-by-default visual frame, the diagnostic World mode, and
+> the requirement to pass authored grid spacing rather than use world-XZ
+> fixed spacing.
+
 ---
 
 ## 1. Core technique — why `fwidth` is non-negotiable

@@ -6,6 +6,8 @@ Status: active, untriaged `mittens-engine 0.8.0` release gate
 
 Live reproduction aid:
 [Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md).
+Desktop-only counterpart:
+[Paint-grid stroke cell deduplication and desktop repro](paint-grid-stroke-cell-deduplication-and-desktop-repro.md).
 
 ## Purpose
 

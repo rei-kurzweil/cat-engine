@@ -1,9 +1,10 @@
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::engine::ecs::component::{
-    ColorComponent, DataComponent, DataValue, Display, EdgeInsets, EditorComponent,
-    OptionComponent, RaycastableComponent, SelectionEntry, SizeDimension, StyleComponent,
-    TextAlign, TextComponent, TransformComponent, TransformGizmoComponent, style::VerticalAlign,
+    style::VerticalAlign, ColorComponent, DataComponent, DataValue, Display, EdgeInsets,
+    EditorComponent, GridVisualSpace, OptionComponent, RaycastableComponent, SelectionEntry,
+    SizeDimension, StyleComponent, TextAlign, TextComponent, TransformComponent,
+    TransformGizmoComponent,
 };
 use crate::engine::ecs::system::GridSystem;
 use crate::engine::ecs::system::data_renderer_system::{
@@ -33,6 +34,7 @@ pub(crate) const GRID_PANEL_VISIBILITY_PAYLOAD_NAME: &str = "grid_panel_visibili
 pub(crate) const GRID_PANEL_ENABLED_PAYLOAD_NAME: &str = "grid_panel_enabled_payload";
 pub(crate) const GRID_PANEL_BINDING_PAYLOAD_NAME: &str = "grid_panel_binding_payload";
 pub(crate) const GRID_PANEL_DELETE_PAYLOAD_NAME: &str = "grid_panel_delete_payload";
+pub(crate) const GRID_PANEL_VISUAL_SPACE_PAYLOAD_NAME: &str = "grid_panel_visual_space_payload";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct GridPanelState {
@@ -164,6 +166,12 @@ fn grid_panel_row_render_fn(
         return Err("grid row missing grid entry".to_string());
     };
     let (shown, enabled) = (!entry.hidden, entry.enabled);
+    let visual_space = world
+        .get_component_by_id_as::<crate::engine::ecs::component::GridComponent>(
+            entry.grid_component,
+        )
+        .map(|grid| grid.visual_space)
+        .unwrap_or(GridVisualSpace::Local);
     let bound = selected_manipulation_target(world, entry.editor_root)
         .and_then(|target| GridSystem::bound_grid_transform(world, target))
         == Some(owner_transform);
@@ -178,6 +186,7 @@ fn grid_panel_row_render_fn(
         shown,
         enabled,
         bound,
+        visual_space,
     ))
 }
 
@@ -197,6 +206,7 @@ fn spawn_grid_panel_row_tree(
     shown: bool,
     enabled: bool,
     bound: bool,
+    visual_space: GridVisualSpace,
 ) -> ComponentId {
     let row_root = world.add_component_boxed_named(row_name, Box::new(TransformComponent::new()));
     let row_option = world.add_component_boxed_named(
@@ -350,10 +360,27 @@ fn spawn_grid_panel_row_tree(
         Some("delete_x_icon"),
         Some(3.5),
     );
+    let visual_space_toggle = spawn_grid_icon_button(
+        world,
+        emit,
+        row_name,
+        "visual_space",
+        GRID_PANEL_VISUAL_SPACE_PAYLOAD_NAME,
+        owner_transform,
+        row_name,
+        match visual_space {
+            GridVisualSpace::Local => "Local",
+            GridVisualSpace::World => "World",
+        },
+        [0.24, 0.38, 0.52, 1.0],
+        None,
+        Some(5.0),
+    );
     let _ = world.add_child(row_root, visibility);
     let _ = world.add_child(row_root, enabled_toggle);
     let _ = world.add_child(row_root, binding);
     let _ = world.add_child(row_root, delete);
+    let _ = world.add_child(row_root, visual_space_toggle);
 
     row_root
 }
@@ -669,6 +696,27 @@ pub(crate) fn handle_grid_panel_click(
                 payload: Some(owner_transform),
             },
         );
+        rerender_grid_panel_from_context(
+            world,
+            emit,
+            panel_query_root,
+            &editor_context,
+            data_renderer,
+        );
+        return GridPanelClickOutcome::Handled;
+    }
+
+    if let Some(action) = decode_panel_action_payload(
+        world,
+        renderable,
+        GRID_PANEL_VISUAL_SPACE_PAYLOAD_NAME,
+        PanelKind::Grid,
+        PanelActionKind::Toggle,
+        None,
+        None,
+    ) && let Some(owner_transform) = action.target_component
+    {
+        let _ = GridSystem::new().toggle_grid_visual_space(world, emit, owner_transform);
         rerender_grid_panel_from_context(
             world,
             emit,

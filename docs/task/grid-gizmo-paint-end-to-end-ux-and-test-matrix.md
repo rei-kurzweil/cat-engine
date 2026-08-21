@@ -11,11 +11,13 @@ Related:
 
 - `docs/spec/grid-snapping.md`
 - `docs/spec/grid-material.md`
+- [Grid visual-coordinate-space tracker](grid-visual-coordinate-space-tracker.md)
 - `docs/task/grid-tool-and-surface-placement-followups.md`
 - `docs/task/grid-panel-select-delete-hide-and-gizmo.md`
 - `docs/bugs/free-draw-paint-does-not-snap-to-grid-while-grid-tool-placement-does.md`
 - `docs/bugs/paint-panel-free-draw-special-case.md`
 - `docs/bugs/transform-gizmo-screen-size-varies-with-camera-distance.md`
+- `docs/task/paint-grid-stroke-cell-deduplication-and-desktop-repro.md`
 
 ## Outcome we want
 
@@ -33,6 +35,11 @@ coordinate contract:
 
 The test matrix at the end of this document is intended to be run directly in
 `bisket-vr-demo`.
+
+For a grid/paint desktop repro that excludes OpenXR and XR input topology, use
+`examples/paint-grids-desktop.mms`. It is the required baseline when diagnosing
+stroke initiation, cell selection, or duplicate placement before comparing the
+same behavior in `bisket-vr-demo`.
 
 ## Current findings
 
@@ -105,6 +112,9 @@ The terrain prefab is no longer on the critical path for that observed failure.
 `GRID-01`, `GRID-06`, `GIZMO-01`, `GIZMO-02`, and `GIZMO-06` are.
 
 ### 2. Grid rendering and grid snapping do not yet use the same frame
+
+Implementation ownership for this finding now lives in the
+[Grid visual-coordinate-space tracker](grid-visual-coordinate-space-tracker.md).
 
 Snap math transforms points into the selected grid's local matrix and uses the
 `GridComponent.spacing`.

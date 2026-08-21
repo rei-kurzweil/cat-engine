@@ -8,6 +8,12 @@ Related:
 
 - `docs/task/grid-tool-and-surface-placement-followups.md`
 - `docs/spec/grid-material.md`
+- [Grid visual-coordinate-space tracker](grid-visual-coordinate-space-tracker.md)
+
+> Superseded rendering direction: the active tracker uses one arbitrary-plane
+> coordinate path for every grid orientation. It explicitly rejects this
+> document's proposed horizontal/vertical material split while keeping
+> placement-frame investigation in scope.
 
 ## Problem statement
 

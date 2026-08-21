@@ -1,11 +1,11 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::Transform;
-use crate::engine::graphics::GpuRenderable;
-use crate::engine::graphics::MsaaMode;
 use crate::engine::graphics::deformation::{DeformationRange, DeformationRangeAllocator};
 use crate::engine::graphics::post_processing::PostProcessingConfig;
 use crate::engine::graphics::primitives::InstanceHandle;
 use crate::engine::graphics::primitives::TransformMatrix;
+use crate::engine::graphics::GpuRenderable;
+use crate::engine::graphics::MsaaMode;
 use crate::engine::graphics::{Skin, SkinId};
 use slotmap::{Key, SlotMap};
 use std::collections::HashMap;
@@ -262,7 +262,10 @@ fn sanitize_quant_steps(steps: f32) -> f32 {
     if !steps.is_finite() {
         3.0
     } else {
-        steps.clamp(1.0, 64.0)
+        // Grid materials use the sign as a visual-space selector and the
+        // magnitude as authored spacing. Other materials continue to supply
+        // positive quantization steps.
+        steps.clamp(-1_000_000.0, 1_000_000.0)
     }
 }
 
@@ -878,11 +881,9 @@ mod tests {
         assert_eq!(visuals.background_occluded_lit_order().len(), 1);
         assert!(!visuals.has_background_occluded_lit_emissive());
         assert!(visuals.background_occluded_lit_emissive_order().is_empty());
-        assert!(
-            visuals
-                .background_occluded_lit_emissive_batches()
-                .is_empty()
-        );
+        assert!(visuals
+            .background_occluded_lit_emissive_batches()
+            .is_empty());
     }
 
     #[test]
@@ -974,24 +975,20 @@ mod tests {
         );
 
         visuals.prepare_draw_cache();
-        assert!(
-            visuals
-                .opaque_stream()
-                .0
-                .iter()
-                .all(|op| matches!(op, RenderOp::DrawBatch(_)))
-        );
+        assert!(visuals
+            .opaque_stream()
+            .0
+            .iter()
+            .all(|op| matches!(op, RenderOp::DrawBatch(_))));
 
         assert!(visuals.register_stencil_clip(clip_handle, 0));
         assert!(visuals.update_stencil_ref(content_handle, 1));
         visuals.prepare_draw_cache();
-        assert!(
-            visuals
-                .opaque_stream()
-                .0
-                .iter()
-                .any(|op| matches!(op, RenderOp::EnterClip { .. }))
-        );
+        assert!(visuals
+            .opaque_stream()
+            .0
+            .iter()
+            .any(|op| matches!(op, RenderOp::EnterClip { .. })));
 
         assert!(visuals.unregister_stencil_clip(clip_handle));
         visuals.prepare_draw_cache();
@@ -2116,7 +2113,11 @@ impl VisualWorld {
 
     pub fn xr_frame_fps(&self) -> Option<f32> {
         let dt = self.xr_frame_dt_sec?;
-        if dt > 0.0 { Some(1.0 / dt) } else { None }
+        if dt > 0.0 {
+            Some(1.0 / dt)
+        } else {
+            None
+        }
     }
 
     pub fn set_xr_frame_dt_sec(&mut self, dt_sec: Option<f32>) {

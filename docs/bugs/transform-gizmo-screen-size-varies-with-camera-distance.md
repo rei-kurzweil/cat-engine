@@ -91,6 +91,28 @@ effective_world = generic_anchor_world * selected_settings_local
 Gizmo handles use ordinary unskinned `TOON_MESH` renderables under an overlay
 subtree. They do not use the cached-skinned toon vertex shader.
 
+### XR-active desktop diagnosis
+
+The camera-scale path deliberately gives XR precedence whenever an active XR
+rig has published eye views:
+
+```text
+stereo_active = active_xr_camera && xr camera has eyes
+TransformCameraSpecific = Stereoscopic
+```
+
+It does this even when a desktop/window camera is also rendering. Therefore a
+scene such as `paint-stroke-debug`, which enables `XR.on()` and an XR pointer
+rig, is not a clean desktop gizmo-size reproduction: its gizmo scale is derived
+from XR eye depth and its stereoscopic settings transform. A desktop view can
+then display a size that does not track the window camera's distance.
+
+This is a confirmed explanation for that scene's mixed desktop/XR behavior,
+not yet a decision that a simultaneously active XR session should use a
+different policy. Use `paint-grids-desktop` for a desktop-only grid/paint
+reproduction and test gizmo sizing there before changing the camera-selection
+contract.
+
 Relevant code:
 
 - `src/engine/ecs/system/gizmo_system.rs`
@@ -99,6 +121,7 @@ Relevant code:
 - `src/engine/ecs/system/system_world.rs`
 - `src/engine/graphics/visual_world.rs`
 - `src/engine/graphics/vulkano_renderer.rs`
+- `examples/paint-grids-desktop.mms`
 
 ## Why the observed behavior indicates a missing/stale compensation
 

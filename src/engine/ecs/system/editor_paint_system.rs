@@ -2859,6 +2859,15 @@ mod tests {
         assert!(output.errors.is_empty(), "{:?}", output.errors);
     }
 
+    #[test]
+    fn paint_grids_desktop_example_evaluates() {
+        let output = MeowMeowRunner::eval_with_path(
+            include_str!("../../../../examples/paint-grids-desktop.mms"),
+            "examples/paint-grids-desktop.mms",
+        );
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
+    }
+
     impl TextureUploader for TestUploader {
         fn upload_texture_rgba8(
             &mut self,

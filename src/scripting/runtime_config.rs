@@ -533,7 +533,8 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     constructor_and_builder(component, "hidden", booleans(1));
                     component
                         .builder_call("enabled", booleans(1))
-                        .builder_call("selectable", booleans(1));
+                        .builder_call("selectable", booleans(1))
+                        .builder_call("visual_space", strings(1));
                 }
                 "HttpClient" => {
                     constructor_and_builder(component, "enabled", booleans(1));

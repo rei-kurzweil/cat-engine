@@ -169,7 +169,7 @@ pub use gizmo::{
 };
 pub use grabbable::GrabbableComponent;
 pub use gravity::GravityComponent;
-pub use grid::GridComponent;
+pub use grid::{GridComponent, GridVisualSpace};
 pub use grid_binding::GridBindingComponent;
 pub use html_element::{ElementType, HtmlElementComponent};
 pub use http_client::HttpClientComponent;

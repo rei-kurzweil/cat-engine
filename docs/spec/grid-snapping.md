@@ -10,6 +10,11 @@ This document describes the current grid-snapping behavior across:
 It is an overview of the current implementation and the intended direction.
 It is not yet a strict final spec.
 
+The grid visual frame is tracked separately in the
+[Grid visual-coordinate-space tracker](../task/grid-visual-coordinate-space-tracker.md):
+Local rendering must match the grid-local frame below, while World rendering is
+presentation-only and never changes this snapping contract.
+
 ## 2026-08-19 paint investigation correction
 
 General object/gizmo snapping to the workspace-selected grid is not being

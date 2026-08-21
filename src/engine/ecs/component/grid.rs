@@ -1,4 +1,37 @@
-use crate::engine::ecs::{ComponentId, component::Component};
+use crate::engine::ecs::{component::Component, ComponentId};
+
+/// Coordinate frame used only to draw a grid. Snapping is always grid-local.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GridVisualSpace {
+    #[default]
+    Local,
+    World,
+}
+
+impl GridVisualSpace {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::World => "world",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "local" => Some(Self::Local),
+            "world" => Some(Self::World),
+            _ => None,
+        }
+    }
+}
+
+/// Returns the two world-axis families least aligned with a plane normal.
+/// Axis indices are X=0, Y=1, Z=2; ties retain X/Y/Z order.
+pub fn world_coordinate_families(normal: [f32; 3]) -> [usize; 2] {
+    let mut axes = [0usize, 1, 2];
+    axes.sort_by(|&a, &b| normal[a].abs().total_cmp(&normal[b].abs()));
+    [axes[0], axes[1]]
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct GridComponent {
@@ -8,6 +41,7 @@ pub struct GridComponent {
     pub enabled: bool,
     pub hidden: bool,
     pub selectable: bool,
+    pub visual_space: GridVisualSpace,
     component: Option<ComponentId>,
 }
 
@@ -23,6 +57,7 @@ impl GridComponent {
             enabled: true,
             hidden: false,
             selectable: true,
+            visual_space: GridVisualSpace::Local,
             component: None,
         }
     }
@@ -54,6 +89,11 @@ impl GridComponent {
 
     pub fn with_size_z(mut self, size_z: u32) -> Self {
         self.size_z = size_z.max(1);
+        self
+    }
+
+    pub fn with_visual_space(mut self, visual_space: GridVisualSpace) -> Self {
+        self.visual_space = visual_space;
         self
     }
 }
@@ -92,5 +132,31 @@ impl Component for GridComponent {
             .with_call("enabled", vec![b(self.enabled)])
             .with_call("hidden", vec![b(self.hidden)])
             .with_call("selectable", vec![b(self.selectable)])
+            .with_call("visual_space", vec![s(self.visual_space.as_str())])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_coordinate_families_choose_non_degenerate_plane_axes() {
+        assert_eq!(world_coordinate_families([0.0, 1.0, 0.0]), [0, 2]);
+        assert_eq!(world_coordinate_families([0.0, 0.0, 1.0]), [0, 1]);
+        assert_eq!(world_coordinate_families([1.0, 0.0, 0.0]), [1, 2]);
+        assert_eq!(world_coordinate_families([0.5, 0.5, 0.9]), [0, 1]);
+    }
+
+    #[test]
+    fn visual_space_defaults_to_local() {
+        assert_eq!(
+            GridComponent::default().visual_space,
+            GridVisualSpace::Local
+        );
+        assert_eq!(
+            GridVisualSpace::parse("world"),
+            Some(GridVisualSpace::World)
+        );
     }
 }

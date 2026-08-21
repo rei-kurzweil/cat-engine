@@ -16,6 +16,11 @@ MITTENS_DEBUG_PAINT_STROKE=1 cargo run --example paint-stroke-debug 2>&1 | tee /
 The environment flag is opt-in. Without it, the extra markers and
 `paint_stroke_trace` records are disabled.
 
+For the related visual/snap-frame mismatch, see the
+[Grid visual-coordinate-space tracker](../task/grid-visual-coordinate-space-tracker.md).
+The diagnostic scene is its reproduction fixture; that rendering task does not
+change Paint's current snap-source behavior.
+
 ## Scene and marker legend
 
 The scene contains three adjacent vertical paint targets, a shelf, a floor,

@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::engine::ecs::component::{
     ColorComponent, ComponentRef, EditorComponent, GridBindingComponent, GridComponent,
+    GridVisualSpace, LightQuantizationComponent,
     OpacityComponent, RaycastableComponent, RenderableComponent, SelectableComponent,
     SerializeComponent, TransformComponent,
 };
@@ -102,6 +103,7 @@ const GRID_LIVE_SHAPE_NAME: &str = "grid_live_shape";
 const GRID_LIVE_RENDERABLE_NAME: &str = "grid_live_renderable";
 const GRID_LIVE_COLOR_NAME: &str = "grid_live_color";
 const GRID_LIVE_OPACITY_NAME: &str = "grid_live_opacity";
+const GRID_LIVE_VISUAL_PARAMS_NAME: &str = "grid_live_visual_params";
 
 impl GridSystem {
     pub const DEFAULT_EDITOR_GRID_SIZE_X: u32 = 8192;
@@ -688,6 +690,27 @@ impl GridSystem {
         enabled.is_some_and(|next| self.set_grid_enabled(world, emit, owner_transform, next))
     }
 
+    pub fn toggle_grid_visual_space(
+        &self,
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        owner_transform: ComponentId,
+    ) -> bool {
+        let Some(entry) = self.grid_owned_by_transform(world, owner_transform) else {
+            return false;
+        };
+        let Some(grid) = world.get_component_by_id_as_mut::<GridComponent>(entry.grid_component)
+        else {
+            return false;
+        };
+        grid.visual_space = match grid.visual_space {
+            GridVisualSpace::Local => GridVisualSpace::World,
+            GridVisualSpace::World => GridVisualSpace::Local,
+        };
+        self.sync_live_runtime_visibility(world, emit, owner_transform, false);
+        true
+    }
+
     pub fn delete_grid(
         &self,
         world: &mut World,
@@ -849,6 +872,10 @@ impl GridSystem {
             GRID_LIVE_OPACITY_NAME,
             Box::new(OpacityComponent::new().with_opacity(grid_opacity(grid.hidden, preview_mode))),
         );
+        let live_visual_params = world.add_component_boxed_named(
+            GRID_LIVE_VISUAL_PARAMS_NAME,
+            Box::new(LightQuantizationComponent::steps(grid_visual_parameter(grid))),
+        );
 
         let _ = world.add_child(owner_transform, live_root);
         let _ = world.add_child(live_root, live_selectable);
@@ -857,6 +884,7 @@ impl GridSystem {
         let _ = world.add_child(live_shape, live_renderable);
         let _ = world.add_child(live_renderable, live_color);
         let _ = world.add_child(live_renderable, live_opacity);
+        let _ = world.add_child(live_renderable, live_visual_params);
         let _ = world.add_child(live_renderable, live_raycastable);
         world.init_component_tree(live_root, emit);
         emit.push_intent_now(
@@ -904,6 +932,15 @@ impl GridSystem {
                 IntentValue::RegisterOpacity {
                     component_id: opacity_id,
                 },
+            );
+        }
+        if let Some(params_id) = world.find_component(owner_transform, "#grid_live_visual_params")
+            && let Some(params) = world.get_component_by_id_as_mut::<LightQuantizationComponent>(params_id)
+        {
+            params.quant_steps = grid_visual_parameter(grid);
+            emit.push_intent_now(
+                params_id,
+                IntentValue::RegisterLightQuantization { component_id: params_id },
             );
         }
         if let Some(selectable_id) = world.find_component(owner_transform, "#grid_live_selectable")
@@ -956,6 +993,16 @@ fn grid_opacity(hidden: bool, preview_mode: bool) -> f32 {
         0.0
     } else {
         1.0
+    }
+}
+
+/// GRID_MESH receives this through its existing per-material scalar. Positive
+/// values mean grid-local coordinates; negative values select world families.
+fn grid_visual_parameter(grid: GridComponent) -> f32 {
+    let spacing = grid.spacing.max(1e-4);
+    match grid.visual_space {
+        GridVisualSpace::Local => spacing,
+        GridVisualSpace::World => -spacing,
     }
 }
 

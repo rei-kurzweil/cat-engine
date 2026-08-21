@@ -24,7 +24,7 @@ use crate::engine::ecs::component::{
     EditorUIPanelConfig, EditorUIPanelSpec, ElementType, EmissiveComponent, EmissivePassComponent,
     FitBoundsComponent, FitBoundsMode, FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent,
     GestureCoordTypeComponent, GrabbableComponent, GravityComponent, GridBindingComponent,
-    GridComponent, HtmlElementComponent, HttpClientComponent, HttpServerComponent,
+    GridComponent, GridVisualSpace, HtmlElementComponent, HttpClientComponent, HttpServerComponent,
     HumanoidBoneMapComponent, IKChainComponent, IKSolver, InputComponent,
     InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent,
     JointRetargetBasisComponent, JustifyContent, KeyframeComponent, LayoutBoundsComponent,
@@ -1541,6 +1541,11 @@ fn create_component(
                     "size_x" => c = c.with_size_x(arg_f32(args, 0)? as u32),
                     "size_z" => c = c.with_size_z(arg_f32(args, 0)? as u32),
                     "hidden" => c = c.with_hidden(arg_bool(args, 0)?),
+                    "visual_space" => c = c.with_visual_space(
+                        GridVisualSpace::parse(arg_str(args, 0)?).ok_or_else(|| {
+                            "Grid.visual_space expects 'local' or 'world'".to_string()
+                        })?,
+                    ),
                     _ => return Err(format!("Grid: unknown constructor '{method}'")),
                 }
             }
@@ -3362,6 +3367,11 @@ fn apply_call(
             "enabled" => *grid = grid.with_enabled(arg_bool(args, 0)?),
             "hidden" => *grid = grid.with_hidden(arg_bool(args, 0)?),
             "selectable" => *grid = grid.with_selectable(arg_bool(args, 0)?),
+            "visual_space" => *grid = grid.with_visual_space(
+                GridVisualSpace::parse(arg_str(args, 0)?).ok_or_else(|| {
+                    "Grid.visual_space expects 'local' or 'world'".to_string()
+                })?,
+            ),
             _ => {}
         }
         return Ok(());

@@ -25,6 +25,8 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 layout(location = 0) out vec3 v_world_pos;
 layout(location = 1) out vec2 v_uv;
 layout(location = 2) out vec4 v_color;
+layout(location = 3) out vec2 v_grid_local_pos;
+layout(location = 4) out vec3 v_grid_normal;
 
 void main() {
     mat4 model = mat4(i_model_c0, i_model_c1, i_model_c2, i_model_c3);
@@ -34,6 +36,15 @@ void main() {
     v_uv = in_uv;
     v_color = i_color;
     v_color.a *= i_opacity;
+
+    // The grid live mesh is aligned with the grid owner's local X/Z plane.
+    // Projecting relative to its model origin gives an arbitrary-plane
+    // coordinate (rather than assuming the plane is world XZ).
+    vec3 grid_x = normalize(i_model_c0.xyz);
+    vec3 grid_z = normalize(i_model_c2.xyz);
+    vec3 relative = world.xyz - i_model_c3.xyz;
+    v_grid_local_pos = vec2(dot(relative, grid_x), dot(relative, grid_z));
+    v_grid_normal = normalize(cross(grid_z, grid_x));
 
     gl_Position = ubo.proj * ubo.view * world;
 }

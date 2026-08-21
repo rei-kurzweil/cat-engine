@@ -4,6 +4,9 @@ Date: 2026-06-11
 
 Status: planning / inventory
 
+Related active follow-up: [Editor Grid and Assets panel widths](editor-grid-and-assets-panel-widths.md)
+tracks the extra row width required by the Local/World visual-space control.
+
 ## Known bugs
 
 - `Add Grid` works without freezing only when it rerenders the grid panel in isolation. Refreshing the world panel from that path still freezes the editor and is deferred.
