@@ -15,6 +15,7 @@ Related:
 - [Current paint-stroke pipeline investigation](../analysis/grid-aware-paint-stroke-current-pipeline.md)
 - [Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md)
 - [Paint procedural RenderAssets instantiation](paint-procedural-render-assets-instantiation.md)
+- [Paint-stroke debug performance and desktop/XR artifacts](paint-stroke-debug-performance-and-desktop-xr-artifacts.md)
 
 ## Purpose
 
