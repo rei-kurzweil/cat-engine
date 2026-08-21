@@ -2,8 +2,7 @@
 
 Date: 2026-08-19
 
-Status: discovery tracker for the `mittens-engine 0.8` and
-`meow-meow-script 0.8` paint release gate; no architecture selected
+Status: implemented contract for the `mittens-engine 0.8` paint release gate.
 
 Related:
 
@@ -16,6 +15,30 @@ Related:
 - [Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md)
 - [Paint procedural RenderAssets instantiation](paint-procedural-render-assets-instantiation.md)
 - [Paint-stroke debug performance and desktop/XR artifacts](paint-stroke-debug-performance-and-desktop-xr-artifacts.md)
+
+## Adopted contract
+
+Paint uses one transient, editor-owned `GridGestureSession`; MMS does not
+receive a stroke API. A session captures the selected enabled grid's frame,
+finite extent, tool, asset, brush radius, reference mode, and owning pointer at
+drag start. Any change to those captured inputs, explicit cancellation, lost
+pointer, focus/editor/tool/asset change, or grid disable/delete rolls back all
+provisional placements.
+
+- Paint addresses are cell centres: `(u, v)` maps to
+  `((u + 0.5) * spacing, (v + 0.5) * spacing)` in grid-local X/Z.
+- The selected grid is an analytic finite plane. It wins only when it is the
+  nearest eligible hit; starting there locks contact and normal to that plane.
+- A stroke begun on geometry projects each candidate cell along the captured
+  grid normal, on the captured hit side. Missing projections omit the cell.
+- Free Draw uses an ordered, deduplicated supercover. Line uses a thin,
+  8-connected reverse-symmetric raster with diagonal exact ties. Spray uses
+  the deduplicated union of filled grid-local Euclidean disks.
+- A release commits one undo/redo group. Existing committed objects do not
+  occupy cells, so separate strokes may stack. One pointer owns one editor
+  stroke; other pointers are ignored.
+- Without a selected enabled grid, Free Draw and Spray retain their legacy
+  surface behaviour. Line is inactive and reports that it requires a grid.
 
 ## Purpose
 

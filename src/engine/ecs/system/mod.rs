@@ -41,6 +41,7 @@ pub mod gizmo_system;
 pub mod gltf_bounds_visualization_system;
 pub mod gltf_system;
 pub mod grabbable_system;
+pub mod grid_gesture;
 pub mod grid_system;
 pub mod http_client_system;
 pub mod http_server_system;

@@ -11,7 +11,7 @@ use crate::engine::ecs::{
     ComponentId, EventSignal, IntentValue, RxWorld, SignalEmitter, SignalKind, World,
 };
 use crate::utils::math::{
-    mat_to_quat, mat4_inverse, mat4_mul, quat_from_axis_angle, quat_mul, vec3_normalize,
+    mat_to_quat, mat4_inverse, mat4_mul, quat_from_axis_angle, quat_mul, vec3_dot, vec3_normalize,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +38,38 @@ pub struct ActiveGrid {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GridStep {
     pub cell: [i32; 2],
+}
+
+/// A cell address, as opposed to the old `GridStep` intersection address.
+///
+/// The point for `(u, v)` is the centre of the cell bounded by grid lines
+/// `u..u + 1` and `v..v + 1`.  Keep this type separate from `GridStep`: gizmo
+/// snapping intentionally continues to use intersections while paint uses
+/// cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GridAddress {
+    pub u: i32,
+    pub v: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CapturedGrid {
+    pub grid_component: ComponentId,
+    pub owner_transform: ComponentId,
+    pub spacing: f32,
+    pub size_x: u32,
+    pub size_z: u32,
+    pub origin_world: [f32; 3],
+    pub normal_world: [f32; 3],
+    pub matrix_world: [[f32; 4]; 4],
+    pub inverse_world: [[f32; 4]; 4],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GridPlaneHit {
+    pub address: GridAddress,
+    pub point_world: [f32; 3],
+    pub distance: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,6 +163,116 @@ impl GridSystem {
             return None;
         }
         self.active_grid_from_entry(world, selected)
+    }
+
+    /// Captures all authored grid inputs needed by a transient editor gesture.
+    /// The returned value deliberately has no live `World` dependency, so a
+    /// stroke cannot silently change phase when the selected grid is edited.
+    pub fn capture_active_grid_for_editor(
+        &self,
+        world: &World,
+        editor_root: ComponentId,
+    ) -> Option<CapturedGrid> {
+        let active = self.active_grid_for_editor(world, editor_root)?;
+        self.capture_grid(world, active)
+    }
+
+    pub fn capture_grid(&self, world: &World, active: ActiveGrid) -> Option<CapturedGrid> {
+        let entry = self.grid_owned_by_transform(world, active.owner_transform)?;
+        let grid = world.get_component_by_id_as::<GridComponent>(entry.grid_component)?;
+        Some(CapturedGrid {
+            grid_component: entry.grid_component,
+            owner_transform: active.owner_transform,
+            spacing: active.spacing,
+            size_x: grid.size_x,
+            size_z: grid.size_z,
+            origin_world: active.origin_world,
+            normal_world: active.normal_world,
+            matrix_world: active.matrix_world,
+            inverse_world: active.inverse_world,
+        })
+    }
+
+    /// Converts a world point to a cell-centred paint address.  Returns none
+    /// outside the finite authored grid rectangle.
+    pub fn address_for_point(grid: &CapturedGrid, point_world: [f32; 3]) -> Option<GridAddress> {
+        let local = transform_point(grid.inverse_world, point_world);
+        let address = GridAddress {
+            u: (local[0] / grid.spacing - 0.5).floor() as i32,
+            v: (local[2] / grid.spacing - 0.5).floor() as i32,
+        };
+        Self::address_in_domain(grid, address).then_some(address)
+    }
+
+    pub fn address_in_domain(grid: &CapturedGrid, address: GridAddress) -> bool {
+        let min_u = -(grid.size_x as i32 / 2);
+        let min_v = -(grid.size_z as i32 / 2);
+        let max_u = min_u + grid.size_x as i32 - 1;
+        let max_v = min_v + grid.size_z as i32 - 1;
+        (min_u..=max_u).contains(&address.u) && (min_v..=max_v).contains(&address.v)
+    }
+
+    pub fn point_for_address(grid: &CapturedGrid, address: GridAddress) -> Option<[f32; 3]> {
+        Self::address_in_domain(grid, address).then(|| {
+            transform_point(
+                grid.matrix_world,
+                [
+                    (address.u as f32 + 0.5) * grid.spacing,
+                    0.0,
+                    (address.v as f32 + 0.5) * grid.spacing,
+                ],
+            )
+        })
+    }
+
+    pub fn snap_cell_hit(grid: &CapturedGrid, point_world: [f32; 3]) -> Option<GridSnapResult> {
+        let address = Self::address_for_point(grid, point_world)?;
+        Some(GridSnapResult {
+            grid_owner_transform: grid.owner_transform,
+            point_world: Self::point_for_address(grid, address)?,
+            normal_world: grid.normal_world,
+            // Kept for old placement callers; it now carries the paint cell
+            // coordinate when this cell-centred API is used.
+            step: GridStep {
+                cell: [address.u, address.v],
+            },
+        })
+    }
+
+    /// Analytic finite-plane intersection used to compare the selected grid
+    /// with the normal scene raycast result. `None` includes parallel rays,
+    /// behind-ray intersections, and hits outside the authored extent.
+    pub fn intersect_captured_grid_plane(
+        grid: &CapturedGrid,
+        ray_origin_world: [f32; 3],
+        ray_dir_world: [f32; 3],
+    ) -> Option<GridPlaneHit> {
+        let denominator = vec3_dot(grid.normal_world, ray_dir_world);
+        if denominator.abs() <= 1e-6 {
+            return None;
+        }
+        let distance = vec3_dot(
+            grid.normal_world,
+            [
+                grid.origin_world[0] - ray_origin_world[0],
+                grid.origin_world[1] - ray_origin_world[1],
+                grid.origin_world[2] - ray_origin_world[2],
+            ],
+        ) / denominator;
+        if distance < 0.0 {
+            return None;
+        }
+        let point_world = [
+            ray_origin_world[0] + ray_dir_world[0] * distance,
+            ray_origin_world[1] + ray_dir_world[1] * distance,
+            ray_origin_world[2] + ray_dir_world[2] * distance,
+        ];
+        let address = Self::address_for_point(grid, point_world)?;
+        Some(GridPlaneHit {
+            address,
+            point_world,
+            distance,
+        })
     }
 
     pub fn selected_grid_for_editor(
@@ -978,6 +1120,59 @@ mod tests {
         assert!((snapped.point_world[0] - 0.0).abs() < 1e-5);
         assert!((snapped.point_world[1] - 0.76).abs() < 1e-5);
         assert!((snapped.point_world[2] - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn cell_addresses_are_centred_and_clipped_to_finite_grid() {
+        let mut world = World::default();
+        let id = world.add_component(TransformComponent::new());
+        let grid = CapturedGrid {
+            grid_component: id,
+            owner_transform: id,
+            spacing: 2.0,
+            size_x: 4,
+            size_z: 2,
+            origin_world: [0.0, 0.0, 0.0],
+            normal_world: [0.0, 1.0, 0.0],
+            matrix_world: TransformComponent::new().transform.matrix_world,
+            inverse_world: TransformComponent::new().transform.matrix_world,
+        };
+        let address = GridAddress { u: 0, v: 0 };
+        assert_eq!(
+            GridSystem::point_for_address(&grid, address),
+            Some([1.0, 0.0, 1.0])
+        );
+        assert_eq!(
+            GridSystem::address_for_point(&grid, [1.9, 8.0, 1.1]),
+            Some(address)
+        );
+        assert!(GridSystem::address_for_point(&grid, [5.0, 0.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn finite_grid_plane_hit_is_analytic() {
+        let mut world = World::default();
+        let id = world.add_component(TransformComponent::new());
+        let grid = CapturedGrid {
+            grid_component: id,
+            owner_transform: id,
+            spacing: 1.0,
+            size_x: 4,
+            size_z: 4,
+            origin_world: [0.0, 0.0, 0.0],
+            normal_world: [0.0, 1.0, 0.0],
+            matrix_world: TransformComponent::new().transform.matrix_world,
+            inverse_world: TransformComponent::new().transform.matrix_world,
+        };
+        let hit =
+            GridSystem::intersect_captured_grid_plane(&grid, [0.5, 3.0, 0.5], [0.0, -1.0, 0.0])
+                .unwrap();
+        assert_eq!(hit.address, GridAddress { u: 0, v: 0 });
+        assert!((hit.distance - 3.0).abs() < 1e-5);
+        assert!(
+            GridSystem::intersect_captured_grid_plane(&grid, [5.0, 3.0, 0.0], [0.0, -1.0, 0.0])
+                .is_none()
+        );
     }
 
     #[test]

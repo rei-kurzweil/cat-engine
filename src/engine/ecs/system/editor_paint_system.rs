@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -18,8 +18,11 @@ use crate::engine::ecs::system::editor_paint_system_state_manager::{
 };
 use crate::engine::ecs::system::editor_system::select_editor_target;
 use crate::engine::ecs::system::grid_system::{
-    GridSnapResult, GridSpawnSpec, GridStep, GridSystem, remap_grid_rotation_to_surface_up,
+    CapturedGrid, GridSnapResult, GridSpawnSpec, GridStep, GridSystem,
+    remap_grid_rotation_to_surface_up,
 };
+use crate::engine::ecs::system::grid_gesture::{GridGestureSession, GridGestureTool};
+use crate::engine::ecs::system::grid_system::GridAddress;
 use crate::engine::ecs::system::object_placement_preview::{
     PlacementKind, PlacementPreviewSession, PlacementPreviewStyle, commit_preview,
     create_preview_shell, update_preview_pose,
@@ -65,6 +68,10 @@ struct PaintStrokeRuntime {
     last_grid_step: Option<GridStep>,
     last_placed_position: Option<[f32; 3]>,
     preview_session: Option<PlacementPreviewSession>,
+    grid_gesture: Option<GridGestureSession>,
+    /// Additional per-cell previews. The start-cell preview remains in
+    /// `preview_session` for compatibility with the existing Grid Tool path.
+    grid_previews: HashMap<GridAddress, PlacementPreviewSession>,
     debug_markers: Option<PaintStrokeDebugMarkers>,
 }
 
@@ -869,6 +876,17 @@ fn apply_paint_side_effects(
         format!("event={event:?} active_editor={active_editor:?}"),
     );
     let mut status_override = None;
+    if matches!(
+        event,
+        PaintEvent::AssetSelectionChanged { .. }
+            | PaintEvent::ToolSelectionChanged { .. }
+            | PaintEvent::PanelFocusChanged { .. }
+            | PaintEvent::ActiveEditorChanged { .. }
+    ) {
+        if let Some(runtime) = stroke_runtime {
+            rollback_paint_stroke(world, emit, runtime);
+        }
+    }
     let templates_start = Instant::now();
     let templates_lock = templates.lock().expect("paint templates mutex poisoned");
     let templates = &*templates_lock;
@@ -930,6 +948,23 @@ fn apply_paint_side_effects(
                         &context,
                         &editor_context,
                     );
+                    let grid_gesture = context.selected_grid.and_then(|grid| {
+                        let address = GridSystem::address_for_point(&grid, *hit_point)?;
+                        let tool = match new_state.selected_tool {
+                            PaintTool::FreeDraw => GridGestureTool::FreeDraw,
+                            PaintTool::Line => GridGestureTool::Line,
+                            PaintTool::SprayCan => GridGestureTool::Spray,
+                            _ => return None,
+                        };
+                        // Drag events currently expose the raycaster only to
+                        // the gesture layer. Until that identity is threaded
+                        // through PaintEvent, the captured renderable is the
+                        // stable compatibility key used by this editor-local
+                        // runtime.
+                        let mut session = GridGestureSession::new(*renderable, grid, tool, 1, address);
+                        let _ = session.update(address);
+                        Some(session)
+                    });
                     let selected_grid =
                         selected_grid_diagnostic(world, grid_system, &editor_context, *hit_point);
                     let actual_paint_grid =
@@ -962,6 +997,8 @@ fn apply_paint_side_effects(
                         last_grid_step: None,
                         last_placed_position: None,
                         preview_session,
+                        grid_gesture,
+                        grid_previews: HashMap::new(),
                         debug_markers,
                     };
                 } else {
@@ -1039,6 +1076,10 @@ fn apply_paint_side_effects(
                     }
                     status_override = Some("paint placed".to_string());
                 }
+                for (_, session) in runtime.grid_previews.drain() {
+                    commit_preview(world, session.preview_root_component_id);
+                    retain_paint_preview_grid_binding(world, &session);
+                }
                 if let Some(markers) = runtime.debug_markers.take() {
                     markers.remove(emit);
                 }
@@ -1079,6 +1120,24 @@ fn apply_paint_side_effects(
         total_start,
         format!("event={event:?}"),
     );
+}
+
+fn rollback_paint_stroke(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    runtime: &Arc<Mutex<PaintStrokeRuntime>>,
+) {
+    let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
+    if let Some(session) = runtime.preview_session.take() {
+        let _ = world.remove_component_subtree(session.preview_root_component_id);
+    }
+    for (_, session) in runtime.grid_previews.drain() {
+        let _ = world.remove_component_subtree(session.preview_root_component_id);
+    }
+    if let Some(markers) = runtime.debug_markers.take() {
+        markers.remove(emit);
+    }
+    *runtime = PaintStrokeRuntime::default();
 }
 
 fn retain_paint_preview_grid_binding(world: &mut World, session: &PlacementPreviewSession) -> bool {
@@ -1241,6 +1300,22 @@ fn handle_free_draw_stroke_move(
     if !runtime.active {
         return None;
     }
+    let captured_grid = runtime.grid_gesture.as_ref()?.grid;
+    let still_same_grid = context
+        .grid_system
+        .active_grid_for_owner_transform(world, captured_grid.owner_transform)
+        .and_then(|active| context.grid_system.capture_grid(world, active))
+        == Some(captured_grid);
+    if !still_same_grid {
+        if let Some(session) = runtime.preview_session.take() {
+            let _ = world.remove_component_subtree(session.preview_root_component_id);
+        }
+        for (_, session) in runtime.grid_previews.drain() {
+            let _ = world.remove_component_subtree(session.preview_root_component_id);
+        }
+        *runtime = PaintStrokeRuntime::default();
+        return Some("grid paint cancelled: grid changed".to_string());
+    }
     if runtime
         .captured_renderable
         .is_some_and(|captured| captured != renderable)
@@ -1287,6 +1362,12 @@ fn handle_spray_can_click(
     renderable: ComponentId,
     hit_point: [f32; 3],
 ) -> Option<String> {
+    // Grid-aware clicks are created by the drag lifecycle's start preview and
+    // committed at release.  Suppress the compatibility Click event that the
+    // gesture system emits after a zero-distance drag.
+    if context.selected_grid.is_some() {
+        return None;
+    }
     let asset = context.asset?;
     let runtime = stroke_runtime?;
     let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
@@ -1595,6 +1676,18 @@ fn handle_stroke_move(
         editor_context,
         templates,
     )?;
+    if let Some(status) = handle_grid_aware_stroke_move(
+        world,
+        render_assets,
+        emit,
+        editor_root,
+        &context,
+        stroke_runtime,
+        renderable,
+        hit_point,
+    ) {
+        return Some(status);
+    }
     paint_perf(
         "handle_stroke_move.resolve_context",
         start,
@@ -1674,12 +1767,88 @@ fn handle_stroke_move(
     result
 }
 
+/// Reconciles the cell previews owned by an active grid gesture.  This is kept
+/// before the legacy tool handlers so no-grid Free Draw/Spray retain their
+/// surface-space behaviour.
+fn handle_grid_aware_stroke_move(
+    world: &mut World,
+    render_assets: &mut crate::engine::graphics::RenderAssets,
+    emit: &mut dyn SignalEmitter,
+    editor_root: ComponentId,
+    context: &PaintContext<'_>,
+    stroke_runtime: Option<&Arc<Mutex<PaintStrokeRuntime>>>,
+    renderable: ComponentId,
+    hit_point: [f32; 3],
+) -> Option<String> {
+    let runtime = stroke_runtime?;
+    let mut runtime = runtime.lock().expect("paint stroke runtime mutex poisoned");
+    if !runtime.active {
+        return None;
+    }
+    let (grid, added, targets, tool, start) = {
+        let gesture = runtime.grid_gesture.as_mut()?;
+        let address = GridSystem::address_for_point(&gesture.grid, hit_point)?;
+        let added = gesture.update(address);
+        (
+            gesture.grid,
+            added,
+            gesture.current_targets(),
+            gesture.tool,
+            gesture.start,
+        )
+    };
+
+    if tool == GridGestureTool::Line {
+        let wanted: HashSet<_> = targets.iter().copied().filter(|cell| *cell != start).collect();
+        let stale: Vec<_> = runtime
+            .grid_previews
+            .keys()
+            .copied()
+            .filter(|cell| !wanted.contains(cell))
+            .collect();
+        for cell in stale {
+            if let Some(preview) = runtime.grid_previews.remove(&cell) {
+                let _ = world.remove_component_subtree(preview.preview_root_component_id);
+            }
+        }
+    }
+
+    let candidates: Vec<_> = match tool {
+        GridGestureTool::Line => targets,
+        GridGestureTool::FreeDraw | GridGestureTool::Spray => added,
+    };
+    for cell in candidates {
+        if cell == start || runtime.grid_previews.contains_key(&cell) {
+            continue;
+        }
+        let Some(point) = GridSystem::point_for_address(&grid, cell) else {
+            continue;
+        };
+        if let Some(preview) = start_paint_preview_session(
+            world,
+            render_assets,
+            emit,
+            editor_root,
+            renderable,
+            point,
+            context,
+        ) {
+            runtime.grid_previews.insert(cell, preview);
+        }
+    }
+    Some(format!("grid paint preview: {} cells", runtime.grid_previews.len() + 1))
+}
+
 #[derive(Debug, Clone)]
 struct PaintContext<'a> {
     asset: Option<&'a PaintAssetTemplate>,
     destination_editor: ComponentId,
     selected_color: [f32; 4],
     grid_system: GridSystem,
+    /// The selected enabled grid captured while resolving this interaction.
+    /// Paint uses cell centres here; legacy hit-owned grid snapping remains a
+    /// fallback only for old scene content that has no selected grid.
+    selected_grid: Option<CapturedGrid>,
 }
 
 impl<'a> PaintContext<'a> {
@@ -1689,6 +1858,9 @@ impl<'a> PaintContext<'a> {
         target_renderable: ComponentId,
         hit_point: [f32; 3],
     ) -> Option<GridSnapResult> {
+        if let Some(grid) = self.selected_grid {
+            return GridSystem::snap_cell_hit(&grid, hit_point);
+        }
         let grid = self
             .grid_system
             .grid_hit_context_for_renderable(world, target_renderable)?;
@@ -1759,6 +1931,11 @@ fn resolve_paint_context<'a>(
         destination_editor,
         selected_color: paint_state.selected_color.unwrap_or([1.0, 1.0, 1.0, 1.0]),
         grid_system: grid_system.clone(),
+        selected_grid: editor_context
+            .active_grid_owner_transform
+            .and_then(|owner| grid_system.active_grid_for_owner_transform(world, owner))
+            .and_then(|active| grid_system.capture_grid(world, active))
+            .or_else(|| grid_system.capture_active_grid_for_editor(world, destination_editor)),
     };
     paint_perf(
         "resolve_paint_context.active",
@@ -1789,7 +1966,9 @@ fn start_preview_session_for_tool(
     editor_context: &EditorContextState,
 ) -> Option<PlacementPreviewSession> {
     match selected_tool {
-        PaintTool::FreeDraw => start_paint_preview_session(
+        PaintTool::FreeDraw
+        | PaintTool::Line
+        | PaintTool::SprayCan if context.selected_grid.is_some() => start_paint_preview_session(
             world,
             render_assets,
             emit,
@@ -1806,6 +1985,15 @@ fn start_preview_session_for_tool(
             hit_point,
             context,
             editor_context,
+        ),
+        PaintTool::FreeDraw => start_paint_preview_session(
+            world,
+            render_assets,
+            emit,
+            editor_root,
+            target_renderable,
+            hit_point,
+            context,
         ),
         _ => None,
     }
@@ -1990,9 +2178,23 @@ fn paint_activity_status(
         };
     }
 
+    if matches!(paint_state.selected_tool, PaintTool::Line)
+        && editor_context
+            .active_grid_owner_transform
+            .and_then(|owner| grid_system.active_grid_for_owner_transform(world, owner))
+            .is_none()
+        && active_editor.and_then(|editor| grid_system.active_grid_for_editor(world, editor)).is_none()
+    {
+        return PaintActivityStatus {
+            active: false,
+            reason: "Line requires a selected enabled grid".to_string(),
+        };
+    }
+
     match paint_state.selected_tool {
         PaintTool::FreeDraw
         | PaintTool::GridTool
+        | PaintTool::Line
         | PaintTool::SprayCan
         | PaintTool::Color
         | PaintTool::Erase => {}
@@ -2274,9 +2476,22 @@ fn base_status_text(
         return "paint inactive: no asset selected".to_string();
     }
 
+    if matches!(paint_state.selected_tool, PaintTool::Line)
+        && editor_context
+            .active_grid_owner_transform
+            .and_then(|owner| grid_system.active_grid_for_owner_transform(world, owner))
+            .is_none()
+        && active_editor
+            .and_then(|editor| grid_system.active_grid_for_editor(world, editor))
+            .is_none()
+    {
+        return "paint inactive: Line requires a selected enabled grid".to_string();
+    }
+
     match paint_state.selected_tool {
         PaintTool::FreeDraw
         | PaintTool::GridTool
+        | PaintTool::Line
         | PaintTool::SprayCan
         | PaintTool::Color
         | PaintTool::Erase => {}
@@ -2295,6 +2510,7 @@ fn base_status_text(
     let tool_name = match paint_state.selected_tool {
         PaintTool::FreeDraw => "Free Draw",
         PaintTool::GridTool => "Grid Tool",
+        PaintTool::Line => "Line",
         PaintTool::SprayCan => "Spray Can",
         PaintTool::Color => "Color",
         PaintTool::Erase => "Erase",
