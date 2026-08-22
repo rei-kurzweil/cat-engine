@@ -18,6 +18,10 @@ pub struct PaintState {
     pub selected_asset: Option<PaintSelection>,
     pub selected_tool: PaintTool,
     pub selected_color: Option<[f32; 4]>,
+    /// Enables snapping when the current raycast target is itself a grid.
+    /// This is deliberately a permission flag: selecting a grid elsewhere in
+    /// the editor must not make ordinary scene hits snap to that grid.
+    pub snap_enabled: bool,
     pub stroke: PaintStrokeMode,
 }
 
@@ -27,6 +31,7 @@ impl Default for PaintState {
             selected_asset: None,
             selected_tool: PaintTool::Unknown(None),
             selected_color: None,
+            snap_enabled: true,
             stroke: PaintStrokeMode::Idle,
         }
     }
@@ -74,6 +79,9 @@ pub enum PaintEvent {
         item: Option<String>,
         component: Option<ComponentId>,
         rgba: Option<[f32; 4]>,
+    },
+    SnapSelectionChanged {
+        enabled: bool,
     },
     PanelFocusChanged {
         focused_panel: Option<ComponentId>,
@@ -130,6 +138,9 @@ pub fn reduce_paint_state(old: &PaintState, event: &PaintEvent) -> PaintState {
         } => {
             let _ = (item, component);
             new.selected_color = *rgba;
+        }
+        PaintEvent::SnapSelectionChanged { enabled } => {
+            new.snap_enabled = *enabled;
         }
         PaintEvent::ActiveEditorChanged { editor }
         | PaintEvent::PanelFocusChanged {
@@ -254,6 +265,23 @@ mod tests {
     }
 
     #[test]
+    fn snap_selection_updates_only_the_snap_permission() {
+        let initial = PaintState::default();
+        let disabled = reduce_paint_state(
+            &initial,
+            &PaintEvent::SnapSelectionChanged { enabled: false },
+        );
+        assert!(!disabled.snap_enabled);
+        assert_eq!(disabled.selected_tool, initial.selected_tool);
+
+        let enabled = reduce_paint_state(
+            &disabled,
+            &PaintEvent::SnapSelectionChanged { enabled: true },
+        );
+        assert!(enabled.snap_enabled);
+    }
+
+    #[test]
     fn authored_paint_panel_exposes_color_but_not_fill() {
         let panel = include_str!("../../../../../assets/components/internal/panels.mms");
         let icons = include_str!("../../../../../assets/components/icons.mms");
@@ -262,6 +290,8 @@ mod tests {
             "let tool_names = [\"Free Draw\", \"Grid Tool\", \"Line\", \"Spray Can\", \"Color\", \"Erase\"]"
         ));
         assert!(!panel.contains("\"Fill\""));
+        assert!(panel.contains("name = \"paint_snap_selection\""));
+        assert!(panel.contains("Text { \"Snap?\" }"));
         assert!(panel.contains("return color_icon()"));
         let color_icon = icons
             .split_once("export fn color_icon()")

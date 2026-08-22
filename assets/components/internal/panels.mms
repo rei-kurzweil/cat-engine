@@ -320,6 +320,35 @@ export fn paint_panel_body(item_background_color, title_color) {
             Selection { name = "paint_tool_selection" }
         }
 
+        // Snap is opt-in, and only has an effect when the current paint hit is
+        // a grid.  Keeping the control here makes that rule discoverable.
+        T {
+            name = "paint_snap_settings"
+            Style {
+                display("block")
+                width(100%)
+                margin_bottom(PAINT_PANEL_CONTENT_STATUS_GAP_GU)
+                padding_xy(0.5, 0.35)
+                background_color([0.82, 0.84, 0.86, 0.90])
+                background_z(-0.001)
+                color([0, 0, 0, 1.0])
+            }
+            T { Style { display("inline-block") margin_right(0.5) } Text { "Snap?" } }
+            T {
+                Option { Data { name = "paint_snap_payload" label = "yes" interactive = true } }
+                Raycastable.click_only()
+                Style { display("inline-block") margin_right(0.35) padding_xy(0.4, 0.2) background_color([0.92, 0.97, 0.92, 1.0]) background_z(-0.01) }
+                Text { "yes" }
+            }
+            T {
+                Option { Data { name = "paint_snap_payload" label = "no" interactive = true } }
+                Raycastable.click_only()
+                Style { display("inline-block") padding_xy(0.4, 0.2) background_color([0.96, 0.90, 0.90, 1.0]) background_z(-0.01) }
+                Text { "no" }
+            }
+            Selection { name = "paint_snap_selection" }
+        }
+
         T {
             name = "paint_status_wrap"
             Style {

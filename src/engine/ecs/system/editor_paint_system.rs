@@ -3,9 +3,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use crate::engine::ecs::component::{
-    ColorComponent, DataComponent, DataValue, EditorComponent, EmissiveComponent, OptionComponent,
-    OverlayComponent, RaycastableComponent, RenderableComponent, SelectableComponent,
-    SelectionComponent, SerializeComponent, TransformComponent, TransformGizmoComponent,
+    ColorComponent, DataComponent, DataValue, EditorComponent, EditorInteractionMode,
+    EmissiveComponent, OptionComponent, OverlayComponent, RaycastableComponent,
+    RenderableComponent, SelectableComponent, SelectionComponent, SerializeComponent,
+    TransformComponent, TransformGizmoComponent,
 };
 use crate::engine::ecs::system::editor::context::{
     EDITOR_WORKSPACE_ASSET_SELECTION_CHANGED, EDITOR_WORKSPACE_COLOR_SELECTION_CHANGED,
@@ -17,12 +18,12 @@ use crate::engine::ecs::system::editor_paint_system_state_manager::{
     is_paint_workspace_focused, paint_tool_from_item, reduce_paint_state,
 };
 use crate::engine::ecs::system::editor_system::select_editor_target;
+use crate::engine::ecs::system::grid_gesture::{GridGestureSession, GridGestureTool};
+use crate::engine::ecs::system::grid_system::GridAddress;
 use crate::engine::ecs::system::grid_system::{
     CapturedGrid, GridSnapResult, GridSpawnSpec, GridStep, GridSystem,
     remap_grid_rotation_to_surface_up,
 };
-use crate::engine::ecs::system::grid_gesture::{GridGestureSession, GridGestureTool};
-use crate::engine::ecs::system::grid_system::GridAddress;
 use crate::engine::ecs::system::object_placement_preview::{
     PlacementKind, PlacementPreviewSession, PlacementPreviewStyle, commit_preview,
     create_preview_shell, update_preview_pose,
@@ -38,6 +39,7 @@ use crate::scripting::runner::{LoadedMmsModule, MeowMeowRunner};
 
 const PAINT_PANEL_ROOT_SELECTOR: &str = "#paint_panel_root";
 const PAINT_TOOL_SELECTION_SELECTOR: &str = "#paint_tool_selection";
+const PAINT_SNAP_SELECTION_SELECTOR: &str = "#paint_snap_selection";
 const PAINT_STATUS_WRAP_SELECTOR: &str = "#paint_status_wrap";
 const PANEL_STATUS_VALUE_SELECTOR: &str = "#paint_panel_status_value";
 const RUNTIME_UI_ROOT_NAME: &str = "editor_runtime_ui_root";
@@ -535,6 +537,27 @@ fn install_shared_panel_handlers(
                 return;
             }
 
+            let is_snap = world
+                .find_component(panel_query_root, PAINT_SNAP_SELECTION_SELECTOR)
+                .is_some_and(|root| root == *selection_root);
+            if is_snap {
+                let event = PaintEvent::SnapSelectionChanged {
+                    enabled: label.as_deref() != Some("no"),
+                };
+                enqueue_paint_event(
+                    world,
+                    panel_query_root,
+                    &grid_system,
+                    &tpl,
+                    &state,
+                    &ctx,
+                    None,
+                    &event,
+                    &pending,
+                );
+                return;
+            }
+
             let is_color = world
                 .find_component(panel_query_root, COLOR_PANEL_SELECTION_SELECTOR)
                 .is_some_and(|root| root == *selection_root);
@@ -715,6 +738,17 @@ fn bootstrap_paint_state(
         events.push(color_event);
     }
 
+    if let Some(snap_event) = bootstrap_selection_event(
+        world,
+        panel_query_root,
+        PAINT_SNAP_SELECTION_SELECTOR,
+        |selection, w| PaintEvent::SnapSelectionChanged {
+            enabled: label_from_selected_payload(w, selection).as_deref() != Some("no"),
+        },
+    ) {
+        events.push(snap_event);
+    }
+
     let state_str;
     {
         let mut state = paint_state.lock().expect("paint state mutex poisoned");
@@ -859,8 +893,9 @@ fn apply_paint_side_effects(
     stroke_runtime: Option<&Arc<Mutex<PaintStrokeRuntime>>>,
 ) {
     let total_start = Instant::now();
-    let editor_context = current_editor_context(editor_context_state);
     update_last_scene_interacted_editor(world, editor_context_state, event);
+    force_cursor_mode_for_paint_activation(world, panel_query_root, editor_context_state, event);
+    let editor_context = current_editor_context(editor_context_state);
     let active_editor = event_active_editor(event).or(editor_context.active_editor);
     trace_paint_stroke_event(
         world,
@@ -880,6 +915,7 @@ fn apply_paint_side_effects(
         event,
         PaintEvent::AssetSelectionChanged { .. }
             | PaintEvent::ToolSelectionChanged { .. }
+            | PaintEvent::SnapSelectionChanged { .. }
             | PaintEvent::PanelFocusChanged { .. }
             | PaintEvent::ActiveEditorChanged { .. }
     ) {
@@ -948,7 +984,7 @@ fn apply_paint_side_effects(
                         &context,
                         &editor_context,
                     );
-                    let grid_gesture = context.selected_grid.and_then(|grid| {
+                    let grid_gesture = context.grid_for_snap().and_then(|grid| {
                         let address = GridSystem::address_for_point(&grid, *hit_point)?;
                         let tool = match new_state.selected_tool {
                             PaintTool::FreeDraw => GridGestureTool::FreeDraw,
@@ -1122,6 +1158,38 @@ fn apply_paint_side_effects(
     );
 }
 
+/// Paint owns the scene-placement gesture contract.  Switch modes as soon as
+/// Paint is focused or a tool is chosen, before the next pointer gesture can
+/// be interpreted by the selection handler.
+fn force_cursor_mode_for_paint_activation(
+    world: &mut World,
+    panel_query_root: ComponentId,
+    editor_context_state: &Arc<Mutex<EditorContextState>>,
+    event: &PaintEvent,
+) {
+    let paint_panel_root = world.find_component(panel_query_root, PAINT_PANEL_ROOT_SELECTOR);
+    let should_activate = matches!(event, PaintEvent::ToolSelectionChanged { .. })
+        || matches!(event, PaintEvent::PanelFocusChanged { focused_panel } if *focused_panel == paint_panel_root);
+    if !should_activate {
+        return;
+    }
+    let editor_root = editor_context_state
+        .lock()
+        .expect("editor context mutex poisoned")
+        .active_editor;
+    let Some(editor_root) = editor_root else {
+        return;
+    };
+    if let Some(editor) = world.get_component_by_id_as_mut::<EditorComponent>(editor_root) {
+        editor.interaction_mode = EditorInteractionMode::Cursor3d;
+    }
+    let mut context = editor_context_state
+        .lock()
+        .expect("editor context mutex poisoned");
+    context.active_editor = Some(editor_root);
+    context.interaction_mode = EditorInteractionMode::Cursor3d;
+}
+
 fn rollback_paint_stroke(
     world: &mut World,
     emit: &mut dyn SignalEmitter,
@@ -1168,7 +1236,7 @@ fn event_active_editor(event: &PaintEvent) -> Option<ComponentId> {
         | PaintEvent::StrokeStarted { editor, .. }
         | PaintEvent::StrokeMoved { editor, .. }
         | PaintEvent::StrokeEnded { editor } => Some(*editor),
-        PaintEvent::ColorSelectionChanged { .. } => None,
+        PaintEvent::ColorSelectionChanged { .. } | PaintEvent::SnapSelectionChanged { .. } => None,
         PaintEvent::AssetSelectionChanged { .. }
         | PaintEvent::ToolSelectionChanged { .. }
         | PaintEvent::PanelFocusChanged { .. } => None,
@@ -1206,6 +1274,7 @@ fn trace_paint_stroke_event(
         PaintEvent::ToolSelectionChanged { .. } => ("tool_changed", None, None),
         PaintEvent::AssetSelectionChanged { .. } => ("asset_changed", None, None),
         PaintEvent::ColorSelectionChanged { .. } => ("color_changed", None, None),
+        PaintEvent::SnapSelectionChanged { .. } => ("snap_changed", None, None),
         PaintEvent::PanelFocusChanged { .. } => ("focus_changed", None, None),
         PaintEvent::ActiveEditorChanged { .. } => ("active_editor_changed", None, None),
         PaintEvent::WorldPanelSelectionChanged { .. } => ("world_selection_changed", None, None),
@@ -1365,7 +1434,7 @@ fn handle_spray_can_click(
     // Grid-aware clicks are created by the drag lifecycle's start preview and
     // committed at release.  Suppress the compatibility Click event that the
     // gesture system emits after a zero-distance drag.
-    if context.selected_grid.is_some() {
+    if context.grid_for_snap().is_some() {
         return None;
     }
     let asset = context.asset?;
@@ -1845,9 +1914,11 @@ struct PaintContext<'a> {
     destination_editor: ComponentId,
     selected_color: [f32; 4],
     grid_system: GridSystem,
-    /// The selected enabled grid captured while resolving this interaction.
-    /// Paint uses cell centres here; legacy hit-owned grid snapping remains a
-    /// fallback only for old scene content that has no selected grid.
+    /// User permission for snap-on-grid-hit. It never selects a grid by itself.
+    snap_enabled: bool,
+    /// Stable selected/active grid captured at gesture setup. This allows a
+    /// hidden grid plane to control snapping without having to win the scene
+    /// raycast against the object being painted.
     selected_grid: Option<CapturedGrid>,
 }
 
@@ -1858,13 +1929,12 @@ impl<'a> PaintContext<'a> {
         target_renderable: ComponentId,
         hit_point: [f32; 3],
     ) -> Option<GridSnapResult> {
-        if let Some(grid) = self.selected_grid {
-            return GridSystem::snap_cell_hit(&grid, hit_point);
-        }
-        let grid = self
-            .grid_system
-            .grid_hit_context_for_renderable(world, target_renderable)?;
-        Some(GridSystem::snap_hit(&grid, hit_point))
+        let _ = (world, target_renderable);
+        GridSystem::snap_cell_hit(&self.grid_for_snap()?, hit_point)
+    }
+
+    fn grid_for_snap(&self) -> Option<CapturedGrid> {
+        self.snap_enabled.then_some(self.selected_grid).flatten()
     }
 }
 
@@ -1931,6 +2001,7 @@ fn resolve_paint_context<'a>(
         destination_editor,
         selected_color: paint_state.selected_color.unwrap_or([1.0, 1.0, 1.0, 1.0]),
         grid_system: grid_system.clone(),
+        snap_enabled: paint_state.snap_enabled,
         selected_grid: editor_context
             .active_grid_owner_transform
             .and_then(|owner| grid_system.active_grid_for_owner_transform(world, owner))
@@ -1966,17 +2037,19 @@ fn start_preview_session_for_tool(
     editor_context: &EditorContextState,
 ) -> Option<PlacementPreviewSession> {
     match selected_tool {
-        PaintTool::FreeDraw
-        | PaintTool::Line
-        | PaintTool::SprayCan if context.selected_grid.is_some() => start_paint_preview_session(
-            world,
-            render_assets,
-            emit,
-            editor_root,
-            target_renderable,
-            hit_point,
-            context,
-        ),
+        PaintTool::FreeDraw | PaintTool::Line | PaintTool::SprayCan
+            if context.grid_for_snap().is_some() =>
+        {
+            start_paint_preview_session(
+                world,
+                render_assets,
+                emit,
+                editor_root,
+                target_renderable,
+                hit_point,
+                context,
+            )
+        }
         PaintTool::GridTool => start_grid_preview_session(
             world,
             emit,
@@ -2517,7 +2590,12 @@ fn base_status_text(
         _ => unreachable!(),
     };
 
-    format!("{tool_name} active | snap only on shown grid hits")
+    let snap_status = if paint_state.snap_enabled {
+        "snap: yes (selected/active grid)"
+    } else {
+        "snap: no"
+    };
+    format!("{tool_name} active | {snap_status}")
 }
 
 fn set_status_text(
