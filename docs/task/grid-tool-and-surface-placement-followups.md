@@ -245,12 +245,19 @@ Current concern:
 
 Expected design:
 
-- `Grid Tool` should behave as a panel-local override
-- while the paint panel is focused and `Grid Tool` is active:
-  - workspace `Select`
-  - workspace `3D Cursor`
-  - workspace `Select + Cursor`
-  should not materially change how the tool resolves placement preview and commit
+- Activating any Paint tool, or focusing the Paint panel while a Paint tool is
+  already active, must set the owning editor's interaction mode to `3D Cursor`.
+- Paint therefore has one explicit scene-interaction mode rather than a
+  panel-local exception layered over `Select` or `Select + Cursor`.
+- The transition must occur before the next pointer gesture is interpreted, so
+  the selection handler cannot consume or alter Paint's drag start.
+- Leaving Paint must have an explicit restoration policy. The recommended MVP
+  is to retain `3D Cursor` until the user chooses another editor mode, rather
+  than silently restoring a stale mode from before Paint focus.
+
+This applies to Free Draw, Grid Tool, Spray Can, Line, Erase, and Color. Tools
+that do not require grid placement still benefit from Paint owning the same
+cursor/raycast interaction path.
 
 Follow-up:
 
@@ -274,12 +281,10 @@ than merely an unclear policy:
 | `Select` | Grid painting behaves incorrectly. |
 | `Select + Cursor` | Grid painting behaves incorrectly. |
 
-This must be treated as an input-routing regression. With Paint focused and a
-grid-aware paint tool active, scene drag ownership and grid-address resolution
-must be identical in all three workspace modes. `Select` may still update
-selection, and `Select + Cursor` may still update the cursor according to its
-own contract, but neither may consume, remap, cancel, or otherwise alter the
-paint gesture.
+This must be treated as an input-routing regression. Paint focus/tool activation
+should have transitioned both failing rows to `3D Cursor` before their gesture
+began. The observed mode matrix is retained as a regression test until that
+transition is implemented.
 
 Required trace for the same desktop pointer drag in all three modes:
 
@@ -290,9 +295,14 @@ Required trace for the same desktop pointer drag in all three modes:
 
 Acceptance addition:
 
-- Given the same selected grid, Paint focus/tool/asset, and pointer ray,
-  `Select`, `3D Cursor`, and `Select + Cursor` produce the same paint start,
-  address sequence, preview pose, and committed result.
+- Focusing Paint or activating any Paint tool sets the owning editor's mode to
+  `3D Cursor` before the next scene pointer event.
+- A Paint gesture begun after the transition has the same start, address
+  sequence, preview pose, and committed result regardless of the mode that was
+  active immediately before Paint gained focus.
+- Choosing another editor interaction mode while Paint remains focused is an
+  explicit user override; its interaction with Paint must be visibly indicated
+  and covered by a separate decision/test, not silently routed as Paint.
 
 ### 7. Cursor mode currently seems editor-root specific
 
