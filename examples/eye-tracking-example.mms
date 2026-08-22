@@ -7,7 +7,7 @@
 //
 // Red = horizontal look, green = vertical look, blue = forward look.  Neutral
 // gaze is a muted blue-grey. Center gaze drives both squares; ALVR's per-eye
-// LeftRightVec packet drives each square independently.
+// LeftRightPitchYaw packet drives each square independently.
 
 RendererSettings { window_size(800, 520) }
 BGC { C.rgba(0.025, 0.035, 0.07, 1.0) }
@@ -46,27 +46,9 @@ T {
 
 let eyes = XREyeTracking.on()
 
-// Per-eye gaze drives each square's RGB color. ALVR's PitchYaw values become
-// normalized look vectors: red/green encode horizontal/vertical gaze and blue
-// encodes forwardness. No text updates are performed in this visual test.
-on(eyes, "XrEyeTrackingUpdated", fn(event) {
-    let look = event.combined_look
-    if look != null {
-        let color = [(look[0] + 1.0) * 0.5, (look[1] + 1.0) * 0.5, (look[2] + 1.0) * 0.5, 1.0]
-        left_square.set_color(color)
-        right_square.set_color(color)
-    }
-
-    let left = event.left_look
-    if left != null {
-        left_square.set_color([(left[0] + 1.0) * 0.5, (left[1] + 1.0) * 0.5, (left[2] + 1.0) * 0.5, 1.0])
-    }
-
-    let right = event.right_look
-    if right != null {
-        right_square.set_color([(right[0] + 1.0) * 0.5, (right[1] + 1.0) * 0.5, (right[2] + 1.0) * 0.5, 1.0])
-    }
-})
+// Callback-isolation step: keep the handler registered but perform no world
+// mutation. If this presents, `set_color`/render registration is the trigger.
+on(eyes, "XrEyeTrackingUpdated", fn(event) {})
 
 // Enable the OpenXR runtime (SteamVR/ALVR).
 XR.on()
