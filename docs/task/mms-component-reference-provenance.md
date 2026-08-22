@@ -9,6 +9,9 @@ task, not a request for authors to add defensive type checks.
 Related language ergonomics task:
 [MMS live component handles, deferred component expressions, and diagnostics](mms-live-component-handles-and-pattern-matching.md).
 
+The superseding language-invariant and eye-tracking validation task is
+[MMS: expose deferred component templates only through `import ast`](mms-componentexpr-only-via-import-ast.md).
+
 ## The two primary scenarios
 
 ### 1. Live scene binding: must remain a `ComponentObject`
