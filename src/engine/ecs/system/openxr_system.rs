@@ -2294,9 +2294,9 @@ impl OpenXRSystem {
             .map_err(|e| format!("enumerate_extensions: {e:?}"))?;
 
         let app_info = openxr::ApplicationInfo {
-            application_name: "cat-engine",
+            application_name: "Mittens",
             application_version: 1,
-            engine_name: "cat-engine",
+            engine_name: "Mittens",
             engine_version: 1,
             api_version: openxr::Version::new(1, 0, 0),
         };
@@ -2585,7 +2585,7 @@ If this fails with Vulkan extension errors, the Vulkan instance/device created b
             .map_err(|e| format!("string_to_path(/user/hand/right): {e:?}"))?;
 
         let action_set = instance
-            .create_action_set("mittens_engine", "Cat Engine", 0)
+            .create_action_set("mittens_engine", "Mittens", 0)
             .map_err(|e| format!("create_action_set: {e:?}"))?;
         let hand_subaction_paths = [left, right];
 

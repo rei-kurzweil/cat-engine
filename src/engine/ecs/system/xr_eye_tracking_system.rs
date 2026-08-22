@@ -2,11 +2,13 @@ use crate::engine::ecs::component::{XREyeTrackingComponent, XREyeTrackingHtcComp
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter, World};
 use std::collections::HashMap;
 use std::net::UdpSocket;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Default)]
 pub struct XREyeTrackingSystem {
     sockets: HashMap<ComponentId, UdpSocket>,
     htc_sockets: HashMap<ComponentId, UdpSocket>,
+    last_standard_log: HashMap<ComponentId, Instant>,
 }
 impl XREyeTrackingSystem {
     pub fn tick(&mut self, world: &World, emit: &mut dyn SignalEmitter) {
@@ -23,30 +25,62 @@ impl XREyeTrackingSystem {
             })
             .collect();
         self.sockets.retain(|id, _| ids.contains(id));
+        self.last_standard_log.retain(|id, _| ids.contains(id));
         for id in ids {
             let c = world
                 .get_component_by_id_as::<XREyeTrackingComponent>(id)
                 .unwrap();
             if !self.sockets.contains_key(&id) {
-                if let Ok(s) = UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
-                    let _ = s.set_nonblocking(true);
-                    self.sockets.insert(id, s);
+                match UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
+                    Ok(s) => {
+                        let _ = s.set_nonblocking(true);
+                        eprintln!("[XREyeTracking] listening on {}:{}", c.host, c.port);
+                        self.sockets.insert(id, s);
+                    }
+                    Err(error) => {
+                        eprintln!("[XREyeTracking] cannot bind {}:{}: {error}", c.host, c.port)
+                    }
                 }
             }
             if let Some(s) = self.sockets.get(&id) {
-                drain(
-                    s,
-                    |b| {
-                        decode_osc(b).map(|v| EventSignal::XrEyeTrackingUpdated {
+                let mut bytes = [0u8; 1024];
+                let mut newest_update = None;
+                while let Ok(len) = s.recv(&mut bytes) {
+                    let packet = &bytes[..len];
+                    let description = osc_description(packet).unwrap_or("malformed OSC");
+                    let log_this_packet = self
+                        .last_standard_log
+                        .get(&id)
+                        .is_none_or(|previous| previous.elapsed() >= Duration::from_secs(2));
+                    match decode_osc(packet) {
+                        Some(v) => {
+                            if log_this_packet {
+                                eprintln!("[XREyeTracking] {description}: {v:?}");
+                                self.last_standard_log.insert(id, Instant::now());
+                            }
+                            newest_update = Some(v);
+                        }
+                        None if log_this_packet => {
+                            eprintln!("[XREyeTracking] ignored {description} ({len} bytes)");
+                            self.last_standard_log.insert(id, Instant::now());
+                        }
+                        None => {}
+                    }
+                }
+                // A face tracker can submit many UDP packets between rendered
+                // frames. Keep only the newest sample so script callbacks and
+                // renderer mutations remain bounded to one per frame/source.
+                if let Some(v) = newest_update {
+                    emit.push_event(
+                        id,
+                        EventSignal::XrEyeTrackingUpdated {
                             combined_look: v.0,
                             left_look: v.1,
                             right_look: v.2,
                             combined_openness: v.3,
-                        })
-                    },
-                    id,
-                    emit,
-                );
+                        },
+                    );
+                }
             }
         }
     }
@@ -142,8 +176,33 @@ pub fn decode_osc(
             Some([scalar(&mut i)?, scalar(&mut i)?, scalar(&mut i)?]),
             None,
         )),
+        ("/tracking/eye/CenterPitchYaw", ",ff") => Some((
+            Some(look_from_pitch_yaw(scalar(&mut i)?, scalar(&mut i)?)),
+            None,
+            None,
+            None,
+        )),
+        ("/tracking/eye/LeftRightPitchYaw", ",ffff") => Some((
+            None,
+            Some(look_from_pitch_yaw(scalar(&mut i)?, scalar(&mut i)?)),
+            Some(look_from_pitch_yaw(scalar(&mut i)?, scalar(&mut i)?)),
+            None,
+        )),
         _ => None,
     }
+}
+fn look_from_pitch_yaw(pitch_deg: f32, yaw_deg: f32) -> Look {
+    let pitch = pitch_deg.to_radians();
+    let yaw = yaw_deg.to_radians();
+    [
+        yaw.sin() * pitch.cos(),
+        -pitch.sin(),
+        -yaw.cos() * pitch.cos(),
+    ]
+}
+fn osc_description(packet: &[u8]) -> Option<&str> {
+    let mut offset = 0;
+    osc_str(packet, &mut offset)
 }
 fn osc_str<'a>(b: &'a [u8], i: &mut usize) -> Option<&'a str> {
     let end = b.get(*i..)?.iter().position(|&x| x == 0)? + *i;
