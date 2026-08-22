@@ -105,7 +105,7 @@ impl MeowMeowParser {
             }
             TokenKind::Fn => {
                 self.bump(); // consume `fn`
-                // `fn name(params) { body }` — named function sugar for `let name = fn(params) { body }`
+                             // `fn name(params) { body }` — named function sugar for `let name = fn(params) { body }`
                 if matches!(self.peek_kind(), TokenKind::Ident(_)) {
                     let name = self.expect_ident()?;
                     let func = self.parse_fn_body()?;
@@ -154,6 +154,7 @@ impl MeowMeowParser {
             }
             TokenKind::Import => {
                 self.bump(); // consume 'import'
+                let ast = self.try_consume(&TokenKind::Ast);
                 self.consume(&TokenKind::LBrace)?;
                 let mut items = Vec::new();
                 if !self.try_consume(&TokenKind::RBrace) {
@@ -199,7 +200,7 @@ impl MeowMeowParser {
                     _ => return Err(self.err("Expected string path after 'from'")),
                 };
                 self.try_consume(&TokenKind::Semicolon);
-                Ok(Statement::Import { items, path })
+                Ok(Statement::Import { ast, items, path })
             }
             TokenKind::Return => {
                 self.consume(&TokenKind::Return)?;

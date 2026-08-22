@@ -108,8 +108,9 @@ impl<'a> Printer<'a> {
             }
             Statement::Break => self.out.push_str("break"),
             Statement::Continue => self.out.push_str("continue"),
-            Statement::Import { items, path } => {
-                self.out.push_str("import { ");
+            Statement::Import { ast, items, path } => {
+                self.out
+                    .push_str(if *ast { "import ast { " } else { "import { " });
                 for (i, item) in items.iter().enumerate() {
                     if i > 0 {
                         self.out.push_str(", ");

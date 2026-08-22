@@ -28,7 +28,8 @@ Only `export let` and `export fn` at the root level are supported. Exports insid
 ```mms
 import { name }             from "file.mms"   // named — requires 'export'
 import { name as alias }    from "file.mms"   // named with local alias
-import { 0 as alias }       from "file.mms"   // positional CE by index, requires 'as'
+import ast { name }         from "file.mms"   // deferred component template
+import ast { 0 as alias }   from "file.mms"   // positional template, requires 'as'
 ```
 
 Multiple items in one statement:
@@ -57,7 +58,7 @@ T.position(1, 0, 0) { R.sphere() {} } // index 1
 
 ```mms
 // scene.mms
-import { 0 as cube, 1 as sphere } from "parts.mms"
+import ast { 0 as cube, 1 as sphere } from "parts.mms"
 cube
 sphere
 ```
@@ -68,14 +69,25 @@ Positional imports always require an `as` alias — `import { 0 }` is a parse er
 
 ## Module evaluation semantics
 
-When a file is imported, it is evaluated in a **sandboxed context**: any CE emits go into the module's positional sequence rather than the engine's spawn queue. Nothing is actually spawned until the importing script re-emits the CE value.
+Modules are evaluated once per session/module identity. Ordinary `import`
+binds evaluated values: scalar, table, and function exports are copied as
+runtime values; direct component exports and positional roots are registered
+as detached live components and preserve their identity on repeated imports.
+Each imported factory call still evaluates its body and produces a fresh live
+component tree.
+
+`import ast` is the explicit deferred path. It accepts only component exports
+or positional roots and binds `ComponentExpr(MaterializedCE)` values. It does
+not register, attach, or initialize an ECS component.
 
 ```mms
-import { 0 as my_cube } from "parts.mms"  // parts.mms is evaluated, nothing spawned
-my_cube                                     // re-emit: THIS spawns
+import ast { 0 as my_cube } from "parts.mms"
+my_cube
 ```
 
-Named exports (functions, numbers, etc.) are available immediately after import and work like any local binding.
+Ordinary named exports (functions, numbers, etc.) are available immediately
+after import and work like any local binding. `import ast` of a non-component
+export is an error.
 
 ---
 

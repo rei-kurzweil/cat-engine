@@ -2,9 +2,9 @@
 //
 // Imports cat.mms and places it in a lit scene.
 // The cat CE is embedded inside a parent transform, exercising the
-// Positional(ComponentExpr) → Child promotion path in the evaluator.
+// Positional template import → child materialization path in the evaluator.
 
-import { 0 as cat } from "cat.mms"
+import ast { 0 as cat } from "cat.mms"
 
 // Place the cat at the scene origin.
 T.position(0.0, 0.0, 0.0) {

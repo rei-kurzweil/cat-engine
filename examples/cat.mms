@@ -1,7 +1,7 @@
 // cat.mms — a cat made of cubes.
 //
 // Emits a single component tree at positional index 0.
-// Import with: import { 0 as cat } from "cat.mms"
+// Import with: import ast { 0 as cat } from "cat.mms"
 //
 // Coordinate system: Y up, +Z forward (toward viewer from behind).
 // Cat sits with feet near y=0, head top near y=1.3.

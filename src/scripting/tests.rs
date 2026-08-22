@@ -643,17 +643,15 @@ fn live_eval_emitted_tree_is_queryable_by_next_statement() {
 
     let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut rx, &mut emit);
     assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
-    assert!(
-        world
-            .find_component(
-                world
-                    .all_components()
-                    .find(|&id| world.parent_of(id).is_none())
-                    .unwrap(),
-                "#btn_a"
-            )
-            .is_some()
-    );
+    assert!(world
+        .find_component(
+            world
+                .all_components()
+                .find(|&id| world.parent_of(id).is_none())
+                .unwrap(),
+            "#btn_a"
+        )
+        .is_some());
 }
 
 #[test]
@@ -1323,9 +1321,7 @@ fn live_animation_next_executes_through_the_command_pipeline() {
 
 #[test]
 fn xr_button_handler_can_step_a_paused_animation() {
-    use crate::engine::ecs::component::{
-        ControllerHand, InputXRGamepadComponent, XrButtonControl,
-    };
+    use crate::engine::ecs::component::{ControllerHand, InputXRGamepadComponent, XrButtonControl};
 
     let src = r##"
         let label = Text { "before" }
@@ -1455,8 +1451,8 @@ fn live_eval_imported_factory_keyframe_closure_captures_live_component_objects()
 
 #[test]
 fn live_keyframe_block_music_note_emits_audio_schedule_play() {
-    use crate::engine::ecs::IntentValue;
     use crate::engine::ecs::component::MusicNote;
+    use crate::engine::ecs::IntentValue;
 
     let src = r##"
         Clock.bpm(60) {}
@@ -2489,18 +2485,15 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
                 .count()
                 >= 6
         );
-        assert!(
-            tree.iter()
-                .any(|&id| world.component_label(id) == Some("tripod_light_housing"))
-        );
-        assert!(
-            tree.iter()
-                .any(|&id| world.component_label(id) == Some("tripod_light_rear_mount"))
-        );
-        assert!(
-            tree.iter()
-                .any(|&id| world.component_label(id) == Some("tripod_light_emissive_face"))
-        );
+        assert!(tree
+            .iter()
+            .any(|&id| world.component_label(id) == Some("tripod_light_housing")));
+        assert!(tree
+            .iter()
+            .any(|&id| world.component_label(id) == Some("tripod_light_rear_mount")));
+        assert!(tree
+            .iter()
+            .any(|&id| world.component_label(id) == Some("tripod_light_emissive_face")));
     }
 
     let scenery = [
@@ -2936,11 +2929,9 @@ fn tripod_light_without_a_mounted_light_has_no_emissive_face() {
         &mut emit,
     );
     assert!(output.errors.is_empty(), "{:?}", output.errors);
-    assert!(
-        world
-            .all_components()
-            .all(|id| world.component_label(id) != Some("tripod_light_emissive_face"))
-    );
+    assert!(world
+        .all_components()
+        .all(|id| world.component_label(id) != Some("tripod_light_emissive_face")));
     let fixture = world
         .all_components()
         .find(|id| world.component_label(*id) == Some("empty_fixture"))
@@ -3583,10 +3574,11 @@ fn parse_export_fn() {
 fn parse_import_named() {
     let prog = parse(r#"import { pi, lerp } from "math.mms""#);
     assert_eq!(prog.len(), 1);
-    let Statement::Import { items, path } = &prog[0] else {
+    let Statement::Import { ast, items, path } = &prog[0] else {
         panic!()
     };
     assert_eq!(path, "math.mms");
+    assert!(!ast);
     assert_eq!(items.len(), 2);
     assert!(matches!(&items[0], ImportItem::Named(id) if id.0 == "pi"));
     assert!(matches!(&items[1], ImportItem::Named(id) if id.0 == "lerp"));
@@ -3604,6 +3596,20 @@ fn parse_import_alias() {
     );
     assert!(
         matches!(&items[1], ImportItem::PositionalAlias { index: 0, alias } if alias.0 == "cube")
+    );
+}
+
+#[test]
+fn parse_import_ast_named_and_positional() {
+    let prog = parse(r#"import ast { avatar, 0 as root } from "avatar.mms""#);
+    let Statement::Import { ast, items, path } = &prog[0] else {
+        panic!()
+    };
+    assert!(*ast);
+    assert_eq!(path, "avatar.mms");
+    assert!(matches!(&items[0], ImportItem::Named(id) if id.0 == "avatar"));
+    assert!(
+        matches!(&items[1], ImportItem::PositionalAlias { index: 0, alias } if alias.0 == "root")
     );
 }
 
@@ -3780,7 +3786,6 @@ fn moved_editor_internal_modules_materialize_from_their_runtime_paths() {
     }
 }
 
-
 #[test]
 fn toggle_icon_factories_accept_default_and_custom_colors() {
     let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -3813,8 +3818,8 @@ fn toggle_icon_factories_accept_default_and_custom_colors() {
 
 #[test]
 fn primitives_module_spawns_wireframe_square_through_the_renderable_registry() {
-    use crate::engine::ecs::component::RenderableComponent;
     use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
+    use crate::engine::ecs::component::RenderableComponent;
 
     let module_path = repo_path("assets/components/primitives.mms");
     let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
@@ -4155,8 +4160,8 @@ export fn procedural_defaults() {
 
     assert!(world.get_component_record(root).is_some());
     assert_eq!(world.children_of(root).len(), 9);
-    use crate::engine::ecs::component::RenderableComponent;
     use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
+    use crate::engine::ecs::component::RenderableComponent;
     let authored: Vec<_> = world
         .children_of(root)
         .iter()
@@ -4198,8 +4203,8 @@ export fn procedural_defaults() {
 
 #[test]
 fn renderable_polygon_constructs_from_nested_arrays_and_serializes_losslessly() {
-    use crate::engine::ecs::component::RenderableComponent;
     use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
+    use crate::engine::ecs::component::RenderableComponent;
 
     let points = vec![
         [-0.5, 0.25],
@@ -5245,11 +5250,9 @@ fn roundtrip_xr_hand_laser() {
     let (world, id) = roundtrip_component(
         XRHandComponent::new(true, ControllerHand::Left, ControllerPoseKind::Aim).laser(),
     );
-    assert!(
-        world
-            .get_component_by_id_as::<XRHandComponent>(id)
-            .is_some_and(|hand| hand.laser)
-    );
+    assert!(world
+        .get_component_by_id_as::<XRHandComponent>(id)
+        .is_some_and(|hand| hand.laser));
 }
 
 #[test]
@@ -5959,21 +5962,15 @@ fn editor_ui_settings_only_materializes_under_authored_transform() {
         1,
         "re-registering EditorUI must not duplicate its selection marker"
     );
-    assert!(
-        world
-            .find_component(editor_ui, "#editor_panel_layout_root")
-            .is_some()
-    );
-    assert!(
-        world
-            .find_component(editor_ui, "#editor_panel_layout_selection")
-            .is_some()
-    );
-    assert!(
-        world
-            .find_component(editor_ui, "#editor_settings_panel_root")
-            .is_some()
-    );
+    assert!(world
+        .find_component(editor_ui, "#editor_panel_layout_root")
+        .is_some());
+    assert!(world
+        .find_component(editor_ui, "#editor_panel_layout_selection")
+        .is_some());
+    assert!(world
+        .find_component(editor_ui, "#editor_settings_panel_root")
+        .is_some());
     for default_row in [
         "#editor_settings_armature_visibility",
         "#editor_settings_bounds_visibility",
@@ -6067,11 +6064,9 @@ fn editor_ui_settings_config_conditionally_authors_diagnostic_rows() {
                 .is_some()
         })
         .unwrap();
-    assert!(
-        world
-            .find_component(editor_ui, "#editor_settings_bounds_visibility")
-            .is_some()
-    );
+    assert!(world
+        .find_component(editor_ui, "#editor_settings_bounds_visibility")
+        .is_some());
     let title_bar = world
         .find_component(editor_ui, "#title_bar")
         .expect("settings panel title bar");
@@ -6223,11 +6218,9 @@ fn raycastable_drag_policy_mms_parses_and_rejects_invalid_values() {
     );
     assert_eq!(component.drag_mapping, DragMappingPolicy::ContactHit);
 
-    assert!(
-        spawn("Raycastable.drag_continuation(\"sticky\") {}")
-            .1
-            .is_err()
-    );
+    assert!(spawn("Raycastable.drag_continuation(\"sticky\") {}")
+        .1
+        .is_err());
     assert!(spawn("Raycastable.drag_mapping(\"screen\") {}").1.is_err());
 }
 
@@ -6716,9 +6709,8 @@ fn pointer_click_threshold_defaults() {
 fn roundtrip_pointer_debug_enable() {
     use crate::engine::ecs::component::PointerComponent;
     let stub = World::default();
-    let default_text = crate::scripting::unparser::unparse_component(
-        &PointerComponent::new().to_mms_ast(&stub),
-    );
+    let default_text =
+        crate::scripting::unparser::unparse_component(&PointerComponent::new().to_mms_ast(&stub));
     assert!(!default_text.contains("debug_enable"));
 
     let (world, id) = roundtrip_component(PointerComponent::new().debug_enable(true));
@@ -6915,8 +6907,8 @@ fn roundtrip_music_note_c5() {
 #[cfg(any())]
 #[test]
 fn roundtrip_ik_chain_aim() {
-    use crate::engine::ecs::ComponentId;
     use crate::engine::ecs::component::{IKChainComponent, IKSolver};
+    use crate::engine::ecs::ComponentId;
     use slotmap::Key;
     let sentinel = ComponentId::null();
     let original = IKChainComponent::new(
@@ -7052,25 +7044,19 @@ fn roundtrip_collision_response() {
 fn roundtrip_grabbable() {
     use crate::engine::ecs::component::GrabbableComponent;
     let (world, id) = roundtrip_component(GrabbableComponent::new());
-    assert!(
-        world
-            .get_component_by_id_as::<GrabbableComponent>(id)
-            .is_some()
-    );
+    assert!(world
+        .get_component_by_id_as::<GrabbableComponent>(id)
+        .is_some());
 
     let (world, id) = roundtrip_component(GrabbableComponent::parent());
-    assert!(
-        world
-            .get_component_by_id_as::<GrabbableComponent>(id)
-            .is_some_and(|grabbable| grabbable.move_parent)
-    );
+    assert!(world
+        .get_component_by_id_as::<GrabbableComponent>(id)
+        .is_some_and(|grabbable| grabbable.move_parent));
 
     let (world, id) = roundtrip_component(GrabbableComponent::off());
-    assert!(
-        world
-            .get_component_by_id_as::<GrabbableComponent>(id)
-            .is_some_and(|grabbable| !grabbable.enabled)
-    );
+    assert!(world
+        .get_component_by_id_as::<GrabbableComponent>(id)
+        .is_some_and(|grabbable| !grabbable.enabled));
 }
 
 #[test]

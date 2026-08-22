@@ -854,7 +854,7 @@ fn eval_stmt(stmt: &Statement, ctx: &mut EvalContext<'_>) -> Result<StmtEffect, 
             ctx.object_world.pop_frame();
             result
         }
-        Statement::Import { items, path } => {
+        Statement::Import { ast, items, path } => {
             let resolved = resolve_import_path(path, ctx.source_path);
             let content = std::fs::read_to_string(&resolved)
                 .map_err(|e| format!("import error: cannot read '{}': {}", path, e))?;
@@ -871,20 +871,37 @@ fn eval_stmt(stmt: &Statement, ctx: &mut EvalContext<'_>) -> Result<StmtEffect, 
                         let val = named.get(&id.0).cloned().ok_or_else(|| {
                             format!("import: '{}' is not exported from '{}'", id.0, path)
                         })?;
+                        let val = if *ast {
+                            match val {
+                                Value::ComponentExpr(_) => val,
+                                other => return Err(format!("import ast: '{}' from '{}' is not a component template (got {:?})", id.0, path, other)),
+                            }
+                        } else {
+                            maybe_register_live_component_value(val, ctx)
+                        };
                         ctx.object_world.bind(id.0.clone(), val);
                     }
                     ImportItem::NamedAlias { name, alias } => {
                         let val = named.get(&name.0).cloned().ok_or_else(|| {
                             format!("import: '{}' is not exported from '{}'", name.0, path)
                         })?;
+                        let val = if *ast {
+                            match val {
+                                Value::ComponentExpr(_) => val,
+                                other => return Err(format!("import ast: '{}' from '{}' is not a component template (got {:?})", name.0, path, other)),
+                            }
+                        } else {
+                            maybe_register_live_component_value(val, ctx)
+                        };
                         ctx.object_world.bind(alias.0.clone(), val);
                     }
                     ImportItem::PositionalAlias { index, alias } => {
                         let ce = sequence.get(*index).ok_or_else(|| {
                             format!("import: index {} out of range in '{}'", index, path)
                         })?;
-                        ctx.object_world
-                            .bind(alias.0.clone(), Value::ComponentExpr(Box::new(ce.clone())));
+                        let val = Value::ComponentExpr(Box::new(ce.clone()));
+                        let val = if *ast { val } else { maybe_register_live_component_value(val, ctx) };
+                        ctx.object_world.bind(alias.0.clone(), val);
                     }
                 }
             }
@@ -1790,7 +1807,8 @@ fn eval_call(call: &CallExpression, ctx: &mut EvalContext<'_>) -> Result<Value, 
             };
             ctx.object_world.pop_frame();
             match result? {
-                StmtEffect::Return(val) => Ok(val),
+                // A direct factory return crosses the live call boundary.
+                StmtEffect::Return(val) => Ok(maybe_register_live_component_value(val, ctx)),
                 StmtEffect::None => Ok(Value::Null),
                 StmtEffect::Break | StmtEffect::Continue => {
                     Err("break/continue cannot escape a function body".into())
@@ -1952,7 +1970,9 @@ fn eval_user_fn(
     };
     ctx.object_world.pop_frame();
     match result? {
-        StmtEffect::Return(val) => Ok(val),
+        // Functions are a live boundary: returning `T {}` directly must not
+        // leak a deferred template into a later callback capture.
+        StmtEffect::Return(val) => Ok(maybe_register_live_component_value(val, ctx)),
         _ => Ok(Value::Null),
     }
 }
@@ -3273,6 +3293,8 @@ pub(crate) fn eval_mms_fn(
             _ => Ok::<Value, String>(Value::Null),
         }
     })?;
+    let result = maybe_register_live_component_value(result, &mut ctx);
+    drop(ctx);
     if let Some(em) = emit {
         for iv in emits {
             em.push_intent_now(ComponentId::default(), iv);

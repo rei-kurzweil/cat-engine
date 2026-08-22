@@ -322,11 +322,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
             Statement::Break => Ok(Flow::Break),
             Statement::Continue => Ok(Flow::LoopContinue),
-            Statement::Import { items, path } => self.eval_import(items, path),
+            Statement::Import { ast, items, path } => self.eval_import(*ast, items, path),
         }
     }
 
-    fn eval_import(&mut self, items: &[ImportItem], specifier: &str) -> Result<Flow, EvalError> {
+    fn eval_import(&mut self, ast: bool, items: &[ImportItem], specifier: &str) -> Result<Flow, EvalError> {
         let response = self.dispatch(HostRequest::LoadSource {
             importer: self.source_id.clone(),
             specifier: specifier.into(),
@@ -338,7 +338,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 message: "host returned a non-source response".into(),
             }));
         };
-        let module = if let Some(module) = self.module_cache.get(&loaded.identity).cloned() {
+        let mut module = if let Some(module) = self.module_cache.get(&loaded.identity).cloned() {
             module
         } else {
             let identity = loaded.identity.clone();
@@ -346,9 +346,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
             self.module_cache.insert(identity, module.clone());
             module
         };
-        let Value::Module { named, sequence, .. } = module else {
+        let Value::Module { named, sequence, live_sequence, .. } = &module else {
             unreachable!("module cache contains only module values")
         };
+        let mut live_named_updates = Vec::new();
+        let mut live_sequence_updates = Vec::new();
         for item in items {
             let (local, value) = match item {
                 ImportItem::Named(name) => (name.0.clone(), named.get(&name.0).cloned()),
@@ -357,10 +359,13 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 }
                 ImportItem::PositionalAlias { index, alias } => (
                     alias.0.clone(),
-                    sequence
-                        .get(*index)
-                        .cloned()
-                        .map(|tree| Value::ComponentExpr(Box::new(tree))),
+                    if ast {
+                        sequence.get(*index).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                    } else {
+                        live_sequence.get(index).cloned().or_else(|| {
+                            sequence.get(*index).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                        })
+                    },
                 ),
             };
             let value = value.ok_or_else(|| {
@@ -368,7 +373,41 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     "import item for '{local}' is unavailable from '{specifier}'"
                 ))
             })?;
+            let value = if ast {
+                match value {
+                    Value::ComponentExpr(_) => value,
+                    other => return Err(EvalError::Runtime(format!(
+                        "import ast item '{local}' from '{specifier}' is not a component template (got {other:?})"
+                    ))),
+                }
+            } else {
+                // Ordinary imports are live: a module-level component value is
+                // registered once in the cached module and its handle is reused.
+                let value = self.register_live_component_value(value)?;
+                if matches!(item, ImportItem::Named(_) | ImportItem::NamedAlias { .. }) {
+                    let export = match item {
+                        ImportItem::Named(name) => name.0.clone(),
+                        ImportItem::NamedAlias { name, .. } => name.0.clone(),
+                        ImportItem::PositionalAlias { .. } => unreachable!(),
+                    };
+                    live_named_updates.push((export, value.clone()));
+                } else if let ImportItem::PositionalAlias { index, .. } = item {
+                    live_sequence_updates.push((*index, value.clone()));
+                }
+                value
+            };
             self.scopes.last_mut().unwrap().insert(local, value);
+        }
+        if !live_named_updates.is_empty() || !live_sequence_updates.is_empty() {
+            if let Value::Module { named, live_sequence, .. } = &mut module {
+                for (name, value) in live_named_updates {
+                    named.insert(name, value);
+                }
+                for (index, value) in live_sequence_updates {
+                    live_sequence.insert(index, value);
+                }
+            }
+            self.module_cache.insert(loaded.identity, module);
         }
         Ok(Flow::Continue)
     }
@@ -399,6 +438,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
             Ok(Value::Module {
                 named,
                 sequence,
+                live_sequence: HashMap::new(),
                 heap: self.heap.clone(),
             })
         })();
@@ -605,7 +645,10 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 self.scopes.pop();
                 self.scopes.pop();
                 return match result? {
-                    Flow::Return(v) => Ok(v),
+                    // A direct factory return is still a live value at the
+                    // call boundary.  Promote it here so callbacks capture a
+                    // ComponentObject rather than a stale deferred template.
+                    Flow::Return(v) => self.register_live_component_value(v),
                     _ => Ok(Value::Null),
                 };
             }

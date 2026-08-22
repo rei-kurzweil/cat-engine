@@ -168,6 +168,10 @@ pub enum Statement {
     Break,
     Continue,
     Import {
+        /// `true` for `import ast { ... } from "..."`.  AST imports bind
+        /// deferred, materialized component templates; ordinary imports bind
+        /// evaluated runtime values (including detached live components).
+        ast: bool,
         items: Vec<ImportItem>,
         path: String,
     },

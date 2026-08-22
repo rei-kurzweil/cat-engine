@@ -77,6 +77,7 @@ pub enum TokenKind {
     Continue,
     Export,
     Import,
+    Ast,
     From,
     As,
 

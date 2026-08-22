@@ -159,6 +159,9 @@ pub enum Value {
     Module {
         named: HashMap<String, Value>,
         sequence: Vec<MaterializedCE>,
+        /// Live ordinary-import instances for positional component exports.
+        /// Templates stay in `sequence`; this map preserves live identity.
+        live_sequence: HashMap<usize, Value>,
         heap: HeapHandle,
     },
 }
