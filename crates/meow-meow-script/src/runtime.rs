@@ -1717,4 +1717,70 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn ordinary_and_ast_imports_keep_separate_component_views() {
+        #[derive(Default)]
+        struct SourceHost {
+            next_handle: u64,
+            registers: usize,
+            method_calls: usize,
+        }
+
+        impl crate::Host for SourceHost {
+            fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, HostError> {
+                match request {
+                    HostRequest::LoadSource { .. } => Ok(HostResponse::Source(crate::LoadedSource {
+                        identity: crate::SourceId::new("/virtual/components.mms"),
+                        source: r#"
+                            export let marker = Panel {}
+                            export fn factory() { return Panel {} }
+                            export fn update_marker() { marker.show() }
+                        "#.into(),
+                    })),
+                    HostRequest::RegisterComponent { tree } => {
+                        self.next_handle += 1;
+                        self.registers += 1;
+                        Ok(HostResponse::Component {
+                            handle: crate::ComponentHandle::from_raw(self.next_handle),
+                            component_type: tree.component_type,
+                        })
+                    }
+                    HostRequest::InvokeComponentMethod { .. }
+                    | HostRequest::InvokeComponentMethodByName { .. } => {
+                        self.method_calls += 1;
+                        Ok(HostResponse::Unit)
+                    }
+                    HostRequest::Attach { .. } => Ok(HostResponse::Unit),
+                    other => Err(HostError::unsupported(other.operation_name())),
+                }
+            }
+        }
+
+        let mut session = runtime().runtime().session(SourceHost::default());
+        session.eval(
+            r#"
+                import { marker as first, factory, update_marker } from "components.mms"
+                import { marker as second } from "components.mms"
+                import ast { marker as template } from "components.mms"
+                update_marker()
+            "#,
+        ).unwrap();
+        let first = session.scopes[0].get("first").cloned().unwrap();
+        let second = session.scopes[0].get("second").cloned().unwrap();
+        let template = session.scopes[0].get("template").cloned().unwrap();
+        let Value::ComponentObject { id: first, .. } = first else { panic!("ordinary import was not live") };
+        let Value::ComponentObject { id: second, .. } = second else { panic!("ordinary import was not live") };
+        assert!(matches!(template, Value::ComponentExpr(_)), "import ast was not deferred");
+        let Some(Value::ComponentObject { id: factory_one, .. }) = session.eval("factory()").unwrap().value else {
+            panic!("factory did not return a live component");
+        };
+        let Some(Value::ComponentObject { id: factory_two, .. }) = session.eval("factory()").unwrap().value else {
+            panic!("factory did not return a live component");
+        };
+        assert_eq!(first, second, "ordinary imports must reuse the direct export identity");
+        assert_ne!(factory_one, factory_two, "factory calls must create fresh live components");
+        assert_eq!(session.host().registers, 3);
+        assert_eq!(session.host().method_calls, 1, "module closure captured the live marker");
+    }
 }

@@ -157,7 +157,13 @@ pub enum Value {
 
     /// A loaded module: named exports + ordered sequence of root CE emits.
     Module {
+        /// Ordinary exports. Component exports in a live session are registered
+        /// once here so repeated ordinary imports retain their identity.
         named: HashMap<String, Value>,
+        /// Deferred component templates explicitly exported for `import ast`.
+        /// This is deliberately separate from `named`: an ordinary import must
+        /// never consume or overwrite the template view.
+        ast_named: HashMap<String, MaterializedCE>,
         sequence: Vec<MaterializedCE>,
         /// Live ordinary-import instances for positional component exports.
         /// Templates stay in `sequence`; this map preserves live identity.

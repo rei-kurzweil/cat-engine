@@ -8,7 +8,19 @@ use std::time::{Duration, Instant};
 pub struct XREyeTrackingSystem {
     sockets: HashMap<ComponentId, UdpSocket>,
     htc_sockets: HashMap<ComponentId, UdpSocket>,
+    /// OSC sends gaze vectors and openness as independent packets. Keep the
+    /// latest value for every field so one packet cannot erase the others
+    /// before the script callback sees them.
+    standard_samples: HashMap<ComponentId, StandardEyeSample>,
     last_standard_log: HashMap<ComponentId, Instant>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct StandardEyeSample {
+    combined_look: Option<Look>,
+    left_look: Option<Look>,
+    right_look: Option<Look>,
+    combined_openness: Option<f32>,
 }
 impl XREyeTrackingSystem {
     pub fn tick(&mut self, world: &World, emit: &mut dyn SignalEmitter) {
@@ -25,6 +37,7 @@ impl XREyeTrackingSystem {
             })
             .collect();
         self.sockets.retain(|id, _| ids.contains(id));
+        self.standard_samples.retain(|id, _| ids.contains(id));
         self.last_standard_log.retain(|id, _| ids.contains(id));
         for id in ids {
             let c = world
@@ -44,7 +57,7 @@ impl XREyeTrackingSystem {
             }
             if let Some(s) = self.sockets.get(&id) {
                 let mut bytes = [0u8; 1024];
-                let mut newest_update = None;
+                let mut received_update = false;
                 while let Ok(len) = s.recv(&mut bytes) {
                     let packet = &bytes[..len];
                     let description = osc_description(packet).unwrap_or("malformed OSC");
@@ -53,12 +66,27 @@ impl XREyeTrackingSystem {
                         .get(&id)
                         .is_none_or(|previous| previous.elapsed() >= Duration::from_secs(2));
                     match decode_osc(packet) {
-                        Some(v) => {
+                        Some((combined_look, left_look, right_look, combined_openness)) => {
                             if log_this_packet {
-                                eprintln!("[XREyeTracking] {description}: {v:?}");
+                                eprintln!(
+                                    "[XREyeTracking] {description}: combined={combined_look:?}, left={left_look:?}, right={right_look:?}, openness={combined_openness:?}"
+                                );
                                 self.last_standard_log.insert(id, Instant::now());
                             }
-                            newest_update = Some(v);
+                            let sample = self.standard_samples.entry(id).or_default();
+                            if combined_look.is_some() {
+                                sample.combined_look = combined_look;
+                            }
+                            if left_look.is_some() {
+                                sample.left_look = left_look;
+                            }
+                            if right_look.is_some() {
+                                sample.right_look = right_look;
+                            }
+                            if combined_openness.is_some() {
+                                sample.combined_openness = combined_openness;
+                            }
+                            received_update = true;
                         }
                         None if log_this_packet => {
                             eprintln!("[XREyeTracking] ignored {description} ({len} bytes)");
@@ -70,14 +98,15 @@ impl XREyeTrackingSystem {
                 // A face tracker can submit many UDP packets between rendered
                 // frames. Keep only the newest sample so script callbacks and
                 // renderer mutations remain bounded to one per frame/source.
-                if let Some(v) = newest_update {
+                if received_update {
+                    let sample = self.standard_samples.get(&id).copied().unwrap_or_default();
                     emit.push_event(
                         id,
                         EventSignal::XrEyeTrackingUpdated {
-                            combined_look: v.0,
-                            left_look: v.1,
-                            right_look: v.2,
-                            combined_openness: v.3,
+                            combined_look: sample.combined_look,
+                            left_look: sample.left_look,
+                            right_look: sample.right_look,
+                            combined_openness: sample.combined_openness,
                         },
                     );
                 }

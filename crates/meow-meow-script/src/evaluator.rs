@@ -180,11 +180,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
         match statement {
             Statement::Assignment(assignment) => {
                 let value = self.eval_expr(&assignment.value)?;
-                let value = if self.module_depth == 0 {
-                    self.register_live_component_value(value)?
-                } else {
-                    value
-                };
+                let value = self.register_live_component_value(value)?;
                 self.scopes
                     .last_mut()
                     .unwrap()
@@ -346,16 +342,29 @@ impl<'a, H: Host> Evaluator<'a, H> {
             self.module_cache.insert(identity, module.clone());
             module
         };
-        let Value::Module { named, sequence, live_sequence, .. } = &module else {
+        let Value::Module { named, ast_named, sequence, live_sequence, .. } = &module else {
             unreachable!("module cache contains only module values")
         };
-        let mut live_named_updates = Vec::new();
         let mut live_sequence_updates = Vec::new();
         for item in items {
             let (local, value) = match item {
-                ImportItem::Named(name) => (name.0.clone(), named.get(&name.0).cloned()),
+                ImportItem::Named(name) => (
+                    name.0.clone(),
+                    if ast {
+                        ast_named.get(&name.0).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                    } else {
+                        named.get(&name.0).cloned()
+                    },
+                ),
                 ImportItem::NamedAlias { name, alias } => {
-                    (alias.0.clone(), named.get(&name.0).cloned())
+                    (
+                        alias.0.clone(),
+                        if ast {
+                            ast_named.get(&name.0).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                        } else {
+                            named.get(&name.0).cloned()
+                        },
+                    )
                 }
                 ImportItem::PositionalAlias { index, alias } => (
                     alias.0.clone(),
@@ -369,9 +378,15 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 ),
             };
             let value = value.ok_or_else(|| {
-                EvalError::Runtime(format!(
-                    "import item for '{local}' is unavailable from '{specifier}'"
-                ))
+                if ast {
+                    EvalError::Runtime(format!(
+                        "import ast item '{local}' from '{specifier}' is not a component template"
+                    ))
+                } else {
+                    EvalError::Runtime(format!(
+                        "import item for '{local}' is unavailable from '{specifier}'"
+                    ))
+                }
             })?;
             let value = if ast {
                 match value {
@@ -381,28 +396,18 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     ))),
                 }
             } else {
-                // Ordinary imports are live: a module-level component value is
-                // registered once in the cached module and its handle is reused.
+                // Ordinary imports are live. Module assignment already registered
+                // named component exports; positional roots are cached below.
                 let value = self.register_live_component_value(value)?;
-                if matches!(item, ImportItem::Named(_) | ImportItem::NamedAlias { .. }) {
-                    let export = match item {
-                        ImportItem::Named(name) => name.0.clone(),
-                        ImportItem::NamedAlias { name, .. } => name.0.clone(),
-                        ImportItem::PositionalAlias { .. } => unreachable!(),
-                    };
-                    live_named_updates.push((export, value.clone()));
-                } else if let ImportItem::PositionalAlias { index, .. } = item {
+                if let ImportItem::PositionalAlias { index, .. } = item {
                     live_sequence_updates.push((*index, value.clone()));
                 }
                 value
             };
             self.scopes.last_mut().unwrap().insert(local, value);
         }
-        if !live_named_updates.is_empty() || !live_sequence_updates.is_empty() {
-            if let Value::Module { named, live_sequence, .. } = &mut module {
-                for (name, value) in live_named_updates {
-                    named.insert(name, value);
-                }
+        if !live_sequence_updates.is_empty() {
+            if let Value::Module { live_sequence, .. } = &mut module {
                 for (index, value) in live_sequence_updates {
                     live_sequence.insert(index, value);
                 }
@@ -420,23 +425,26 @@ impl<'a, H: Host> Evaluator<'a, H> {
         let emitted_start = self.emitted.len();
         let result = (|| {
             let mut named = HashMap::new();
+            let mut ast_named = HashMap::new();
             for statement in &statements {
-                self.eval_statement(statement)?;
                 if let Statement::Assignment(assignment) = statement
                     && assignment.exported
                 {
-                    let value = self.lookup(&assignment.name.0).cloned().ok_or_else(|| {
-                        EvalError::Runtime(format!(
-                            "export '{}' was not bound",
-                            assignment.name.0
-                        ))
-                    })?;
+                    let raw = self.eval_expr(&assignment.value)?;
+                    if let Value::ComponentExpr(tree) = &raw {
+                        ast_named.insert(assignment.name.0.clone(), (**tree).clone());
+                    }
+                    let value = self.register_live_component_value(raw)?;
+                    self.scopes.last_mut().unwrap().insert(assignment.name.0.clone(), value.clone());
                     named.insert(assignment.name.0.clone(), value);
+                } else {
+                    self.eval_statement(statement)?;
                 }
             }
             let sequence = self.emitted.split_off(emitted_start);
             Ok(Value::Module {
                 named,
+                ast_named,
                 sequence,
                 live_sequence: HashMap::new(),
                 heap: self.heap.clone(),
@@ -1084,7 +1092,10 @@ impl<'a, H: Host> Evaluator<'a, H> {
         self.scopes.push((*captured_env).clone());
         self.scopes.push(params.into_iter().enumerate().map(|(i, p)| (p, args.get(i).cloned().unwrap_or(Value::Null))).collect());
         let result = self.eval_block(&body); self.scopes.pop(); self.scopes.pop();
-        match result? { Flow::Return(value) => Ok(value), _ => Ok(Value::Null) }
+        match result? {
+            Flow::Return(value) => self.register_live_component_value(value),
+            _ => Ok(Value::Null),
+        }
     }
 
     fn lookup(&self, name: &str) -> Option<&Value> {
