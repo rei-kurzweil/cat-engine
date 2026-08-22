@@ -4,6 +4,8 @@ export fn vroid_humanoid_bone_map() {
         .slot("hips", "[name='J_Bip_C_Hips']")
         .slot("neck", "[name='J_Bip_C_Neck']")
         .slot("head", "[name='J_Bip_C_Head']")
+        .slot("left_eye", "[name='J_Adj_L_FaceEye']")
+        .slot("right_eye", "[name='J_Adj_R_FaceEye']")
         .slot("left_upper_arm", "[name='J_Bip_L_UpperArm']")
         .slot("left_lower_arm", "[name='J_Bip_L_LowerArm']")
         .slot("left_hand", "[name='J_Bip_L_Hand']")

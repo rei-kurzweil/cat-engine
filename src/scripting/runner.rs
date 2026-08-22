@@ -54,15 +54,8 @@ impl RuntimeSpecSession {
             crate::scripting::runtime_config::build_mittens_runtime()
                 .map_err(|error| format!("Mittens RuntimeSpec build failed: {error}"))?,
         );
-        let (session, output) = Self::start_with_runtime(
-            configured,
-            source,
-            None,
-            world,
-            rx,
-            render_assets,
-            emit,
-        )?;
+        let (session, output) =
+            Self::start_with_runtime(configured, source, None, world, rx, render_assets, emit)?;
         Ok((session, output.intents))
     }
 
@@ -166,7 +159,8 @@ impl RuntimeSpecSession {
     /// physical removal remains the responsibility of the owning engine
     /// lifecycle, but they cannot enqueue or execute callbacks after close.
     pub fn close(&mut self) {
-        self.callback_delivery_enabled.store(false, Ordering::Release);
+        self.callback_delivery_enabled
+            .store(false, Ordering::Release);
         self.callback_invocations.lock().unwrap().clear();
         self.session = None;
     }
@@ -420,8 +414,70 @@ pub(crate) fn event_arg_value(signal: &crate::engine::ecs::Signal) -> Value {
                     .unwrap_or(Value::Null),
             ),
         ])),
+        Some(crate::engine::ecs::EventSignal::XrEyeTrackingUpdated {
+            combined_look,
+            left_look,
+            right_look,
+            combined_openness,
+        }) => Value::Map(HashMap::from([
+            ("combined_look".into(), look_value(*combined_look)),
+            ("left_look".into(), look_value(*left_look)),
+            ("right_look".into(), look_value(*right_look)),
+            (
+                "combined_openness".into(),
+                combined_openness
+                    .map(|v| Value::Number(v as f64))
+                    .unwrap_or(Value::Null),
+            ),
+        ])),
+        Some(crate::engine::ecs::EventSignal::XrEyeTrackingHtcUpdated { left, right }) => {
+            Value::Map(HashMap::from([
+                ("left".into(), htc_eye_value(left)),
+                ("right".into(), htc_eye_value(right)),
+            ]))
+        }
         _ => Value::Null,
     }
+}
+
+fn look_value(look: Option<[f32; 3]>) -> Value {
+    look.map(|v| Value::Array(v.into_iter().map(|x| Value::Number(x as f64)).collect()))
+        .unwrap_or(Value::Null)
+}
+fn htc_eye_value(eye: &crate::engine::ecs::system::xr_eye_tracking_system::HtcEye) -> Value {
+    Value::Map(HashMap::from([
+        ("look".into(), look_value(eye.look)),
+        (
+            "position".into(),
+            eye.position
+                .map(|v| Value::Array(v.into_iter().map(|x| Value::Number(x as f64)).collect()))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "openness".into(),
+            eye.openness
+                .map(|v| Value::Number(v as f64))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "wide".into(),
+            eye.wide
+                .map(|v| Value::Number(v as f64))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "squeeze".into(),
+            eye.squeeze
+                .map(|v| Value::Number(v as f64))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "pupil_diameter".into(),
+            eye.pupil_diameter
+                .map(|v| Value::Number(v as f64))
+                .unwrap_or(Value::Null),
+        ),
+    ]))
 }
 
 impl MeowMeowRunner {
@@ -437,14 +493,7 @@ impl MeowMeowRunner {
         render_assets: Option<&mut RenderAssets>,
         emit: &mut dyn SignalEmitter,
     ) -> EvalOutput {
-        Self::eval_with_runtime_spec_at_path(
-            source,
-            None,
-            world,
-            rx,
-            render_assets,
-            emit,
-        )
+        Self::eval_with_runtime_spec_at_path(source, None, world, rx, render_assets, emit)
     }
 
     fn eval_with_runtime_spec_at_path(
@@ -857,14 +906,7 @@ impl MeowMeowRunner {
         render_assets: Option<&mut RenderAssets>,
         emit: &mut dyn SignalEmitter,
     ) -> EvalOutput {
-        Self::eval_with_legacy_world_evaluator(
-            source,
-            source_path,
-            world,
-            rx,
-            render_assets,
-            emit,
-        )
+        Self::eval_with_legacy_world_evaluator(source, source_path, world, rx, render_assets, emit)
     }
 
     /// Migration-only implementation retained for parity fixtures while the
@@ -1204,9 +1246,9 @@ fn source_identity(path: &str) -> Result<mms::SourceId, String> {
             let parent = parent.canonicalize().map_err(|error| {
                 format!("cannot resolve source path '{}': {error}", path.display())
             })?;
-            let file_name = path.file_name().ok_or_else(|| {
-                format!("source path '{}' has no file name", path.display())
-            })?;
+            let file_name = path
+                .file_name()
+                .ok_or_else(|| format!("source path '{}' has no file name", path.display()))?;
             parent.join(file_name)
         }
     };
@@ -1264,17 +1306,30 @@ mod runtime_spec_session_tests {
         rx.dispatch_event_handlers(&mut world, &click());
         let output = session.service_callbacks(&mut world, &mut rx, None, &mut commands);
         assert!(output.errors.is_empty(), "{:?}", output.errors);
-        assert_eq!(world.get_component_by_id_as::<EmissiveComponent>(glow).unwrap().intensity, 0.15);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<EmissiveComponent>(glow)
+                .unwrap()
+                .intensity,
+            0.15
+        );
 
         rx.dispatch_event_handlers(&mut world, &click());
         let output = session.service_callbacks(&mut world, &mut rx, None, &mut commands);
         assert!(output.errors.is_empty(), "{:?}", output.errors);
-        assert_eq!(world.get_component_by_id_as::<EmissiveComponent>(glow).unwrap().intensity, 3.0);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<EmissiveComponent>(glow)
+                .unwrap()
+                .intensity,
+            3.0
+        );
     }
 
     #[test]
     fn configured_runtime_sessions_are_isolated_and_close_disables_callback_delivery() {
-        let configured = Arc::new(crate::scripting::runtime_config::build_mittens_runtime().unwrap());
+        let configured =
+            Arc::new(crate::scripting::runtime_config::build_mittens_runtime().unwrap());
         let source = r#"
             let root = Transform { name = "session-one" }
             on(root, "Click", fn(event) {})
@@ -1352,12 +1407,8 @@ mod runtime_spec_session_tests {
             ),
         );
         assert!(first.callback_invocations.lock().unwrap().is_empty());
-        let output = first.service_callbacks(
-            &mut first_world,
-            &mut first_rx,
-            None,
-            &mut first_commands,
-        );
+        let output =
+            first.service_callbacks(&mut first_world, &mut first_rx, None, &mut first_commands);
         assert_eq!(output.errors, vec!["Mittens RuntimeSpec session is closed"]);
     }
 }

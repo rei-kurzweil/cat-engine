@@ -296,6 +296,16 @@ pub enum EventSignal {
         url: Option<String>,
         bind_addr: Option<String>,
     },
+    XrEyeTrackingUpdated {
+        combined_look: Option<[f32; 3]>,
+        left_look: Option<[f32; 3]>,
+        right_look: Option<[f32; 3]>,
+        combined_openness: Option<f32>,
+    },
+    XrEyeTrackingHtcUpdated {
+        left: crate::engine::ecs::system::xr_eye_tracking_system::HtcEye,
+        right: crate::engine::ecs::system::xr_eye_tracking_system::HtcEye,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -337,6 +347,8 @@ impl EventSignal {
             EventSignal::HttpRequest { .. } => SignalKind::HttpRequest,
             EventSignal::HttpResponse { .. } => SignalKind::HttpResponse,
             EventSignal::HttpError { .. } => SignalKind::HttpError,
+            EventSignal::XrEyeTrackingUpdated { .. } => SignalKind::XrEyeTrackingUpdated,
+            EventSignal::XrEyeTrackingHtcUpdated { .. } => SignalKind::XrEyeTrackingHtcUpdated,
         }
     }
 }
@@ -1111,6 +1123,8 @@ pub enum SignalKind {
     HttpRequest,
     HttpResponse,
     HttpError,
+    XrEyeTrackingUpdated,
+    XrEyeTrackingHtcUpdated,
 }
 
 /// Optional timing metadata on the signal envelope.

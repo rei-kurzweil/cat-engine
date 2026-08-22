@@ -84,6 +84,7 @@ pub mod transform_stream_system;
 pub mod transform_system;
 pub mod transition_system;
 pub mod vr_types;
+pub mod xr_eye_tracking_system;
 
 pub use animation_system::AnimationSystem;
 pub use armature_visualization_system::ArmatureVisualizationSystem;
@@ -168,6 +169,7 @@ pub use transform_stream_system::TransformStreamSystem;
 pub use transform_system::{TransformAccessError, TransformSystem};
 pub use transition_system::TransitionSystem;
 pub use vr_types::{XrGamepadState, XrHandGamepadState, XrInputState};
+pub use xr_eye_tracking_system::XREyeTrackingSystem;
 
 use super::World;
 use crate::engine::graphics::VisualWorld;

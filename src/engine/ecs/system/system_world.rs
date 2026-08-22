@@ -42,6 +42,7 @@ use crate::engine::ecs::system::ToggleSystem;
 use crate::engine::ecs::system::TransformStreamSystem;
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::system::TransitionSystem;
+use crate::engine::ecs::system::XREyeTrackingSystem;
 use crate::engine::ecs::system::XrSystem;
 use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::{AnimationSystem, AudioSystem};
@@ -103,6 +104,7 @@ pub struct SystemWorld {
     pub router: RouterSystem,
     pub http_server: HttpServerSystem,
     pub http_client: HttpClientSystem,
+    pub xr_eye_tracking: XREyeTrackingSystem,
     pub scrolling: ScrollingSystem,
 
     pub pointer: PointerSystem,
@@ -3009,6 +3011,9 @@ impl SystemWorld {
         // Apply gizmo transform updates immediately so visuals reflect the drag this frame.
         queue.flush(world, self, visuals, render_assets);
         self.tick_transition_runtime(world, visuals);
+
+        self.xr_eye_tracking.tick(world, &mut self.rx);
+        let _ = self.process_signals(world, visuals, render_assets, queue, 100_000);
 
         // Avatar body yaw: smoothly rotate body to follow head when yaw diverges.
         // Runs after OpenXR + raycasts + gestures so avatar_driven_t.matrix_world is current.

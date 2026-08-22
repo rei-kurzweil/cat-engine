@@ -548,6 +548,13 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     constructor_and_builder(component, "bind", strings(1));
                     constructor_and_builder(component, "enabled", booleans(1));
                 }
+                "XREyeTracking" | "XREyeTrackingHTC" => {
+                    component.constructor("on", no_args());
+                    component.constructor(
+                        "listen",
+                        component_signature([mms::ValueType::String, mms::ValueType::U16]),
+                    );
+                }
                 "GridBinding" => {
                     component.constructor("grid", any(1));
                 }
@@ -1124,6 +1131,8 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         "HttpRequest",
         "HttpResponse",
         "HttpError",
+        "XrEyeTrackingUpdated",
+        "XrEyeTrackingHtcUpdated",
     ] {
         builder.signal(name, Vec::new(), MittensBinding::Signal { name });
     }
@@ -1330,7 +1339,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            configured.bindings().get(tree.constructor.operation_id.unwrap()),
+            configured
+                .bindings()
+                .get(tree.constructor.operation_id.unwrap()),
             Some(&MittensBinding::ComponentConstructor {
                 component: "Transform",
                 name: Some("position"),

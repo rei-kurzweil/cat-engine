@@ -25,9 +25,9 @@ pub mod camera_xr;
 pub mod clock;
 pub mod collision;
 pub mod collision_response;
-pub mod combine_mesh;
 pub mod collision_shape;
 pub mod color;
+pub mod combine_mesh;
 pub mod component_ref;
 pub mod controller_xr;
 pub mod data;
@@ -82,6 +82,7 @@ pub mod stencil_clip;
 pub mod style;
 pub mod transparent_cutout;
 pub mod xr;
+pub mod xr_eye_tracking;
 
 pub mod point_light;
 pub mod pointer;
@@ -110,7 +111,6 @@ pub mod uv;
 
 pub use self::gltf::GLTFComponent;
 pub use crate::engine::ecs::system::model::collision_types::{CollisionMode, CollisionShape};
-pub use combine_mesh::CombineMeshComponent;
 pub use ambient_light::AmbientLightComponent;
 pub use animation::AnimationComponent;
 pub use animation::AnimationState;
@@ -142,6 +142,7 @@ pub use collision::CollisionComponent;
 pub use collision_response::{CollisionResponseComponent, CollisionResponseMode};
 pub use collision_shape::CollisionShapeComponent;
 pub use color::ColorComponent;
+pub use combine_mesh::CombineMeshComponent;
 pub use component_ref::{
     ComponentRef, QueryRootMode, ScopedQuery, parse_scoped_query, resolve_component_ref,
     resolve_scoped_query,
@@ -253,6 +254,7 @@ pub use transition::{TransitionComponent, TransitionEasing, TransitionReplacePol
 pub use transparent_cutout::TransparentCutoutComponent;
 pub use uv::UVComponent;
 pub use xr::XrComponent;
+pub use xr_eye_tracking::{XREyeTrackingComponent, XREyeTrackingHtcComponent};
 pub type XRHandComponent = ControllerXRComponent;
 
 /// For now, our "LightComponent" is a point light.

@@ -3217,6 +3217,8 @@ fn parse_signal_kind(s: &str) -> Result<SignalKind, String> {
         "HttpRequest" => Ok(SignalKind::HttpRequest),
         "HttpResponse" => Ok(SignalKind::HttpResponse),
         "HttpError" => Ok(SignalKind::HttpError),
+        "XrEyeTrackingUpdated" => Ok(SignalKind::XrEyeTrackingUpdated),
+        "XrEyeTrackingHtcUpdated" => Ok(SignalKind::XrEyeTrackingHtcUpdated),
         other => Err(format!("unknown signal kind: '{}'", other)),
     }
 }

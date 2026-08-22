@@ -517,7 +517,10 @@ impl mms::Host for MittensHost<'_> {
                 name,
                 callback,
             } => self.record_signal_route(&signal, scope, name, callback),
-            R::LoadSource { importer, specifier } => {
+            R::LoadSource {
+                importer,
+                specifier,
+            } => {
                 let requested = std::path::Path::new(&specifier);
                 let path = if requested.is_absolute() {
                     requested.to_path_buf()
@@ -525,9 +528,7 @@ impl mms::Host for MittensHost<'_> {
                     let importer = importer.as_ref().ok_or_else(|| mms::HostError {
                         kind: mms::HostErrorKind::SourceFailure,
                         operation: "load_source".into(),
-                        message: format!(
-                            "relative import '{specifier}' has no importer identity"
-                        ),
+                        message: format!("relative import '{specifier}' has no importer identity"),
                     })?;
                     std::path::Path::new(importer.as_str())
                         .parent()
@@ -587,6 +588,8 @@ fn signal_kind(name: &str) -> Option<SignalKind> {
         "HttpRequest" => SignalKind::HttpRequest,
         "HttpResponse" => SignalKind::HttpResponse,
         "HttpError" => SignalKind::HttpError,
+        "XrEyeTrackingUpdated" => SignalKind::XrEyeTrackingUpdated,
+        "XrEyeTrackingHtcUpdated" => SignalKind::XrEyeTrackingHtcUpdated,
         _ => return None,
     })
 }
@@ -651,7 +654,8 @@ fn external_tree_to_legacy(
             .map(|call| {
                 Ok((
                     call.name,
-                    call.arguments.into_iter()
+                    call.arguments
+                        .into_iter()
                         .map(external_value_to_legacy)
                         .collect::<Result<_, _>>()?,
                 ))
@@ -660,9 +664,7 @@ fn external_tree_to_legacy(
         named: tree
             .properties
             .into_iter()
-            .map(|property| {
-                Ok((property.name, external_value_to_legacy(property.value)?))
-            })
+            .map(|property| Ok((property.name, external_value_to_legacy(property.value)?)))
             .collect::<Result<_, mms::HostError>>()?,
         positionals: tree
             .positionals

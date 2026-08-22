@@ -15,26 +15,25 @@ use crate::engine::ecs::component::{
     AudioOscillator, AudioOscillatorComponent, AudioOutputComponent, AudioTriggerMode,
     AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent, BackgroundComponent,
     BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing, Camera2DComponent,
-    CombineMeshComponent,
     Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
     CollisionResponseComponent, CollisionShape, CollisionShapeComponent, ColorComponent,
-    ControllerHand, ControllerPoseKind, DataComponent, DataValue, DirectionalLightComponent,
-    Display, DragContinuationPolicy, DragMappingPolicy, DraggableComponent, DraggablePlane,
-    EdgeInsets, EditorComponent, EditorInteractionMode, EditorPanel, EditorUIComponent,
-    EditorUIPanelConfig, EditorUIPanelSpec, ElementType, EmissiveComponent, EmissivePassComponent,
-    FitBoundsComponent, FitBoundsMode, FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent,
-    GestureCoordTypeComponent, GrabbableComponent, GravityComponent, GridBindingComponent,
-    GridComponent, GridVisualSpace, HtmlElementComponent, HttpClientComponent, HttpServerComponent,
-    HumanoidBoneMapComponent, IKChainComponent, IKSolver, InputComponent,
-    InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent,
-    JointRetargetBasisComponent, JustifyContent, KeyframeComponent, LayoutBoundsComponent,
-    LayoutComponent, LightQuantizationComponent, MeshComponent, MirrorComponent, MusicNote,
-    MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
-    OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
-    PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
-    Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
-    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RenderGraphComponent,
-    RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
+    CombineMeshComponent, ControllerHand, ControllerPoseKind, DataComponent, DataValue,
+    DirectionalLightComponent, Display, DragContinuationPolicy, DragMappingPolicy,
+    DraggableComponent, DraggablePlane, EdgeInsets, EditorComponent, EditorInteractionMode,
+    EditorPanel, EditorUIComponent, EditorUIPanelConfig, EditorUIPanelSpec, ElementType,
+    EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode, FitBoundsTarget,
+    FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent, GrabbableComponent,
+    GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace, HtmlElementComponent,
+    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver,
+    InputComponent, InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent,
+    InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent, KeyframeComponent,
+    LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent, MeshComponent,
+    MirrorComponent, MusicNote, MusicNoteComponent, NormalVisualisationComponent, OpacityComponent,
+    OptionComponent, OscillatorType, Overflow, OverlayComponent, PointLightComponent,
+    PointerComponent, PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent,
+    PoseCapturePoseComponent, Position, QuatTemporalFilterComponent, QuatYawFollowComponent,
+    RayCastComponent, RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType,
+    RenderGraphComponent, RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
     RestAttachmentComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
     SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
     SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
@@ -49,7 +48,8 @@ use crate::engine::ecs::component::{
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
     TransitionEasing, TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
-    Vector3TemporalFilterComponent, WordWrapMode, XRHandComponent, XrComponent, XrHandPreference,
+    Vector3TemporalFilterComponent, WordWrapMode, XREyeTrackingComponent,
+    XREyeTrackingHtcComponent, XRHandComponent, XrComponent, XrHandPreference,
 };
 use crate::engine::ecs::{ComponentId, World};
 use crate::engine::graphics::CameraTarget;
@@ -116,6 +116,8 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "HtmlElement",
     "HttpClient",
     "HttpServer",
+    "XREyeTracking",
+    "XREyeTrackingHTC",
     "HumanoidBoneMap",
     "IKChain",
     "Input",
@@ -1578,6 +1580,8 @@ fn create_component(
             }
             add!(c)
         }
+        "XREyeTracking" => match ctor { Some("on") | None => add!(XREyeTrackingComponent::on()), Some("listen") => add!(XREyeTrackingComponent::listen(arg_str(args, 0)?, arg_f32(args, 1)? as u16)), Some(method) => Err(format!("XREyeTracking: unknown constructor '{method}'")) },
+        "XREyeTrackingHTC" => match ctor { Some("on") | None => add!(XREyeTrackingHtcComponent::on()), Some("listen") => add!(XREyeTrackingHtcComponent::listen(arg_str(args, 0)?, arg_f32(args, 1)? as u16)), Some(method) => Err(format!("XREyeTrackingHTC: unknown constructor '{method}'")) },
         "StencilClip" => {
             let id = world.add_component(StencilClipComponent::new());
             if let Some(method) = ctor {
@@ -3367,11 +3371,12 @@ fn apply_call(
             "enabled" => *grid = grid.with_enabled(arg_bool(args, 0)?),
             "hidden" => *grid = grid.with_hidden(arg_bool(args, 0)?),
             "selectable" => *grid = grid.with_selectable(arg_bool(args, 0)?),
-            "visual_space" => *grid = grid.with_visual_space(
-                GridVisualSpace::parse(arg_str(args, 0)?).ok_or_else(|| {
-                    "Grid.visual_space expects 'local' or 'world'".to_string()
-                })?,
-            ),
+            "visual_space" => {
+                *grid =
+                    grid.with_visual_space(GridVisualSpace::parse(arg_str(args, 0)?).ok_or_else(
+                        || "Grid.visual_space expects 'local' or 'world'".to_string(),
+                    )?)
+            }
             _ => {}
         }
         return Ok(());
