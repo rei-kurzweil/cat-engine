@@ -75,7 +75,7 @@ symphonia = { version = "0.5", default-features = false, features = [
 bvh = "0.7"
 
 # glTF 2.0 import (used by GLTFSystem to load .glb models and embedded images)
-gltf = { version = "1", features = ["import"] }
+gltf = { version = "1", features = ["import", "extras"] }
 
 [[example]]
 name = "panel-pierce"

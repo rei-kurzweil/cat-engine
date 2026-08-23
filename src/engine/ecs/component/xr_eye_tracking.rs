@@ -13,11 +13,20 @@ pub struct EyeGazeSample {
     pub sequence: u64,
 }
 
+/// Generic OSC reports one closure value for both eyes. It has its own
+/// sequence because closure packets are independent from gaze packets.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EyeClosureSample {
+    pub closure: Option<f32>,
+    pub sequence: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct XREyeTrackingComponent {
     pub host: String,
     pub port: u16,
     pub(crate) gaze_sample: EyeGazeSample,
+    pub(crate) closure_sample: EyeClosureSample,
 }
 impl XREyeTrackingComponent {
     pub fn on() -> Self {
@@ -25,6 +34,7 @@ impl XREyeTrackingComponent {
             host: "127.0.0.1".into(),
             port: 9000,
             gaze_sample: EyeGazeSample::default(),
+            closure_sample: EyeClosureSample::default(),
         }
     }
     pub fn listen(host: impl Into<String>, port: u16) -> Self {
@@ -32,6 +42,7 @@ impl XREyeTrackingComponent {
             host: host.into(),
             port,
             gaze_sample: EyeGazeSample::default(),
+            closure_sample: EyeClosureSample::default(),
         }
     }
 }

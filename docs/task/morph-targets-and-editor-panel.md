@@ -70,6 +70,30 @@ authoring overrides, or separate dense/sparse pipelines.
 Upload immutable target arrays to device-local morph buffers. A content/version-keyed disk cache
 for normalized data is an explicit later optimization, not part of v1.
 
+## Queued optimization: omit all-zero primitive targets
+
+Real VRM-style avatars may split one logical face into several material primitives while retaining
+the same target-name/index table on every primitive. For example, Bisket has eight face
+primitives, each declaring `Fcl_EYE_Close_L` and `Fcl_EYE_Close_R`, even where a particular
+primitive's position and normal deltas are entirely zero.
+
+Queue a post-normalization import classification for a later implementation:
+
+- inspect the normalized POSITION and NORMAL delta arrays for each
+  `(node, primitive, target)` member;
+- retain its stable key, target label, defaults, map/report membership, and editor grouping even
+  when it is all zero;
+- mark only the immutable geometry payload as elidable, so it is neither uploaded to the
+  device-local morph-delta buffer nor emitted in an active palette/job;
+- treat a target as zero only when every normalized float is exactly `0.0` (including `-0.0`),
+  rather than applying an arbitrary geometric tolerance;
+- test Bisket's eight-primitive blink fan-out: semantic mapping still reports all eight members,
+  while the GPU work contains only members with nonzero deltas.
+
+This is an upload/work-elision optimization, not sparse runtime storage and not a change to the
+dense target-major import contract. It should follow the correct end-to-end renderer wiring and
+be measured against the real Bisket and PC-Rei assets.
+
 ## Runtime deformation
 
 The focused cache-plumbing task establishes the shared GPU resources, terminology, morph-only

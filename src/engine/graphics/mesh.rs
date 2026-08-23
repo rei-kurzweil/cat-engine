@@ -268,8 +268,19 @@ pub struct CpuMesh {
     /// - `joints0[i]` corresponds to `weights0[i]`
     pub joints0: Option<Vec<[u16; 4]>>,
     pub weights0: Option<Vec<[f32; 4]>>,
+    /// glTF morph targets in target-major order.  Every target has exactly one
+    /// delta per base vertex; a missing NORMAL accessor is represented by zero
+    /// normal deltas.  Keeping this immutable with the mesh makes one imported
+    /// mesh safely shareable by many GLTF instances.
+    pub morph_targets: Vec<CpuMorphTarget>,
     pub primitive_topology: PrimitiveTopology,
     pub index_format: IndexFormat,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CpuMorphTarget {
+    pub position_deltas: Vec<[f32; 3]>,
+    pub normal_deltas: Vec<[f32; 3]>,
 }
 
 impl CpuMesh {
@@ -279,9 +290,19 @@ impl CpuMesh {
             indices_u32,
             joints0: None,
             weights0: None,
+            morph_targets: Vec::new(),
             primitive_topology: PrimitiveTopology::TriangleList,
             index_format: IndexFormat::U32,
         }
+    }
+
+    pub fn with_morph_targets(mut self, morph_targets: Vec<CpuMorphTarget>) -> Self {
+        debug_assert!(morph_targets.iter().all(|target| {
+            target.position_deltas.len() == self.vertices.len()
+                && target.normal_deltas.len() == self.vertices.len()
+        }));
+        self.morph_targets = morph_targets;
+        self
     }
 
     pub fn with_skinning(mut self, joints0: Vec<[u16; 4]>, weights0: Vec<[f32; 4]>) -> Self {
@@ -309,6 +330,10 @@ impl CpuMesh {
         }
         if let Some(weights0) = &self.weights0 {
             bytes += weights0.capacity() * std::mem::size_of::<[f32; 4]>();
+        }
+        for target in &self.morph_targets {
+            bytes += target.position_deltas.capacity() * std::mem::size_of::<[f32; 3]>();
+            bytes += target.normal_deltas.capacity() * std::mem::size_of::<[f32; 3]>();
         }
         bytes
     }

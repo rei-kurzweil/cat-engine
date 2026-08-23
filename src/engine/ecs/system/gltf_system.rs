@@ -5,7 +5,7 @@ use crate::engine::ecs::component::{
 use crate::engine::ecs::{
     ComponentId, EventSignal, IntentValue, PoseApplyMode, SignalEmitter, World,
 };
-use crate::engine::graphics::mesh::{CpuMesh, CpuVertex};
+use crate::engine::graphics::mesh::{CpuMesh, CpuMorphTarget, CpuVertex};
 use crate::engine::graphics::primitives::TransformMatrix;
 use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Renderable};
 use crate::engine::graphics::{RenderAssets, RenderUploader, SkinId, VisualWorld};
@@ -482,6 +482,27 @@ impl GLTFSystem {
                     .iter()
                     .filter_map(|node_index| node_index_to_component.get(node_index).copied())
                     .collect();
+                c.morph_targets.clear();
+                c.morph_factors.clear();
+                for node in doc.nodes() {
+                    let Some(mesh) = node.mesh() else { continue; };
+                    let weights = node.weights().or_else(|| mesh.weights()).unwrap_or(&[]);
+                    let labels = Self::morph_target_labels(mesh.extras());
+                    for (primitive_index, primitive) in mesh.primitives().enumerate() {
+                        for target_index in 0..primitive.morph_targets().len() {
+                            let key = crate::engine::ecs::component::MorphTargetKey {
+                                node_index: node.index(), primitive_index, target_index,
+                            };
+                            let base = weights.get(target_index).copied().unwrap_or(0.0);
+                            c.morph_targets.push(crate::engine::ecs::component::MorphTargetInfo {
+                                key,
+                                label: labels.get(target_index).cloned(),
+                                base_factor: base,
+                            });
+                            c.morph_factors.insert(key, crate::engine::ecs::component::MorphFactorState { base, driver: None });
+                        }
+                    }
+                }
             }
 
             // A pose authored directly inside a glTF is its declarative startup overlay.
@@ -630,6 +651,18 @@ impl GLTFSystem {
             .collect()
     }
 
+    /// `targetNames` is a de-facto glTF mesh extra used by VRM/VRoid. It is
+    /// intentionally decoded as metadata; target identity remains the stable
+    /// node/primitive/target tuple above.
+    fn morph_target_labels(extras: &gltf::json::Extras) -> Vec<String> {
+        let Some(raw) = extras.as_ref() else { return Vec::new(); };
+        serde_json::from_str::<serde_json::Value>(raw.get())
+            .ok()
+            .and_then(|value| value.get("targetNames")?.as_array().cloned())
+            .map(|values| values.into_iter().filter_map(|value| value.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default()
+    }
+
     fn is_black_rgb(rgb: [f32; 3]) -> bool {
         let eps = 1e-4_f32;
         rgb[0].abs() <= eps && rgb[1].abs() <= eps && rgb[2].abs() <= eps
@@ -666,6 +699,42 @@ impl GLTFSystem {
                     continue;
                 };
                 let positions: Vec<[f32; 3]> = positions_iter.collect();
+
+                // Normalize targets at the import boundary. glTF morph
+                // accessors are dense and must have one vec3 per base vertex;
+                // accepting a malformed target here would otherwise leave a
+                // partially usable asset in the render cache.
+                let mut morph_targets = Vec::new();
+                for (target_index, (position, normal, _tangent)) in
+                    reader.read_morph_targets().enumerate()
+                {
+                    let position_deltas: Vec<[f32; 3]> = position
+                        .ok_or_else(|| format!(
+                            "mesh {} primitive {} morph target {} has no POSITION accessor",
+                            mesh_index, prim_index, target_index
+                        ))?
+                        .collect();
+                    if position_deltas.len() != positions.len() {
+                        return Err(format!(
+                            "mesh {} primitive {} morph target {} POSITION count {} does not match vertex count {}",
+                            mesh_index, prim_index, target_index, position_deltas.len(), positions.len()
+                        ));
+                    }
+                    let normal_deltas = match normal {
+                        Some(normal) => {
+                            let values: Vec<[f32; 3]> = normal.collect();
+                            if values.len() != positions.len() {
+                                return Err(format!(
+                                    "mesh {} primitive {} morph target {} NORMAL count {} does not match vertex count {}",
+                                    mesh_index, prim_index, target_index, values.len(), positions.len()
+                                ));
+                            }
+                            values
+                        }
+                        None => vec![[0.0; 3]; positions.len()],
+                    };
+                    morph_targets.push(CpuMorphTarget { position_deltas, normal_deltas });
+                }
 
                 let uvs: Vec<[f32; 2]> = reader
                     .read_tex_coords(0)
@@ -766,7 +835,8 @@ impl GLTFSystem {
                 meshes.push(ImportedMesh {
                     key,
                     mesh: Some({
-                        let mesh = CpuMesh::new(vertices, indices_u32);
+                        let mesh = CpuMesh::new(vertices, indices_u32)
+                            .with_morph_targets(morph_targets);
                         if let (Some(j), Some(w)) = (joints0, weights0) {
                             mesh.with_skinning(j, w)
                         } else {

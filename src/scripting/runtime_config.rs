@@ -717,6 +717,13 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         .builder_call("absent", strings(1))
                         .builder_call("automap_disable", no_args());
                 }
+                "MorphTargetMap" => {
+                    component.constructor("new", no_args());
+                    component.builder_call(
+                        "slot",
+                        component_signature([mms::ValueType::String, mms::ValueType::String]),
+                    );
+                }
                 "RestAttachment" => {
                     component.constructor("new", any(2));
                 }

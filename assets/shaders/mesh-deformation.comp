@@ -114,17 +114,21 @@ void main() {
         normal += delta.normal_delta.xyz * active_morph.weight;
     }
 
-    SkinVertex skin_vertex = skin_vertices.vertices[job.skin_vertex + local_vertex];
-    float weight_sum =
-        skin_vertex.weights.x + skin_vertex.weights.y +
-        skin_vertex.weights.z + skin_vertex.weights.w;
     mat4 skin = mat4(1.0);
-    if (job.bones_count > 0u && weight_sum > 0.0) {
-        skin =
-            bones.matrices[job.bones_base + skin_vertex.joints.x] * skin_vertex.weights.x +
-            bones.matrices[job.bones_base + skin_vertex.joints.y] * skin_vertex.weights.y +
-            bones.matrices[job.bones_base + skin_vertex.joints.z] * skin_vertex.weights.z +
-            bones.matrices[job.bones_base + skin_vertex.joints.w] * skin_vertex.weights.w;
+    // Morph-only meshes deliberately have no meaningful skin-vertex range.
+    // Do not read it unless this job actually has a skin.
+    if (job.bones_count > 0u) {
+        SkinVertex skin_vertex = skin_vertices.vertices[job.skin_vertex + local_vertex];
+        float weight_sum =
+            skin_vertex.weights.x + skin_vertex.weights.y +
+            skin_vertex.weights.z + skin_vertex.weights.w;
+        if (weight_sum > 0.0) {
+            skin =
+                bones.matrices[job.bones_base + skin_vertex.joints.x] * skin_vertex.weights.x +
+                bones.matrices[job.bones_base + skin_vertex.joints.y] * skin_vertex.weights.y +
+                bones.matrices[job.bones_base + skin_vertex.joints.z] * skin_vertex.weights.z +
+                bones.matrices[job.bones_base + skin_vertex.joints.w] * skin_vertex.weights.w;
+        }
     }
 
     vec3 deformed_position = (skin * vec4(position, 1.0)).xyz;

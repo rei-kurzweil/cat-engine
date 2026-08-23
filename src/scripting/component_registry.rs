@@ -24,7 +24,7 @@ use crate::engine::ecs::component::{
     EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode, FitBoundsTarget,
     FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent, GrabbableComponent,
     GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace, HtmlElementComponent,
-    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver,
+    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, MorphTargetMapComponent, IKChainComponent, IKSolver,
     InputComponent, InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent,
     InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent, KeyframeComponent,
     LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent, MeshComponent,
@@ -119,6 +119,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "XREyeTracking",
     "XREyeTrackingHTC",
     "HumanoidBoneMap",
+    "MorphTargetMap",
     "IKChain",
     "Input",
     "InputTransformMode",
@@ -1805,6 +1806,14 @@ fn create_component(
             }
             Ok(id)
         }
+        "MorphTargetMap" => {
+            let id = world.add_component(MorphTargetMapComponent::new());
+            if let Some(method) = ctor {
+                if method != "new" { apply_call(world, id, method, args)?; }
+                else if !args.is_empty() { return Err("MorphTargetMap.new() takes no arguments".into()); }
+            }
+            Ok(id)
+        }
         "RestAttachment" => match ctor {
             Some("new") if args.len() == 2 => add!(RestAttachmentComponent::new(
                 arg_component_ref(world, args, 0)?,
@@ -3350,6 +3359,17 @@ fn apply_call(
         *world
             .get_component_by_id_as_mut::<HumanoidBoneMapComponent>(id)
             .unwrap() = updated;
+        return Ok(());
+    }
+    if world.get_component_by_id_as::<MorphTargetMapComponent>(id).is_some() {
+        let updated = {
+            let map = world.get_component_by_id_as::<MorphTargetMapComponent>(id).unwrap().clone();
+            match method {
+                "slot" => map.slot(arg_str(args, 0)?, arg_str(args, 1)?)?,
+                _ => return Err(format!("unknown MorphTargetMap builder '.{method}'")),
+            }
+        };
+        *world.get_component_by_id_as_mut::<MorphTargetMapComponent>(id).unwrap() = updated;
         return Ok(());
     }
 

@@ -1,5 +1,7 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::component::Component;
+use crate::engine::ecs::component::{MorphFactorState, MorphTargetInfo, MorphTargetKey};
+use std::collections::BTreeMap;
 
 /// Load and spawn content from a glTF asset.
 ///
@@ -29,6 +31,10 @@ pub struct GLTFComponent {
 
     /// Runtime-only: subset of `spawned_node_transforms` that correspond to skin joints.
     pub armature_joint_transforms: Vec<ComponentId>,
+    /// Imported targets for this instance. Kept here, rather than on a shared
+    /// CpuMesh, because node overrides and driver ownership are instance data.
+    pub morph_targets: Vec<MorphTargetInfo>,
+    pub morph_factors: BTreeMap<MorphTargetKey, MorphFactorState>,
 
     component: Option<ComponentId>,
 }
@@ -43,6 +49,8 @@ impl GLTFComponent {
             bounds_visible: false,
             spawned_node_transforms: Vec::new(),
             armature_joint_transforms: Vec::new(),
+            morph_targets: Vec::new(),
+            morph_factors: BTreeMap::new(),
             component: None,
         }
     }

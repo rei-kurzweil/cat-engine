@@ -46,6 +46,7 @@ pub mod grid_system;
 pub mod http_client_system;
 pub mod http_server_system;
 pub mod humanoid_bone_map_system;
+pub mod morph_target_system;
 pub mod ik;
 pub mod ik_system;
 pub mod input_system;

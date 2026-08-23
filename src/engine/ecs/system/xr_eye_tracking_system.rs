@@ -1,4 +1,4 @@
-use crate::engine::ecs::component::xr_eye_tracking::EyeGazeSample;
+use crate::engine::ecs::component::xr_eye_tracking::{EyeClosureSample, EyeGazeSample};
 use crate::engine::ecs::component::{XREyeTrackingComponent, XREyeTrackingHtcComponent};
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter, World};
 use std::collections::{HashMap, HashSet};
@@ -45,6 +45,13 @@ impl XREyeTrackingSystem {
         self.standard_samples.retain(|id, _| ids.contains(id));
         self.failed_standard_binds.retain(|id| ids.contains(id));
         for id in ids {
+            // Closure is a live driver value, unlike retained gaze. If the
+            // tracker stops sending it, AVC must release its morph override
+            // on the next frame instead of leaving an avatar permanently
+            // blinking.
+            if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
+                component.closure_sample.closure = None;
+            }
             let c = world
                 .get_component_by_id_as::<XREyeTrackingComponent>(id)
                 .unwrap();
@@ -107,6 +114,12 @@ impl XREyeTrackingSystem {
                             world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
                         {
                             component.gaze_sample = gaze_sample;
+                        }
+                    }
+                    if let Some(closure) = sample.combined_openness.filter(|value| value.is_finite()) {
+                        let sequence = self.next_sequence();
+                        if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
+                            component.closure_sample = EyeClosureSample { closure: Some(closure.clamp(0.0, 1.0)), sequence };
                         }
                     }
                     emit.push_event(

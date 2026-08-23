@@ -103,6 +103,13 @@ ED {
 
                     T {
                         GLTF.new("assets/models/bisket.glb") {
+                            // Bisket's VRM-style face mesh exposes these exact
+                            // targetNames on each of its eight material
+                            // primitives. Generic OSC closure fans each
+                            // semantic channel out to every matching target.
+                            MorphTargetMap.new()
+                                .slot("left_eye_blink", "Fcl_EYE_Close_L")
+                                .slot("right_eye_blink", "Fcl_EYE_Close_R")
                             EM.on()
                             bisket_colliders()
                             bisket_shirt_physics(false)

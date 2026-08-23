@@ -178,6 +178,36 @@ fn update_eye_tracking(
     let (left_gaze, right_gaze) = newest_direct_eye_gaze(world, avc_id);
     update_one_eye_tracking(avc_id, world, emit, true, left_target, left_gaze);
     update_one_eye_tracking(avc_id, world, emit, false, right_target, right_gaze);
+    update_generic_osc_blink(avc_id, world, humanoid_maps);
+}
+
+/// Generic OSC closure owns mapped blink targets while present. The base value
+/// is never overwritten, so removing/loss of the tracker restores editor and
+/// imported defaults automatically.
+fn update_generic_osc_blink(
+    avc_id: ComponentId,
+    world: &mut World,
+    humanoid_maps: &mut HumanoidBoneMapSystem,
+) {
+    let closure = world.children_of(avc_id).iter().copied().filter_map(|id| {
+        world.get_component_by_id_as::<XREyeTrackingComponent>(id).map(|tracker| tracker.closure_sample)
+    }).filter_map(|sample| sample.closure.map(|value| (sample.sequence, value)))
+        .max_by_key(|(sequence, _)| *sequence).map(|(_, value)| value);
+    let Some(gltf_id) = humanoid_maps.request_for_avc(world, avc_id) else { return };
+    let labels = world.children_of(gltf_id).iter().copied().find_map(|id| {
+        world.get_component_by_id_as::<crate::engine::ecs::component::MorphTargetMapComponent>(id)
+            .map(|map| map.slots().clone())
+    });
+    let Some(labels) = labels else { return };
+    let Some(gltf) = world.get_component_by_id_as_mut::<crate::engine::ecs::component::GLTFComponent>(gltf_id) else { return };
+    for channel in ["left_eye_blink", "right_eye_blink"] {
+        let Some(label) = labels.get(channel) else { continue };
+        for info in gltf.morph_targets.iter().filter(|info| info.label.as_deref() == Some(label.as_str())) {
+            if let Some(state) = gltf.morph_factors.get_mut(&info.key) {
+                state.driver = closure;
+            }
+        }
+    }
 }
 
 fn newest_direct_eye_gaze(
