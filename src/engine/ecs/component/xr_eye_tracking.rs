@@ -1,22 +1,37 @@
 use super::Component;
 use crate::engine::ecs::ComponentId;
 
+/// Latest usable gaze directions received from an eye-tracking source.
+///
+/// This is runtime state, intentionally not exposed through MMS.  `sequence`
+/// is assigned by `XREyeTrackingSystem` from one counter shared by both wire
+/// protocols, so consumers can deterministically choose the newest source.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EyeGazeSample {
+    pub left: Option<[f32; 3]>,
+    pub right: Option<[f32; 3]>,
+    pub sequence: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct XREyeTrackingComponent {
     pub host: String,
     pub port: u16,
+    pub(crate) gaze_sample: EyeGazeSample,
 }
 impl XREyeTrackingComponent {
     pub fn on() -> Self {
         Self {
             host: "127.0.0.1".into(),
             port: 9000,
+            gaze_sample: EyeGazeSample::default(),
         }
     }
     pub fn listen(host: impl Into<String>, port: u16) -> Self {
         Self {
             host: host.into(),
             port,
+            gaze_sample: EyeGazeSample::default(),
         }
     }
 }
@@ -42,18 +57,21 @@ impl Component for XREyeTrackingComponent {
 pub struct XREyeTrackingHtcComponent {
     pub host: String,
     pub port: u16,
+    pub(crate) gaze_sample: EyeGazeSample,
 }
 impl XREyeTrackingHtcComponent {
     pub fn on() -> Self {
         Self {
             host: "127.0.0.1".into(),
             port: 9002,
+            gaze_sample: EyeGazeSample::default(),
         }
     }
     pub fn listen(host: impl Into<String>, port: u16) -> Self {
         Self {
             host: host.into(),
             port,
+            gaze_sample: EyeGazeSample::default(),
         }
     }
 }

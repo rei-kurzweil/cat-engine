@@ -5,7 +5,8 @@ use crate::engine::ecs::component::{
     ControllerHand, ControllerPoseSource, ControllerXRComponent, GLTFComponent, IKChainComponent,
     IKSolver, InputXRComponent, QuatYawFollowComponent, SerializeComponent, TransformComponent,
     TransformDropComponent, TransformForkTRSComponent, TransformMapRotationComponent,
-    TransformMapScaleComponent, TransformMapTranslationComponent,
+    TransformMapScaleComponent, TransformMapTranslationComponent, XREyeTrackingComponent,
+    XREyeTrackingHtcComponent,
 };
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
@@ -19,7 +20,7 @@ use crate::engine::graphics::{RenderAssets, primitives::Transform};
 use crate::engine::user_input::InputState;
 use crate::utils::math::{
     mat_to_quat, mat4_identity, mat4_mul, quat_conjugate, quat_mul, quat_rotate_vec3,
-    quat_rotation_y, quat_to_axis_angle,
+    quat_rotation_y, quat_to_axis_angle, shortest_arc_quat,
 };
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -152,6 +153,111 @@ fn tick_one(
     }
 
     update_hand_pose_corrections(id, world, emit, log_alignment);
+    update_eye_tracking(id, world, humanoid_maps, emit);
+}
+
+/// Apply the newest direct-child eye-tracker sample to each independently
+/// mapped eye. Eye gaze is an absolute rest-relative pose, never a delta from
+/// the pose written on the preceding frame.
+fn update_eye_tracking(
+    avc_id: ComponentId,
+    world: &mut World,
+    humanoid_maps: &mut HumanoidBoneMapSystem,
+    emit: &mut dyn SignalEmitter,
+) {
+    let report = humanoid_maps
+        .request_for_avc(world, avc_id)
+        .and_then(|gltf| humanoid_maps.report(gltf))
+        .cloned();
+    let (left_target, right_target) = report.as_ref().map_or((None, None), |report| {
+        (
+            map_target(report, HumanoidSlot::LeftEye),
+            map_target(report, HumanoidSlot::RightEye),
+        )
+    });
+    let (left_gaze, right_gaze) = newest_direct_eye_gaze(world, avc_id);
+    update_one_eye_tracking(avc_id, world, emit, true, left_target, left_gaze);
+    update_one_eye_tracking(avc_id, world, emit, false, right_target, right_gaze);
+}
+
+fn newest_direct_eye_gaze(
+    world: &mut World,
+    avc_id: ComponentId,
+) -> (Option<[f32; 3]>, Option<[f32; 3]>) {
+    let mut left = None::<(u64, [f32; 3])>;
+    let mut right = None::<(u64, [f32; 3])>;
+    for child in world.children_of(avc_id).iter().copied() {
+        let sample = world
+            .get_component_by_id_as::<XREyeTrackingComponent>(child)
+            .map(|tracker| tracker.gaze_sample)
+            .or_else(|| {
+                world
+                    .get_component_by_id_as::<XREyeTrackingHtcComponent>(child)
+                    .map(|tracker| tracker.gaze_sample)
+            });
+        let Some(sample) = sample else { continue };
+        if let Some(gaze) = sample.left.filter(valid_gaze) {
+            if left.map_or(true, |current| sample.sequence > current.0) {
+                left = Some((sample.sequence, gaze));
+            }
+        }
+        if let Some(gaze) = sample.right.filter(valid_gaze) {
+            if right.map_or(true, |current| sample.sequence > current.0) {
+                right = Some((sample.sequence, gaze));
+            }
+        }
+    }
+    (left.map(|(_, gaze)| gaze), right.map(|(_, gaze)| gaze))
+}
+
+fn valid_gaze(gaze: &[f32; 3]) -> bool {
+    gaze.iter().all(|value| value.is_finite())
+        && gaze.iter().map(|value| value * value).sum::<f32>() > 1e-12
+}
+
+fn update_one_eye_tracking(
+    avc_id: ComponentId,
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    left: bool,
+    target: Option<ComponentId>,
+    gaze: Option<[f32; 3]>,
+) {
+    let previous = world
+        .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+        .and_then(|avc| {
+            if left {
+                avc.left_eye_tracking_bone_id
+            } else {
+                avc.right_eye_tracking_bone_id
+            }
+        });
+    // A map refresh can replace a target. Restore the old bone before giving
+    // the new one ownership, even if the new tracker sample remains valid.
+    if previous.is_some() && previous != target {
+        restore_eye_rest(world, emit, previous.unwrap());
+    }
+    let active = target.zip(gaze);
+    if let Some((bone, gaze)) = active {
+        let (_, rest_rotation, _) = read_bone_rest_pose(world, bone);
+        let correction = shortest_arc_quat([0.0, 0.0, -1.0], gaze);
+        update_local_rotation(world, emit, bone, quat_mul(correction, rest_rotation));
+    } else if let Some(bone) = previous {
+        restore_eye_rest(world, emit, bone);
+    }
+    if let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(avc_id) {
+        let owned = active.map(|(bone, _)| bone);
+        if left {
+            avc.left_eye_tracking_bone_id = owned;
+        } else {
+            avc.right_eye_tracking_bone_id = owned;
+        }
+    }
+}
+
+fn restore_eye_rest(world: &World, emit: &mut dyn SignalEmitter, bone: ComponentId) {
+    let (_, rotation, _) = read_bone_rest_pose(world, bone);
+    update_local_rotation(world, emit, bone, rotation);
 }
 
 fn refresh_map_camera_anchor(
@@ -1401,7 +1507,10 @@ fn rest_model_relative_to(
 #[cfg(test)]
 mod hand_pose_correction_tests {
     use super::*;
-    use crate::engine::ecs::component::{ComponentRef, RestAttachmentComponent};
+    use crate::engine::ecs::component::xr_eye_tracking::EyeGazeSample;
+    use crate::engine::ecs::component::{
+        ComponentRef, RestAttachmentComponent, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+    };
     use crate::engine::ecs::system::{
         HumanoidSlotProvenance, HumanoidSlotReport, HumanoidSlotStatus, ResolvedHumanoidTarget,
         ResolvedHumanoidTargetKind,
@@ -1423,6 +1532,69 @@ mod hand_pose_correction_tests {
                 self.0.push(rotation_quat_xyzw);
             }
         }
+    }
+
+    #[test]
+    fn direct_child_eye_trackers_choose_newest_source_per_eye() {
+        let mut world = World::default();
+        let avc = world.add_component(AvatarControlComponent::new());
+        let standard = world.add_component(XREyeTrackingComponent::on());
+        let htc = world.add_component(XREyeTrackingHtcComponent::on());
+        let descendant = world.add_component(XREyeTrackingComponent::on());
+        let _ = world.add_child(avc, standard);
+        let _ = world.add_child(avc, htc);
+        let _ = world.add_child(standard, descendant);
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingComponent>(standard)
+            .unwrap()
+            .gaze_sample = EyeGazeSample {
+            left: Some([1.0, 0.0, 0.0]),
+            right: Some([0.0, 1.0, 0.0]),
+            sequence: 2,
+        };
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(htc)
+            .unwrap()
+            .gaze_sample = EyeGazeSample {
+            left: Some([0.0, 0.0, -1.0]),
+            right: None,
+            sequence: 3,
+        };
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingComponent>(descendant)
+            .unwrap()
+            .gaze_sample = EyeGazeSample {
+            left: Some([0.0, -1.0, 0.0]),
+            right: Some([0.0, -1.0, 0.0]),
+            sequence: 99,
+        };
+        assert_eq!(
+            newest_direct_eye_gaze(&mut world, avc),
+            (Some([0.0, 0.0, -1.0]), Some([0.0, 1.0, 0.0]))
+        );
+    }
+
+    #[test]
+    fn eye_tracking_is_rest_relative_and_restores_when_inactive() {
+        let mut world = World::default();
+        let avc = world.add_component(AvatarControlComponent::new());
+        let eye = world.add_component(TransformComponent::new());
+        let rest = [0.0, 0.5, 0.0, 0.866_025_4];
+        let rest_pose = world.add_component(BoneRestPoseComponent::new([0.0; 3], rest, [1.0; 3]));
+        let _ = world.add_child(eye, rest_pose);
+        let mut emitted = RecordingEmitter::default();
+        update_one_eye_tracking(
+            avc,
+            &mut world,
+            &mut emitted,
+            true,
+            Some(eye),
+            Some([1.0, 0.0, 0.0]),
+        );
+        let expected = quat_mul(shortest_arc_quat([0.0, 0.0, -1.0], [1.0, 0.0, 0.0]), rest);
+        assert_eq!(emitted.0, vec![expected]);
+        update_one_eye_tracking(avc, &mut world, &mut emitted, true, Some(eye), None);
+        assert_eq!(emitted.0.last(), Some(&rest));
     }
 
     fn left_arm_report(

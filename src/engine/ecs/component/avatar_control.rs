@@ -149,6 +149,9 @@ pub struct AvatarControlComponent {
     pub(crate) splice_camera_bone: Option<ComponentId>,
     pub(crate) humanoid_map_gltf: Option<ComponentId>,
     pub(crate) humanoid_map_generation: u64,
+    /// Eye bones currently owned by AVC's automatic eye-tracking driver.
+    pub(crate) left_eye_tracking_bone_id: Option<ComponentId>,
+    pub(crate) right_eye_tracking_bone_id: Option<ComponentId>,
 
     /// Debug/diagnostic flag: skip creation of the body-rotation pipeline entirely.
     /// When `true`, model_root stays directly under AVC and only head rotation is applied.
@@ -328,6 +331,8 @@ impl Default for AvatarControlComponent {
             splice_camera_bone: None,
             humanoid_map_gltf: None,
             humanoid_map_generation: 0,
+            left_eye_tracking_bone_id: None,
+            right_eye_tracking_bone_id: None,
             skip_body_pipeline: false,
             ik_debug: false,
             head_ik_eye_height: None,
