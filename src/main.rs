@@ -296,19 +296,20 @@ fn main() {
     // Scene files are MMS source — evaluated through the standard runner.
     if let engine::cli::CliCommand::Load { ref filename } = cli.command {
         println!("[CLI] Loading scene from '{}' (MMS)...", filename);
-        let out = mittens_engine::scripting::runner::MeowMeowRunner::eval_with_world_at_path(
+        let out = mittens_engine::scripting::runner::MeowMeowRunner::eval_with_world_and_assets_at_path(
             &std::fs::read_to_string(filename).unwrap_or_default(),
             Some(filename),
             &mut universe.world,
             &mut universe.systems.rx,
+            Some(&mut universe.render_assets),
             &mut universe.command_queue,
         );
         if !out.errors.is_empty() {
             for e in &out.errors {
                 eprintln!("[CLI] {e}");
             }
-            eprintln!("[CLI] Building demo scene instead...");
-            build_demo_scene_7_shapes(&mut universe);
+            eprintln!("[CLI] Scene load failed; no fallback scene will be shown.");
+            return;
         } else {
             println!("[CLI] Scene loaded ({} intents queued).", out.intents.len());
             universe.systems.process_commands(
