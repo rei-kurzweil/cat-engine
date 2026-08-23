@@ -1,18 +1,21 @@
 use crate::engine::ecs::component::{XREyeTrackingComponent, XREyeTrackingHtcComponent};
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter, World};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
-use std::time::{Duration, Instant};
 
 #[derive(Debug, Default)]
 pub struct XREyeTrackingSystem {
     sockets: HashMap<ComponentId, UdpSocket>,
     htc_sockets: HashMap<ComponentId, UdpSocket>,
+    /// A failed bind is retried so a port becoming available recovers without
+    /// restarting the scene, but each active component reports that failure
+    /// only once.
+    failed_standard_binds: HashSet<ComponentId>,
+    failed_htc_binds: HashSet<ComponentId>,
     /// OSC sends gaze vectors and openness as independent packets. Keep the
     /// latest value for every field so one packet cannot erase the others
     /// before the script callback sees them.
     standard_samples: HashMap<ComponentId, StandardEyeSample>,
-    last_standard_log: HashMap<ComponentId, Instant>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -38,7 +41,7 @@ impl XREyeTrackingSystem {
             .collect();
         self.sockets.retain(|id, _| ids.contains(id));
         self.standard_samples.retain(|id, _| ids.contains(id));
-        self.last_standard_log.retain(|id, _| ids.contains(id));
+        self.failed_standard_binds.retain(|id| ids.contains(id));
         for id in ids {
             let c = world
                 .get_component_by_id_as::<XREyeTrackingComponent>(id)
@@ -47,11 +50,14 @@ impl XREyeTrackingSystem {
                 match UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
                     Ok(s) => {
                         let _ = s.set_nonblocking(true);
+                        self.failed_standard_binds.remove(&id);
                         eprintln!("[XREyeTracking] listening on {}:{}", c.host, c.port);
                         self.sockets.insert(id, s);
                     }
                     Err(error) => {
-                        eprintln!("[XREyeTracking] cannot bind {}:{}: {error}", c.host, c.port)
+                        if self.failed_standard_binds.insert(id) {
+                            eprintln!("[XREyeTracking] cannot bind {}:{}: {error}", c.host, c.port);
+                        }
                     }
                 }
             }
@@ -60,19 +66,8 @@ impl XREyeTrackingSystem {
                 let mut received_update = false;
                 while let Ok(len) = s.recv(&mut bytes) {
                     let packet = &bytes[..len];
-                    let description = osc_description(packet).unwrap_or("malformed OSC");
-                    let log_this_packet = self
-                        .last_standard_log
-                        .get(&id)
-                        .is_none_or(|previous| previous.elapsed() >= Duration::from_secs(2));
                     match decode_osc(packet) {
                         Some((combined_look, left_look, right_look, combined_openness)) => {
-                            if log_this_packet {
-                                eprintln!(
-                                    "[XREyeTracking] {description}: combined={combined_look:?}, left={left_look:?}, right={right_look:?}, openness={combined_openness:?}"
-                                );
-                                self.last_standard_log.insert(id, Instant::now());
-                            }
                             let sample = self.standard_samples.entry(id).or_default();
                             if combined_look.is_some() {
                                 sample.combined_look = combined_look;
@@ -87,10 +82,6 @@ impl XREyeTrackingSystem {
                                 sample.combined_openness = combined_openness;
                             }
                             received_update = true;
-                        }
-                        None if log_this_packet => {
-                            eprintln!("[XREyeTracking] ignored {description} ({len} bytes)");
-                            self.last_standard_log.insert(id, Instant::now());
                         }
                         None => {}
                     }
@@ -123,14 +114,24 @@ impl XREyeTrackingSystem {
             })
             .collect();
         self.htc_sockets.retain(|id, _| ids.contains(id));
+        self.failed_htc_binds.retain(|id| ids.contains(id));
         for id in ids {
             let c = world
                 .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
                 .unwrap();
             if !self.htc_sockets.contains_key(&id) {
-                if let Ok(s) = UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
-                    let _ = s.set_nonblocking(true);
-                    self.htc_sockets.insert(id, s);
+                match UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
+                    Ok(s) => {
+                        let _ = s.set_nonblocking(true);
+                        self.failed_htc_binds.remove(&id);
+                        eprintln!("[XREyeTrackingHTC] listening on {}:{}", c.host, c.port);
+                        self.htc_sockets.insert(id, s);
+                    }
+                    Err(error) => {
+                        if self.failed_htc_binds.insert(id) {
+                            eprintln!("[XREyeTrackingHTC] cannot bind {}:{}: {error}", c.host, c.port);
+                        }
+                    }
                 }
             }
             if let Some(s) = self.htc_sockets.get(&id) {
@@ -228,10 +229,6 @@ fn look_from_pitch_yaw(pitch_deg: f32, yaw_deg: f32) -> Look {
         -pitch.sin(),
         -yaw.cos() * pitch.cos(),
     ]
-}
-fn osc_description(packet: &[u8]) -> Option<&str> {
-    let mut offset = 0;
-    osc_str(packet, &mut offset)
 }
 fn osc_str<'a>(b: &'a [u8], i: &mut usize) -> Option<&'a str> {
     let end = b.get(*i..)?.iter().position(|&x| x == 0)? + *i;
