@@ -8,6 +8,9 @@ Depends on: [Compute-cached mesh deformation](compute-cached-mesh-deformation.md
 
 First renderer slice: [Morph deformation cache plumbing](morph-deformation-cache-plumbing.md)
 
+Current implementation tracker: [Wire imported morph factors into shared
+rendering](morph-renderer-wiring-checklist.md)
+
 Example control follow-up:
 [Manual animation keyframe stepping and XR slide controls](manual-animation-keyframe-stepping-and-xr-slide-controls.md)
 
