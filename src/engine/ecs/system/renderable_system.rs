@@ -19,6 +19,8 @@ use crate::engine::graphics::{MeshUploader, RenderAssets};
 use crate::engine::user_input::InputState;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 /// System that registers/updates renderables in the `VisualWorld`.
 ///
@@ -79,6 +81,55 @@ pub struct RenderableSystem {
     /// Consumed in `flush_pending` where `RenderAssets` is available.
     /// Tuple: (normal_vis_component_id, parent_renderable_id, base_mesh_handle, thickness)
     pending_normal_vis: Vec<(ComponentId, ComponentId, CpuMeshHandle, f32)>,
+
+    morph_binding_profile: MorphBindingProfile,
+}
+
+#[derive(Debug, Default)]
+struct MorphBindingProfile {
+    frames: u64,
+    elapsed: Duration,
+    renderables: u64,
+    child_ids: u64,
+    bindings: u64,
+    factor_entries: u64,
+}
+
+impl MorphBindingProfile {
+    fn record(
+        &mut self,
+        elapsed: Duration,
+        renderables: usize,
+        child_ids: usize,
+        bindings: usize,
+        factor_entries: usize,
+    ) {
+        self.frames += 1;
+        self.elapsed += elapsed;
+        self.renderables += renderables as u64;
+        self.child_ids += child_ids as u64;
+        self.bindings += bindings as u64;
+        self.factor_entries += factor_entries as u64;
+        if self.frames < 360 { return; }
+        let frames = self.frames as f64;
+        eprintln!(
+            "[ImportedBindingProfile][morph] frames={} cpu_ms_per_frame={:.4} renderables_per_frame={:.1} child_ids_per_frame={:.1} bindings_per_frame={:.1} factor_entries_per_frame={:.1}",
+            self.frames,
+            self.elapsed.as_secs_f64() * 1000.0 / frames,
+            self.renderables as f64 / frames,
+            self.child_ids as f64 / frames,
+            self.bindings as f64 / frames,
+            self.factor_entries as f64 / frames,
+        );
+        *self = Self::default();
+    }
+}
+
+fn imported_binding_profile_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("CAT_PROFILE_IMPORTED_BINDINGS").ok().is_some_and(|value| {
+        matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    }))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1392,12 +1443,23 @@ impl System for RenderableSystem {
         _input: &InputState,
         _dt_sec: f32,
     ) {
+        let profile = imported_binding_profile_enabled();
+        let started = profile.then(Instant::now);
+        let mut child_ids = 0;
+        let mut bindings = 0;
+        let mut factor_entries = 0;
         for renderable in self.renderables.iter().copied() {
-            let binding = world.children_of(renderable).iter().copied().find_map(|child|
-                world.get_component_by_id_as::<MorphTargetBindingComponent>(child).copied());
+            let binding = world.children_of(renderable).iter().copied().find_map(|child| {
+                if profile { child_ids += 1; }
+                world.get_component_by_id_as::<MorphTargetBindingComponent>(child).copied()
+            });
             let Some(binding) = binding else { continue; };
+            if profile { bindings += 1; }
             let active = world.get_component_by_id_as::<GLTFComponent>(binding.gltf)
-                .map(|gltf| active_factors(gltf.morph_factors.iter()))
+                .map(|gltf| {
+                    if profile { factor_entries += gltf.morph_factors.len(); }
+                    active_factors(gltf.morph_factors.iter())
+                })
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|(key, weight)| {
@@ -1406,6 +1468,11 @@ impl System for RenderableSystem {
                 })
                 .collect();
             let _ = visuals.set_active_morphs(renderable, active);
+        }
+        if let Some(started) = started {
+            self.morph_binding_profile.record(
+                started.elapsed(), self.renderables.len(), child_ids, bindings, factor_entries,
+            );
         }
     }
 }

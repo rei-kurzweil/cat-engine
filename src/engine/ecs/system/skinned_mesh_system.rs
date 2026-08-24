@@ -11,6 +11,8 @@ use crate::engine::graphics::primitives::TransformMatrix;
 use crate::engine::user_input::InputState;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct BindingKey {
@@ -43,6 +45,54 @@ pub struct SkinnedMeshSystem {
     // Stored as Option so we can keep alignment with the skin's joint order even
     // if a joint node wasn't spawned.
     instance_joints: HashMap<(ComponentId, SkinId), Vec<Option<ComponentId>>>,
+    binding_profile: SkinBindingProfile,
+}
+
+#[derive(Debug, Default)]
+struct SkinBindingProfile {
+    frames: u64,
+    scan_elapsed: Duration,
+    index_elapsed: Duration,
+    world_components: u64,
+    skinned_components: u64,
+    bindings: u64,
+}
+
+impl SkinBindingProfile {
+    fn record(
+        &mut self,
+        scan_elapsed: Duration,
+        index_elapsed: Duration,
+        world_components: usize,
+        skinned_components: usize,
+        bindings: usize,
+    ) {
+        self.frames += 1;
+        self.scan_elapsed += scan_elapsed;
+        self.index_elapsed += index_elapsed;
+        self.world_components += world_components as u64;
+        self.skinned_components += skinned_components as u64;
+        self.bindings += bindings as u64;
+        if self.frames < 360 { return; }
+        let frames = self.frames as f64;
+        eprintln!(
+            "[ImportedBindingProfile][skin] frames={} scan_ms_per_frame={:.4} index_ms_per_frame={:.4} world_components_per_frame={:.1} skinned_components_per_frame={:.1} bindings_per_frame={:.1}",
+            self.frames,
+            self.scan_elapsed.as_secs_f64() * 1000.0 / frames,
+            self.index_elapsed.as_secs_f64() * 1000.0 / frames,
+            self.world_components as f64 / frames,
+            self.skinned_components as f64 / frames,
+            self.bindings as f64 / frames,
+        );
+        *self = Self::default();
+    }
+}
+
+fn imported_binding_profile_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("CAT_PROFILE_IMPORTED_BINDINGS").ok().is_some_and(|value| {
+        matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    }))
 }
 
 impl SkinnedMeshSystem {
@@ -322,6 +372,7 @@ impl System for SkinnedMeshSystem {
         _input: &InputState,
         _dt_sec: f32,
     ) {
+        let profile = imported_binding_profile_enabled();
         let debug_skin_apply = std::env::var("CAT_DEBUG_SKIN_APPLY")
             .ok()
             .map(|s| {
@@ -332,16 +383,29 @@ impl System for SkinnedMeshSystem {
 
         static APPLY_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+        let scan_started = profile.then(Instant::now);
+        let mut world_components = 0;
         let skinned: Vec<ComponentId> = world
             .all_components()
             .filter(|&cid| {
+                if profile { world_components += 1; }
                 world
                     .get_component_by_id_as::<SkinnedMeshComponent>(cid)
                     .is_some()
             })
             .collect();
 
+        let index_started = profile.then(Instant::now);
         let binding_to_renderables = self.rebuild_indices(&*world, &skinned);
+        if let (Some(scan_started), Some(index_started)) = (scan_started, index_started) {
+            self.binding_profile.record(
+                index_started.duration_since(scan_started),
+                index_started.elapsed(),
+                world_components,
+                skinned.len(),
+                binding_to_renderables.len(),
+            );
+        }
 
         // Mark newly discovered bindings dirty so they get an initial palette upload.
         for &binding in binding_to_renderables.keys() {
