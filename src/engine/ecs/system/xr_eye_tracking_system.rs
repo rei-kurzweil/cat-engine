@@ -252,7 +252,8 @@ pub fn decode_osc(
             None,
             None,
             None,
-            Some((1.0 - scalar(&mut i)?).clamp(0.0, 1.0)),
+            // VRChat Eye OSC reports closure directly: 0 = open, 1 = closed.
+            Some(scalar(&mut i)?.clamp(0.0, 1.0)),
         )),
         ("/tracking/eye/CenterVec", ",fff") => Some((
             Some([scalar(&mut i)?, scalar(&mut i)?, scalar(&mut i)?]),
