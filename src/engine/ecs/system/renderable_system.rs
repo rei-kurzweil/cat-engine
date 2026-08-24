@@ -6,6 +6,8 @@ use crate::engine::ecs::component::{
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
     RendererSettingsComponent, TransparentCutoutComponent, UVComponent,
 };
+use crate::engine::ecs::component::{GLTFComponent, MorphTargetBindingComponent};
+use crate::engine::ecs::component::morph_target::active_factors;
 
 use crate::engine::ecs::World;
 use crate::engine::ecs::system::System;
@@ -1385,18 +1387,26 @@ fn cache_resolved_mesh_bounds(
 impl System for RenderableSystem {
     fn tick(
         &mut self,
-        _world: &mut World,
-        _visuals: &mut VisualWorld,
+        world: &mut World,
+        visuals: &mut VisualWorld,
         _input: &InputState,
         _dt_sec: f32,
     ) {
-        // Intentionally a no-op for now.
-        //
-        // Per your architecture: VisualWorld registration happens at component registration time
-        // (RenderableComponent::init -> SystemWorld::register_renderable -> RenderableSystem::register_renderable).
-        //
-        // Later, tick() can be used for per-frame sync (transform updates, material changes, etc.)
-        // once we decide how to represent those components and what events/dirty flags we have.
+        for renderable in self.renderables.iter().copied() {
+            let binding = world.children_of(renderable).iter().copied().find_map(|child|
+                world.get_component_by_id_as::<MorphTargetBindingComponent>(child).copied());
+            let Some(binding) = binding else { continue; };
+            let active = world.get_component_by_id_as::<GLTFComponent>(binding.gltf)
+                .map(|gltf| active_factors(gltf.morph_factors.iter()))
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|(key, weight)| {
+                    (key.node_index == binding.node_index && key.primitive_index == binding.primitive_index)
+                        .then_some((key.target_index as u32, weight))
+                })
+                .collect();
+            let _ = visuals.set_active_morphs(renderable, active);
+        }
     }
 }
 

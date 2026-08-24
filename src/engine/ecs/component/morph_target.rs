@@ -23,6 +23,30 @@ pub struct MorphTargetInfo {
     pub base_factor: f32,
 }
 
+/// Connects one imported primitive renderable to its owning glTF instance.
+/// Target indices are intentionally structural, never inferred from labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MorphTargetBindingComponent {
+    pub gltf: ComponentId,
+    pub node_index: usize,
+    pub primitive_index: usize,
+}
+impl MorphTargetBindingComponent {
+    pub fn new(gltf: ComponentId, node_index: usize, primitive_index: usize) -> Self {
+        Self { gltf, node_index, primitive_index }
+    }
+}
+impl Component for MorphTargetBindingComponent {
+    fn name(&self) -> &'static str { "morph_target_binding" }
+    fn set_id(&mut self, _: ComponentId) {}
+    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    fn init(&mut self, _: &mut dyn SignalEmitter, _: ComponentId) {}
+    fn to_mms_ast(&self, _: &crate::engine::ecs::World) -> crate::scripting::ast::ComponentExpression {
+        crate::engine::ecs::component::ce_helpers::ce_call("MorphTargetBinding", "new", vec![])
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MorphFactorState {
     pub base: f32,

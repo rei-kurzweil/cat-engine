@@ -177,7 +177,7 @@ pub use html_element::{ElementType, HtmlElementComponent};
 pub use http_client::HttpClientComponent;
 pub use http_server::HttpServerComponent;
 pub use humanoid_bone_map::{AuthoredSlot, HumanoidBoneMapComponent, HumanoidSlot};
-pub use morph_target::{MorphFactorState, MorphTargetInfo, MorphTargetKey, MorphTargetMapComponent};
+pub use morph_target::{MorphFactorState, MorphTargetBindingComponent, MorphTargetInfo, MorphTargetKey, MorphTargetMapComponent};
 pub use ik_chain::{IKChainComponent, IKSolver};
 pub use input::InputComponent;
 pub use input_transform_mode::{ForwardAxis, InputTransformModeComponent, RollAxis};

@@ -346,6 +346,7 @@ mod vulkano_backend {
         #[allow(dead_code)]
         pub deformation_base: Option<u32>,
         pub deformation_skin_base: Option<u32>,
+        pub morph_delta_base: Option<u32>,
         pub vertex_count: u32,
         #[allow(dead_code)]
         pub indices: Subbuffer<[u32]>,
@@ -497,8 +498,10 @@ mod vulkano_backend {
         deformation_pipeline: Arc<ComputePipeline>,
         deformation_base_cpu: Vec<GpuBaseDeformationVertex>,
         deformation_skin_cpu: Vec<GpuDeformationSkinVertex>,
+        deformation_morph_cpu: Vec<GpuMorphDelta>,
         deformation_base_buffer: Option<Subbuffer<[GpuBaseDeformationVertex]>>,
         deformation_skin_buffer: Option<Subbuffer<[GpuDeformationSkinVertex]>>,
+        deformation_morph_buffer: Option<Subbuffer<[GpuMorphDelta]>>,
         deformation_bones_buffer: Option<Subbuffer<[GpuMat4]>>,
         deformation_output_buffer: Option<Subbuffer<[GpuDeformedVertex]>>,
         deformation_output_capacity: u32,
@@ -1876,8 +1879,10 @@ mod vulkano_backend {
                 deformation_pipeline,
                 deformation_base_cpu: Vec::new(),
                 deformation_skin_cpu: Vec::new(),
+                deformation_morph_cpu: Vec::new(),
                 deformation_base_buffer: None,
                 deformation_skin_buffer: None,
+                deformation_morph_buffer: None,
                 deformation_bones_buffer: None,
                 deformation_output_buffer: None,
                 deformation_output_capacity: 0,
@@ -3222,7 +3227,8 @@ mod vulkano_backend {
             }
 
             let mut jobs = Vec::new();
-            for instance in visual_world.instances() {
+            let mut active_morphs = Vec::new();
+            for (instance_index, instance) in visual_world.instances().iter().enumerate() {
                 if !instance.deformation_dirty || instance.deformed_count == 0 {
                     continue;
                 }
@@ -3234,6 +3240,17 @@ mod vulkano_backend {
                 else {
                     continue;
                 };
+                let active_morph_base = active_morphs.len() as u32;
+                if let Some(morph_delta_base) = mesh.morph_delta_base {
+                    for &(target_index, weight) in visual_world.active_morphs(instance_index) {
+                        if (target_index as usize) < (self.deformation_morph_cpu.len() / mesh.vertex_count as usize) {
+                            active_morphs.push(GpuActiveMorph {
+                                delta_base: morph_delta_base + target_index * mesh.vertex_count,
+                                weight,
+                            });
+                        }
+                    }
+                }
                 let skin_start = skin_vertex as usize;
                 let skin_end = skin_start + mesh.vertex_count as usize;
                 if self.deformation_skin_cpu[skin_start..skin_end]
@@ -3254,8 +3271,8 @@ mod vulkano_backend {
                     vertex_count: instance.deformed_count,
                     bones_base: instance.bones_base,
                     bones_count: instance.bones_count,
-                    active_morph_base: 0,
-                    active_morph_count: 0,
+                    active_morph_base,
+                    active_morph_count: active_morphs.len() as u32 - active_morph_base,
                 });
             }
             let workgroups = build_workgroups(&jobs);
@@ -3278,6 +3295,18 @@ mod vulkano_backend {
                 .as_ref()
                 .ok_or("missing global skin deformation arena")?
                 .clone();
+            // Vulkan storage buffers cannot be zero-length. The zero record is
+            // never read when every job has an empty active range.
+            let morph_upload: Vec<_> = if self.deformation_morph_cpu.is_empty() {
+                vec![GpuMorphDelta::default()]
+            } else {
+                self.deformation_morph_cpu.clone()
+            };
+            let active_morph_upload: Vec<_> = if active_morphs.is_empty() {
+                vec![GpuActiveMorph::default()]
+            } else {
+                active_morphs
+            };
             let morph_staging = Buffer::from_iter(
                 memory_allocator.clone(),
                 BufferCreateInfo {
@@ -3289,7 +3318,7 @@ mod vulkano_backend {
                         | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                     ..Default::default()
                 },
-                [GpuMorphDelta::default()],
+                morph_upload.iter().copied(),
             )?;
             let morph_buffer = Buffer::new_slice::<GpuMorphDelta>(
                 memory_allocator.clone(),
@@ -3301,7 +3330,7 @@ mod vulkano_backend {
                     memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
                     ..Default::default()
                 },
-                1,
+                morph_upload.len() as DeviceSize,
             )?;
             cbb.copy_buffer(CopyBufferInfo::buffers(morph_staging, morph_buffer.clone()))?;
             let active_morph_staging = Buffer::from_iter(
@@ -3315,7 +3344,7 @@ mod vulkano_backend {
                         | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                     ..Default::default()
                 },
-                [GpuActiveMorph::default()],
+                active_morph_upload.iter().copied(),
             )?;
             let active_morph_buffer = Buffer::new_slice::<GpuActiveMorph>(
                 memory_allocator.clone(),
@@ -3327,7 +3356,7 @@ mod vulkano_backend {
                     memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
                     ..Default::default()
                 },
-                1,
+                active_morph_upload.len() as DeviceSize,
             )?;
             cbb.copy_buffer(CopyBufferInfo::buffers(
                 active_morph_staging,
@@ -5017,6 +5046,7 @@ mod vulkano_backend {
             )?;
 
             let mut deformation_replacement = None;
+            let mut morph_replacement = None;
             let (deformation_base, deformation_skin_base) =
                 if let Some((base_vertices, skin_vertices)) = deformation_upload {
                     if self.deformation_base_buffer.is_some() {
@@ -5085,6 +5115,29 @@ mod vulkano_backend {
                 } else {
                     (None, None)
                 };
+            let morph_delta_base = if deformation_base.is_some() && !mesh.morph_targets.is_empty() {
+                let base = self.deformation_morph_cpu.len() as u32;
+                for target in &mesh.morph_targets {
+                    for (position_delta, normal_delta) in target.position_deltas.iter().zip(&target.normal_deltas) {
+                        self.deformation_morph_cpu.push(GpuMorphDelta {
+                            position_delta: [position_delta[0], position_delta[1], position_delta[2], 0.0],
+                            normal_delta: [normal_delta[0], normal_delta[1], normal_delta[2], 0.0],
+                        });
+                    }
+                }
+                let src = Buffer::from_iter(
+                    memory_allocator.clone(), BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
+                    AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() },
+                    self.deformation_morph_cpu.iter().copied(),
+                )?;
+                let dst = Buffer::new_slice::<GpuMorphDelta>(
+                    memory_allocator.clone(), BufferCreateInfo { usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST, ..Default::default() },
+                    AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::PREFER_DEVICE, ..Default::default() },
+                    self.deformation_morph_cpu.len() as DeviceSize,
+                )?;
+                morph_replacement = Some((src, dst));
+                Some(base)
+            } else { None };
 
             // Copy staging -> device-local.
             let mut cbb = AutoCommandBufferBuilder::primary(
@@ -5107,6 +5160,9 @@ mod vulkano_backend {
                     skin_dst_global.clone(),
                 ))?;
             }
+            if let Some((src, dst)) = morph_replacement.as_ref() {
+                cbb.copy_buffer(CopyBufferInfo::buffers(src.clone(), dst.clone()))?;
+            }
 
             let cb = cbb.build()?;
 
@@ -5118,6 +5174,9 @@ mod vulkano_backend {
                 self.deformation_base_buffer = Some(base_dst);
                 self.deformation_skin_buffer = Some(skin_dst_global);
             }
+            if let Some((_, morph_dst)) = morph_replacement {
+                self.deformation_morph_buffer = Some(morph_dst);
+            }
 
             self.meshes.insert(
                 handle,
@@ -5125,6 +5184,7 @@ mod vulkano_backend {
                     vertices: vertices_dst,
                     deformation_base,
                     deformation_skin_base,
+                    morph_delta_base,
                     vertex_count: mesh.vertices.len() as u32,
                     indices: indices_dst,
                     index_count: mesh.index_count(),

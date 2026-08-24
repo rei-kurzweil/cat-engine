@@ -1,5 +1,5 @@
 use crate::engine::ecs::component::{
-    ColorComponent, EmissiveComponent, GLTFComponent, MeshComponent, RenderableComponent,
+    ColorComponent, EmissiveComponent, GLTFComponent, MeshComponent, MorphTargetBindingComponent, RenderableComponent,
     SerializeComponent, SkinnedMeshComponent, TextureComponent, TransformComponent,
 };
 use crate::engine::ecs::{
@@ -385,6 +385,7 @@ impl GLTFSystem {
             for node in scene.nodes() {
                 let root = self.spawn_node_recursive(
                     world,
+                    cid,
                     anchor_transform,
                     &buffers,
                     loaded,
@@ -998,6 +999,7 @@ impl GLTFSystem {
     fn spawn_node_recursive(
         &self,
         world: &mut World,
+        gltf_component: ComponentId,
         parent_transform: ComponentId,
         buffers: &[gltf::buffer::Data],
         loaded: &LoadedGltf,
@@ -1072,6 +1074,12 @@ impl GLTFSystem {
 
                 let _ = world.add_child(this_transform, renderable);
                 let _ = world.add_child(renderable, mesh_ref);
+                if prim.morph_targets().next().is_some() {
+                    let binding = world.add_component(MorphTargetBindingComponent::new(
+                        gltf_component, node.index(), prim_index,
+                    ));
+                    let _ = world.add_child(renderable, binding);
+                }
 
                 if let Some(skin_index) = node_skin_index {
                     if loaded.skins.get(skin_index).is_some() {
@@ -1165,6 +1173,7 @@ impl GLTFSystem {
         for ch in node.children() {
             let _ = self.spawn_node_recursive(
                 world,
+                gltf_component,
                 this_transform,
                 buffers,
                 loaded,

@@ -166,6 +166,7 @@ pub struct VisualWorld {
     next_handle: u32,
     handle_to_index: std::collections::HashMap<InstanceHandle, usize>,
     component_to_handle: std::collections::HashMap<ComponentId, InstanceHandle>,
+    morph_inputs: Vec<Vec<(u32, f32)>>,
 
     // Cached draw data (rebuilt when dirty)
     dirty_draw_cache: bool,
@@ -331,6 +332,7 @@ impl Default for VisualWorld {
             next_handle: 0,
             handle_to_index: std::collections::HashMap::new(),
             component_to_handle: std::collections::HashMap::new(),
+            morph_inputs: Vec::new(),
 
             dirty_draw_cache: true,
             dirty_instance_data: true,
@@ -381,6 +383,21 @@ impl VisualWorld {
     pub fn instance(&self, handle: InstanceHandle) -> Option<&VisualInstance> {
         let idx = *self.handle_to_index.get(&handle)?;
         self.instances.get(idx)
+    }
+
+    pub fn active_morphs(&self, instance_index: usize) -> &[(u32, f32)] {
+        self.morph_inputs.get(instance_index).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Updates one instance's sparse morph palette input and invalidates only
+    /// that cached deformation when the effective values actually changed.
+    pub fn set_active_morphs(&mut self, cid: ComponentId, active_morphs: Vec<(u32, f32)>) -> bool {
+        let Some(&handle) = self.component_to_handle.get(&cid) else { return false; };
+        let Some(&idx) = self.handle_to_index.get(&handle) else { return false; };
+        if self.morph_inputs.get(idx).is_some_and(|current| *current == active_morphs) { return true; }
+        self.morph_inputs[idx] = active_morphs;
+        self.instances[idx].deformation_dirty = true;
+        true
     }
 
     pub fn skin(&self, id: SkinId) -> Option<&Skin> {
@@ -3027,6 +3044,7 @@ impl VisualWorld {
         });
         self.handle_to_index.insert(handle, idx);
         self.component_to_handle.insert(cid, handle);
+        self.morph_inputs.push(Vec::new());
 
         self.dirty_draw_cache = true;
         self.dirty_instance_data = true;
