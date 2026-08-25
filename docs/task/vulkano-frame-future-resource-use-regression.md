@@ -137,7 +137,7 @@ Keep the scene, window size, GPU, and frame count fixed. Record whether it reach
 presented window frames without a validation error.
 
 If practical, automate the revision comparison with a dedicated non-XR example and use
-`scripts/compare_render_stream_revisions.sh` or a similarly isolated worktree runner. Do not
+`examples/scripts/compare_render_stream_revisions.sh` or a similarly isolated worktree runner. Do not
 judge the result from whether the avatar looks correct; the gate is Vulkan validation and stable
 presentation.
 

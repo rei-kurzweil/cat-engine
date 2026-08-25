@@ -174,7 +174,7 @@ Window smoke validation on 2026-07-24:
 Revision-comparison measurement on 2026-07-25:
 
 - Probe: `tests/renderer_optimization_profile.rs`, run by
-  `scripts/compare_render_stream_revisions.sh` in separate detached worktrees and separate Cargo
+  `examples/scripts/compare_render_stream_revisions.sh` in separate detached worktrees and separate Cargo
   target directories.
 - Revisions: `65ce0cb` before the refactor and `89d1526` after it.
 - Workload: release build, 2,048 synthetic instances distributed evenly across opaque, cutout,

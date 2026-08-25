@@ -15,7 +15,8 @@ pub fn ensure_model_assets() {
         return;
     }
 
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/download-model-assets.sh");
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/scripts/download-model-assets.sh");
     if !script.is_file() {
         eprintln!(
             "[example-assets] no .glb files found in assets/models, and downloader script is missing: {}",

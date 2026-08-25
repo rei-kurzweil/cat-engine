@@ -42,7 +42,7 @@ and [generic REPL migration](docs/task/mms-repl-navigation-and-cat-unification.m
 - Large `.glb` model assets are omitted from the crates.io package. Every example
   calls `mittens_engine::example_support::ensure_model_assets()` before scene
   setup; if `assets/models` contains no `.glb` files, it runs
-  `scripts/download-model-assets.sh` to fetch the example model bundle from
+  `examples/scripts/download-model-assets.sh` to fetch the example model bundle from
   GitHub. Run the script manually to prefetch models. Set
   `MITTENS_MODEL_ASSET_BASE_URL` to override the download source.
 
