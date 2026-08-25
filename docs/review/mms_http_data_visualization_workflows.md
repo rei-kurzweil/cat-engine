@@ -1,6 +1,6 @@
 # MMS-only HTTP data-visualization workflows
 
-Date: 2026-08-24  
+Date: 2026-08-25
 Status: review of the current implementation; no source changes proposed here.
 
 ## Scope and conclusion
@@ -11,15 +11,21 @@ Rust application code.  The checked-in
 [`examples/http-server-example.mms`](../../examples/http-server-example.mms)
 already demonstrates the HTTP event and a live `Text.set_text` update.
 
-Both visualization strategies considered below are possible today:
+Scenario A is the primary workflow for interactively testing MMS JSON support
+without any HTTP server or replay harness:
 
-1. create and attach one visual subtree for each request; or
-2. retain request-derived state and replace the visualization subtree from the
-   complete retained dataset on each request.
+1. synchronously read a JSON fixture file;
+2. parse it into an array of integer records; and
+3. create and attach one labeled bar subtree for each record.
 
-The second strategy is viable for small demonstrations, but it lacks a native
-mutable, ordered collection and a one-call child-clear operation.  That is the
-main MMS authoring gap this review identifies.
+Scenario B is the unbounded HTTP version: each POST adds one integer and one
+bar. Scenario C extends it with a bounded rolling window: each POST adds a bar
+and removes the historic sample/bar that falls outside the window.
+
+The present MMS API lacks the `JSON` table and synchronous file read needed for
+Scenario A. It also lacks the mutable ordered-list operations needed for
+Scenario C. Those are deliberate gaps to document; this review does not hide
+them behind a count-only workaround.
 
 ## Established runtime facts
 
@@ -37,115 +43,221 @@ main MMS authoring gap this review identifies.
   before `on(...)` can be mutated from every later callback.  MMS table keys are
   strings; table iteration is supported.  Arrays are currently value-backed and
   do not have append, deletion, or index assignment.
+* MMS has no current JSON builtin or general synchronous file-read builtin.
+  The file-backed graph below is therefore the intended authoring shape, not a
+  claim that its `File.read_text` or `JSON.parse` calls run today.
 * Handler-issued intents are deferred until after event dispatch, then executed
   in queue order.  A handler should send its HTTP reply promptly; it should not
   depend on its new visuals having been rendered before replying.
 
-## Scenario A: event-driven component factory
+## Proposed `JSON` built-in table
 
-Use a stable, emitted mount component and a factory that returns one fresh
-component expression.  In the request handler, bind the factory result first,
-then attach that live handle to the mount.
+Add one reserved built-in table, analogous to `Math`, rather than unrelated
+numeric and JSON conversion functions:
+
+| MMS call | Result | Error condition |
+| --- | --- | --- |
+| `JSON.parse(text)` | MMS value: table, array, string, number, bool, or `null` | invalid JSON text |
+| `JSON.stringify(value)` | JSON string | functions, component handles, cycles, or other non-JSON MMS values |
+
+`JSON.parse` maps JSON objects to heap-backed MMS tables and JSON arrays to MMS
+arrays. It therefore makes the intended HTTP contract direct and readable:
 
 ```mms
-let marks = T { name = "request_marks" }
-marks
+let record = JSON.parse(req.body_text)
+let value = record.value
+```
 
-fn make_mark(req, y) {
-    T.position(0.0, y, 0.0) {
-        R.sphere() { C.rgba(0.25, 0.8, 1.0, 1.0) }
-        Text { req.method + " " + req.path }
+No separate `parse_number` builtin is needed: a JSON number is already an MMS
+number after `JSON.parse`. The table should have typed parse/stringify errors,
+not return `null` silently on invalid input.
+
+## Proposed `File` built-in table
+
+Scenario A also needs one deliberately small, synchronous file API:
+
+| MMS call | Result | Error condition |
+| --- | --- | --- |
+| `File.read_text(path)` | UTF-8 string | missing, unreadable, non-UTF-8, or sandbox-disallowed path |
+
+It should be restricted to the MMS asset/project roots selected by the host; it
+is not arbitrary filesystem authority. The complete JSON test input is then
+plain and interactive: `JSON.parse(File.read_text(path))`.
+
+## Scenario A: synchronous JSON-file bar graph
+
+Use a JSON fixture such as `examples/data/bar-samples.json`, containing
+`[{"value": 4}, {"value": 12}, {"value": 7}]`. The script reads it once,
+parses the record array, and builds the complete graph. Each column is an
+inline-block layout item so bars flow beside one another; inside it, the value
+label and bar are block elements. The cube is scaled into a rectangular prism
+whose height is proportional to the sample value.
+
+`File.read_text` and `JSON.parse` below name the missing MMS operations
+explicitly. They define the desired no-Rust authoring experience.
+
+```mms
+let chart = T {
+    LayoutRoot {
+        available_width(20.0wu)
+        available_height(10.0wu)
+        T {
+            name = "bar_chart"
+            Style {
+                display("block")
+                width(20.0wu)
+            }
+        }
+    }
+}
+chart
+let bars = query("#bar_chart")
+
+fn make_bar(value) {
+    let height = value * 0.05
+    return T {
+        Style {
+            display("inline-block")
+            width(0.5wu)
+            vertical_align("bottom")
+        }
+        Text {
+            "" + value
+            Style { display("block") }
+        }
+        T.position(0.0, height / 2.0, 0.0).scale(0.4, height, 0.4) {
+            Style { display("block") }
+            R.cube() { C.rgba(0.25, 0.8, 1.0, 1.0) }
+        }
     }
 }
 
-let state = { next_y = 0.0 }
+let text = File.read_text("examples/data/bar-samples.json") // absent today
+let records = JSON.parse(text)                               // absent today
+for record in records {
+    let value = record.value
+    let bar = make_bar(value)
+    bars.attach(bar)
+}
+```
+
+`let bar = ...` makes the allocation and attachment lifecycle clear: binding
+the component expression registers it and produces the live handle required by
+`bars.attach(bar)`.  A factory with an explicit `return` is also promoted to a
+live component object at its call boundary, so `bars.attach(make_bar(value))`
+is a valid shorter form in the current evaluator.
+
+The current engine supports the live-component part of this flow: bind a
+factory result, then attach it. Scenario A does not need mutable runtime state,
+HTTP, or a client launcher. It is the first interactive test for the `JSON`
+and `File` built-in tables.
+
+## Scenario B: unbounded, event-driven HTTP bar graph
+
+Each accepted POST parses one integer record, appends it to the logical sample
+list, and attaches one labeled bar. This is intentionally unbounded and is the
+direct HTTP counterpart to Scenario A.
+
+```mms
+let bars = T {
+    name = "bar_chart"
+    LayoutRoot { available_width(20.0wu) available_height(10.0wu) }
+}
+bars
+
+let state = {
+    samples = []
+}
+
+fn make_bar(value) {
+    let height = value * 0.05
+    return T {
+        Style { display("inline-block") width(0.5wu) vertical_align("bottom") }
+        Text { "" + value Style { display("block") } }
+        T.position(0.0, height / 2.0, 0.0).scale(0.4, height, 0.4) {
+            Style { display("block") }
+            R.cube() { C.rgba(1.0, 0.55, 0.25, 1.0) }
+        }
+    }
+}
+
 let server = HttpServer.bind("127.0.0.1:7000") {}
 server
 
 on(server, "HttpRequest", fn(req) {
-    let mark = make_mark(req, state.next_y)
-    marks.attach(mark)
-    state.next_y = state.next_y - 0.35
+    if req.method != "POST" {
+        server.reply_text(req, 405, "POST only\n")
+        return
+    }
+
+    let record = JSON.parse(req.body_text)  // required JSON table; absent today
+    let value = record.value
+    state.samples.push(value)               // required mutable-list API; absent today
+    let bar = make_bar(value)
+    bars.attach(bar)
+
     server.reply_text(req, 202, "accepted\n")
 })
 ```
 
-`let mark = ...` is significant: binding the component expression registers it
-and produces the live handle required by `marks.attach(mark)`.  Do not assume
-that `marks.attach(make_mark(...))` implicitly registers the factory result;
-the component-method argument is validated as a component handle.
+Every request retains its sample and bar. The chart is therefore useful for
+proving the handler/factory/attachment path, but its world and sample list grow
+without bound.
 
-This supports an event-driven component factory today.  If the visualization
-needs unbounded history, it also needs a retention policy (for example, remove
-an old child before attaching a new one) to avoid unbounded scene growth.
+## Scenario C: rolling-window, event-driven HTTP bar graph
 
-## Scenario B: retain data, then rebuild the visualization
-
-Use a heap-backed table as mutable state.  Store rows under string keys (an HTTP
-request id can be converted with `"" + req.request_id`), preserve a row count,
-remove the previously rendered children, then attach fresh factory results.
+Use Scenario B's chart, server, and `make_bar` factory, but give its state a
+window size and remove the oldest sample and visual after adding each new one.
+The list and the direct child order remain oldest-to-newest.
 
 ```mms
-let chart_mount = T { name = "chart_mount" }
-chart_mount
+let state = { samples = [], window_size = 32 }
 
-let state = { rows = {}, rendered = 0 }
-
-fn make_bar(row) {
-    T.position(row.x, row.y, 0.0) {
-        R.cube() { C.rgba(1.0, 0.55, 0.25, 1.0) }
-    }
-}
-
-fn redraw() {
-    // Removing index 0 repeatedly clears the current direct-child list.
-    for ignored in range(state.rendered) {
-        chart_mount.remove_child(0)
-    }
-
-    let rendered = 0
-    for entry in state.rows {
-        let visual = make_bar(entry.value)
-        chart_mount.attach(visual)
-        rendered = rendered + 1
-    }
-    state.rendered = rendered
-}
-
-let server = HttpServer.bind("127.0.0.1:7000") {}
-server
 on(server, "HttpRequest", fn(req) {
-    let key = "" + req.request_id
-    state.rows[key] = { x = req.request_id * 0.2, y = 0.0 }
-    redraw()
+    if req.method != "POST" {
+        server.reply_text(req, 405, "POST only\n")
+        return
+    }
+
+    let record = JSON.parse(req.body_text)  // required JSON table; absent today
+    let value = record.value
+    state.samples.push(value)               // required mutable-list API; absent today
+    let bar = make_bar(value)
+    bars.attach(bar)
+
+    if len(state.samples) > state.window_size {
+        state.samples.remove(0)             // required mutable-list API; absent today
+        // Child 0 is the oldest visual; removal schedules subtree cleanup.
+        bars.remove_child(0)
+    }
+
     server.reply_text(req, 202, "accepted\n")
 })
 ```
 
-This is a full redraw, not an in-place data renderer.  It is reasonable for an
-MMS example and a small dataset.  It is intentionally unsuitable for a high
-rate or large time-series source because it allocates and initializes a new
-visual tree for every retained row after every request.
+The attach and removal intents are deferred but maintain handler order. At
+capacity, the new bar is attached and then the existing child at index zero is
+removed, leaving `window_size` retained samples and live visual children.
+
+The `LayoutRoot`/`Style` design needs an implementation check when the example
+is added: the chart mount must lay its `inline-block`, `0.5wu`-wide columns out
+horizontally, while the label and bar inside each column lay out vertically with
+their baseline/bottom alignment behaving as intended.
 
 ## Gaps to document or address later
 
-1. **No mutable ordered collection.** MMS has heap-backed tables but no
-   `push`/`append`, array index assignment, array removal, or ordered map.  A
-   table can retain rows, but its iteration order is not a presentation-order
-   contract.  Time-series/list visualizations therefore need an explicit
-   sortable field and cannot express a reliable ordered traversal in MMS alone.
+1. **No mutable ordered collection.** MMS has heap-backed tables and a `len`
+   builtin, but no `push`/`append`, array index assignment, array removal, or
+   ordered map. The desired `state.samples` list in Scenarios B and C cannot
+   currently be implemented faithfully.  A table can retain rows, but its
+   iteration order is not a presentation-order contract.
 
-2. **No `clear_children()` / replace-children operation.** Rebuild requires
-   keeping a rendered-child count and issuing `remove_child(0)` once per child.
-   A single, deterministic `clear_children()` (or `replace_children(factory)`)
-   method would make Scenario B both safer and clearer.
+2. **No `JSON` or `File` built-in table.** MMS needs typed `JSON.parse(text)`,
+   `JSON.stringify(value)`, and restricted `File.read_text(path)`. These are
+   required for Scenario A, and `JSON.parse` is required before a posted record
+   can drive a Scenario B/C bar height and label without Rust.
 
-3. **Factory-to-attach conversion is not implicit.** A factory result needs a
-   `let` binding before `parent.attach(result)`.  This is workable but non-obvious
-   and should be called out in the component authoring documentation; an
-   explicit `spawn(factory())` expression could be considered later.
-
-4. **The public component API document omits topology methods.** `attach`,
+3. **The public component API document omits topology methods.** `attach`,
    `attach_clone`, `detach`, `remove_child`, and `remove_subtree` are runtime
    methods, but the current component API page lists neither their contracts nor
    their deferred mutation timing.  Documenting them would make the MMS-only
@@ -153,9 +265,15 @@ visual tree for every retained row after every request.
 
 ## Recommended authoring choice
 
-Start an HTTP visualization example with Scenario A when each request naturally
-maps to one marker, bar, log row, or other independent visual.  Add bounded
-retention explicitly.  Use Scenario B only where the visual genuinely depends
-on the complete dataset and the dataset is small.  Treat ordered, growing data
-and efficient whole-view replacement as MMS API work, not as Rust required for
-the basic example.
+Build the first example around Scenario A: a synchronous JSON-file bar graph.
+It exercises `File.read_text`, `JSON.parse`, JSON-table field access, layout,
+factory returns, and attachment without introducing HTTP timing or a client
+harness. Follow it with Scenario B's unbounded per-POST factory flow, then
+Scenario C's bounded rolling list and matching bounded world subtree.
+
+### Footnote: handler-return attachment context
+
+See [Dynamic component attachment from MMS handlers](mms_dynamic_component_attachment_gap.md)
+for the related question of whether a handler's returned component tree should
+be implicitly attached, and for a proposed explicit free-function vocabulary:
+`attach(child)` for a world root and `attach(parent, child)` for a child.
