@@ -27,6 +27,21 @@ Scenario A. It also lacks the mutable ordered-list operations needed for
 Scenario C. Those are deliberate gaps to document; this review does not hide
 them behind a count-only workaround.
 
+## Planned example files
+
+Before implementing the MMS or Mittens changes, reserve one MMS example per
+scenario under `examples/`:
+
+| Scenario | Planned file | Purpose | Prerequisites |
+| --- | --- | --- | --- |
+| A | `examples/data-viz-json-file.mms` | Read a JSON fixture synchronously and build the complete labeled bar graph. | `JSON` and restricted `File` built-in tables |
+| B | `examples/data-viz-http-unbounded.mms` | Accept JSON POSTs and append one labeled bar per request. | `JSON` table and mutable ordered sample list |
+| C | `examples/data-viz-http-rolling-window.mms` | Accept JSON POSTs while retaining only the newest N samples and bar subtrees. | Scenario B prerequisites plus ordered removal |
+
+These are planned filenames only. Do not add placeholder examples before their
+required MMS surfaces exist; when implemented, each should be independently
+launchable and should demonstrate only its named scenario.
+
 ## Established runtime facts
 
 * `HttpServer.bind(address)` constructs a server; `HttpRequest` handlers receive
