@@ -6723,16 +6723,6 @@ fn roundtrip_pointer_debug_enable() {
 }
 
 #[test]
-fn roundtrip_skinned_mesh() {
-    use crate::engine::ecs::component::SkinnedMeshComponent;
-    let (world, id) = roundtrip_component(SkinnedMeshComponent::new(7));
-    let got = world
-        .get_component_by_id_as::<SkinnedMeshComponent>(id)
-        .unwrap();
-    assert_eq!(got.skin_index, 7);
-}
-
-#[test]
 fn roundtrip_transform_sample_ancestor() {
     use crate::engine::ecs::component::TransformSampleAncestorComponent;
     let (world, id) = roundtrip_component(TransformSampleAncestorComponent::new().with_skip(3));

@@ -1,13 +1,13 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::component::BackgroundColorComponent;
 use crate::engine::ecs::component::OverlayComponent;
+use crate::engine::ecs::component::morph_target::active_factors;
 use crate::engine::ecs::component::{
     BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
     RendererSettingsComponent, TransparentCutoutComponent, UVComponent,
 };
 use crate::engine::ecs::component::{GLTFComponent, MorphTargetBindingComponent};
-use crate::engine::ecs::component::morph_target::active_factors;
 
 use crate::engine::ecs::World;
 use crate::engine::ecs::system::System;
@@ -18,8 +18,8 @@ use crate::engine::graphics::{GpuRenderable, VisualWorld};
 use crate::engine::graphics::{MeshUploader, RenderAssets};
 use crate::engine::user_input::InputState;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// System that registers/updates renderables in the `VisualWorld`.
@@ -82,15 +82,28 @@ pub struct RenderableSystem {
     /// Tuple: (normal_vis_component_id, parent_renderable_id, base_mesh_handle, thickness)
     pending_normal_vis: Vec<(ComponentId, ComponentId, CpuMeshHandle, f32)>,
 
+    // Importer-registered morph relationships. This intentionally mirrors the
+    // binding component while avoiding a full renderable/child graph scan each
+    // frame. The component remains the future public control surface.
+    morph_bindings: Vec<MorphBinding>,
+
     morph_binding_profile: MorphBindingProfile,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MorphBinding {
+    renderable: ComponentId,
+    component: ComponentId,
+    gltf: ComponentId,
+    node_index: usize,
+    primitive_index: usize,
 }
 
 #[derive(Debug, Default)]
 struct MorphBindingProfile {
     frames: u64,
     elapsed: Duration,
-    renderables: u64,
-    child_ids: u64,
+    binding_records: u64,
     bindings: u64,
     factor_entries: u64,
 }
@@ -99,25 +112,24 @@ impl MorphBindingProfile {
     fn record(
         &mut self,
         elapsed: Duration,
-        renderables: usize,
-        child_ids: usize,
+        binding_records: usize,
         bindings: usize,
         factor_entries: usize,
     ) {
         self.frames += 1;
         self.elapsed += elapsed;
-        self.renderables += renderables as u64;
-        self.child_ids += child_ids as u64;
+        self.binding_records += binding_records as u64;
         self.bindings += bindings as u64;
         self.factor_entries += factor_entries as u64;
-        if self.frames < 360 { return; }
+        if self.frames < 360 {
+            return;
+        }
         let frames = self.frames as f64;
         eprintln!(
-            "[ImportedBindingProfile][morph] frames={} cpu_ms_per_frame={:.4} renderables_per_frame={:.1} child_ids_per_frame={:.1} bindings_per_frame={:.1} factor_entries_per_frame={:.1}",
+            "[ImportedBindingProfile][morph] frames={} cpu_ms_per_frame={:.4} binding_records_per_frame={:.1} bindings_per_frame={:.1} factor_entries_per_frame={:.1}",
             self.frames,
             self.elapsed.as_secs_f64() * 1000.0 / frames,
-            self.renderables as f64 / frames,
-            self.child_ids as f64 / frames,
+            self.binding_records as f64 / frames,
             self.bindings as f64 / frames,
             self.factor_entries as f64 / frames,
         );
@@ -127,9 +139,16 @@ impl MorphBindingProfile {
 
 fn imported_binding_profile_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("CAT_PROFILE_IMPORTED_BINDINGS").ok().is_some_and(|value| {
-        matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
-    }))
+    *ENABLED.get_or_init(|| {
+        std::env::var("CAT_PROFILE_IMPORTED_BINDINGS")
+            .ok()
+            .is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "on" | "yes"
+                )
+            })
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -990,6 +1009,8 @@ impl RenderableSystem {
         component: ComponentId,
     ) {
         self.renderables.retain(|&c| c != component);
+        self.morph_bindings
+            .retain(|binding| binding.renderable != component);
 
         let _ = self.pending.remove(&component);
         let _ = self.pending_uv.remove(&component);
@@ -1004,6 +1025,31 @@ impl RenderableSystem {
                 let _ = visuals.remove(handle);
             }
         }
+    }
+
+    /// Register the importer-created relationship between a renderable and a
+    /// glTF primitive with morph targets. `component` remains in the ECS graph
+    /// for future explicit control APIs; the hot path uses this dense record.
+    pub fn register_morph_target_binding(
+        &mut self,
+        renderable: ComponentId,
+        component: ComponentId,
+        binding: MorphTargetBindingComponent,
+    ) {
+        if self
+            .morph_bindings
+            .iter()
+            .any(|existing| existing.component == component)
+        {
+            return;
+        }
+        self.morph_bindings.push(MorphBinding {
+            renderable,
+            component,
+            gltf: binding.gltf,
+            node_index: binding.node_index,
+            primitive_index: binding.primitive_index,
+        });
     }
 
     /// Remove a source that is represented by a CombineMesh output instead.
@@ -1445,33 +1491,55 @@ impl System for RenderableSystem {
     ) {
         let profile = imported_binding_profile_enabled();
         let started = profile.then(Instant::now);
-        let mut child_ids = 0;
         let mut bindings = 0;
         let mut factor_entries = 0;
-        for renderable in self.renderables.iter().copied() {
-            let binding = world.children_of(renderable).iter().copied().find_map(|child| {
-                if profile { child_ids += 1; }
-                world.get_component_by_id_as::<MorphTargetBindingComponent>(child).copied()
-            });
-            let Some(binding) = binding else { continue; };
-            if profile { bindings += 1; }
-            let active = world.get_component_by_id_as::<GLTFComponent>(binding.gltf)
-                .map(|gltf| {
-                    if profile { factor_entries += gltf.morph_factors.len(); }
-                    active_factors(gltf.morph_factors.iter())
-                })
-                .unwrap_or_default()
-                .into_iter()
+        let mut active_by_gltf: Vec<(
+            ComponentId,
+            Vec<(crate::engine::ecs::component::MorphTargetKey, f32)>,
+        )> = Vec::new();
+        for binding in self.morph_bindings.iter().copied() {
+            if profile {
+                bindings += 1;
+            }
+            let active = if let Some((_, active)) = active_by_gltf
+                .iter()
+                .find(|(gltf, _)| *gltf == binding.gltf)
+            {
+                active.as_slice()
+            } else {
+                let active = world
+                    .get_component_by_id_as::<GLTFComponent>(binding.gltf)
+                    .map(|gltf| {
+                        if profile {
+                            factor_entries += gltf.morph_factors.len();
+                        }
+                        active_factors(gltf.morph_factors.iter())
+                    })
+                    .unwrap_or_default();
+                active_by_gltf.push((binding.gltf, active));
+                active_by_gltf
+                    .last()
+                    .expect("just pushed active factors")
+                    .1
+                    .as_slice()
+            };
+            let active = active
+                .iter()
+                .copied()
                 .filter_map(|(key, weight)| {
-                    (key.node_index == binding.node_index && key.primitive_index == binding.primitive_index)
+                    (key.node_index == binding.node_index
+                        && key.primitive_index == binding.primitive_index)
                         .then_some((key.target_index as u32, weight))
                 })
                 .collect();
-            let _ = visuals.set_active_morphs(renderable, active);
+            let _ = visuals.set_active_morphs(binding.renderable, active);
         }
         if let Some(started) = started {
             self.morph_binding_profile.record(
-                started.elapsed(), self.renderables.len(), child_ids, bindings, factor_entries,
+                started.elapsed(),
+                self.morph_bindings.len(),
+                bindings,
+                factor_entries,
             );
         }
     }

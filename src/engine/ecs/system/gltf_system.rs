@@ -1,6 +1,6 @@
 use crate::engine::ecs::component::{
-    ColorComponent, EmissiveComponent, GLTFComponent, MeshComponent, MorphTargetBindingComponent, RenderableComponent,
-    SerializeComponent, SkinnedMeshComponent, TextureComponent, TransformComponent,
+    ColorComponent, EmissiveComponent, GLTFComponent, MeshComponent, MorphTargetBindingComponent,
+    RenderableComponent, SerializeComponent, TextureComponent, TransformComponent,
 };
 use crate::engine::ecs::{
     ComponentId, EventSignal, IntentValue, PoseApplyMode, SignalEmitter, World,
@@ -295,6 +295,7 @@ impl GLTFSystem {
         world: &mut World,
         visuals: &mut VisualWorld,
         skinned_mesh: &mut crate::engine::ecs::system::SkinnedMeshSystem,
+        renderable_system: &mut crate::engine::ecs::system::RenderableSystem,
         emit: &mut dyn SignalEmitter,
         _dt_sec: f32,
     ) {
@@ -375,7 +376,12 @@ impl GLTFSystem {
             // Per-instance mapping from glTF node indices -> spawned TransformComponent ids.
             // Used to resolve skins (joint node indices -> ComponentId references).
             let mut node_index_to_component: HashMap<usize, ComponentId> = HashMap::new();
-            let mut pending_skin_components: Vec<(ComponentId, usize)> = Vec::new();
+            let mut pending_skin_bindings: Vec<(ComponentId, ComponentId, usize)> = Vec::new();
+            let mut pending_morph_bindings: Vec<(
+                ComponentId,
+                ComponentId,
+                MorphTargetBindingComponent,
+            )> = Vec::new();
             let joint_node_indices: HashSet<usize> = loaded
                 .skins
                 .iter()
@@ -391,7 +397,8 @@ impl GLTFSystem {
                     loaded,
                     node,
                     &mut node_index_to_component,
-                    &mut pending_skin_components,
+                    &mut pending_skin_bindings,
+                    &mut pending_morph_bindings,
                     serialize_spawned_nodes,
                 );
                 if let Some(root) = root {
@@ -462,16 +469,19 @@ impl GLTFSystem {
                 skinned_mesh.register_skin_instance_joints(cid, skin_id, joints_resolved);
             }
 
-            for (skinned_cid, skin_index) in pending_skin_components {
+            for (renderable, mesh_transform, skin_index) in pending_skin_bindings {
                 let Some(skin_id) = skin_id_by_index.get(&skin_index).copied() else {
                     continue;
                 };
-                let Some(sm) =
-                    world.get_component_by_id_as_mut::<SkinnedMeshComponent>(skinned_cid)
-                else {
-                    continue;
-                };
-                sm.skin_id = Some(skin_id);
+                skinned_mesh.register_binding(renderable, mesh_transform, cid, skin_id);
+            }
+
+            for (renderable, binding_component, binding) in pending_morph_bindings {
+                renderable_system.register_morph_target_binding(
+                    renderable,
+                    binding_component,
+                    binding,
+                );
             }
 
             // Mark component as spawned.
@@ -486,21 +496,32 @@ impl GLTFSystem {
                 c.morph_targets.clear();
                 c.morph_factors.clear();
                 for node in doc.nodes() {
-                    let Some(mesh) = node.mesh() else { continue; };
+                    let Some(mesh) = node.mesh() else {
+                        continue;
+                    };
                     let weights = node.weights().or_else(|| mesh.weights()).unwrap_or(&[]);
                     let labels = Self::morph_target_labels(mesh.extras());
                     for (primitive_index, primitive) in mesh.primitives().enumerate() {
                         for target_index in 0..primitive.morph_targets().len() {
                             let key = crate::engine::ecs::component::MorphTargetKey {
-                                node_index: node.index(), primitive_index, target_index,
+                                node_index: node.index(),
+                                primitive_index,
+                                target_index,
                             };
                             let base = weights.get(target_index).copied().unwrap_or(0.0);
-                            c.morph_targets.push(crate::engine::ecs::component::MorphTargetInfo {
+                            c.morph_targets
+                                .push(crate::engine::ecs::component::MorphTargetInfo {
+                                    key,
+                                    label: labels.get(target_index).cloned(),
+                                    base_factor: base,
+                                });
+                            c.morph_factors.insert(
                                 key,
-                                label: labels.get(target_index).cloned(),
-                                base_factor: base,
-                            });
-                            c.morph_factors.insert(key, crate::engine::ecs::component::MorphFactorState { base, driver: None });
+                                crate::engine::ecs::component::MorphFactorState {
+                                    base,
+                                    driver: None,
+                                },
+                            );
                         }
                     }
                 }
@@ -656,11 +677,18 @@ impl GLTFSystem {
     /// intentionally decoded as metadata; target identity remains the stable
     /// node/primitive/target tuple above.
     fn morph_target_labels(extras: &gltf::json::Extras) -> Vec<String> {
-        let Some(raw) = extras.as_ref() else { return Vec::new(); };
+        let Some(raw) = extras.as_ref() else {
+            return Vec::new();
+        };
         serde_json::from_str::<serde_json::Value>(raw.get())
             .ok()
             .and_then(|value| value.get("targetNames")?.as_array().cloned())
-            .map(|values| values.into_iter().filter_map(|value| value.as_str().map(str::to_owned)).collect())
+            .map(|values| {
+                values
+                    .into_iter()
+                    .filter_map(|value| value.as_str().map(str::to_owned))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -710,15 +738,21 @@ impl GLTFSystem {
                     reader.read_morph_targets().enumerate()
                 {
                     let position_deltas: Vec<[f32; 3]> = position
-                        .ok_or_else(|| format!(
-                            "mesh {} primitive {} morph target {} has no POSITION accessor",
-                            mesh_index, prim_index, target_index
-                        ))?
+                        .ok_or_else(|| {
+                            format!(
+                                "mesh {} primitive {} morph target {} has no POSITION accessor",
+                                mesh_index, prim_index, target_index
+                            )
+                        })?
                         .collect();
                     if position_deltas.len() != positions.len() {
                         return Err(format!(
                             "mesh {} primitive {} morph target {} POSITION count {} does not match vertex count {}",
-                            mesh_index, prim_index, target_index, position_deltas.len(), positions.len()
+                            mesh_index,
+                            prim_index,
+                            target_index,
+                            position_deltas.len(),
+                            positions.len()
                         ));
                     }
                     let normal_deltas = match normal {
@@ -727,14 +761,21 @@ impl GLTFSystem {
                             if values.len() != positions.len() {
                                 return Err(format!(
                                     "mesh {} primitive {} morph target {} NORMAL count {} does not match vertex count {}",
-                                    mesh_index, prim_index, target_index, values.len(), positions.len()
+                                    mesh_index,
+                                    prim_index,
+                                    target_index,
+                                    values.len(),
+                                    positions.len()
                                 ));
                             }
                             values
                         }
                         None => vec![[0.0; 3]; positions.len()],
                     };
-                    morph_targets.push(CpuMorphTarget { position_deltas, normal_deltas });
+                    morph_targets.push(CpuMorphTarget {
+                        position_deltas,
+                        normal_deltas,
+                    });
                 }
 
                 let uvs: Vec<[f32; 2]> = reader
@@ -836,8 +877,8 @@ impl GLTFSystem {
                 meshes.push(ImportedMesh {
                     key,
                     mesh: Some({
-                        let mesh = CpuMesh::new(vertices, indices_u32)
-                            .with_morph_targets(morph_targets);
+                        let mesh =
+                            CpuMesh::new(vertices, indices_u32).with_morph_targets(morph_targets);
                         if let (Some(j), Some(w)) = (joints0, weights0) {
                             mesh.with_skinning(j, w)
                         } else {
@@ -1005,7 +1046,8 @@ impl GLTFSystem {
         loaded: &LoadedGltf,
         node: gltf::Node,
         node_index_to_component: &mut HashMap<usize, ComponentId>,
-        pending_skin_components: &mut Vec<(ComponentId, usize)>,
+        pending_skin_bindings: &mut Vec<(ComponentId, ComponentId, usize)>,
+        pending_morph_bindings: &mut Vec<(ComponentId, ComponentId, MorphTargetBindingComponent)>,
         serialize_spawned_nodes: bool,
     ) -> Option<ComponentId> {
         let node_display_name = node
@@ -1075,17 +1117,16 @@ impl GLTFSystem {
                 let _ = world.add_child(this_transform, renderable);
                 let _ = world.add_child(renderable, mesh_ref);
                 if prim.morph_targets().next().is_some() {
-                    let binding = world.add_component(MorphTargetBindingComponent::new(
-                        gltf_component, node.index(), prim_index,
-                    ));
+                    let binding_value =
+                        MorphTargetBindingComponent::new(gltf_component, node.index(), prim_index);
+                    let binding = world.add_component(binding_value);
                     let _ = world.add_child(renderable, binding);
+                    pending_morph_bindings.push((renderable, binding, binding_value));
                 }
 
                 if let Some(skin_index) = node_skin_index {
                     if loaded.skins.get(skin_index).is_some() {
-                        let skin_comp = world.add_component(SkinnedMeshComponent::new(skin_index));
-                        let _ = world.add_child(renderable, skin_comp);
-                        pending_skin_components.push((skin_comp, skin_index));
+                        pending_skin_bindings.push((renderable, this_transform, skin_index));
                     } else {
                         println!(
                             "[GLTFSystem] warning: node refers to missing skin index={} (uri='{}')",
@@ -1179,7 +1220,8 @@ impl GLTFSystem {
                 loaded,
                 ch,
                 node_index_to_component,
-                pending_skin_components,
+                pending_skin_bindings,
+                pending_morph_bindings,
                 serialize_spawned_nodes,
             );
         }
@@ -1224,7 +1266,7 @@ impl LoadedGltf {
 mod tests {
     use super::*;
     use crate::engine::ecs::component::{PoseBoneEntry, PoseCapturePoseComponent, PoseTargetRef};
-    use crate::engine::ecs::system::{PoseCaptureSystem, SkinnedMeshSystem};
+    use crate::engine::ecs::system::{PoseCaptureSystem, RenderableSystem, SkinnedMeshSystem};
     use crate::engine::ecs::{EventSignal, IntentSignal};
 
     #[derive(Default)]
@@ -1292,11 +1334,13 @@ mod tests {
         system.register_component(gltf);
         let mut visuals = VisualWorld::default();
         let mut skinned_mesh = SkinnedMeshSystem::new();
+        let mut renderable_system = RenderableSystem::default();
         let mut startup = RecordingEmitter::default();
         system.tick_with_queue(
             &mut world,
             &mut visuals,
             &mut skinned_mesh,
+            &mut renderable_system,
             &mut startup,
             0.0,
         );
@@ -1391,6 +1435,7 @@ mod tests {
             &mut world,
             &mut visuals,
             &mut skinned_mesh,
+            &mut renderable_system,
             &mut subsequent,
             0.0,
         );
@@ -1411,11 +1456,13 @@ mod tests {
         system.register_component(gltf);
         let mut visuals = VisualWorld::default();
         let mut skinned_mesh = SkinnedMeshSystem::new();
+        let mut renderable_system = RenderableSystem::default();
         let mut emitted = RecordingEmitter::default();
         system.tick_with_queue(
             &mut world,
             &mut visuals,
             &mut skinned_mesh,
+            &mut renderable_system,
             &mut emitted,
             0.0,
         );
