@@ -639,7 +639,7 @@ fn gltf_initialized_handler(_world: &mut World, emit: &mut dyn SignalEmitter, si
 mod tests {
     use super::*;
     use crate::engine::ecs::CommandQueue;
-    use crate::engine::ecs::system::{GLTFSystem, SkinnedMeshSystem};
+    use crate::engine::ecs::system::{GLTFSystem, RenderableSystem, SkinnedMeshSystem};
     use crate::engine::graphics::VisualWorld;
     use crate::utils::math::mat4_mul_vec4;
 
@@ -727,8 +727,16 @@ mod tests {
         gltf_system.register_component(gltf);
         let mut visuals = VisualWorld::default();
         let mut skinned_mesh = SkinnedMeshSystem::new();
+        let mut renderable_system = RenderableSystem::default();
         let mut queue = CommandQueue::new();
-        gltf_system.tick_with_queue(&mut world, &mut visuals, &mut skinned_mesh, &mut queue, 0.0);
+        gltf_system.tick_with_queue(
+            &mut world,
+            &mut visuals,
+            &mut skinned_mesh,
+            &mut renderable_system,
+            &mut queue,
+            0.0,
+        );
         system.gltf_initialized(&world, gltf);
 
         assert_eq!(

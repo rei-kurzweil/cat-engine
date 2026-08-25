@@ -78,7 +78,6 @@ pub mod selection;
 pub mod serialize;
 pub mod signal_observer_router;
 pub mod signal_route_upward;
-pub mod skinned_mesh;
 pub mod stencil_clip;
 pub mod style;
 pub mod transparent_cutout;
@@ -223,7 +222,6 @@ pub use selection::{SelectionComponent, SelectionEntry, SelectionMode};
 pub use serialize::SerializeComponent;
 pub use signal_observer_router::SignalObserverRouterComponent;
 pub use signal_route_upward::SignalRouteUpwardComponent;
-pub use skinned_mesh::SkinnedMeshComponent;
 pub use spot_light::SpotLightComponent;
 pub use stencil_clip::StencilClipComponent;
 pub use style::{

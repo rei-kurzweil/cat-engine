@@ -1,7 +1,7 @@
 # Task: internalize imported skin and morph primitive bindings
 
-Status: analysis and design task; do not change implementation until ownership
-and retrieval strategy are decided.
+Status: phase 1 implemented; benchmark the replacement before beginning the
+separate public morph-control API work.
 
 Related:
 
@@ -121,6 +121,39 @@ Keep local subtree ownership and automatic lifetime, while removing authoring an
 serialization signals. This is lowest migration risk, but retains scans and still
 places import-only relations in the global component graph.
 
+## Selected plan and implementation status
+
+### Phase 1: importer-owned dense registries — implemented
+
+- `SkinnedMeshComponent` is removed from the component graph, MMS registry, and
+  serialization surface. `GLTFSystem` now registers each
+  `(renderable, mesh transform, GLTF instance, SkinId)` directly with
+  `SkinnedMeshSystem` after joint resolution.
+- `SkinnedMeshSystem` stores records in a dense vector. Its reverse maps are
+  used only when a transform subtree changes; normal ticks examine only dirty
+  record slots and never scan `World::all_components()` or rebuild indexes.
+- `MorphTargetBindingComponent` remains attached to its imported renderable,
+  deliberately preserved as the possible future explicit Rust/MMS morph-control
+  surface. During import, its structural values are copied into
+  `RenderableSystem`'s dense morph registry. The render tick never searches
+  renderable children for it.
+- The morph registry builds active factors once per GLTF instance per tick and
+  filters that result to each primitive. This removes the previous repeated
+  whole-factor-map scan for every bound primitive.
+- Renderable deletion unregisters its skin and morph records. Skin reverse-map
+  slots are tombstoned; they are cold invalidation-path state, while normal
+  ticking stays on the direct record list and uses no hash lookup.
+
+### Phase 2: deliberate public morph control — deferred
+
+If `MorphTargetBindingComponent` becomes authorable, define its constructor and
+methods together with an explicit synchronization contract that updates the
+system registry (or makes it the registry's authoritative data). Do not assume
+arbitrary component field mutation is observed by phase 1. This phase may add
+methods such as setting a target factor by structural index or resolved label,
+with validation and clear interaction rules for `MorphFactorState.base` and
+`.driver`.
+
 ## Required analysis before choosing
 
 ### Ownership and lifecycle
@@ -161,14 +194,16 @@ it must have explicit lifecycle correctness and no worse hot-path behavior.
 
 ### Baseline instrumentation
 
-The current implementation includes opt-in baseline logging. Start the process
+The implementation includes opt-in baseline logging. Start the process
 with `CAT_PROFILE_IMPORTED_BINDINGS=1`; each system emits one 360-frame summary:
 
-- `[ImportedBindingProfile][morph]` reports CPU time, registered renderables,
-  child IDs inspected, morph bindings found, and GLTF factor-map entries scanned.
-- `[ImportedBindingProfile][skin]` reports scan and index-rebuild CPU time, all
-  world components inspected, skinned components found, and reconstructed
-  bindings.
+- before phase 1, `[ImportedBindingProfile][morph]` reported registered
+  renderables, child IDs inspected, morph bindings found, and GLTF factor-map
+  entries scanned; `[ImportedBindingProfile][skin]` reported the world scan and
+  index rebuild.
+- after phase 1, `[ImportedBindingProfile][morph]` reports CPU time, dense
+  binding records, bindings applied, and GLTF factor-map entries scanned;
+  `[ImportedBindingProfile][skin]` reports CPU time and active dense bindings.
 
 This is deliberately a baseline measurement of the current discovery approach.
 Record it before migration and retain equivalent counters for the replacement so
@@ -197,11 +232,27 @@ factor entries scanned per morph binding.
 
 The morph count reveals an additional optimization requirement independent of
 where the association lives: `3,648 / 8 = 456` factor entries per bound
-primitive. The current bridge recomputes the same GLTF-wide active-factor list
-for each of the eight primitives. A replacement should compute/group the active
-factors once per dirty GLTF instance, then distribute primitive-local slices to
-its dense binding records. This removes repeated factor-map scans as well as the
-unrelated-renderable/child scans.
+primitive. The previous bridge recomputed the same GLTF-wide active-factor list
+for each of the eight primitives. Phase 1 now computes/groups active factors
+once per GLTF instance, then distributes primitive-local slices to its dense
+binding records.
+
+### Phase 1 benchmark: dense registries
+
+Captured after the phase-1 change with the same 360-frame profile windows. The
+morph registry consistently reported `8` records and `456` factor entries per
+frame (rather than `3,648`), with approximately `0.008–0.010 ms/frame` CPU
+time; the earlier active-mirror baseline was approximately `0.033–0.034
+ms/frame`. This is about a 70–75% reduction in this CPU bridge measurement,
+without reducing the eight primitives' morph inputs or GPU deformation work.
+
+The first direct-record skin capture reported `16` records and approximately
+`0.036–0.040 ms/frame`. That exposed an important grouping requirement: the
+previous `3` bindings were unique palette keys shared by 16 renderables. Phase 1
+now stores three dense palette groups, each with its renderable list, so a dirty
+pose computes each palette once and applies it to its group. The corrected
+360-frame capture reports `3` palette groups and `16` renderables at
+approximately `0.012–0.015 ms/frame` (normally about `0.0125 ms/frame`).
 
 ## Migration constraints
 

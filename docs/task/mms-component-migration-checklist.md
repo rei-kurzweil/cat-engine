@@ -104,7 +104,6 @@ Priority is roughly "what's likely to be live-edited and need round-trip":
 - [x] `CollisionShapeComponent` — `CollisionShape.cube([h,h,h])` / `.sphere(r)`
 - [x] `GravityComponent` — `Gravity {}` with `.enabled().coefficient()`
 - [x] `CollisionResponseComponent` — `CollisionResponse.slide/push()` with builder chain
-- [x] `SkinnedMeshComponent` — `SkinnedMesh.new(skin_index)` (skin_id is runtime)
 - [x] `GestureCoordTypeComponent` — `GestureCoordType.world_plane/screen_space_1d_slider()`
 - [x] `SignalRouteUpwardComponent` — `SignalRouteUpward.new(intent_kind, parent_type)`
 - [x] `StencilClipComponent` — `StencilClip {}` + optional `.stencil_ref(n)`

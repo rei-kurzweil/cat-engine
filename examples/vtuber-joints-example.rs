@@ -2,8 +2,7 @@ use mittens_engine::engine::ecs::component::{
     AmbientLightComponent, BackgroundColorComponent, Camera3DComponent, CameraXRComponent,
     ClockComponent, ColorComponent, DirectionalLightComponent, EditorComponent, EmissiveComponent,
     GLTFComponent, InputComponent, InputTransformModeComponent, InputXRComponent, MeshComponent,
-    PointerComponent, RaycastableComponent, RenderableComponent, SkinnedMeshComponent,
-    TransformComponent,
+    PointerComponent, RaycastableComponent, RenderableComponent, TransformComponent,
 };
 use mittens_engine::{engine, utils};
 use std::collections::{HashMap, HashSet};
@@ -446,7 +445,8 @@ fn debug_print_selected_joint_influence(
         "[vtuber-joints-example] influence: mesh_key='{}' renderable={:?} instance_handle={:?}",
         mesh_key, renderable, renderable_handle
     );
-    let Some(skin_id) = find_skin_id_for_renderable(&universe.world, renderable) else {
+    let Some(skin_id) = find_skin_id_for_renderable(&universe.systems.skinned_mesh, renderable)
+    else {
         println!(
             "[vtuber-joints-example] influence: mesh_key='{}' has no skin_id",
             mesh_key
@@ -559,7 +559,7 @@ fn select_body_prim0_influencers(
     }
 
     let renderable = find_renderable_by_mesh_key(&universe.world, model_root, mesh_key)?;
-    let skin_id = find_skin_id_for_renderable(&universe.world, renderable)?;
+    let skin_id = find_skin_id_for_renderable(&universe.systems.skinned_mesh, renderable)?;
     let skin = universe.visuals.skin(skin_id)?;
 
     let cpu_h = universe.render_assets.imported_mesh(mesh_key)?;
@@ -677,21 +677,10 @@ fn find_parent_renderable(
 }
 
 fn find_skin_id_for_renderable(
-    world: &engine::ecs::World,
+    skinned_mesh: &engine::ecs::system::SkinnedMeshSystem,
     renderable: engine::ecs::ComponentId,
 ) -> Option<engine::graphics::SkinId> {
-    let mut stack = vec![renderable];
-    while let Some(node) = stack.pop() {
-        if let Some(sm) = world.get_component_by_id_as::<SkinnedMeshComponent>(node) {
-            if let Some(id) = sm.skin_id {
-                return Some(id);
-            }
-        }
-        for &ch in world.children_of(node) {
-            stack.push(ch);
-        }
-    }
-    None
+    skinned_mesh.skin_id_for_renderable(renderable)
 }
 
 fn collect_joint_transforms(
@@ -707,8 +696,11 @@ fn collect_joint_transforms(
     ) -> Option<engine::graphics::SkinId> {
         let mut stack = vec![root];
         while let Some(node) = stack.pop() {
-            if let Some(sm) = world.get_component_by_id_as::<SkinnedMeshComponent>(node) {
-                if let Some(id) = sm.skin_id {
+            if world
+                .get_component_by_id_as::<RenderableComponent>(node)
+                .is_some()
+            {
+                if let Some(id) = skinned_mesh.skin_id_for_renderable(node) {
                     return Some(id);
                 }
             }

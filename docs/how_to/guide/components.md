@@ -289,14 +289,6 @@ Carries renderer stats state used when that engine feature is present in a compo
 RendererStats {}
 ```
 
-### `SkinnedMeshComponent`
-<!-- catalog:component source="SkinnedMeshComponent" mms="direct" names="SkinnedMesh" -->
-Carries skinned mesh state used when that engine feature is present in a component tree. Use it when a tree needs this state or behavior. glTF, animation, avatar, IK, or pose systems; lifecycle intents and `GltfInitialized` are relevant.
-**Directly constructible** as `SkinnedMesh`. Sources: [Rust implementation](../../../src/engine/ecs/component/skinned_mesh.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
-```mms parse-only
-SkinnedMesh {}
-```
-
 ### `StencilClipComponent`
 <!-- catalog:component source="StencilClipComponent" mms="direct" names="StencilClip" -->
 Carries stencil clip state used when that engine feature is present in a component tree. Use it when a tree needs this state or behavior. Rendering systems; lifecycle registration/removal intents connect it to visual state.

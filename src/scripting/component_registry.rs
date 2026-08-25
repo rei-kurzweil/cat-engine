@@ -36,7 +36,7 @@ use crate::engine::ecs::component::{
     RenderGraphComponent, RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
     RestAttachmentComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
     SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
-    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SkinnedMeshComponent,
+    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
     SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
     SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
     TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
@@ -2172,10 +2172,6 @@ fn create_component(
             }
             Ok(id)
         }
-        "SkinnedMesh" => match ctor {
-            Some("new") => add!(SkinnedMeshComponent::new(arg_f32(args, 0)? as usize)),
-            _ => add!(SkinnedMeshComponent::new(0)),
-        },
         "Vector3TemporalFilter" => {
             let mut c = Vector3TemporalFilterComponent::new();
             if let Some("smoothing_factor") = ctor {

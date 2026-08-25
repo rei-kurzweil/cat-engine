@@ -1048,6 +1048,7 @@ impl SystemWorld {
                 .is_some()
             {
                 self.remove_renderable(world, visuals, n);
+                self.skinned_mesh.remove_renderable(n);
             }
             if world
                 .get_component_by_id_as::<CollisionComponent>(n)
@@ -2811,8 +2812,14 @@ impl SystemWorld {
         self.input.process_input(world, input, queue, dt_sec);
 
         // Spawn any GLTF component trees. This may queue component registrations.
-        self.gltf
-            .tick_with_queue(world, visuals, &mut self.skinned_mesh, queue, dt_sec);
+        self.gltf.tick_with_queue(
+            world,
+            visuals,
+            &mut self.skinned_mesh,
+            &mut self.renderable,
+            queue,
+            dt_sec,
+        );
 
         // Bounds, collision inference, and other simulation systems need imported
         // CPU geometry independently of renderer/GPU readiness. Register it as soon

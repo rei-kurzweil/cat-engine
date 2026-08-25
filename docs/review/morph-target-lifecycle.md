@@ -31,7 +31,7 @@ correct rendered primitive.
 | `CpuMorphTarget` | shared CPU mesh | One dense position/normal delta array per target. | [`mesh.rs:275`](../../src/engine/graphics/mesh.rs#L275) |
 | `MorphFactorState` | GLTF instance | `base` plus optional `driver`; effective is `driver.unwrap_or(base)`. | [`morph_target.rs:51`](../../src/engine/ecs/component/morph_target.rs#L51) |
 | `MorphTargetMapComponent` | GLTF child | Explicit semantic channel → target label mapping. | [`morph_target.rs:75`](../../src/engine/ecs/component/morph_target.rs#L75) |
-| `MorphTargetBindingComponent` | Renderable child | Connects a renderable to owning GLTF instance, node, and primitive. | [`morph_target.rs:29`](../../src/engine/ecs/component/morph_target.rs#L29) |
+| `MorphTargetBindingComponent` | Renderable child | Future explicit-control surface connecting a renderable to its owning GLTF instance, node, and primitive; import also registers a dense `RenderableSystem` record. | [`morph_target.rs:29`](../../src/engine/ecs/component/morph_target.rs#L29) |
 | `VisualWorld::morph_inputs` | visual world | Sparse `(target_index, weight)` input per visual instance. | [`visual_world.rs:169`](../../src/engine/graphics/visual_world.rs#L169) |
 | `GpuMorphDelta` | GPU | Dense target/vertex delta record. | [`deformation.rs:31`](../../src/engine/graphics/deformation.rs#L31) |
 | `GpuActiveMorph` | GPU | Dense-delta base plus active weight. | [`deformation.rs:38`](../../src/engine/graphics/deformation.rs#L38) |
@@ -111,9 +111,9 @@ The Bisket example declaration is at
 
 ## ECS-to-renderer synchronization and invalidation
 
-`RenderableSystem::tick` is the factor bridge. For every registered renderable
-with `MorphTargetBindingComponent`, it reads the binding's `GLTFComponent`, calls
-`active_factors`, retains keys for that node/primitive, converts them to
+`RenderableSystem::tick` is the factor bridge. `GLTFSystem` registers imported
+bindings directly with its dense registry. The tick computes active factors once
+per GLTF instance, retains keys for each record's node/primitive, converts them to
 `(target_index, weight)`, and calls `VisualWorld::set_active_morphs`.
 
 Trace: [`renderable_system.rs:1386`](../../src/engine/ecs/system/renderable_system.rs#L1386).
