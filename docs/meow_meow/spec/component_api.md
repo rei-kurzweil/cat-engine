@@ -64,19 +64,31 @@ Today, the runtime-callable method surface is split across two codepaths:
 The evaluator handles the broader `ComponentObject.method(...)` surface. The component
 method registry handles a smaller set of live component methods used by the runner path.
 
-## Generic query methods
+## Host-neutral component navigation
 
-These methods apply to any live `ComponentObject`:
+`ComponentObject` is MMS's host-neutral handle for a live component tree. A
+host chooses which component types, selectors, signals, and domain-specific
+methods it provides; it does not choose whether component values can navigate
+their own subtree. Consequently, these methods apply to every live
+`ComponentObject`, regardless of component type or script host:
 
 ### `component.query(selector)`
 
 - Args: `selector: string`
 - Returns: first matching live `ComponentObject`, or `null`
+- Effect: asks the host to search within this component's subtree.
 
 ### `component.query_all(selector)`
 
 - Args: `selector: string`
 - Returns: array of matching live `ComponentObject`s
+- Effect: asks the host to search within this component's subtree.
+
+The evaluator dispatches these through the generic `HostRequest::Query`
+protocol rather than through the host's component-method registry or
+`RuntimeSpec` component-method table. A host that exposes live components must
+therefore implement scoped query handling; a host with no component model need
+not expose `ComponentObject`s in the first place.
 
 ## Transform
 

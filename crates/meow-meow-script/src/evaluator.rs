@@ -676,6 +676,22 @@ impl<'a, H: Host> Evaluator<'a, H> {
             let receiver = self.eval_expr(lhs)?;
             return match receiver {
                 Value::ComponentObject { id, component_type } => {
+                    if matches!(method.as_str(), "query" | "query_all") {
+                        let selector = match args.first() {
+                            Some(Value::String(selector)) => selector.clone(),
+                            _ => {
+                                return Err(EvalError::Runtime(format!(
+                                    "{method} expects a selector string"
+                                )));
+                            }
+                        };
+                        if args.len() != 1 {
+                            return Err(EvalError::Runtime(format!(
+                                "{method} expects exactly one selector argument"
+                            )));
+                        }
+                        return self.host_query(selector, Some(id), method == "query_all");
+                    }
                     let operation_id = if let Some(catalog) = &self.catalog {
                         let spec = catalog
                             .components

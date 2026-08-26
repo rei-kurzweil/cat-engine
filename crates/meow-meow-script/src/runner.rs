@@ -51,6 +51,7 @@ mod tests {
     #[derive(Default)]
     struct FakeHost {
         operations: Vec<String>,
+        query_scopes: Vec<Option<ComponentHandle>>,
         fail_methods: bool,
     }
 
@@ -58,10 +59,13 @@ mod tests {
         fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, HostError> {
             self.operations.push(request.operation_name().to_owned());
             match request {
-                HostRequest::Query { .. } => Ok(HostResponse::Component {
-                    handle: ComponentHandle::from_raw(7),
-                    component_type: "Fake".into(),
-                }),
+                HostRequest::Query { scope, .. } => {
+                    self.query_scopes.push(scope);
+                    Ok(HostResponse::Component {
+                        handle: ComponentHandle::from_raw(7),
+                        component_type: "Fake".into(),
+                    })
+                }
                 HostRequest::InvokeComponentMethod { operation_id, .. } if self.fail_methods => {
                     Err(HostError::failure(
                         format!("{operation_id:?}"),
@@ -115,6 +119,21 @@ mod tests {
         assert_eq!(
             host.operations,
             ["query", "invoke_component_method_by_name"]
+        );
+    }
+
+    #[test]
+    fn component_scoped_dot_query_dispatches_as_a_query_not_a_component_method() {
+        let mut host = FakeHost::default();
+        let result = eval_with_host("query(\"#root\").query(\"#target\")", &mut host).unwrap();
+        assert_eq!(result.value, Some(Value::ComponentObject {
+            id: ComponentHandle::from_raw(7),
+            component_type: "Fake".into(),
+        }));
+        assert_eq!(host.operations, ["query", "query", "attach"]);
+        assert_eq!(
+            host.query_scopes,
+            [None, Some(ComponentHandle::from_raw(7))]
         );
     }
 
