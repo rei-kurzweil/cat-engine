@@ -2,9 +2,10 @@ use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::World;
 use crate::engine::ecs::component::style::{Display, SizeDimension, WordWrapMode};
 use crate::engine::ecs::component::{
-    BoundsComponent, ColorComponent, HtmlElementComponent, LayoutComponent, RenderableComponent,
-    StyleComponent, TextComponent, TransformComponent,
+    ColorComponent, HtmlElementComponent, LayoutComponent, StyleComponent, TextComponent,
+    TransformComponent,
 };
+use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::text_system::TextSystem;
 use crate::engine::graphics::bounds::{Aabb, mat4_identity, mat4_mul};
 use crate::engine::graphics::primitives::TransformMatrix;
@@ -852,41 +853,41 @@ fn read_text_wrap_style(
     (None, None)
 }
 
-/// Walk the local-content subtree of `root` and union the `BoundsComponent.local`
-/// of every direct `RenderableComponent` found. Stops at nested TransformComponents
-/// (same rule as `find_text_in_local_content_subtree`) so a TC only sees its own
-/// renderable children, not those belonging to descendant TCs.
-pub(crate) fn find_renderable_local_bounds(world: &World, root: ComponentId) -> Option<Aabb> {
-    fn visit(world: &World, node: ComponentId, root: ComponentId, acc: &mut Option<Aabb>) {
-        if world
-            .get_component_by_id_as::<RenderableComponent>(node)
+/// Measure eligible renderables in `root` local space. Plain transforms are
+/// presentational and contribute their transformed cached bounds; nested styled
+/// transforms and nested layout roots own independent layout boxes and are
+/// therefore excluded.
+pub(crate) fn find_visual_intrinsic_bounds(world: &World, root: ComponentId) -> Option<Aabb> {
+    BoundsSystem::measure_cached_renderable_subtree_bounds(world, root, |node| {
+        world
+            .get_component_by_id_as::<LayoutComponent>(node)
             .is_some()
-        {
-            // Look for an attached BoundsComponent among this renderable's children.
-            for &c in world.children_of(node) {
-                if let Some(b) = world.get_component_by_id_as::<BoundsComponent>(c) {
-                    *acc = Some(match acc {
-                        Some(prev) => prev.union(&b.local),
-                        None => b.local,
-                    });
-                    break;
-                }
-            }
-        }
-        if node != root
-            && world
+            || (world
                 .get_component_by_id_as::<TransformComponent>(node)
                 .is_some()
-        {
-            return;
-        }
-        for &child in world.children_of(node) {
-            visit(world, child, root, acc);
-        }
-    }
-    let mut acc = None;
-    visit(world, root, root, &mut acc);
-    acc
+                && is_layout_item(world, node))
+    })
+}
+
+fn intrinsic_text_bounds(
+    world: &World,
+    tc_id: ComponentId,
+    content_width_gu: f32,
+    unit_scale: f32,
+) -> Option<Aabb> {
+    find_text_in_local_content_subtree(world, tc_id)?;
+    let width_wu = text_intrinsic_width(world, tc_id, content_width_gu, unit_scale) * unit_scale;
+    let height_wu = text_intrinsic_height(world, tc_id, content_width_gu, unit_scale) * unit_scale;
+    Some(Aabb {
+        // Layout text starts at the content origin and advances downward in
+        // local -Y, whereas renderable bounds may extend in either direction.
+        min: [0.0, -height_wu, 0.0],
+        max: [width_wu, 0.0, 0.0],
+    })
+}
+
+fn wu_to_gu_bounds_extent(value_wu: f32, unit_scale: f32) -> f32 {
+    wu_to_gu(value_wu, unit_scale)
 }
 
 /// Intrinsic inline-axis width for a TC whose width style is `Auto`.
@@ -902,21 +903,17 @@ pub(crate) fn intrinsic_block_width(
     avail_content_w_gu: f32,
     unit_scale: f32,
 ) -> Option<f32> {
-    let is_inline_block = matches!(display, Some(Display::InlineBlock | Display::Inline));
-    if find_text_in_local_content_subtree(world, tc_id).is_some() {
-        // CSS-aligned: inline-block shrinks to fit its content; block fills
-        // the available inline budget so text wraps inside it.
-        if is_inline_block {
-            return Some(text_intrinsic_width(
-                world,
-                tc_id,
-                avail_content_w_gu,
-                unit_scale,
-            ));
+    let text_bounds = intrinsic_text_bounds(world, tc_id, avail_content_w_gu, unit_scale);
+    let visual_bounds = find_visual_intrinsic_bounds(world, tc_id);
+    let combined = match (text_bounds, visual_bounds) {
+        (Some(text), Some(visual)) => Some(text.union(&visual)),
+        (None, Some(visual)) => Some(visual),
+        (Some(text), None) if matches!(display, Some(Display::InlineBlock | Display::Inline)) => {
+            Some(text)
         }
-        return None;
-    }
-    find_renderable_local_bounds(world, tc_id).map(|a| a.width())
+        _ => None,
+    };
+    combined.map(|bounds| wu_to_gu_bounds_extent(bounds.width(), unit_scale))
 }
 
 /// Width (in glyph units) of the widest line of the descendant
@@ -974,14 +971,36 @@ fn intrinsic_block_height(
     content_width_gu: f32,
     unit_scale: f32,
 ) -> f32 {
-    if find_text_in_local_content_subtree(world, tc_id).is_some() {
-        return text_intrinsic_height(world, tc_id, content_width_gu, unit_scale);
+    let text_bounds = intrinsic_text_bounds(world, tc_id, content_width_gu, unit_scale);
+    let visual_bounds = find_visual_intrinsic_bounds(world, tc_id);
+    let local_bounds_height_gu = match (text_bounds, visual_bounds) {
+        (Some(text), Some(visual)) => Some(text.union(&visual)),
+        (Some(text), None) => Some(text),
+        (None, Some(visual)) => Some(visual),
+        (None, None) => None,
     }
+    .map(|bounds| wu_to_gu_bounds_extent(bounds.height(), unit_scale));
 
-    if let Some(aabb) = find_renderable_local_bounds(world, tc_id) {
-        return aabb.height();
+    let child_flow_height_gu =
+        intrinsic_child_flow_height(world, tc_id, content_width_gu, unit_scale);
+
+    match (local_bounds_height_gu, child_flow_height_gu) {
+        // A nested styled child is a layout boundary, so its resolved flow
+        // size and local visual extent do not share an authored coordinate
+        // system. Preserve both without recursively measuring its visuals.
+        (Some(local), Some(flow)) => local.max(flow),
+        (Some(local), None) => local,
+        (None, Some(flow)) => flow,
+        (None, None) => 0.0,
     }
+}
 
+fn intrinsic_child_flow_height(
+    world: &World,
+    tc_id: ComponentId,
+    content_width_gu: f32,
+    unit_scale: f32,
+) -> Option<f32> {
     let child_items = measure_container_items(world, tc_id, content_width_gu, None, unit_scale);
     if !child_items.is_empty() {
         let all_inline = child_items
@@ -1004,15 +1023,17 @@ fn intrinsic_block_height(
                 }
             }
             total_h += line_h;
-            return total_h;
+            return Some(total_h);
         }
-        return child_items
-            .iter()
-            .map(|item| item.margin_box_height_gu)
-            .sum();
+        return Some(
+            child_items
+                .iter()
+                .map(|item| item.margin_box_height_gu)
+                .sum(),
+        );
     }
 
-    descendant_layout_intrinsic_height(world, tc_id).unwrap_or(0.0)
+    descendant_layout_intrinsic_height(world, tc_id)
 }
 
 fn descendant_layout_intrinsic_height(world: &World, root: ComponentId) -> Option<f32> {
@@ -1076,12 +1097,89 @@ impl StyleDefault for Option<StyleTuple> {
 
 #[cfg(test)]
 mod tests {
-    use super::{measure_container_items, measure_item, measure_items};
+    use super::{
+        find_visual_intrinsic_bounds, measure_container_items, measure_item, measure_items,
+    };
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::style::{Display, SizeDimension};
     use crate::engine::ecs::component::{
-        ColorComponent, LayoutComponent, StyleComponent, TextComponent, TransformComponent,
+        BoundsComponent, ColorComponent, LayoutComponent, RenderableComponent, StyleComponent,
+        TextComponent, TransformComponent,
     };
+    use crate::engine::graphics::bounds::Aabb;
+
+    fn attach_cached_cube(world: &mut World, parent: crate::engine::ecs::ComponentId) {
+        let renderable = world.add_component(RenderableComponent::cube());
+        let bounds = world.add_component(BoundsComponent::new(Aabb {
+            min: [-0.5, -0.5, -0.5],
+            max: [0.5, 0.5, 0.5],
+        }));
+        world.add_child(parent, renderable).unwrap();
+        world.add_child(renderable, bounds).unwrap();
+    }
+
+    #[test]
+    fn visual_intrinsic_bounds_include_plain_transformed_descendants() {
+        let mut world = World::default();
+        let root = world.add_component(TransformComponent::new());
+        let visual = world.add_component(
+            TransformComponent::new()
+                .with_position(3.0, 5.0, 0.0)
+                .with_scale(2.0, 4.0, 1.0),
+        );
+        world.add_child(root, visual).unwrap();
+        attach_cached_cube(&mut world, visual);
+
+        assert_eq!(
+            find_visual_intrinsic_bounds(&world, root),
+            Some(Aabb {
+                min: [2.0, 3.0, -0.5],
+                max: [4.0, 7.0, 0.5],
+            })
+        );
+    }
+
+    #[test]
+    fn visual_intrinsic_bounds_stop_at_nested_styled_layout_items() {
+        let mut world = World::default();
+        let root = world.add_component(TransformComponent::new());
+        let nested_layout_item = world.add_component(
+            TransformComponent::new()
+                .with_position(3.0, 5.0, 0.0)
+                .with_scale(2.0, 4.0, 1.0),
+        );
+        let nested_style = world.add_component(StyleComponent::new());
+        world.add_child(root, nested_layout_item).unwrap();
+        world.add_child(nested_layout_item, nested_style).unwrap();
+        attach_cached_cube(&mut world, nested_layout_item);
+
+        assert_eq!(find_visual_intrinsic_bounds(&world, root), None);
+    }
+
+    #[test]
+    fn auto_height_unions_text_and_presentational_geometry() {
+        let mut world = World::default();
+        let root = world.add_component(TransformComponent::new());
+        let style = world.add_component({
+            let mut style = StyleComponent::new();
+            style.display = Some(Display::InlineBlock);
+            style
+        });
+        let text = world.add_component(TextComponent::new("bar"));
+        let visual = world.add_component(
+            TransformComponent::new()
+                .with_position(0.0, 2.0, 0.0)
+                .with_scale(2.0, 4.0, 1.0),
+        );
+        world.add_child(root, style).unwrap();
+        world.add_child(root, text).unwrap();
+        world.add_child(root, visual).unwrap();
+        attach_cached_cube(&mut world, visual);
+
+        let measured = measure_item(&world, root, 20.0, None, 1.0);
+        assert_eq!(measured.content_width_gu, 4.0);
+        assert_eq!(measured.content_height_gu, 5.0);
+    }
 
     #[test]
     fn auto_height_container_does_not_measure_text_behind_nested_transforms() {

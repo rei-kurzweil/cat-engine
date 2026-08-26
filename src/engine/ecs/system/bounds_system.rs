@@ -1,6 +1,8 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::World;
-use crate::engine::ecs::component::{MeshComponent, RenderableComponent, TransformComponent};
+use crate::engine::ecs::component::{
+    BoundsComponent, MeshComponent, RenderableComponent, TransformComponent,
+};
 use crate::engine::graphics::RenderAssets;
 use crate::engine::graphics::bounds::{Aabb, mat4_identity, mat4_mul, mesh_local_aabb};
 
@@ -51,19 +53,14 @@ impl BoundsSystem {
         render_assets: &RenderAssets,
         root: ComponentId,
     ) -> RenderableBoundsMeasure {
-        let mut aggregate: Option<Aabb> = None;
-        let mut stack = vec![(root, mat4_identity(), true)];
-
-        while let Some((node, parent_to_root, is_root)) = stack.pop() {
-            let mut local_to_root = parent_to_root;
-
-            // Compose the transform of this node into the root-relative matrix.
-            if !is_root && let Some(tc) = world.get_component_by_id_as::<TransformComponent>(node) {
-                local_to_root = mat4_mul(parent_to_root, tc.transform.model);
-            }
-
-            // If it's a renderable, union its transformed bounds.
-            if let Some(r) = world.get_component_by_id_as::<RenderableComponent>(node) {
+        let measured = Self::measure_subtree_bounds(
+            world,
+            root,
+            |_| false,
+            |node| {
+                let Some(r) = world.get_component_by_id_as::<RenderableComponent>(node) else {
+                    return Ok(None);
+                };
                 let mesh_override = world.children_of(node).iter().find_map(|child| {
                     world
                         .get_component_by_id_as::<MeshComponent>(*child)
@@ -71,16 +68,14 @@ impl BoundsSystem {
                 });
                 let mesh_handle = if let Some(mesh_key) = mesh_override {
                     let Some(handle) = render_assets.imported_mesh(mesh_key) else {
-                        return RenderableBoundsMeasure::Unmeasurable;
+                        return Err(());
                     };
                     handle
                 } else {
                     r.renderable.mesh
                 };
 
-                // Try looking up the AABB for this specific mesh in RenderAssets,
-                // otherwise fall back to known built-in primitive bounds.
-                let aabb = render_assets
+                Ok(render_assets
                     .cpu_mesh(mesh_handle)
                     .and_then(|cpu_mesh| {
                         Aabb::from_points(
@@ -96,28 +91,82 @@ impl BoundsSystem {
                             .is_none()
                             .then(|| mesh_local_aabb(r.renderable.base_mesh))
                             .flatten()
-                    });
+                    }))
+            },
+        );
 
-                if let Some(local_aabb) = aabb {
-                    let transformed = local_aabb.transformed(local_to_root);
-                    aggregate = Some(match aggregate {
-                        Some(a) => a.union(&transformed),
-                        None => transformed,
-                    });
-                }
+        match measured {
+            Ok(Some(bounds)) => RenderableBoundsMeasure::Measured(bounds),
+            Ok(None) | Err(()) => RenderableBoundsMeasure::Unmeasurable,
+        }
+    }
+
+    /// Measure cached renderable bounds in `root` local space, optionally
+    /// pruning whole descendant subtrees at caller-defined ownership boundaries.
+    ///
+    /// Layout uses this variant because its pass must not depend on
+    /// `RenderAssets`; `BoundsComponent` is populated alongside a renderable.
+    pub fn measure_cached_renderable_subtree_bounds<F>(
+        world: &World,
+        root: ComponentId,
+        stop_at: F,
+    ) -> Option<Aabb>
+    where
+        F: Fn(ComponentId) -> bool,
+    {
+        Self::measure_subtree_bounds(world, root, stop_at, |node| {
+            let Some(_) = world.get_component_by_id_as::<RenderableComponent>(node) else {
+                return Ok(None);
+            };
+            Ok(world.children_of(node).iter().find_map(|&child| {
+                world
+                    .get_component_by_id_as::<BoundsComponent>(child)
+                    .map(|bounds| bounds.local)
+            }))
+        })
+        .ok()
+        .flatten()
+    }
+
+    /// Shared transform-aware subtree walk for bounds sources with different
+    /// lifecycles (render assets versus cached ECS bounds).
+    fn measure_subtree_bounds<FStop, FBounds>(
+        world: &World,
+        root: ComponentId,
+        stop_at: FStop,
+        mut local_bounds_for: FBounds,
+    ) -> Result<Option<Aabb>, ()>
+    where
+        FStop: Fn(ComponentId) -> bool,
+        FBounds: FnMut(ComponentId) -> Result<Option<Aabb>, ()>,
+    {
+        let mut aggregate: Option<Aabb> = None;
+        let mut stack = vec![(root, mat4_identity(), true)];
+
+        while let Some((node, parent_to_root, is_root)) = stack.pop() {
+            if !is_root && stop_at(node) {
+                continue;
             }
 
-            // Recurse into children.
+            let mut local_to_root = parent_to_root;
+            if !is_root && let Some(tc) = world.get_component_by_id_as::<TransformComponent>(node) {
+                local_to_root = mat4_mul(parent_to_root, tc.transform.model);
+            }
+
+            if let Some(local_aabb) = local_bounds_for(node)? {
+                let transformed = local_aabb.transformed(local_to_root);
+                aggregate = Some(match aggregate {
+                    Some(existing) => existing.union(&transformed),
+                    None => transformed,
+                });
+            }
+
             for &child in world.children_of(node) {
                 stack.push((child, local_to_root, false));
             }
         }
 
-        if let Some(bounds) = aggregate {
-            RenderableBoundsMeasure::Measured(bounds)
-        } else {
-            RenderableBoundsMeasure::Unmeasurable
-        }
+        Ok(aggregate)
     }
 
     pub fn fit_aabb_uniform(aabb: &Aabb, target_bounds: [f32; 6]) -> Option<UniformFitTransform> {

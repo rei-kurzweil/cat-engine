@@ -74,8 +74,9 @@ fn make_bar(value) {
             C.rgba(0.90, 0.96, 1.0, 1.0)
             Style { display("block") }
         }
-        T.position(0.0, height / 2.0, 0.0).scale(1.5, height, 1.5) {
-            Style { display("block") }
+        // Bounds-derived placement belongs to layout; authors specify the
+        // data-driven scale, not half-width/half-height translations.
+        T.scale(1.5, height, 1.5) {
             R.cube() { C.rgba(0.25, 0.80, 1.0, 1.0) }
         }
     }
@@ -84,5 +85,5 @@ fn make_bar(value) {
 let text = File.read_text("examples/data/bar-samples.json")
 let records = JSON.parse(text)
 for record in records {
-    // bars.attach(make_bar(record.value))
+    bars.attach(make_bar(record.value))
 }
