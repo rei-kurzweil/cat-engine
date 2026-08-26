@@ -191,6 +191,19 @@ fn create_component(
             AmbientLightComponent::rgb(f32_arg(args, 0)?, f32_arg(args, 1)?, f32_arg(args, 2)?),
         ),
         "AmbientLight" => world.add_component(AmbientLightComponent::new()),
+        "BackgroundColor" if constructor == Some("rgba") => {
+            let background = world.add_component(BackgroundColorComponent::new());
+            let color = world.add_component(ColorComponent::rgba(
+                f32_arg(args, 0)?,
+                f32_arg(args, 1)?,
+                f32_arg(args, 2)?,
+                f32_arg(args, 3)?,
+            ));
+            world
+                .add_child(background, color)
+                .map_err(|error| format!("attach BackgroundColor color: {error}"))?;
+            background
+        }
         "BackgroundColor" => world.add_component(BackgroundColorComponent::new()),
         "RenderGraph" => world.add_component(match constructor {
             Some("off") => RenderGraphComponent::off(),
@@ -227,6 +240,7 @@ fn create_component(
             (component, constructor),
             ("Renderable", "cube")
                 | ("Color", "rgba")
+                | ("BackgroundColor", "rgba")
                 | ("Emissive", "on" | "off")
                 | ("AmbientLight", "rgb")
                 | ("RenderGraph", "on" | "off")

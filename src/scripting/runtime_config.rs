@@ -452,6 +452,9 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 "Color" => {
                     host_constructor(component, canonical, "rgba", floats(4));
                 }
+                "BackgroundColor" => {
+                    host_constructor(component, canonical, "rgba", floats(4));
+                }
                 "Camera3D" => {
                     for method in ["enabled"] {
                         host_constructor_and_builder(component, canonical, method, booleans(1));

@@ -1604,7 +1604,22 @@ fn create_component(
         }
         "Overlay" => add!(OverlayComponent::new()),
         "InspectLayout" => add!(InspectLayoutComponent::new()),
-        "BackgroundColor" => add!(BackgroundColorComponent::new()),
+        "BackgroundColor" => match ctor {
+            Some("rgba") => {
+                let background = world.add_component(BackgroundColorComponent::new());
+                let color = world.add_component(ColorComponent::rgba(
+                    arg_f32(args, 0)?,
+                    arg_f32(args, 1)?,
+                    arg_f32(args, 2)?,
+                    arg_f32(args, 3)?,
+                ));
+                world
+                    .add_child(background, color)
+                    .map_err(|error| format!("attach BackgroundColor color: {error}"))?;
+                Ok(background)
+            }
+            _ => add!(BackgroundColorComponent::new()),
+        },
         "AmbientLight" => match ctor {
             Some("rgb") => add!(AmbientLightComponent::rgb(
                 arg_f32(args, 0)?,

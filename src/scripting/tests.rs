@@ -1092,6 +1092,33 @@ fn runtime_spec_json_host_api_reports_parse_and_encode_errors() {
 }
 
 #[test]
+fn runtime_spec_background_color_rgba_creates_its_color_child() {
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec(
+        "BGC.rgba(0.1, 0.2, 0.3, 0.4)",
+        &mut world,
+        &mut rx,
+        None,
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+    let background = world
+        .all_components()
+        .find(|&id| world.get_component_by_id_as::<crate::engine::ecs::component::BackgroundColorComponent>(id).is_some())
+        .expect("BackgroundColor root");
+    let color = *world.children_of(background).first().expect("Color child");
+    assert_eq!(
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::ColorComponent>(color)
+            .expect("Color component")
+            .rgba,
+        [0.1, 0.2, 0.3, 0.4]
+    );
+}
+
+#[test]
 fn live_eval_math_builtin_table_reports_invalid_usage() {
     let cases = [
         (
