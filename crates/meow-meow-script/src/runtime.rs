@@ -930,13 +930,15 @@ impl Runtime {
             .tokenize()
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
         let parser = match self.catalog.component_name_policy {
-            ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names(
+            ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names_and_namespaces(
                 tokens,
                 self.catalog.components.keys().cloned(),
+                self.catalog.namespaces.iter().cloned(),
             ),
-            ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names(
+            ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names_and_namespaces(
                 tokens,
                 self.catalog.components.keys().cloned(),
+                self.catalog.namespaces.iter().cloned(),
             ),
         };
         let statements = parser

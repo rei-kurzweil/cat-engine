@@ -17,6 +17,7 @@ pub struct MeowMeowParser {
     tokens: Vec<Token>,
     pos: usize,
     component_names: Option<HashSet<String>>,
+    non_component_names: HashSet<String>,
     open_uppercase_components: bool,
 }
 
@@ -26,6 +27,7 @@ impl MeowMeowParser {
             tokens,
             pos: 0,
             component_names: None,
+            non_component_names: HashSet::new(),
             open_uppercase_components: true,
         }
     }
@@ -45,11 +47,27 @@ impl MeowMeowParser {
                     .map(|name| name.into().to_lowercase())
                     .collect(),
             ),
+            non_component_names: HashSet::new(),
             // Strict runtimes still parse uppercase component-shaped syntax;
             // the runtime catalog then reports an unknown component instead
             // of silently interpreting it as unrelated expressions.
             open_uppercase_components: true,
         }
+    }
+
+    /// Like [`Self::with_component_names`], while reserving configured
+    /// namespace spellings from uppercase component-expression parsing.
+    pub fn with_component_names_and_namespaces(
+        tokens: Vec<Token>,
+        names: impl IntoIterator<Item = impl Into<String>>,
+        namespaces: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut parser = Self::with_component_names(tokens, names);
+        parser.non_component_names = namespaces
+            .into_iter()
+            .map(|name| name.into().to_lowercase())
+            .collect();
+        parser
     }
 
     /// Construct a parser that recognizes registered names and arbitrary
@@ -67,15 +85,33 @@ impl MeowMeowParser {
                     .map(|name| name.into().to_lowercase())
                     .collect(),
             ),
+            non_component_names: HashSet::new(),
             open_uppercase_components: true,
         }
     }
 
+    /// Open-component variant of
+    /// [`Self::with_component_names_and_namespaces`].
+    pub fn with_open_component_names_and_namespaces(
+        tokens: Vec<Token>,
+        names: impl IntoIterator<Item = impl Into<String>>,
+        namespaces: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut parser = Self::with_open_component_names(tokens, names);
+        parser.non_component_names = namespaces
+            .into_iter()
+            .map(|name| name.into().to_lowercase())
+            .collect();
+        parser
+    }
+
     fn is_component_name(&self, name: &str) -> bool {
-        self.component_names
-            .as_ref()
-            .is_some_and(|names| names.contains(&name.to_lowercase()))
-            || self.open_uppercase_components && is_open_component_name(name)
+        !self.non_component_names.contains(&name.to_lowercase())
+            && (self
+                .component_names
+                .as_ref()
+                .is_some_and(|names| names.contains(&name.to_lowercase()))
+                || self.open_uppercase_components && is_open_component_name(name))
     }
 
     pub fn parse_program(mut self) -> Result<Vec<Statement>, ParseError> {
@@ -105,7 +141,7 @@ impl MeowMeowParser {
             }
             TokenKind::Fn => {
                 self.bump(); // consume `fn`
-                             // `fn name(params) { body }` — named function sugar for `let name = fn(params) { body }`
+                // `fn name(params) { body }` — named function sugar for `let name = fn(params) { body }`
                 if matches!(self.peek_kind(), TokenKind::Ident(_)) {
                     let name = self.expect_ident()?;
                     let func = self.parse_fn_body()?;

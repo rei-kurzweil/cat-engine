@@ -496,7 +496,9 @@ impl MeowMeowRunner {
         Self::eval_with_runtime_spec_at_path(source, None, world, rx, render_assets, emit)
     }
 
-    fn eval_with_runtime_spec_at_path(
+    /// Like [`Self::eval_with_runtime_spec`], while retaining the source path
+    /// needed for relative MMS imports.
+    pub fn eval_with_runtime_spec_at_path(
         source: &str,
         source_path: Option<&str>,
         world: &mut World,

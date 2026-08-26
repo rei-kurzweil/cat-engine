@@ -296,7 +296,7 @@ fn main() {
     // Scene files are MMS source — evaluated through the standard runner.
     if let engine::cli::CliCommand::Load { ref filename } = cli.command {
         println!("[CLI] Loading scene from '{}' (MMS)...", filename);
-        let out = mittens_engine::scripting::runner::MeowMeowRunner::eval_with_world_and_assets_at_path(
+        let out = mittens_engine::scripting::runner::MeowMeowRunner::eval_with_runtime_spec_at_path(
             &std::fs::read_to_string(filename).unwrap_or_default(),
             Some(filename),
             &mut universe.world,

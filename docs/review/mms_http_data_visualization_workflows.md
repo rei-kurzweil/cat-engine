@@ -22,8 +22,9 @@ Scenario B is the unbounded HTTP version: each POST adds one integer and one
 bar. Scenario C extends it with a bounded rolling window: each POST adds a bar
 and removes the historic sample/bar that falls outside the window.
 
-The present MMS API lacks the `JSON` table and synchronous file read needed for
-Scenario A. It also lacks the mutable ordered-list operations needed for
+The Mittens runtime now provides the host-advertised `JSON` namespace needed
+for JSON parsing and encoding. It still lacks the synchronous file read needed
+for Scenario A and the mutable ordered-list operations needed for
 Scenario C. Those are deliberate gaps to document; this review does not hide
 them behind a count-only workaround.
 
@@ -34,9 +35,9 @@ scenario under `examples/`:
 
 | Scenario | Planned file | Purpose | Prerequisites |
 | --- | --- | --- | --- |
-| A | `examples/data-viz-json-file.mms` | Read a JSON fixture synchronously and build the complete labeled bar graph. | `JSON` and restricted `File` built-in tables |
-| B | `examples/data-viz-http-unbounded.mms` | Accept JSON POSTs and append one labeled bar per request. | `JSON` table and mutable ordered sample list |
-| C | `examples/data-viz-http-rolling-window.mms` | Accept JSON POSTs while retaining only the newest N samples and bar subtrees. | Scenario B prerequisites plus ordered removal |
+| A | `examples/data-viz-json-file.mms` | Read a JSON fixture synchronously and build the complete labeled bar graph. | restricted `File` host API |
+| B | `examples/data-viz-http-unbounded.mms` | Accept JSON POSTs and append one labeled bar per request. | mutable ordered sample list |
+| C | `examples/data-viz-http-rolling-window.mms` | Accept JSON POSTs while retaining only the newest N samples and bar subtrees. | Scenario B prerequisite plus ordered removal |
 
 These are planned filenames only. Do not add placeholder examples before their
 required MMS surfaces exist; when implemented, each should be independently
@@ -58,17 +59,18 @@ launchable and should demonstrate only its named scenario.
   before `on(...)` can be mutated from every later callback.  MMS table keys are
   strings; table iteration is supported.  Arrays are currently value-backed and
   do not have append, deletion, or index assignment.
-* MMS has no current JSON builtin or general synchronous file-read builtin.
-  The file-backed graph below is therefore the intended authoring shape, not a
-  claim that its `File.read_text` or `JSON.parse` calls run today.
+* `JSON.parse` and `JSON.stringify` are registered Mittens host APIs. MMS does
+  not implement a third-party JSON codec itself. MMS still has no general
+  synchronous file-read host API, so the file-backed graph below remains the
+  intended authoring shape rather than a claim that `File.read_text` runs today.
 * Handler-issued intents are deferred until after event dispatch, then executed
   in queue order.  A handler should send its HTTP reply promptly; it should not
   depend on its new visuals having been rendered before replying.
 
-## Proposed `JSON` built-in table
+## Mittens `JSON` host namespace
 
-Add one reserved built-in table, analogous to `Math`, rather than unrelated
-numeric and JSON conversion functions:
+Mittens registers one `JSON` host namespace through its `RuntimeSpec`; MMS
+does not reserve or implement this third-party codec itself:
 
 | MMS call | Result | Error condition |
 | --- | --- | --- |
@@ -83,9 +85,9 @@ let record = JSON.parse(req.body_text)
 let value = record.value
 ```
 
-No separate `parse_number` builtin is needed: a JSON number is already an MMS
-number after `JSON.parse`. The table should have typed parse/stringify errors,
-not return `null` silently on invalid input.
+No separate `parse_number` API is needed: a JSON number is already an MMS
+number after `JSON.parse`. The host API returns typed parse/stringify errors,
+not `null` silently on invalid input.
 
 ## Proposed `File` built-in table
 
@@ -108,8 +110,9 @@ inline-block layout item so bars flow beside one another; inside it, the value
 label and bar are block elements. The cube is scaled into a rectangular prism
 whose height is proportional to the sample value.
 
-`File.read_text` and `JSON.parse` below name the missing MMS operations
-explicitly. They define the desired no-Rust authoring experience.
+`File.read_text` below names the remaining missing MMS host operation. Together
+with the implemented `JSON.parse`, it defines the desired no-Rust authoring
+experience.
 
 ```mms
 let chart = T {
@@ -148,7 +151,7 @@ fn make_bar(value) {
 }
 
 let text = File.read_text("examples/data/bar-samples.json") // absent today
-let records = JSON.parse(text)                               // absent today
+let records = JSON.parse(text)
 for record in records {
     let value = record.value
     let bar = make_bar(value)
@@ -164,8 +167,8 @@ is a valid shorter form in the current evaluator.
 
 The current engine supports the live-component part of this flow: bind a
 factory result, then attach it. Scenario A does not need mutable runtime state,
-HTTP, or a client launcher. It is the first interactive test for the `JSON`
-and `File` built-in tables.
+HTTP, or a client launcher. It is the first interactive test for the `File`
+host API alongside JSON parsing.
 
 ## Scenario B: unbounded, event-driven HTTP bar graph
 
@@ -205,7 +208,7 @@ on(server, "HttpRequest", fn(req) {
         return
     }
 
-    let record = JSON.parse(req.body_text)  // required JSON table; absent today
+    let record = JSON.parse(req.body_text)
     let value = record.value
     state.samples.push(value)               // required mutable-list API; absent today
     let bar = make_bar(value)
@@ -234,7 +237,7 @@ on(server, "HttpRequest", fn(req) {
         return
     }
 
-    let record = JSON.parse(req.body_text)  // required JSON table; absent today
+    let record = JSON.parse(req.body_text)
     let value = record.value
     state.samples.push(value)               // required mutable-list API; absent today
     let bar = make_bar(value)
@@ -267,10 +270,10 @@ their baseline/bottom alignment behaving as intended.
    currently be implemented faithfully.  A table can retain rows, but its
    iteration order is not a presentation-order contract.
 
-2. **No `JSON` or `File` built-in table.** MMS needs typed `JSON.parse(text)`,
-   `JSON.stringify(value)`, and restricted `File.read_text(path)`. These are
-   required for Scenario A, and `JSON.parse` is required before a posted record
-   can drive a Scenario B/C bar height and label without Rust.
+2. **No restricted `File` host API.** `JSON.parse(text)` and
+   `JSON.stringify(value)` are implemented by Mittens' advertised `JSON`
+   namespace. `File.read_text(path)` remains required for Scenario A; it must
+   be restricted to host-selected asset/project roots.
 
 3. **The public component API document omits topology methods.** `attach`,
    `attach_clone`, `detach`, `remove_child`, and `remove_subtree` are runtime

@@ -43,6 +43,8 @@ pub enum ComponentInitializerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MittensApi {
     Smoke,
+    JsonParse,
+    JsonStringify,
 }
 
 /// The crate-owned runtime and matching Mittens bindings from one build.
@@ -1152,6 +1154,19 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         );
     });
 
+    builder.namespace("JSON", |namespace| {
+        namespace.api(
+            "parse",
+            mms::ValueSignature::new(vec![mms::ValueType::String], mms::ValueType::Any),
+            MittensBinding::Api(MittensApi::JsonParse),
+        );
+        namespace.api(
+            "stringify",
+            mms::ValueSignature::new(vec![mms::ValueType::Any], mms::ValueType::String),
+            MittensBinding::Api(MittensApi::JsonStringify),
+        );
+    });
+
     builder.build()
 }
 
@@ -1210,6 +1225,16 @@ mod tests {
             configured.bindings().get(smoke_id),
             Some(&MittensBinding::Api(MittensApi::Smoke))
         );
+        for (name, binding) in [
+            ("parse", MittensApi::JsonParse),
+            ("stringify", MittensApi::JsonStringify),
+        ] {
+            let id = spec.api(Some("JSON"), name).unwrap().operation_id();
+            assert_eq!(
+                configured.bindings().get(id),
+                Some(&MittensBinding::Api(binding))
+            );
+        }
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
         assert!(
             configured

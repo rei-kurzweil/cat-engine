@@ -108,6 +108,22 @@ these operations without engine types.
 | Handler registration | scope, specification signal ID, optional name, callback reference | unit |
 | Engine API | specification operation ID, arguments | transport value or unit |
 | Audio | specification operation ID and typed arguments | value or unit |
+
+## Mittens `JSON` namespace
+
+`JSON` is a Mittens host API namespace, not an evaluator-provided MMS built-in
+table. It is declared in Mittens' `RuntimeSpec`, so another MMS embedding does
+not expose it unless that host registers its own namespace and implementations.
+
+| MMS call | Result | Error condition |
+|---|---|---|
+| `JSON.parse(text)` | MMS null, bool, number, string, array, or heap-backed table | invalid JSON or a number MMS cannot represent |
+| `JSON.stringify(value)` | JSON string | non-finite number, function, component handle, cycle, or another non-JSON value |
+
+Mittens implements the conversion with its JSON dependency at the host
+boundary. Parsed JSON objects are rehydrated into the receiving MMS session's
+heap, so their fields can be reassigned and captured like ordinary MMS table
+literals. Transport values remain snapshots while crossing the boundary.
 | Engine mutation | specification operation ID, targets, arguments | value or unit |
 | Component inspection | handle and type/children/field operation | string, ordered handles, value, or missing-field marker |
 | REPL inspection | world/component target and navigation operation | structured entries, target, description, or rendered source |

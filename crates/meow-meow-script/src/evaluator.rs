@@ -146,13 +146,15 @@ impl<'a, H: Host> Evaluator<'a, H> {
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
         let parser = if let Some(catalog) = &self.catalog {
             match catalog.component_name_policy {
-                ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names(
+                ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names_and_namespaces(
                     tokens,
                     catalog.components.keys().cloned(),
+                    catalog.namespaces.iter().cloned(),
                 ),
-                ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names(
+                ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names_and_namespaces(
                     tokens,
                     catalog.components.keys().cloned(),
+                    catalog.namespaces.iter().cloned(),
                 ),
             }
         } else { MeowMeowParser::new(tokens) };
@@ -1051,11 +1053,36 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
         };
         match self.dispatch(request)? {
-            HostResponse::Transport(value) => transport_to_value(value),
+            HostResponse::Transport(value) => self.from_transport(value),
             HostResponse::Value(value) => Ok(value),
             HostResponse::Unit => Ok(Value::Null),
             other => component_response(other, "API result".into()),
         }
+    }
+
+    /// Host API tables become ordinary heap-backed MMS tables. Transport is a
+    /// snapshot boundary, but a value re-entering this session must retain the
+    /// mutation and closure-capture semantics of a table literal.
+    fn from_transport(&mut self, value: TransportValue) -> Result<Value, EvalError> {
+        Ok(match value {
+            TransportValue::Null => Value::Null,
+            TransportValue::Bool(value) => Value::Bool(value),
+            TransportValue::Number(value) => Value::Number(value),
+            TransportValue::String(value) => Value::String(value),
+            TransportValue::Array(values) => Value::Array(
+                values.into_iter().map(|value| self.from_transport(value)).collect::<Result<_, _>>()?,
+            ),
+            TransportValue::Table(values) => {
+                let values = values.into_iter()
+                    .map(|(key, value)| Ok((key, self.from_transport(value)?)))
+                    .collect::<Result<_, EvalError>>()?;
+                Value::Object(self.heap.alloc(Object::Map(values)))
+            }
+            TransportValue::Component(id) => Value::ComponentObject { id, component_type: "Component".into() },
+            TransportValue::Callback(_) => return Err(EvalError::Runtime(
+                "a host cannot return a callback handle as a script closure".into(),
+            )),
+        })
     }
 
     fn to_transport(&mut self, value: Value) -> Result<TransportValue, EvalError> {

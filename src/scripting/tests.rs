@@ -1058,6 +1058,40 @@ fn live_eval_math_builtin_table_supports_trig_and_rounding() {
 }
 
 #[test]
+fn runtime_spec_json_host_api_round_trips_heap_backed_tables() {
+    let source = r#"
+        let record = JSON.parse("{\"value\":4,\"nested\":{\"value\":7},\"items\":[true, null]}")
+        record.value = record.value + 1
+        record.nested.value = record.nested.value + 1
+        let decoded = JSON.parse(JSON.stringify(record))
+        if decoded.value != 5 { json_round_trip_failed() }
+        if decoded.nested.value != 8 { json_nested_table_failed() }
+        if decoded.items[0] != true { json_array_failed() }
+        if decoded.items[1] != null { json_null_failed() }
+    "#;
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec(source, &mut world, &mut rx, None, &mut emit);
+    assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+}
+
+#[test]
+fn runtime_spec_json_host_api_reports_parse_and_encode_errors() {
+    for (source, expected) in [
+        ("JSON.parse(\"{bad}\")", "JSON.parse"),
+        ("JSON.stringify(fn() {})", "functions are not JSON values"),
+    ] {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut emit = CommandQueue::new();
+        let output = MeowMeowRunner::eval_with_runtime_spec(source, &mut world, &mut rx, None, &mut emit);
+        assert!(output.errors.iter().any(|error| error.contains(expected)),
+            "expected an error containing {expected:?}, got {:?}", output.errors);
+    }
+}
+
+#[test]
 fn live_eval_math_builtin_table_reports_invalid_usage() {
     let cases = [
         (
