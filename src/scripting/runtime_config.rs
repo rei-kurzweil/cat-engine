@@ -867,6 +867,14 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         component.builder_call(method, any(2));
                     }
                     for method in [
+                        "margin_top",
+                        "margin_right",
+                        "margin_bottom",
+                        "margin_left",
+                    ] {
+                        component.builder_call(method, any(1));
+                    }
+                    for method in [
                         "background_z",
                         "flex_grow",
                         "flex_shrink",

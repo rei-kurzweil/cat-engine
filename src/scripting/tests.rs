@@ -1119,6 +1119,34 @@ fn runtime_spec_background_color_rgba_creates_its_color_child() {
 }
 
 #[test]
+fn runtime_spec_style_supports_individual_margin_sides() {
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec(
+        "Style { margin_top(1) margin_right(2) margin_bottom(3) margin_left(4) }",
+        &mut world,
+        &mut rx,
+        None,
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+    let style = world
+        .all_components()
+        .find_map(|id| world.get_component_by_id_as::<StyleComponent>(id))
+        .expect("Style component");
+    assert_eq!(
+        style.margin,
+        crate::engine::ecs::component::EdgeInsets {
+            top: SizeDimension::GlyphUnits(1.0),
+            right: SizeDimension::GlyphUnits(2.0),
+            bottom: SizeDimension::GlyphUnits(3.0),
+            left: SizeDimension::GlyphUnits(4.0),
+        }
+    );
+}
+
+#[test]
 fn live_eval_math_builtin_table_reports_invalid_usage() {
     let cases = [
         (

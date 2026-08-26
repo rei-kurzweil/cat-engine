@@ -3522,6 +3522,10 @@ fn apply_call(
                 st.margin =
                     EdgeInsets::axes_dim(arg_size_dimension(args, 0)?, arg_size_dimension(args, 1)?)
             }
+            "margin_top" => st.margin.top = arg_size_dimension(args, 0)?,
+            "margin_right" => st.margin.right = arg_size_dimension(args, 0)?,
+            "margin_bottom" => st.margin.bottom = arg_size_dimension(args, 0)?,
+            "margin_left" => st.margin.left = arg_size_dimension(args, 0)?,
             "background_color" => st.background_color = Some(arg_f32_arr::<4>(args, 0)?),
             "background_z" => st.background_z = Some(arg_f32(args, 0)?),
             "color" => st.color = Some(arg_f32_arr::<4>(args, 0)?),
