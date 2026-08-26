@@ -43,6 +43,7 @@ pub enum ComponentInitializerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MittensApi {
     Smoke,
+    FileReadText,
     JsonParse,
     JsonStringify,
 }
@@ -1165,6 +1166,14 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         );
     });
 
+    builder.namespace("File", |namespace| {
+        namespace.api(
+            "read_text",
+            mms::ValueSignature::new(vec![mms::ValueType::String], mms::ValueType::String),
+            MittensBinding::Api(MittensApi::FileReadText),
+        );
+    });
+
     builder.namespace("JSON", |namespace| {
         namespace.api(
             "parse",
@@ -1246,6 +1255,11 @@ mod tests {
                 Some(&MittensBinding::Api(binding))
             );
         }
+        let file_read_text = spec.api(Some("File"), "read_text").unwrap().operation_id();
+        assert_eq!(
+            configured.bindings().get(file_read_text),
+            Some(&MittensBinding::Api(MittensApi::FileReadText))
+        );
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
         assert!(
             configured

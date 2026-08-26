@@ -167,6 +167,15 @@ This protocol does not declare MMS vocabulary and requires no
 `RuntimeSpecBuilder`. A host may reject live inspection while the REPL
 continues to support pure table, array, and component-artifact navigation.
 
+## Host API namespaces
+
+Hosts advertise third-party formats and local services through `RuntimeSpec`
+API namespaces. Mittens provides `File.read_text(path: string) -> string` and
+`JSON.parse` / `JSON.stringify`. Declaring `File` as a namespace also reserves
+its uppercase spelling from component-expression parsing, so
+`File.read_text("data.json")` is a host API call rather than a `File`
+component expression.
+
 ### Universal component inspection
 
 Language-level `node.type()`, `node.children()`, and `node.field` require no

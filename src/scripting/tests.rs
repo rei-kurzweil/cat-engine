@@ -1077,6 +1077,52 @@ fn runtime_spec_json_host_api_round_trips_heap_backed_tables() {
 }
 
 #[test]
+fn runtime_spec_file_read_text_is_a_host_api() {
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec(
+        r#"
+            let text = File.read_text("examples/data/bar-samples.json")
+            let records = JSON.parse(text)
+            if len(records) == 0 { file_read_text_failed() }
+        "#,
+        &mut world,
+        &mut rx,
+        None,
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+}
+
+#[test]
+fn data_viz_json_file_demo_loads_three_fixture_bars() {
+    let source = fs::read_to_string(repo_path("examples/data-viz-json-file.mms"))
+        .expect("JSON data-viz example source");
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec(
+        &source,
+        &mut world,
+        &mut rx,
+        None,
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+    let bars = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("bar_chart"))
+        .expect("bar chart container");
+    let attach_count = output
+        .intents
+        .iter()
+        .filter(|intent| matches!(intent, IntentValue::Attach { parent, .. } if *parent == bars))
+        .count();
+    assert_eq!(attach_count, 3, "one Attach intent per JSON record");
+}
+
+#[test]
 fn runtime_spec_json_host_api_reports_parse_and_encode_errors() {
     for (source, expected) in [
         ("JSON.parse(\"{bad}\")", "JSON.parse"),

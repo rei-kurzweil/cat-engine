@@ -9,7 +9,8 @@
 /// here today. Mixing inline-block and block items in the same container falls
 /// through to block layout (handled by the dispatcher in `mod.rs`).
 use crate::engine::ecs::ComponentId;
-use crate::engine::ecs::component::TransformComponent;
+use crate::engine::ecs::component::style::VerticalAlign;
+use crate::engine::ecs::component::{StyleComponent, TransformComponent};
 use crate::engine::ecs::{IntentValue, SignalEmitter, World};
 
 use super::block::apply_text_align;
@@ -67,6 +68,10 @@ pub(crate) fn layout_items(
     let mut cursor_x_gu: f32 = 0.0;
     let mut cursor_y_gu: f32 = 0.0;
     let mut line_height_gu: f32 = 0.0;
+    // Items are positioned while traversing the line, before its final height
+    // is known. Retain their unaligned positions so `vertical_align` can
+    // adjust shorter inline-blocks after the line's tallest item is measured.
+    let mut line_items: Vec<(ComponentId, [f32; 3], [f32; 3], f32)> = Vec::new();
     let resolved_z = (depth - parent_depth) as f32 * super::LAYER_DISTANCE;
 
     for original in items {
@@ -90,6 +95,14 @@ pub(crate) fn layout_items(
 
         // Wrap to a new line if this item won't fit and we're not at the line start.
         if cursor_x_gu > 0.0 && cursor_x_gu + item.margin_box_width_gu > avail_w_gu {
+            apply_inline_vertical_align(
+                world,
+                emit,
+                &line_items,
+                line_height_gu,
+                unit_scale,
+            );
+            line_items.clear();
             cursor_y_gu += line_height_gu;
             cursor_x_gu = 0.0;
             line_height_gu = 0.0;
@@ -119,6 +132,12 @@ pub(crate) fn layout_items(
                 scale: tc_scale,
             },
         );
+        line_items.push((
+            item.tc_id,
+            translation,
+            tc_scale,
+            item.margin_box_height_gu,
+        ));
 
         super::block::sync_layout_bounds(world, emit, item, unit_scale);
 
@@ -185,5 +204,121 @@ pub(crate) fn layout_items(
         }
     }
 
+    apply_inline_vertical_align(world, emit, &line_items, line_height_gu, unit_scale);
+
     (cursor_x_gu, cursor_y_gu + line_height_gu)
+}
+
+fn apply_inline_vertical_align(
+    world: &World,
+    emit: &mut dyn SignalEmitter,
+    items: &[(ComponentId, [f32; 3], [f32; 3], f32)],
+    line_height_gu: f32,
+    unit_scale: f32,
+) {
+    for &(id, base_translation, scale, margin_box_height_gu) in items {
+        let align = world
+            .children_of(id)
+            .iter()
+            .find_map(|&child| {
+                world
+                    .get_component_by_id_as::<StyleComponent>(child)
+                    .map(|style| style.vertical_align)
+            })
+            .unwrap_or(VerticalAlign::Auto);
+        let offset_gu = match align {
+            VerticalAlign::Auto | VerticalAlign::Top => 0.0,
+            VerticalAlign::Middle => (line_height_gu - margin_box_height_gu).max(0.0) * 0.5,
+            VerticalAlign::Bottom => (line_height_gu - margin_box_height_gu).max(0.0),
+        };
+        if offset_gu == 0.0 {
+            continue;
+        }
+        let mut translation = base_translation;
+        // Layout +Y is down the page while transform +Y is up, so moving an
+        // inline item toward the line's bottom subtracts world-space Y.
+        translation[1] -= offset_gu * unit_scale;
+        emit.push_intent_now(
+            id,
+            IntentValue::UpdateTransform {
+                component_id: id,
+                translation,
+                rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                scale,
+            },
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::ecs::component::style::{Display, SizeDimension};
+    use crate::engine::ecs::component::{LayoutComponent, StyleComponent};
+    use crate::engine::ecs::rx::{EventSignal, IntentSignal};
+
+    #[derive(Default)]
+    struct TestEmitter {
+        intents: Vec<IntentSignal>,
+    }
+
+    impl SignalEmitter for TestEmitter {
+        fn push_event(&mut self, _: ComponentId, _: EventSignal) {}
+
+        fn push_intent(&mut self, _: ComponentId, intent: IntentSignal) {
+            self.intents.push(intent);
+        }
+    }
+
+    fn inline_item(
+        world: &mut World,
+        name: &str,
+        width: f32,
+        height: f32,
+        vertical_align: VerticalAlign,
+    ) -> ComponentId {
+        let item = world.add_component_boxed_named(name, Box::new(TransformComponent::new()));
+        let style = world.add_component({
+            let mut style = StyleComponent::new();
+            style.display = Some(Display::InlineBlock);
+            style.width = SizeDimension::GlyphUnits(width);
+            style.height = SizeDimension::GlyphUnits(height);
+            style.vertical_align = vertical_align;
+            style
+        });
+        world.add_child(item, style).unwrap();
+        item
+    }
+
+    fn last_translation(emitter: &TestEmitter, item: ComponentId) -> [f32; 3] {
+        emitter
+            .intents
+            .iter()
+            .rev()
+            .find_map(|intent| match &intent.value {
+                IntentValue::UpdateTransform {
+                    component_id,
+                    translation,
+                    ..
+                } if *component_id == item => Some(*translation),
+                _ => None,
+            })
+            .expect("item transform update")
+    }
+
+    #[test]
+    fn bottom_aligned_inline_block_moves_to_the_bottom_of_its_line() {
+        let mut world = World::default();
+        let root = world.add_component(LayoutComponent::new(20.0));
+        let short = inline_item(&mut world, "short", 3.0, 2.0, VerticalAlign::Bottom);
+        let tall = inline_item(&mut world, "tall", 3.0, 5.0, VerticalAlign::Top);
+        world.add_child(root, short).unwrap();
+        world.add_child(root, tall).unwrap();
+
+        let mut emit = TestEmitter::default();
+        layout(&mut world, &mut emit, root);
+
+        assert_eq!(last_translation(&emit, tall), [3.0, 0.0, 0.0]);
+        assert_eq!(last_translation(&emit, short), [0.0, -3.0, 0.0]);
+    }
 }

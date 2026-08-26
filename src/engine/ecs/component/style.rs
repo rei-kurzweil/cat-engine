@@ -101,10 +101,11 @@ pub enum TextAlign {
     Right,
 }
 
-/// Vertical text alignment within a styled box.
+/// Vertical alignment within a styled box or inline line box.
 ///
-/// This currently applies to the same text-bearing inner transform that
-/// `text_align` controls horizontally.
+/// On a block item this applies to the text-bearing inner transform, alongside
+/// `text_align`. On an inline-block it aligns the item's margin box against the
+/// tallest item on its line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VerticalAlign {
     #[default]

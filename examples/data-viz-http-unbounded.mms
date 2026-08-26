@@ -6,7 +6,15 @@
 RendererSettings { window_size(960, 720) }
 BGC.rgba(0.04, 0.05, 0.09, 1.0)
 AL.rgb(0.48, 0.48, 0.54)
-T.position(0.0, 2.4, 7.5) { C3D { Pointer {} } }
+// Desktop fly camera: WASD/RF movement, right-mouse look, Q/E roll.
+I {
+    speed(2.5)
+    InputTransformMode.forward_z() {
+        fps_rotation()
+        roll_axis_y()
+    }
+    T.position(0.0, 2.4, 7.5) { C3D { Pointer {} } }
+}
 
 let chart = T.position(-2.8, 1.8, 0.0).scale(0.12, 0.12, 0.12) {
     LayoutRoot {

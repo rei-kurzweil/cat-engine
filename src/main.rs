@@ -312,6 +312,13 @@ fn main() {
             return;
         } else {
             println!("[CLI] Scene loaded ({} intents queued).", out.intents.len());
+            for intent in out.intents {
+                engine::ecs::SignalEmitter::push_intent_now(
+                    &mut universe.command_queue,
+                    engine::ecs::ComponentId::default(),
+                    intent,
+                );
+            }
             universe.systems.process_commands(
                 &mut universe.world,
                 &mut universe.visuals,

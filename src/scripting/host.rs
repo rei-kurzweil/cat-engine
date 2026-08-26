@@ -290,6 +290,9 @@ impl mms::Host for MittensHost<'_> {
                         message: "mittens.smoke expects no arguments".into(),
                     }),
                     super::runtime_config::MittensBinding::Api(
+                        super::runtime_config::MittensApi::FileReadText,
+                    ) => file_read_text(args),
+                    super::runtime_config::MittensBinding::Api(
                         super::runtime_config::MittensApi::JsonParse,
                     ) => json_parse(args),
                     super::runtime_config::MittensBinding::Api(
@@ -562,6 +565,19 @@ impl mms::Host for MittensHost<'_> {
             }
         }
     }
+}
+
+fn file_read_text(args: Vec<mms::TransportValue>) -> Result<mms::HostResponse, mms::HostError> {
+    let [mms::TransportValue::String(path)] = args.as_slice() else {
+        return Err(mms::HostError::failure(
+            "File.read_text",
+            "expected one string path argument",
+        ));
+    };
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        mms::HostError::failure("File.read_text", format!("cannot read '{path}': {error}"))
+    })?;
+    Ok(mms::HostResponse::Transport(mms::TransportValue::String(text)))
 }
 
 fn json_parse(args: Vec<mms::TransportValue>) -> Result<mms::HostResponse, mms::HostError> {
