@@ -144,6 +144,31 @@ The component contract is specified in
 - The JSON-file data-visualization example meets the visual result with only
   its bar scale driven by the parsed values.
 
+## Implementation status
+
+The first end-to-end slice now supports the authored shape used by
+`examples/data-viz-json-file.mms`: one direct, unstyled transform roots the
+bounded presentational subtree of a styled item.
+
+- Measurement retains that root and its complete pre-placement AABB in the
+  styled item's local space.
+- Direct label text and visual height occupy consecutive vertical regions, so
+  the label remains above the bar rather than sharing its origin.
+- Layout creates or reuses `__layout_visual_placement`, centers the visual in
+  the content width, and aligns its measured bottom with the content bottom.
+- Transform propagation composes the correction outside the authored local
+  matrix. Re-layout therefore preserves authored TRS and does not drift.
+- The runtime component is marked out of filtered serialization.
+
+Focused coverage exercises centered placement beneath a label, complete AABB
+retention, transform composition, authored-scale preservation, repeated layout,
+and loading the three JSON fixture bars.
+
+The next extension is multiple direct visual roots. V1 intentionally declines
+that ambiguous shape; several renderables already work when they share the one
+direct presentational transform root. Bounds/transform changes also still need
+an explicit invalidation path that marks the owning layout root dirty.
+
 ## Relationship to existing tasks
 
 `transform-aware-intrinsic-layout-bounds.md` solves measurement: which visual

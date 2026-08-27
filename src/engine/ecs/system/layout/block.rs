@@ -25,10 +25,10 @@ use crate::engine::ecs::World;
 use crate::engine::ecs::component::style::VerticalAlign;
 use crate::engine::ecs::component::style::{SizeDimension, TextAlign};
 use crate::engine::ecs::component::{
-    ColorComponent, InspectLayoutComponent, LayoutBoundsComponent, OpacityComponent, Overflow,
-    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RenderableComponent,
-    RouterComponent, ScrollingComponent, SerializeComponent, StencilClipComponent, StyleComponent,
-    TextComponent, TransformComponent,
+    ColorComponent, InspectLayoutComponent, LayoutBoundsComponent, LayoutVisualPlacementComponent,
+    OpacityComponent, Overflow, RaycastableComponent, RaycastableShapeComponent,
+    RaycastableShapeType, RenderableComponent, RouterComponent, ScrollingComponent,
+    SerializeComponent, StencilClipComponent, StyleComponent, TextComponent, TransformComponent,
 };
 use crate::engine::ecs::system::ScrollingSystem;
 use crate::engine::ecs::system::text_system::{OWNED_TEXT_BLOCK_LABEL, TextSystem};
@@ -45,6 +45,7 @@ const OWNED_SCROLL_DRAG_SHAPE_LABEL: &str = "__scroll_drag_shape";
 const OWNED_BG_RAYCASTABLE_LABEL: &str = "__bg_raycastable";
 const OWNED_BG_RAYCASTABLE_SHAPE_LABEL: &str = "__bg_raycastable_shape";
 const OWNED_LAYOUT_BOUNDS_LABEL: &str = "__layout_bounds";
+const OWNED_LAYOUT_VISUAL_PLACEMENT_LABEL: &str = "__layout_visual_placement";
 
 /// Run a block formatting context layout pass for `layout_id`.
 ///
@@ -250,6 +251,11 @@ pub(crate) fn sync_auto_text_lift(
                     .map(|label| label.starts_with("__"))
                     .unwrap_or(false)
                 && !super::measure::is_layout_item(world, child)
+                && !world.children_of(child).iter().any(|&metadata| {
+                    world
+                        .get_component_by_id_as::<LayoutVisualPlacementComponent>(metadata)
+                        .is_some()
+                })
         })
         .collect();
 
@@ -684,6 +690,7 @@ pub(crate) fn sync_layout_bounds(
             bounds.content_local = content_local;
             bounds.padding_local = padding_local;
         }
+        sync_visual_placement(world, emit, item, content_local);
         return;
     }
 
@@ -693,6 +700,141 @@ pub(crate) fn sync_layout_bounds(
     );
     let _ = world.add_child(item.tc_id, bounds_id);
     world.init_component_tree(bounds_id, emit);
+    sync_visual_placement(world, emit, item, content_local);
+}
+
+fn sync_visual_placement(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    item: &MeasuredItem,
+    content_local: crate::engine::graphics::bounds::Aabb,
+) {
+    let measurement = super::measure::find_visual_content_measurement(world, item.tc_id);
+    let existing: Vec<(ComponentId, ComponentId)> = world
+        .children_of(item.tc_id)
+        .iter()
+        .copied()
+        .filter_map(|root| {
+            world.children_of(root).iter().copied().find_map(|child| {
+                world
+                    .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                    .is_some()
+                    .then_some((root, child))
+            })
+        })
+        .collect();
+
+    let Some(measurement) = measurement else {
+        for (root, placement) in existing {
+            let authored = world
+                .get_component_by_id_as::<TransformComponent>(root)
+                .map(|tc| {
+                    (
+                        tc.transform.translation,
+                        tc.transform.rotation,
+                        tc.transform.scale,
+                    )
+                });
+            emit.push_intent_now(
+                placement,
+                IntentValue::RemoveSubtree {
+                    component_id: placement,
+                },
+            );
+            if let Some((translation, rotation_quat_xyzw, scale)) = authored {
+                emit.push_intent_now(
+                    root,
+                    IntentValue::UpdateTransform {
+                        component_id: root,
+                        translation,
+                        rotation_quat_xyzw,
+                        scale,
+                    },
+                );
+            }
+        }
+        return;
+    };
+
+    let source = measurement.bounds_parent_local;
+    let translation = [
+        content_local.center()[0] - source.center()[0],
+        content_local.min[1] - source.min[1],
+        0.0,
+    ];
+    if !source
+        .min
+        .into_iter()
+        .chain(source.max)
+        .chain(translation)
+        .all(f32::is_finite)
+    {
+        return;
+    }
+
+    for (root, placement) in existing.iter().copied() {
+        if root != measurement.content_root {
+            let authored = world
+                .get_component_by_id_as::<TransformComponent>(root)
+                .map(|tc| {
+                    (
+                        tc.transform.translation,
+                        tc.transform.rotation,
+                        tc.transform.scale,
+                    )
+                });
+            emit.push_intent_now(
+                placement,
+                IntentValue::RemoveSubtree {
+                    component_id: placement,
+                },
+            );
+            if let Some((translation, rotation_quat_xyzw, scale)) = authored {
+                emit.push_intent_now(
+                    root,
+                    IntentValue::UpdateTransform {
+                        component_id: root,
+                        translation,
+                        rotation_quat_xyzw,
+                        scale,
+                    },
+                );
+            }
+        }
+    }
+
+    let placement_id = existing
+        .iter()
+        .find_map(|&(root, placement)| (root == measurement.content_root).then_some(placement));
+    if let Some(placement_id) = placement_id {
+        if let Some(component) =
+            world.get_component_by_id_as_mut::<LayoutVisualPlacementComponent>(placement_id)
+        {
+            component.source_bounds_parent_local = source;
+            component.translation_parent_local = translation;
+        }
+    } else {
+        let placement_id = world.add_component_boxed_named(
+            OWNED_LAYOUT_VISUAL_PLACEMENT_LABEL,
+            Box::new(LayoutVisualPlacementComponent::new(source, translation)),
+        );
+        let serialize = world.add_component(SerializeComponent::off());
+        let _ = world.add_child(placement_id, serialize);
+        let _ = world.add_child(measurement.content_root, placement_id);
+        world.init_component_tree(placement_id, emit);
+    }
+
+    if let Some(tc) = world.get_component_by_id_as::<TransformComponent>(measurement.content_root) {
+        emit.push_intent_now(
+            measurement.content_root,
+            IntentValue::UpdateTransform {
+                component_id: measurement.content_root,
+                translation: tc.transform.translation,
+                rotation_quat_xyzw: tc.transform.rotation,
+                scale: tc.transform.scale,
+            },
+        );
+    }
 }
 
 fn immediate_owned_layout_stencil_clip(
@@ -1138,13 +1280,108 @@ fn spawn_bg_quad(
 mod tests {
     use crate::engine::ecs::component::style::{EdgeInsets, SizeDimension};
     use crate::engine::ecs::component::{
-        ColorComponent, LayoutComponent, SerializeComponent, StencilClipComponent, StyleComponent,
+        BoundsComponent, ColorComponent, LayoutComponent, LayoutVisualPlacementComponent,
+        RenderableComponent, SerializeComponent, StencilClipComponent, StyleComponent,
         TextComponent, TransformComponent,
     };
     use crate::engine::ecs::system::layout::LayoutSystem;
     use crate::engine::ecs::system::text_system::TextSystem;
     use crate::engine::ecs::{CommandQueue, SystemWorld, World};
+    use crate::engine::graphics::bounds::Aabb;
     use crate::engine::graphics::{RenderAssets, VisualWorld};
+
+    #[test]
+    fn layout_places_one_centered_visual_below_its_label() {
+        let mut world = World::default();
+        let root = world.add_component(LayoutComponent::new(10.0));
+        let bar = world.add_component(TransformComponent::new());
+        let style = world.add_component({
+            let mut style = StyleComponent::new();
+            style.display = Some(crate::engine::ecs::component::style::Display::InlineBlock);
+            style.width = SizeDimension::GlyphUnits(4.5);
+            style
+        });
+        let label = world.add_component(TextComponent::new("12"));
+        let visual = world.add_component(TransformComponent::new().with_scale(1.5, 4.0, 1.5));
+        let renderable = world.add_component(RenderableComponent::cube());
+        let bounds = world.add_component(BoundsComponent::new(Aabb {
+            min: [-0.5, -0.5, -0.5],
+            max: [0.5, 0.5, 0.5],
+        }));
+        world.add_child(root, bar).unwrap();
+        world.add_child(bar, style).unwrap();
+        world.add_child(bar, label).unwrap();
+        world.add_child(bar, visual).unwrap();
+        world.add_child(visual, renderable).unwrap();
+        world.add_child(renderable, bounds).unwrap();
+
+        let mut queue = CommandQueue::new();
+        let mut layout = LayoutSystem::new();
+        world
+            .get_component_by_id_as_mut::<LayoutComponent>(root)
+            .unwrap()
+            .dirty = true;
+        layout.tick(&mut world, &mut queue);
+
+        let placement = world
+            .children_of(visual)
+            .iter()
+            .find_map(|&child| {
+                world.get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+            })
+            .expect("layout-owned visual placement");
+        assert_eq!(
+            placement.source_bounds_parent_local,
+            Aabb {
+                min: [-0.75, -2.0, -0.75],
+                max: [0.75, 2.0, 0.75],
+            }
+        );
+        // 4.5-wide content centers the 1.5-wide cube at x=2.25. The label
+        // consumes the top 1.0 unit, so the 4.0-high cube occupies y=-1..-5.
+        assert_eq!(placement.translation_parent_local, [2.25, -3.0, 0.0]);
+
+        let mut systems = SystemWorld::default();
+        let mut visuals = VisualWorld::new();
+        let mut render_assets = RenderAssets::new();
+        queue.flush(&mut world, &mut systems, &mut visuals, &mut render_assets);
+        assert_eq!(
+            crate::engine::ecs::system::TransformSystem::world_position(&world, visual),
+            Some([2.25, -3.0, 0.0])
+        );
+
+        world
+            .get_component_by_id_as_mut::<LayoutComponent>(root)
+            .unwrap()
+            .dirty = true;
+        layout.tick(&mut world, &mut queue);
+        assert_eq!(
+            world
+                .children_of(visual)
+                .iter()
+                .filter(|&&child| world
+                    .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                    .is_some())
+                .count(),
+            1
+        );
+        assert_eq!(
+            world
+                .get_component_by_id_as::<TransformComponent>(visual)
+                .unwrap()
+                .transform
+                .translation,
+            [0.0, 0.0, 0.0]
+        );
+        assert_eq!(
+            world
+                .get_component_by_id_as::<TransformComponent>(visual)
+                .unwrap()
+                .transform
+                .scale,
+            [1.5, 4.0, 1.5]
+        );
+    }
 
     #[test]
     fn block_layout_recurses_into_styled_container_children() {

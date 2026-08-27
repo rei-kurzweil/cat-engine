@@ -1,8 +1,8 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::World;
 use crate::engine::ecs::component::{
-    Camera2DComponent, Camera3DComponent, CollisionComponent, RenderableComponent,
-    TransformComponent, TransformParentComponent,
+    Camera2DComponent, Camera3DComponent, CollisionComponent, LayoutVisualPlacementComponent,
+    RenderableComponent, TransformComponent, TransformParentComponent,
 };
 use crate::engine::ecs::system::CollisionSystem;
 use crate::engine::ecs::system::System;
@@ -104,6 +104,36 @@ impl TransformSystem {
         out
     }
 
+    fn effective_local_model(
+        world: &World,
+        transform_id: ComponentId,
+        authored_local: TransformMatrix,
+    ) -> TransformMatrix {
+        let placements: Vec<[f32; 3]> = world
+            .children_of(transform_id)
+            .iter()
+            .filter_map(|&child| {
+                world
+                    .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                    .map(|placement| placement.translation_parent_local)
+            })
+            .collect();
+        debug_assert!(
+            placements.len() <= 1,
+            "a transform may have at most one layout visual placement"
+        );
+        let Some([x, y, z]) = placements.first().copied() else {
+            return authored_local;
+        };
+        let translation = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [x, y, z, 1.0],
+        ];
+        Self::mat4_mul(translation, authored_local)
+    }
+
     fn is_descendant_of(world: &World, mut node: ComponentId, ancestor: ComponentId) -> bool {
         while let Some(parent) = world.parent_of(node) {
             if parent == ancestor {
@@ -178,11 +208,15 @@ impl TransformSystem {
                 } else {
                     current_world
                 };
-                let next_world = if let Some(t) =
-                    world.get_component_by_id_as_mut::<TransformComponent>(child)
+                let next_world = if let Some(authored_local) = world
+                    .get_component_by_id_as::<TransformComponent>(child)
+                    .map(|t| t.transform.model)
                 {
-                    let w = Self::mat4_mul(inherited, t.transform.model);
-                    t.transform.matrix_world = w;
+                    let effective_local = Self::effective_local_model(world, child, authored_local);
+                    let w = Self::mat4_mul(inherited, effective_local);
+                    if let Some(t) = world.get_component_by_id_as_mut::<TransformComponent>(child) {
+                        t.transform.matrix_world = w;
+                    }
                     w
                 } else {
                     inherited
@@ -535,14 +569,15 @@ impl TransformSystem {
             (0, Self::mat4_identity())
         };
         for tid in transform_chain[start_idx..].iter().copied() {
-            let local = match world
+            let authored_local = match world
                 .get_component_by_id_as::<TransformComponent>(tid)
                 .map(|t| t.transform.model)
             {
                 Some(m) => m,
                 None => continue,
             };
-            chain_world = Self::mat4_mul(chain_world, local);
+            let effective_local = Self::effective_local_model(world, tid, authored_local);
+            chain_world = Self::mat4_mul(chain_world, effective_local);
             if let Some(t) = world.get_component_by_id_as_mut::<TransformComponent>(tid) {
                 t.transform.matrix_world = chain_world;
             }
@@ -586,11 +621,14 @@ impl TransformSystem {
 mod tests {
     use super::{TransformAccessError, TransformSystem};
     use crate::engine::ecs::World;
-    use crate::engine::ecs::component::{TransformComponent, TransformParentComponent};
+    use crate::engine::ecs::component::{
+        LayoutVisualPlacementComponent, TransformComponent, TransformParentComponent,
+    };
     use crate::engine::ecs::system::{
         CameraSystem, CollisionSystem, LightSystem, TransformStreamSystem,
     };
     use crate::engine::graphics::VisualWorld;
+    use crate::engine::graphics::bounds::Aabb;
     use crate::engine::transform::{TransformTrs, TransformTrsError};
 
     #[test]
@@ -671,6 +709,53 @@ mod tests {
         assert_eq!(
             TransformSystem::world_trs(&world, non_transform),
             Err(TransformAccessError::NotTransform(non_transform))
+        );
+    }
+
+    #[test]
+    fn layout_visual_placement_composes_outside_authored_local_transform() {
+        let mut world = World::default();
+        let mut visuals = VisualWorld::default();
+        let mut transform_system = TransformSystem::new();
+        let mut transform_stream_system = TransformStreamSystem::new();
+        let mut camera_system = CameraSystem::new();
+        let mut light_system = LightSystem::new();
+        let mut collision_system = CollisionSystem::new();
+
+        let root = world.add_component(TransformComponent::new());
+        let visual = world.add_component(
+            TransformComponent::new()
+                .with_position(1.0, 2.0, 0.0)
+                .with_scale(2.0, 3.0, 1.0),
+        );
+        let placement = world.add_component(LayoutVisualPlacementComponent::new(
+            Aabb {
+                min: [0.0, 0.0, 0.0],
+                max: [2.0, 3.0, 1.0],
+            },
+            [4.0, -6.0, 0.0],
+        ));
+        world.add_child(root, visual).unwrap();
+        world.add_child(visual, placement).unwrap();
+
+        transform_system.transform_changed(
+            &mut world,
+            &mut visuals,
+            visual,
+            &mut transform_stream_system,
+            &mut camera_system,
+            &mut light_system,
+            &mut collision_system,
+        );
+
+        let authored = world
+            .get_component_by_id_as::<TransformComponent>(visual)
+            .unwrap();
+        assert_eq!(authored.transform.translation, [1.0, 2.0, 0.0]);
+        assert_eq!(authored.transform.scale, [2.0, 3.0, 1.0]);
+        assert_eq!(
+            TransformSystem::world_position(&world, visual),
+            Some([5.0, -4.0, 0.0])
         );
     }
 

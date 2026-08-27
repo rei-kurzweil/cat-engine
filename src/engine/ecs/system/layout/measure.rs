@@ -48,6 +48,12 @@ pub(crate) struct MeasuredItem {
     pub display: Option<Display>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct VisualContentMeasurement {
+    pub bounds_parent_local: Aabb,
+    pub content_root: ComponentId,
+}
+
 fn len3(column: [f32; 4]) -> f32 {
     (column[0] * column[0] + column[1] * column[1] + column[2] * column[2]).sqrt()
 }
@@ -869,6 +875,43 @@ pub(crate) fn find_visual_intrinsic_bounds(world: &World, root: ComponentId) -> 
     })
 }
 
+/// Return the complete pre-placement visual bounds and their one unambiguous
+/// direct authored transform root. V1 deliberately declines multiple direct
+/// visual branches; a future version can place a measured union of roots.
+pub(crate) fn find_visual_content_measurement(
+    world: &World,
+    root: ComponentId,
+) -> Option<VisualContentMeasurement> {
+    let candidates: Vec<ComponentId> = world
+        .children_of(root)
+        .iter()
+        .copied()
+        .filter(|&child| {
+            world
+                .get_component_by_id_as::<TransformComponent>(child)
+                .is_some()
+                && !is_layout_item(world, child)
+                && !world
+                    .component_label(child)
+                    .is_some_and(|label| label.starts_with("__"))
+                && find_visual_intrinsic_bounds(world, child).is_some()
+        })
+        .collect();
+    let [content_root] = candidates.as_slice() else {
+        return None;
+    };
+    let authored_local = world
+        .get_component_by_id_as::<TransformComponent>(*content_root)?
+        .transform
+        .model;
+    let bounds_parent_local =
+        find_visual_intrinsic_bounds(world, *content_root)?.transformed(authored_local);
+    Some(VisualContentMeasurement {
+        bounds_parent_local,
+        content_root: *content_root,
+    })
+}
+
 fn intrinsic_text_bounds(
     world: &World,
     tc_id: ComponentId,
@@ -974,12 +1017,15 @@ fn intrinsic_block_height(
     let text_bounds = intrinsic_text_bounds(world, tc_id, content_width_gu, unit_scale);
     let visual_bounds = find_visual_intrinsic_bounds(world, tc_id);
     let local_bounds_height_gu = match (text_bounds, visual_bounds) {
-        (Some(text), Some(visual)) => Some(text.union(&visual)),
-        (Some(text), None) => Some(text),
-        (None, Some(visual)) => Some(visual),
+        // Direct text occupies normal flow at the top of the content box; the
+        // atomic visual region is placed beneath it rather than sharing its
+        // graphics-space origin.
+        (Some(text), Some(visual)) => Some(text.height() + visual.height()),
+        (Some(text), None) => Some(text.height()),
+        (None, Some(visual)) => Some(visual.height()),
         (None, None) => None,
     }
-    .map(|bounds| wu_to_gu_bounds_extent(bounds.height(), unit_scale));
+    .map(|height| wu_to_gu_bounds_extent(height, unit_scale));
 
     let child_flow_height_gu =
         intrinsic_child_flow_height(world, tc_id, content_width_gu, unit_scale);
@@ -1157,6 +1203,29 @@ mod tests {
     }
 
     #[test]
+    fn visual_content_measurement_keeps_parent_local_bounds_and_direct_root() {
+        let mut world = World::default();
+        let root = world.add_component(TransformComponent::new());
+        let visual = world.add_component(
+            TransformComponent::new()
+                .with_position(3.0, 5.0, 0.0)
+                .with_scale(2.0, 4.0, 1.0),
+        );
+        world.add_child(root, visual).unwrap();
+        attach_cached_cube(&mut world, visual);
+
+        let measured = super::find_visual_content_measurement(&world, root).unwrap();
+        assert_eq!(measured.content_root, visual);
+        assert_eq!(
+            measured.bounds_parent_local,
+            Aabb {
+                min: [2.0, 3.0, -0.5],
+                max: [4.0, 7.0, 0.5],
+            }
+        );
+    }
+
+    #[test]
     fn auto_height_unions_text_and_presentational_geometry() {
         let mut world = World::default();
         let root = world.add_component(TransformComponent::new());
@@ -1178,6 +1247,26 @@ mod tests {
 
         let measured = measure_item(&world, root, 20.0, None, 1.0);
         assert_eq!(measured.content_width_gu, 4.0);
+        assert_eq!(measured.content_height_gu, 5.0);
+    }
+
+    #[test]
+    fn auto_height_stacks_label_above_origin_centered_visual() {
+        let mut world = World::default();
+        let root = world.add_component(TransformComponent::new());
+        let style = world.add_component({
+            let mut style = StyleComponent::new();
+            style.display = Some(Display::InlineBlock);
+            style
+        });
+        let text = world.add_component(TextComponent::new("bar"));
+        let visual = world.add_component(TransformComponent::new().with_scale(2.0, 4.0, 1.0));
+        world.add_child(root, style).unwrap();
+        world.add_child(root, text).unwrap();
+        world.add_child(root, visual).unwrap();
+        attach_cached_cube(&mut world, visual);
+
+        let measured = measure_item(&world, root, 20.0, None, 1.0);
         assert_eq!(measured.content_height_gu, 5.0);
     }
 
