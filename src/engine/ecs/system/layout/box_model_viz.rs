@@ -1,5 +1,5 @@
 use crate::engine::ecs::component::{
-    ColorComponent, OpacityComponent, OverlayComponent, RenderableComponent, TransformComponent,
+    ColorComponent, OverlayComponent, RenderableComponent, TransformComponent,
 };
 use crate::engine::ecs::{ComponentId, IntentValue, SignalEmitter, World};
 
@@ -438,11 +438,61 @@ fn spawn_viz_quad(
     let renderable_id = world.add_component(RenderableComponent::square());
     let _ = world.add_child(color_id, renderable_id);
 
-    if rgba[3] < 1.0 {
-        let opacity_id = world.add_component(OpacityComponent::new().with_opacity(rgba[3]));
-        let _ = world.add_child(renderable_id, opacity_id);
-    }
-
     world.init_component_tree(quad_id, emit);
     quad_id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::component::OpacityComponent;
+
+    #[test]
+    fn viz_quad_does_not_duplicate_color_alpha_as_opacity() {
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let parent = world.add_component(TransformComponent::new());
+        let quad = spawn_viz_quad(
+            &mut world,
+            &mut emit,
+            parent,
+            "__test_viz_quad",
+            [0.2, 0.3, 0.4, 0.5],
+        );
+
+        let color = world
+            .children_of(quad)
+            .iter()
+            .copied()
+            .find(|&child| {
+                world
+                    .get_component_by_id_as::<ColorComponent>(child)
+                    .is_some()
+            })
+            .expect("viz color");
+        let renderable = world
+            .children_of(color)
+            .iter()
+            .copied()
+            .find(|&child| {
+                world
+                    .get_component_by_id_as::<RenderableComponent>(child)
+                    .is_some()
+            })
+            .expect("viz renderable");
+
+        assert_eq!(
+            world
+                .get_component_by_id_as::<ColorComponent>(color)
+                .expect("viz color")
+                .rgba[3],
+            0.5
+        );
+        assert!(world.children_of(renderable).iter().all(|&child| {
+            world
+                .get_component_by_id_as::<OpacityComponent>(child)
+                .is_none()
+        }));
+    }
 }

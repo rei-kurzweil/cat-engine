@@ -26,9 +26,9 @@ use crate::engine::ecs::component::style::VerticalAlign;
 use crate::engine::ecs::component::style::{Display, SizeDimension, TextAlign};
 use crate::engine::ecs::component::{
     ColorComponent, InspectLayoutComponent, LayoutBoundsComponent, LayoutVisualPlacementComponent,
-    OpacityComponent, Overflow, RaycastableComponent, RaycastableShapeComponent,
-    RaycastableShapeType, RenderableComponent, RouterComponent, ScrollingComponent,
-    SerializeComponent, StencilClipComponent, StyleComponent, TextComponent, TransformComponent,
+    Overflow, RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType,
+    RenderableComponent, RouterComponent, ScrollingComponent, SerializeComponent,
+    StencilClipComponent, StyleComponent, TextComponent, TransformComponent,
 };
 use crate::engine::ecs::system::ScrollingSystem;
 use crate::engine::ecs::system::text_system::{OWNED_TEXT_BLOCK_LABEL, TextSystem};
@@ -1262,8 +1262,11 @@ fn sync_scroll_drag_surface(
     }
 }
 
-/// Spawn `__bg` → `ColorComponent` → `RenderableComponent` (+ optional `OpacityComponent`)
-/// under `parent_tc_id` and initialise the subtree.
+/// Spawn `__bg` → `ColorComponent` → `RenderableComponent` under `parent_tc_id`
+/// and initialise the subtree. The color's alpha is the background alpha;
+/// adding the same value as an `OpacityComponent` would multiply it twice in
+/// the vertex shader. A separately authored/inherited opacity may still
+/// compose with it normally.
 fn spawn_bg_quad(
     world: &mut World,
     emit: &mut dyn SignalEmitter,
@@ -1281,11 +1284,6 @@ fn spawn_bg_quad(
 
     let rend_id = world.add_component(RenderableComponent::square());
     let _ = world.add_child(color_id, rend_id);
-
-    if rgba[3] < 1.0 {
-        let op_id = world.add_component(OpacityComponent::new().with_opacity(rgba[3]));
-        let _ = world.add_child(rend_id, op_id);
-    }
 
     world.init_component_tree(bg_id, emit);
     bg_id
@@ -1522,7 +1520,7 @@ mod tests {
             let mut style = StyleComponent::new();
             style.width = SizeDimension::GlyphUnits(6.0);
             style.height = SizeDimension::GlyphUnits(2.0);
-            style.background_color = Some([0.2, 0.3, 0.4, 1.0]);
+            style.background_color = Some([0.2, 0.3, 0.4, 0.5]);
             style
         });
 
@@ -1551,9 +1549,24 @@ mod tests {
                     .is_some()
             })
             .expect("expected color child on __bg");
+        let renderable_id = world
+            .children_of(color_id)
+            .iter()
+            .copied()
+            .find(|&child| {
+                world
+                    .get_component_by_id_as::<RenderableComponent>(child)
+                    .is_some()
+            })
+            .expect("expected renderable child on __bg color");
+        assert!(world.children_of(renderable_id).iter().all(|&child| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::OpacityComponent>(child)
+                .is_none()
+        }));
 
         if let Some(style) = world.get_component_by_id_as_mut::<StyleComponent>(item_style) {
-            style.background_color = Some([0.9, 0.8, 0.2, 1.0]);
+            style.background_color = Some([0.9, 0.8, 0.2, 0.75]);
         }
         world
             .get_component_by_id_as_mut::<LayoutComponent>(root)
@@ -1568,7 +1581,7 @@ mod tests {
                 .get_component_by_id_as::<ColorComponent>(color_id)
                 .expect("bg color")
                 .rgba,
-            [0.9, 0.8, 0.2, 1.0]
+            [0.9, 0.8, 0.2, 0.75]
         );
     }
 

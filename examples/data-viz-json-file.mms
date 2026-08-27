@@ -4,19 +4,27 @@
 // authoring shape for the restricted File and JSON built-in tables.
 //
 // Requires: File.read_text(path), JSON.parse(text).
+import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
+
 
 RendererSettings { window_size(960, 720) }
-BGC.rgba(0.04, 0.05, 0.09, 1.0)
+RenderGraph {
+    Bloom { intensity(0.8) emissive_scale(1.5) }
+}
+
+BGC.rgba(0.15, 0.15, 0.15, 1.0)
 AL.rgb(0.48, 0.48, 0.54)
+
 // Desktop fly camera: WASD/RF movement, right-mouse look, Q/E roll.
 I {
     speed(2.5)
     InputTransformMode.forward_z() {
-        fps_rotation()
         roll_axis_y()
     }
     T.position(0.0, 2.4, 7.5) { C3D { Pointer {} } }
 }
+
+star_kawaii_background([1.0, 0.9, 0.8, 1.0])
 
 let chart = T.position(-2.8, 1.8, 0.0).scale(0.12, 0.12, 0.12) {
     LayoutRoot {
@@ -47,7 +55,7 @@ let chart = T.position(-2.8, 1.8, 0.0).scale(0.12, 0.12, 0.12) {
             T.position(0.0, 0.0, 0.2) {
                 Style { display("block") margin_bottom(1.5) font_size(0.8) }
                 T.position(0.0, 0.0, 0.15) {
-                    Text { "examples/data/bar-samples.json" C.rgba(0.55, 0.70, 0.92, 1.0) }
+                    Text { "examples/data/bar-samples.json" C.rgba(1.0, 1.0, 1.0, 1.0) }
                 }
             }
             T {
@@ -82,13 +90,13 @@ fn make_bar(value) {
         }
         Text {
             "" + value
-            C.rgba(0.90, 0.96, 1.0, 1.0)
+            C.rgba(1.0, 1.0, 1.0, 1.0)
             Style { display("block") }
         }
         // Bounds-derived placement belongs to layout; authors specify the
         // data-driven scale, not half-width/half-height translations.
         T.scale(1.5, height, 1.5) {
-            R.cube() { C.rgba(0.25, 0.80, 1.0, 1.0) }
+            R.cube() { C.rgba(1.0, 1.0, 1.0, 1.0) }
         }
     }
 }
