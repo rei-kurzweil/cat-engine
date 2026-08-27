@@ -23,7 +23,7 @@ use crate::engine::ecs::ComponentId;
 /// by `unit_scale` itself (e.g. inspector panels with `unit_scale = TEXT_SCALE`).
 use crate::engine::ecs::World;
 use crate::engine::ecs::component::style::VerticalAlign;
-use crate::engine::ecs::component::style::{SizeDimension, TextAlign};
+use crate::engine::ecs::component::style::{Display, SizeDimension, TextAlign};
 use crate::engine::ecs::component::{
     ColorComponent, InspectLayoutComponent, LayoutBoundsComponent, LayoutVisualPlacementComponent,
     OpacityComponent, Overflow, RaycastableComponent, RaycastableShapeComponent,
@@ -918,14 +918,26 @@ pub(crate) fn apply_text_align(
             (
                 s.text_align,
                 s.vertical_align,
+                s.display,
                 s.font_size,
                 s.word_wrap,
                 s.word_wrap_tokens.clone(),
             )
         })
     });
-    let Some((align, vertical_align, style_font_size, _style_wrap, _style_tokens)) = style else {
+    let Some((align, vertical_align, display, style_font_size, _style_wrap, _style_tokens)) = style
+    else {
         return;
+    };
+    // On inline-level boxes, `vertical-align` positions the atomic item in its
+    // line box. It does not align descendants within the item's own content
+    // box. Treating it as both rewrites the first inner transform (often a
+    // presentational visual) and applies a second, incorrect Y offset.
+    let content_vertical_align = if matches!(display, Some(Display::Inline | Display::InlineBlock))
+    {
+        VerticalAlign::Auto
+    } else {
+        vertical_align
     };
 
     // No alignment intent → leave the author's inner-T transform alone. This
@@ -940,7 +952,10 @@ pub(crate) fn apply_text_align(
         SizeDimension::GlyphUnits(v) => (v - 1.0).abs() < f32::EPSILON,
         _ => false,
     };
-    if align == TextAlign::Auto && vertical_align == VerticalAlign::Auto && font_size_is_default {
+    if align == TextAlign::Auto
+        && content_vertical_align == VerticalAlign::Auto
+        && font_size_is_default
+    {
         return;
     }
 
@@ -973,7 +988,7 @@ pub(crate) fn apply_text_align(
         TextAlign::Center => ((content_w_wu - text_w_wu) * 0.5).max(0.0),
         TextAlign::Auto => 0.0,
     };
-    let y_translation = match vertical_align {
+    let y_translation = match content_vertical_align {
         VerticalAlign::Top => 0.0,
         VerticalAlign::Middle => -((content_h_wu - text_h_wu) * 0.5).max(0.0),
         VerticalAlign::Bottom => -(content_h_wu - text_h_wu).max(0.0),

@@ -412,8 +412,8 @@ fn sync_viz_quad(
         IntentValue::UpdateTransform {
             component_id: quad_id,
             translation: [
-                (left_gu + width_gu / 2.0 - 0.5) * unit_scale,
-                -((top_gu + height_gu / 2.0 - 0.5) * unit_scale),
+                (left_gu + width_gu / 2.0) * unit_scale,
+                -((top_gu + height_gu / 2.0) * unit_scale),
                 z,
             ],
             rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],

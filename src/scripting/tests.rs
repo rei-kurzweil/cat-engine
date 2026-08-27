@@ -6,7 +6,8 @@ use crate::engine;
 use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
 use crate::engine::ecs::component::style::SizeDimension;
 use crate::engine::ecs::component::{
-    LayoutComponent, RenderableComponent, StyleComponent, TransformComponent,
+    LayoutBoundsComponent, LayoutComponent, LayoutVisualPlacementComponent, RenderableComponent,
+    StyleComponent, TransformComponent,
 };
 use crate::engine::ecs::system::layout::LayoutSystem;
 use crate::engine::ecs::{
@@ -1100,12 +1101,12 @@ fn data_viz_json_file_demo_loads_three_fixture_bars() {
     let source = fs::read_to_string(repo_path("examples/data-viz-json-file.mms"))
         .expect("JSON data-viz example source");
     let mut world = World::default();
-    let mut rx = RxWorld::default();
+    let mut systems = crate::engine::ecs::system::SystemWorld::default();
     let mut emit = CommandQueue::new();
     let output = MeowMeowRunner::eval_with_runtime_spec(
         &source,
         &mut world,
-        &mut rx,
+        &mut systems.rx,
         None,
         &mut emit,
     );
@@ -1120,6 +1121,117 @@ fn data_viz_json_file_demo_loads_three_fixture_bars() {
         .filter(|intent| matches!(intent, IntentValue::Attach { parent, .. } if *parent == bars))
         .count();
     assert_eq!(attach_count, 3, "one Attach intent per JSON record");
+
+    for intent in output.intents {
+        emit.push_intent_now(ComponentId::default(), intent);
+    }
+    let mut visuals = VisualWorld::default();
+    let mut assets = RenderAssets::new();
+    systems.process_commands(&mut world, &mut visuals, &mut assets, &mut emit);
+    systems.tick(
+        &mut world,
+        &mut visuals,
+        &mut assets,
+        &InputState::default(),
+        &mut emit,
+        1.0 / 60.0,
+    );
+    systems.tick(
+        &mut world,
+        &mut visuals,
+        &mut assets,
+        &InputState::default(),
+        &mut emit,
+        1.0 / 60.0,
+    );
+
+    let bar_items: Vec<ComponentId> = world
+        .children_of(bars)
+        .iter()
+        .copied()
+        .filter(|&child| {
+            world
+                .get_component_by_id_as::<TransformComponent>(child)
+                .is_some()
+                && world.children_of(child).iter().any(|&metadata| {
+                    world
+                        .get_component_by_id_as::<StyleComponent>(metadata)
+                        .is_some_and(|style| {
+                            matches!(
+                                style.display,
+                                Some(crate::engine::ecs::component::style::Display::InlineBlock)
+                            )
+                        })
+                })
+        })
+        .collect();
+    assert_eq!(bar_items.len(), 3);
+
+    let mut effective_bounds = Vec::new();
+    for bar in bar_items {
+        let content = world
+            .children_of(bar)
+            .iter()
+            .find_map(|&child| world
+                .get_component_by_id_as::<LayoutBoundsComponent>(child))
+            .expect("bar content bounds")
+            .content_local;
+        let (visual, placement) = world
+            .children_of(bar)
+            .iter()
+            .copied()
+            .filter(|&child| world
+                .get_component_by_id_as::<TransformComponent>(child)
+                .is_some())
+            .find_map(|visual| {
+                world.children_of(visual).iter().find_map(|&child| {
+                    world
+                        .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                        .copied()
+                        .map(|placement| (visual, placement))
+                })
+            })
+            .expect("bar visual placement");
+        let bar_y = world
+            .get_component_by_id_as::<TransformComponent>(bar)
+            .expect("bar transform")
+            .transform
+            .translation[1];
+        let source = placement.source_bounds_parent_local;
+        let effective = crate::engine::graphics::bounds::Aabb {
+            min: [
+                source.min[0] + placement.translation_parent_local[0],
+                bar_y + source.min[1] + placement.translation_parent_local[1],
+                source.min[2] + placement.translation_parent_local[2],
+            ],
+            max: [
+                source.max[0] + placement.translation_parent_local[0],
+                bar_y + source.max[1] + placement.translation_parent_local[1],
+                source.max[2] + placement.translation_parent_local[2],
+            ],
+        };
+        assert!((effective.center()[0] - content.center()[0]).abs() < 1e-5);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<TransformComponent>(visual)
+                .unwrap()
+                .transform
+                .translation,
+            [0.0, 0.0, 0.0],
+            "placement must not rewrite authored visual translation"
+        );
+        effective_bounds.push(effective);
+    }
+
+    let baseline = effective_bounds[0].min[1];
+    assert!(
+        effective_bounds
+            .iter()
+            .all(|bounds| (bounds.min[1] - baseline).abs() < 1e-5),
+        "bar bounds were not bottom-aligned: {effective_bounds:?}"
+    );
+    assert!(effective_bounds[0].max[1] < effective_bounds[2].max[1]);
+    assert!(effective_bounds[2].max[1] < effective_bounds[1].max[1]);
 }
 
 #[test]

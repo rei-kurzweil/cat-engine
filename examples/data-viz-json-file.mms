@@ -56,6 +56,10 @@ let chart = T.position(-2.8, 1.8, 0.0).scale(0.12, 0.12, 0.12) {
                     display("block")
                     width(42.0)
                     height(20.0)
+                    background_color = [0.12, 0.16, 0.28, 0.72]
+                    // Keep this diagnostic chart-region quad behind its own
+                    // content but ahead of the enclosing panel background.
+                    background_z(-0.01)
                 }
             }
         }
@@ -68,7 +72,14 @@ let bars = chart.query("#bar_chart")
 fn make_bar(value) {
     let height = value * 0.7
     return T {
-        Style { display("inline-block") width(4.5) vertical_align("bottom") }
+        Style {
+            display("inline-block")
+            width(4.5)
+            vertical_align("bottom")
+            // Temporary box contrast while validating visual placement.
+            background_color = [0.20, 0.26, 0.40, 0.32]
+            background_z(-0.01)
+        }
         Text {
             "" + value
             C.rgba(0.90, 0.96, 1.0, 1.0)

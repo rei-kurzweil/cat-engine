@@ -866,8 +866,11 @@ fn read_text_wrap_style(
 pub(crate) fn find_visual_intrinsic_bounds(world: &World, root: ComponentId) -> Option<Aabb> {
     BoundsSystem::measure_cached_renderable_subtree_bounds(world, root, |node| {
         world
-            .get_component_by_id_as::<LayoutComponent>(node)
-            .is_some()
+            .component_label(node)
+            .is_some_and(|label| label.starts_with("__"))
+            || world
+                .get_component_by_id_as::<LayoutComponent>(node)
+                .is_some()
             || (world
                 .get_component_by_id_as::<TransformComponent>(node)
                 .is_some()
