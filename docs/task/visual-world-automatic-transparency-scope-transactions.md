@@ -394,10 +394,12 @@ rectangle analysis.
 
 ### Stage 1 — `PlanarTransparencyOptimizer` storage and lifecycle
 
-- [ ] Add `PlanarTransparencyOptimizer` plus its scope, transaction token, criteria, candidate,
-      policy, and error types.
-- [ ] Implement begin/add/commit staging without changing draw-list classification.
-- [ ] Implement generation checks, atomic replacement, stale candidate removal, and scope removal.
+- [x] Add `PlanarTransparencyOptimizer` plus its scope, transaction token, rectangle candidate,
+      committed-resolution, and error types.
+- [ ] Add the `ExplicitSingle | ExplicitMulti | Automatic` source-policy boundary when the
+      optimizer is joined to `VisualWorld`.
+- [x] Implement begin/add/commit staging without changing draw-list classification.
+- [x] Implement generation checks, atomic replacement, stale candidate removal, and scope removal.
 - [ ] Cover registration-before-metadata and metadata-before-registration orderings.
 
 ### Stage 2 — VisualWorld classification

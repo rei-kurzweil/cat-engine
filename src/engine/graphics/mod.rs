@@ -4,6 +4,7 @@ pub mod deformation;
 pub(crate) mod deformation_reference;
 pub mod mesh;
 pub mod pipeline_descriptor_set_layouts;
+pub mod planar_transparency_optimizer;
 pub mod post_processing;
 pub mod primitives;
 pub mod render_assets;
