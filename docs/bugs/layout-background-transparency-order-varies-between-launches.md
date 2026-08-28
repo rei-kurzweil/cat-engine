@@ -9,6 +9,7 @@ Follow-up trackers:
 - `docs/task/layout-background-multilayer-transparency-correctness.md`
 - `docs/task/single-layer-transparency-depth-write-contract.md`
 - `docs/task/layout-transparent-background-overlap-classification.md`
+- `docs/task/visual-world-automatic-transparency-scope-transactions.md`
 
 ## Summary
 
