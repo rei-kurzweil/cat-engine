@@ -20,7 +20,8 @@ policy when layout changes.
 
 The immediate target is deciding which translucent layout-generated background quads can use the
 single-layer path and which belong to an overlapping multilayer group. The result only needs to
-guarantee the intended front-facing appearance within a layout transparency scope. General
+guarantee the intended front-facing appearance within a layout transparency scope. A dedicated
+`PlanarTransparencyOptimizer`, owned by `VisualWorld`, performs this planar analysis; general
 camera-dependent transparency classification for arbitrary 3D geometry is outside this task.
 
 ## Feasibility conclusion
@@ -187,7 +188,8 @@ transform that moves or rotates the entire root should not require recomputing r
 - Does automatic metadata live inline on `VisualInstance` or in a side table keyed by
   `InstanceHandle`?
 - Which internal component or intent transports layout descriptors to `VisualWorld`?
-- Does `VisualWorld` own the overlap graph directly, or only its resolved scope/order output?
+- Does `PlanarTransparencyOptimizer` expose the overlap graph directly, or only its resolved
+  scope/order output to `VisualWorld`?
 - Is layout-local projected overlap sufficient for the promised front-facing result?
 - How are nested layout roots treated: one stacking scope, independent scopes, or a conservative
   multilayer boundary?
@@ -206,8 +208,8 @@ transform that moves or rotates the entire root should not require recomputing r
       `VisualWorld`.
 - [ ] Specify the layout basis, normal direction, and front-facing convention.
 - [ ] Inventory every transform path that can move a generated `__bg` relative to its layout root.
-- [ ] Prototype root-local rectangular overlap resolution in a `VisualWorld` scope using metadata
-      produced during layout reconciliation.
+- [ ] Prototype root-local rectangular overlap resolution in a `PlanarTransparencyOptimizer` scope
+      using metadata produced during layout reconciliation.
 - [ ] Build and cache overlap groups, resolved policies, and stable stacking order metadata.
 - [ ] Wire all required dirty/invalidation events without introducing a per-frame scene scan.
 - [ ] Decide how layout scopes interact with transparent content outside their scope.
@@ -253,5 +255,4 @@ separate per-view strategy depending on the chosen isolation contract.
 - Arbitrary intersecting or curved transparent world geometry.
 - Teaching `VisualWorld` to traverse ECS layout topology.
 - Replacing the immediate conservative correctness fix.
-
 

@@ -11,9 +11,11 @@ Related:
 
 ## Goal
 
-Implement a transaction-based API that lets `LayoutSystem` and future planar systems submit a
-complete set of ambiguously classified transparent objects to `VisualWorld`. `VisualWorld` then
-owns overlap analysis, cached resolution, and final single-layer or multilayer draw-list membership.
+Implement a transaction-based API on a dedicated `PlanarTransparencyOptimizer`. It lets
+`LayoutSystem` and future planar systems submit a complete set of ambiguously classified
+transparent objects without implying that arbitrary `VisualWorld` content is planar.
+`VisualWorld` owns the optimizer, consumes its cached resolutions, and retains final single-layer
+or multilayer draw-list membership.
 
 Classification work should occur when a scope transaction commits, not once per candidate and not
 once per frame when the scope is unchanged.
@@ -83,7 +85,9 @@ This approach keeps GPU resource registration and general renderable lifecycle i
 in `VisualWorld`. It is a candidate design to validate during implementation, not a requirement to
 introduce a second renderable API.
 
-Pass the narrow automatic-transparency interface into layout processing:
+Pass the narrow planar-optimizer interface into layout processing. The transaction methods belong
+to `PlanarTransparencyOptimizer`, not directly to `VisualWorld`; `VisualWorld` merely owns that
+optimizer and applies its resolved policy to registered visual instances.
 
 ```rust
 pub fn tick(
@@ -94,10 +98,10 @@ pub fn tick(
 )
 ```
 
-At the existing `SystemWorld` call site, `VisualWorld` can implement this trait and be passed to
-`LayoutSystem` through the restricted trait interface. This changes layout's entry point to the
-classification service without giving layout access to instance buffers, draw streams, cameras,
-or other renderer state.
+At the existing `SystemWorld` call site, its owned `PlanarTransparencyOptimizer` can implement
+this trait and be passed to `LayoutSystem` through the restricted trait interface. This changes
+layout's entry point to the classification service without giving layout access to instance
+buffers, draw streams, cameras, or other renderer state.
 
 For each dirty root, layout should use that interface while it already has the authoritative
 geometry and style data:
@@ -258,8 +262,8 @@ ECS layout topology.
 
 ## VisualWorld state
 
-Add CPU-side automatic-transparency state, preferably outside the compact instance data copied into
-GPU buffers:
+Add CPU-side state to `PlanarTransparencyOptimizer`, preferably outside the compact instance data
+copied into GPU buffers:
 
 ```text
 active scope descriptors
@@ -269,6 +273,7 @@ candidate component -> resolved classification/order
 dirty automatic-transparency scopes
 ```
 
+`VisualWorld` reads the optimizer's committed resolution when registering or updating an instance.
 The conceptual policy is:
 
 ```text
@@ -336,8 +341,9 @@ During reconciliation of a dirty layout root:
 Opaque backgrounds do not need automatic transparent candidates. A candidate whose alpha changes
 to opaque disappears from the next committed snapshot and returns to normal opaque classification.
 
-Prefer passing a narrow `AutomaticTransparencySink` into layout processing. This keeps layout tests
-independent of the Vulkan renderer and avoids teaching `LayoutSystem` about draw-list internals.
+Prefer passing a narrow `AutomaticTransparencySink` implemented by
+`PlanarTransparencyOptimizer` into layout processing. This keeps layout tests independent of the
+Vulkan renderer and avoids teaching `LayoutSystem` about draw-list internals.
 If borrow structure makes direct sink access impractical, use an equivalent staged coordinator in
 `SystemWorld`; preserve atomic begin/add/commit semantics.
 
@@ -386,9 +392,10 @@ rectangle analysis.
 
 ## Implementation stages
 
-### Stage 1 — transaction storage and lifecycle
+### Stage 1 — `PlanarTransparencyOptimizer` storage and lifecycle
 
-- [ ] Add scope, transaction token, criteria, candidate, policy, and error types.
+- [ ] Add `PlanarTransparencyOptimizer` plus its scope, transaction token, criteria, candidate,
+      policy, and error types.
 - [ ] Implement begin/add/commit staging without changing draw-list classification.
 - [ ] Implement generation checks, atomic replacement, stale candidate removal, and scope removal.
 - [ ] Cover registration-before-metadata and metadata-before-registration orderings.
@@ -471,7 +478,8 @@ draw calls and transparent pixel overdraw are expected to dominate once candidat
 
 ## Acceptance criteria
 
-- `VisualWorld` exposes atomic begin/add/commit automatic-transparency scope updates.
+- `PlanarTransparencyOptimizer` exposes atomic begin/add/commit planar-transparency scope updates.
+- `VisualWorld` owns that optimizer and applies its committed resolutions to draw-list membership.
 - Layout submits complete scope snapshots only when relevant layout state changes.
 - Partial and stale transactions never affect active rendering.
 - Candidate registration order does not affect classification or stacking order.
