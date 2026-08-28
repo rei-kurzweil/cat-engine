@@ -3246,6 +3246,7 @@ fn apply_call(
             match method {
                 "fps_rotation" => itm.with_fps_rotation(),
                 "roll_axis_y" => itm.with_roll_axis_y(),
+                "roll_axis_z" => itm.with_roll_axis_z(),
                 "rotation_disabled" => itm.with_rotation_disabled(),
                 "translation_basis" => itm
                     .with_translation_basis_source(translation_basis_src.expect("computed above")),

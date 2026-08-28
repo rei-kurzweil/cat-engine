@@ -6021,6 +6021,32 @@ fn roundtrip_input_transform_mode() {
 }
 
 #[test]
+fn mms_input_transform_mode_accepts_explicit_roll_axis_z() {
+    use crate::engine::ecs::component::{InputTransformModeComponent, RollAxis};
+
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_world(
+        "InputTransformMode.forward_z() { roll_axis_z() }",
+        &mut world,
+        &mut rx,
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "{:?}", output.errors);
+
+    let mode = world
+        .all_components()
+        .find_map(|id| {
+            world
+                .get_component_by_id_as::<InputTransformModeComponent>(id)
+                .cloned()
+        })
+        .expect("materialized InputTransformModeComponent");
+    assert_eq!(mode.roll_axis, RollAxis::Z);
+}
+
+#[test]
 fn roundtrip_editor() {
     use crate::engine::ecs::component::{EditorComponent, TransformGizmoCoordSpace};
     let original = EditorComponent::new()

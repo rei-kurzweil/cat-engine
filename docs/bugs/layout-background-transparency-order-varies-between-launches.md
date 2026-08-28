@@ -2,7 +2,7 @@
 
 Date: 2026-08-27
 
-Status: open / reproduced in `data-viz-json-file`
+Status: open / reproduced in `data-viz-json-file` and `planar-auto-transparency-optimization`
 
 Follow-up trackers:
 
@@ -16,9 +16,10 @@ Follow-up trackers:
 Overlapping layout-generated `__bg` quads with alpha below `1.0` can appear with different colors
 or opacity between otherwise identical launches. A background may also look completely absent.
 
-The layout system is creating the quads consistently. The visible variation appears later, when
-the translucent instances are registered and drawn in an order that does not preserve their
-authored front-to-back relationship.
+In the original `data-viz-json-file` reproduction, the layout system creates the quads consistently
+and the visible variation appears later in registration or drawing. The simplified 12 x 12
+reproduction still needs the same ECS-to-`VisualWorld` count before assuming it has the identical
+failure boundary.
 
 ## Reproduction
 
@@ -38,6 +39,40 @@ Across fresh launches, observe whether all bar backgrounds are visible and wheth
 color and opacity remain stable.
 
 `InspectLayout` can make the scene harder to read, but the problem remains when it is disabled.
+
+### Simplified 12 x 12 reproduction
+
+Run:
+
+```sh
+cargo run --release -- load examples/planar-auto-transparency-optimization.mms
+```
+
+The benchmark contains a `LayoutRoot` with 12 explicitly sized block rows. Each row contains 12
+explicitly sized inline-block transforms with:
+
+```mms
+background_color([0.64, 0.07, 0.34, 0.50])
+```
+
+There is no cube or other authored visual content inside the cells. The intended layout result is
+exactly 144 reddish-purple, half-transparent generated `__bg` quads. At the time of this report the
+individual squares are not visible in the running scene.
+
+Unlike the nested `data-viz-json-file` case, adjacent cell rectangles have positive margins and
+should not overlap one another in layout-local XY. This is an important challenge to the narrower
+"incorrect ordering only between overlapping generated backgrounds" hypothesis. Possible cases to
+distinguish are:
+
+- the empty styled cells do not generate or register their `__bg` renderables;
+- their transforms, dimensions, alpha, or render-phase flags differ between ECS and `VisualWorld`;
+- a large transparent scene plane composites over or suppresses them;
+- the single-layer stream loses or incorrectly batches non-overlapping translucent instances;
+- the quads exist but face, depth-test, or camera/frustum state makes them invisible.
+
+Do not treat the original hash-backed registration-order explanation as sufficient for this
+simplified reproduction until the 144 generated components and their registered visual instances
+have been counted directly.
 
 ## Expected behavior
 
@@ -65,6 +100,7 @@ Relevant areas:
 - `src/engine/graphics/visual_world.rs`
 - `src/engine/graphics/vulkano_cbb.rs`
 - `examples/data-viz-json-file.mms`
+- `examples/planar-auto-transparency-optimization.mms`
 
 ## Possible solution directions
 
@@ -87,6 +123,12 @@ overlapping translucent layout backgrounds deterministic.
 - Cover nested translucent panels, sibling backgrounds, and opaque backgrounds in focused tests.
 - Verify that fixing draw order does not introduce regressions in clipping, overlays, or text
   backgrounds.
+- In the simplified benchmark, verify 144 styled cells produce 144 `__bg` transforms, 144 nested
+  renderables, and 144 registered `VisualWorld` instances before investigating draw order.
+- Temporarily hide the ocean plane and trusses to determine whether unrelated transparent/opaque
+  scene content affects the grid.
+- Confirm all 144 non-overlapping squares are visible and stable before adding overlapping layout
+  backgrounds back to the benchmark.
 
 This report is separate from the missing star background being investigated in the same example;
 the current evidence does not establish that both symptoms share a cause.

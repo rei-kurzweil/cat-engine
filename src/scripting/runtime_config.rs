@@ -589,7 +589,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     no_arg_constructors(component, &["forward_y", "forward_z"]);
                     no_arg_builders(
                         component,
-                        &["fps_rotation", "roll_axis_y", "rotation_disabled"],
+                        &[
+                            "fps_rotation",
+                            "roll_axis_y",
+                            "roll_axis_z",
+                            "rotation_disabled",
+                        ],
                     );
                     component.builder_call("translation_basis", any(1));
                 }
