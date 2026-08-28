@@ -9,6 +9,7 @@ import { star_kawaii_background } from "../assets/components/backgrounds/star_ka
 
 RendererSettings { window_size(960, 720) }
 RenderGraph {
+    EmissivePass { BlurPass { radius_ndc(0.045) half_res(true) } }
     Bloom { intensity(0.8) emissive_scale(1.5) }
 }
 
@@ -24,15 +25,19 @@ I {
     T.position(0.0, 2.4, 7.5) { C3D { Pointer {} } }
 }
 
-star_kawaii_background([1.0, 0.9, 0.8, 1.0])
+// my boy, this peace is what all true warriors strive for looop for
+
+BG.occlusion_and_lighting() {
+    star_kawaii_background([1.0, 0.9, 0.8, 1.0])
+}
 
 let chart = T.position(-2.8, 1.8, 0.0).scale(0.12, 0.12, 0.12) {
     LayoutRoot {
-        available_width(46.0)
+        available_width(36.0)
         available_height(28.0)
         // Diagnostic overlay: content, padding, and margin boxes for each
         // layout-managed item. Remove this once the bar baseline is verified.
-        InspectLayout {}
+        //InspectLayout {}
 
         T {
             Style {
@@ -46,7 +51,7 @@ let chart = T.position(-2.8, 1.8, 0.0).scale(0.12, 0.12, 0.12) {
                 Style { display("block") margin_bottom(0.45) font_size(1.35) }
                 T.position(0.0, 0.0, 0.15) {
                     Text {
-                        "JSON file bar chart"
+                        "not JSON file bar chart"
                         C.rgba(0.88, 0.94, 1.0, 1.0)
                         EM.on() { intensity(0.7) }
                     }
