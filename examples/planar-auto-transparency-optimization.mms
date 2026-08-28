@@ -92,6 +92,14 @@ T.position(0.0, 8.0, -5.0) {
     PL.color(1.0, 0.62, 0.22).intensity(6.0).distance(26.0)
 }
 
+T.position(-15.0, 5.0, -20.0) {
+    PL.color(1.0, 0.62, 0.22).intensity(6.0).distance(26.0)
+}
+
+T.position(10.0, 8.0, -15.0) {
+    PL.color(1.0, 0.62, 0.22).intensity(6.0).distance(26.0)
+}
+
 fn benchmark_cell() {
     return T {
         Style {
@@ -104,7 +112,7 @@ fn benchmark_cell() {
         // Authored opaque geometry behind the layout-owned translucent __bg.
         // `position` is local to this inline-block; layout preserves the
         // explicit Z because only item TCs receive layout-owned layering.
-        T.position(0.0, 0.0, -2.0) {
+        T.position(0.0, 0.0, -2.0).scale(0.5, 0.5, 0.5) {
             R.cube() { C.rgba(1.0, 1.0, 1.0, 1.0) }
         }
     }
@@ -147,6 +155,18 @@ Input.speed(3.0) {
     T.position(0.0, 1.4, 15.0) {
         C3D {
             Pointer {}
+        }
+        // Camera-relative stats panel: starts in front of the camera and can
+        // be repositioned by dragging its backing square.
+        T.position(-3.8, 1.9, -8.75) {
+            name = "planar_benchmark_stats"
+            Draggable.plane("camera")
+            T.position(2.0, -0.35, -0.02).scale(5.0, 0.8, 1.0) {
+                R.square() {
+                    C.rgba(0.04, 0.02, 0.10, 0.78)
+                    Raycastable.drag_only()
+                }
+            }
             RendererStats {
                 update_interval_sec(0.25)
                 smoothing(0.85)

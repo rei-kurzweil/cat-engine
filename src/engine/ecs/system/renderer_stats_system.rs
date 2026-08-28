@@ -69,11 +69,7 @@ impl RendererStatsSystem {
                 stats.smooth_fps(fps)
             };
 
-            let new_text = if fps > 0.0 && dt_ms > 0.0 {
-                format!("{label}: {smoothed:.1} fps  ({dt_ms:.1} ms)")
-            } else {
-                format!("{label}: (no timing)")
-            };
+            let new_text = format_stats_text(label, smoothed, dt_ms);
 
             let (text_id, updated_ids) =
                 ensure_stats_text_subtree(world, queue, stats_id, config, subtree_ids);
@@ -154,6 +150,14 @@ impl StatsSubtreeIds {
 
 // Camera target selection is explicit via RendererStatsComponent.target.
 
+fn format_stats_text(label: &str, fps: f32, dt_ms: f32) -> String {
+    if fps > 0.0 && dt_ms > 0.0 {
+        format!("{label}: {fps:.1} fps\n{dt_ms:.1} ms")
+    } else {
+        format!("{label}:\n(no timing)")
+    }
+}
+
 fn ensure_stats_text_subtree(
     world: &mut World,
     queue: &mut CommandQueue,
@@ -215,4 +219,18 @@ fn ensure_stats_text_subtree(
     world.init_component_tree(text_id, queue);
 
     (Some(text_id), ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_stats_text;
+
+    #[test]
+    fn renderer_stats_text_uses_separate_fps_and_frame_time_lines() {
+        assert_eq!(
+            format_stats_text("Window", 144.0, 6.9),
+            "Window: 144.0 fps\n6.9 ms"
+        );
+        assert_eq!(format_stats_text("XR", 0.0, 0.0), "XR:\n(no timing)");
+    }
 }
