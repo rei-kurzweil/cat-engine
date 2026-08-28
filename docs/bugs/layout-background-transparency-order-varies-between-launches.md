@@ -6,6 +6,7 @@ Status: open / reproduced in `data-viz-json-file` and `planar-auto-transparency-
 
 Follow-up trackers:
 
+- `docs/bugs/runtime-spec-component-body-control-flow-drops-children.md`
 - `docs/task/layout-background-multilayer-transparency-correctness.md`
 - `docs/task/single-layer-transparency-depth-write-contract.md`
 - `docs/task/layout-transparent-background-overlap-classification.md`
@@ -16,10 +17,11 @@ Follow-up trackers:
 Overlapping layout-generated `__bg` quads with alpha below `1.0` can appear with different colors
 or opacity between otherwise identical launches. A background may also look completely absent.
 
-In the original `data-viz-json-file` reproduction, the layout system creates the quads consistently
-and the visible variation appears later in registration or drawing. The simplified 12 x 12
-reproduction still needs the same ECS-to-`VisualWorld` count before assuming it has the identical
-failure boundary.
+Two separate failure modes were initially conflated. The legacy MMS evaluator creates the benchmark
+quads consistently and exposes the transparency-order problem. The RuntimeSpec evaluator used by
+`cargo run -- load`, however, drops component children produced by control flow inside component
+bodies. In the 12 x 12 benchmark, `LayoutRoot` is therefore empty before LayoutSystem runs. The
+current total disappearance is an evaluator materialization bug, not a GPU draw/composite failure.
 
 ## Reproduction
 
@@ -60,19 +62,8 @@ exactly 144 reddish-purple, half-transparent generated `__bg` quads. At the time
 individual squares are not visible in the running scene.
 
 Unlike the nested `data-viz-json-file` case, adjacent cell rectangles have positive margins and
-should not overlap one another in layout-local XY. This is an important challenge to the narrower
-"incorrect ordering only between overlapping generated backgrounds" hypothesis. Possible cases to
-distinguish are:
-
-- the empty styled cells do not generate or register their `__bg` renderables;
-- their transforms, dimensions, alpha, or render-phase flags differ between ECS and `VisualWorld`;
-- a large transparent scene plane composites over or suppresses them;
-- the single-layer stream loses or incorrectly batches non-overlapping translucent instances;
-- the quads exist but face, depth-test, or camera/frustum state makes them invisible.
-
-Do not treat the original hash-backed registration-order explanation as sufficient for this
-simplified reproduction until the 144 generated components and their registered visual instances
-have been counted directly.
+should not overlap one another in layout-local XY. Once RuntimeSpec loop materialization is fixed,
+this remains a useful transparency benchmark. Until then it does not reach the transparency path.
 
 ## Expected behavior
 
@@ -83,9 +74,33 @@ have been counted directly.
 
 ## Current findings
 
-A repeated ECS-side probe found that every launch created exactly one `__bg` for each of the three
-bars. Their authored RGBA values and resolved transforms were stable. This rules out nondeterministic
-layout creation as the immediate cause.
+A focused trace using the legacy evaluator found:
+
+- 144 matching `StyleComponent`s;
+- 144 generated `__bg` transforms with valid world matrices and nonzero dimensions;
+- 144 matching colors and nested square renderables;
+- 144 renderable handles after `prepare_render`;
+- 144 matching `VisualInstance`s with color `[0.64, 0.07, 0.34, 0.5]`, opacity `1.0`, and
+  `multiple_layers = false`;
+- all 144 instance indices in the single-layer transparent render stream;
+- an active window camera whose view and projection place the grid in front of the camera.
+
+That result is still useful for the eventual transparency benchmark, but it does not describe the
+CLI loader. A matching test using `eval_with_runtime_spec_at_path`, plus a live windowed audit,
+instead found:
+
+- every `LayoutRoot` existed with zero children;
+- zero `StyleComponent`s from the nested layout loops existed;
+- zero generated `__bg` components existed;
+- computed layout heights were `-0.0` and the roots were then clean;
+- only top-level, non-layout control renderables reached `VisualWorld`.
+
+The RuntimeSpec materializer stores a component body containing `for` as `deferred_block`. The
+Mittens host only consumes that deferred payload for imperative owners such as keyframes; it does
+not execute it to populate an ordinary component such as `LayoutRoot`. Consequently, nested loop
+results never become children. Relevant code is in
+`crates/meow-meow-script/src/evaluator.rs`, `src/scripting/host.rs`, and
+`src/scripting/component_registry.rs`.
 
 The affected backgrounds have alpha below `1.0` and use the single-layer transparent path. That
 path batches for throughput rather than sorting overlapping instances by view depth. Renderable
@@ -95,6 +110,9 @@ nearly opaque outer quad can visually cover an inner quad.
 
 Relevant areas:
 
+- `crates/meow-meow-script/src/evaluator.rs`
+- `src/scripting/host.rs`
+- `src/scripting/component_registry.rs`
 - `src/engine/ecs/system/layout/block.rs`
 - `src/engine/ecs/system/renderable_system.rs`
 - `src/engine/graphics/visual_world.rs`

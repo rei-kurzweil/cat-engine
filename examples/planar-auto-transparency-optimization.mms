@@ -34,19 +34,38 @@ T.position(0.0, -0.7, -17.0).scale(3.2, 3.2, 1.0) {
     }
 }
 
-// The truss asset's rails run along local X. Rotating 90 degrees around Z
-// stands them vertically. Each site has an upper segment crossing the waterline,
-// a bridge segment, and a lower segment continuing into the deep water.
+// The truss asset's rails run along local X. Its diagonal braces make the full
+// visible length about 9.09 asset units, or 3.82 world units at scale 0.42.
+// Give each segment an explicit block of that height plus a small gap so layout
+// owns the stack spacing without waiting for the combined mesh to be measured.
 fn vertical_truss_stack(x, z, yaw) {
-    return T.position(x, 0.0, z).rotation(0.0, yaw, 0.0) {
-        T.position(0.0, -0.15, 0.0).rotation(0.0, 0.0, 1.5708).scale(0.42, 0.42, 0.42) {
-            truss()
-        }
-        T.position(0.0, -3.425, 0.0).rotation(0.0, 0.0, 1.5708).scale(0.42, 0.42, 0.42) {
-            truss()
-        }
-        T.position(0.0, -6.70, 0.0).rotation(0.0, 0.0, 1.5708).scale(0.42, 0.42, 0.42) {
-            truss()
+    let truss_width = 0.55
+    let truss_height = 3.82
+    let segment_gap = 0.08
+
+    // Keep the first segment centered near its previous y=-0.15 position.
+    return T.position(x, 1.76, z).rotation(0.0, yaw, 0.0) {
+        T.position(-truss_width / 2.0, 0.0, 0.0) {
+            LayoutRoot {
+                name = "vertical_truss_stack"
+                available_width(truss_width)
+                available_height(12.0)
+                unit_scale(1.0)
+
+                for segment in range(3) {
+                    T {
+                        Style {
+                            display("block")
+                            width(truss_width)
+                            height(truss_height)
+                            margin_bottom(segment_gap)
+                        }
+                        T.rotation(0.0, 0.0, 1.5708).scale(0.42, 0.42, 0.42) {
+                            truss()
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -55,10 +74,10 @@ vertical_truss_stack(-6.2, -13.2, 0.16)
 vertical_truss_stack(-3.5, -15.0, -0.12)
 vertical_truss_stack(5.2, -13.8, 0.22)
 
-// Purple-blue translucent ocean. This uses the ordinary lit mesh material for
-// now; animated wave shader inputs are tracked separately in docs/task.
+// Purple-blue translucent ocean. The missing layout content is now known to
+// occur before transparency batching, so the ocean can remain in the scene.
 T.position(0.0, -3.3, -5.0).rotation(-1.5708, 0.0, 0.0).scale(640.0, 640.0, 1.0) {
-    R.plane() { C.rgba(0.30, 0.06, 0.58, 0.62) }
+    R.plane() { C.rgba(0.40, 0.26, 0.58, 0.62) }
 }
 
 // Lights should remain visible on the ordinary ocean material and trusses.
