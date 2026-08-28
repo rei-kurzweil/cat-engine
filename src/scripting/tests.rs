@@ -1098,19 +1098,35 @@ fn runtime_spec_file_read_text_is_a_host_api() {
 
 #[test]
 fn data_viz_json_file_demo_loads_three_fixture_bars() {
-    let source = fs::read_to_string(repo_path("examples/data-viz-json-file.mms"))
-        .expect("JSON data-viz example source");
+    let path = repo_path("examples/data-viz-json-file.mms");
+    let source = fs::read_to_string(&path).expect("JSON data-viz example source");
     let mut world = World::default();
     let mut systems = crate::engine::ecs::system::SystemWorld::default();
     let mut emit = CommandQueue::new();
-    let output = MeowMeowRunner::eval_with_runtime_spec(
+    let mut assets = RenderAssets::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec_at_path(
         &source,
+        path.to_str(),
         &mut world,
         &mut systems.rx,
-        None,
+        Some(&mut assets),
         &mut emit,
     );
     assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+    let stars = world
+        .all_components()
+        .filter(|&id| {
+            world
+                .get_component_by_id_as::<RenderableComponent>(id)
+                .is_some_and(|renderable| {
+                    matches!(
+                        renderable.authored_shape,
+                        Some(AuthoredRenderableShape::Star { .. })
+                    )
+                })
+        })
+        .count();
+    assert!(stars > 0, "star background should materialize renderables");
     let bars = world
         .all_components()
         .find(|&id| world.component_label(id) == Some("bar_chart"))
@@ -1126,7 +1142,6 @@ fn data_viz_json_file_demo_loads_three_fixture_bars() {
         emit.push_intent_now(ComponentId::default(), intent);
     }
     let mut visuals = VisualWorld::default();
-    let mut assets = RenderAssets::new();
     systems.process_commands(&mut world, &mut visuals, &mut assets, &mut emit);
     systems.tick(
         &mut world,
@@ -1232,6 +1247,109 @@ fn data_viz_json_file_demo_loads_three_fixture_bars() {
     );
     assert!(effective_bounds[0].max[1] < effective_bounds[2].max[1]);
     assert!(effective_bounds[2].max[1] < effective_bounds[1].max[1]);
+}
+
+#[test]
+fn planar_transparency_demo_runtime_spec_materializes_layout_loops() {
+    let path = repo_path("examples/planar-auto-transparency-optimization.mms");
+    let source = fs::read_to_string(&path).expect("planar transparency example source");
+    let mut world = World::default();
+    let mut systems = crate::engine::ecs::system::SystemWorld::default();
+    let mut emit = CommandQueue::new();
+    let mut assets = RenderAssets::new();
+    let output = MeowMeowRunner::eval_with_runtime_spec_at_path(
+        &source,
+        path.to_str(),
+        &mut world,
+        &mut systems.rx,
+        Some(&mut assets),
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
+
+    let layout = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("planar_auto_transparency_benchmark"))
+        .expect("benchmark LayoutRoot");
+    assert_eq!(world.children_of(layout).len(), 24, "one child per row");
+
+    let mut rows = 0;
+    let mut cells = 0;
+    let mut translucent_cell_styles = 0;
+    let mut opaque_cell_cubes = 0;
+    for &row in world.children_of(layout) {
+        if world
+            .get_component_by_id_as::<TransformComponent>(row)
+            .is_none()
+        {
+            continue;
+        }
+        rows += 1;
+        for &child in world.children_of(row) {
+            if world
+                .get_component_by_id_as::<TransformComponent>(child)
+                .is_none()
+            {
+                continue;
+            }
+            cells += 1;
+            translucent_cell_styles += world
+                .children_of(child)
+                .iter()
+                .filter(|&&metadata| {
+                    world
+                        .get_component_by_id_as::<StyleComponent>(metadata)
+                        .is_some_and(|style| style.background_color.is_some())
+                })
+                .count();
+            opaque_cell_cubes += world
+                .children_of(child)
+                .iter()
+                .copied()
+                .filter(|&visual_root| {
+                    world
+                        .get_component_by_id_as::<TransformComponent>(visual_root)
+                        .is_some()
+                })
+                .flat_map(|visual_root| world.children_of(visual_root).iter().copied())
+                .filter(|&renderable| {
+                    world
+                        .get_component_by_id_as::<RenderableComponent>(renderable)
+                        .is_some_and(|component| {
+                            matches!(
+                                component.authored_shape,
+                                Some(AuthoredRenderableShape::Builtin("cube"))
+                            )
+                        })
+                })
+                .count();
+        }
+    }
+    assert_eq!(rows, 24);
+    assert_eq!(cells, 576);
+    assert_eq!(translucent_cell_styles, 576);
+    assert_eq!(opaque_cell_cubes, 576);
+
+    for intent in output.intents {
+        emit.push_intent_now(ComponentId::default(), intent);
+    }
+    let mut visuals = VisualWorld::default();
+    systems.process_commands(&mut world, &mut visuals, &mut assets, &mut emit);
+    for _ in 0..2 {
+        systems.tick(
+            &mut world,
+            &mut visuals,
+            &mut assets,
+            &InputState::default(),
+            &mut emit,
+            1.0 / 60.0,
+        );
+    }
+    let backgrounds = world
+        .all_components()
+        .filter(|&id| world.component_label(id) == Some("__bg"))
+        .count();
+    assert_eq!(backgrounds, 576, "one layout-owned background per cell");
 }
 
 #[test]

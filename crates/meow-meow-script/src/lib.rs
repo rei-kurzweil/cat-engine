@@ -4,6 +4,7 @@ pub mod evaluator;
 pub mod example_hosts;
 pub mod host;
 pub mod lowering;
+mod math;
 pub mod object;
 pub mod parser;
 pub mod runner;

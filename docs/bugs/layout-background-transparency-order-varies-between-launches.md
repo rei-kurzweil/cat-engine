@@ -42,7 +42,7 @@ color and opacity remain stable.
 
 `InspectLayout` can make the scene harder to read, but the problem remains when it is disabled.
 
-### Simplified 12 x 12 reproduction
+### Simplified 24 x 24 reproduction
 
 Run:
 
@@ -50,16 +50,17 @@ Run:
 cargo run --release -- load examples/planar-auto-transparency-optimization.mms
 ```
 
-The benchmark contains a `LayoutRoot` with 12 explicitly sized block rows. Each row contains 12
+The benchmark contains a `LayoutRoot` with 24 explicitly sized block rows. Each row contains 24
 explicitly sized inline-block transforms with:
 
 ```mms
 background_color([0.64, 0.07, 0.34, 0.50])
 ```
 
-There is no cube or other authored visual content inside the cells. The intended layout result is
-exactly 144 reddish-purple, half-transparent generated `__bg` quads. At the time of this report the
-individual squares are not visible in the running scene.
+Each cell also contains an opaque white cube at local Z = `-2`, behind its generated background.
+The intended layout result is exactly 576 reddish-purple, half-transparent generated `__bg` quads
+over 576 opaque cubes. At the time of this report the individual squares are not visible in the
+running scene.
 
 Unlike the nested `data-viz-json-file` case, adjacent cell rectangles have positive margins and
 should not overlap one another in layout-local XY. Once RuntimeSpec loop materialization is fixed,
@@ -141,11 +142,12 @@ overlapping translucent layout backgrounds deterministic.
 - Cover nested translucent panels, sibling backgrounds, and opaque backgrounds in focused tests.
 - Verify that fixing draw order does not introduce regressions in clipping, overlays, or text
   backgrounds.
-- In the simplified benchmark, verify 144 styled cells produce 144 `__bg` transforms, 144 nested
-  renderables, and 144 registered `VisualWorld` instances before investigating draw order.
+- In the simplified benchmark, verify 576 styled cells produce 576 `__bg` transforms, 576 nested
+  background renderables, and 576 registered `VisualWorld` instances before investigating draw
+  order. Verify the same count for the opaque cubes behind them.
 - Temporarily hide the ocean plane and trusses to determine whether unrelated transparent/opaque
   scene content affects the grid.
-- Confirm all 144 non-overlapping squares are visible and stable before adding overlapping layout
+- Confirm all 576 non-overlapping squares are visible and stable before adding overlapping layout
   backgrounds back to the benchmark.
 
 This report is separate from the missing star background being investigated in the same example;

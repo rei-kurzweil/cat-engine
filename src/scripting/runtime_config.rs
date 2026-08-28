@@ -189,6 +189,11 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 component: canonical,
                 name: None,
             });
+            if matches!(canonical, "Data" | "Style") {
+                component.body_mode(mms::ComponentBodyMode::PropsOnly);
+            } else if canonical == "Keyframe" {
+                component.body_mode(mms::ComponentBodyMode::Deferred);
+            }
             for shortform in mms::COMPONENT_SHORTFORMS.iter().filter(|entry| {
                 entry.full == canonical && !entry.short.eq_ignore_ascii_case(canonical)
             }) {

@@ -2,8 +2,9 @@
 //
 // Benchmark scene for automatic planar transparency classification.
 //
-// The 12 x 12 layout creates exactly 144 translucent layout-generated __bg
-// quads, which are the initial automatic-transparency optimization candidates.
+// The 24 x 24 layout creates exactly 576 translucent layout-generated __bg
+// quads. Each cell also contains one opaque cube behind its background, making
+// this a useful current single-layer benchmark and future depth-write fixture.
 
 import { truss } from "../assets/components/truss.mms"
 
@@ -100,6 +101,12 @@ fn benchmark_cell() {
             margin_right(0.22)
             background_color([0.64, 0.07, 0.34, 0.50])
         }
+        // Authored opaque geometry behind the layout-owned translucent __bg.
+        // `position` is local to this inline-block; layout preserves the
+        // explicit Z because only item TCs receive layout-owned layering.
+        T.position(0.0, 0.0, -2.0) {
+            R.cube() { C.rgba(1.0, 1.0, 1.0, 1.0) }
+        }
     }
 }
 
@@ -107,11 +114,11 @@ fn benchmark_row() {
     return T {
         Style {
             display("block")
-            width(32.2)
+            width(64.5)
             height(2.45)
             margin_bottom(0.22)
         }
-        for column in range(12) {
+        for column in range(24) {
             benchmark_cell()
         }
     }
@@ -120,14 +127,14 @@ fn benchmark_row() {
 // Layout flows downward from its top-left. The LayoutRoot explicitly converts
 // glyph units to world units; the parent transform only places the completed
 // layout and does not implicitly rescale its renderable descendants.
-T.position(-5.0, 5.2, -1.5) {
+T.position(-10.0, 10.3, -1.5) {
     LayoutRoot {
         name = "planar_auto_transparency_benchmark"
-        available_width(33.0)
-        available_height(33.0)
+        available_width(65.0)
+        available_height(65.0)
         unit_scale(0.31)
 
-        for row in range(12) {
+        for row in range(24) {
             benchmark_row()
         }
     }

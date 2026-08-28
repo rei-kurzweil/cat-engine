@@ -2,7 +2,7 @@
 
 Date: 2026-08-28
 
-Status: open / confirmed
+Status: resolved / verified
 
 ## Summary
 
@@ -55,8 +55,8 @@ Actual:
 - the layout is marked clean after processing the empty root.
 
 The larger reproduction is
-`examples/planar-auto-transparency-optimization.mms`, whose nested loops should produce 12 rows and
-144 styled cells.
+`examples/planar-auto-transparency-optimization.mms`, whose nested loops should produce 24 rows,
+576 styled cells, and 576 opaque cubes behind their generated backgrounds.
 
 ## Confirmed failure boundary
 
@@ -98,6 +98,25 @@ Relevant code:
 
 The solution must not execute imperative blocks twice or change keyframe callback semantics.
 
+## Resolution
+
+Resolved on 2026-08-28 by making component body behavior explicit in `RuntimeSpec`:
+
+- `Standard` bodies execute eagerly in a structural materialization context;
+- `PropsOnly` bodies execute eagerly while treating identifier assignments as component
+  properties; and
+- `Deferred` bodies retain an executable closure, with `Keyframe` explicitly selecting this mode.
+
+The structural evaluator now carries its component materialization sink through blocks, nested
+`for`, `if` / `else`, and `while` statements. Component expressions and live component handles
+produced anywhere in that control flow are appended as `Spawn` or `Attach` children in authored
+order. Lexical assignments, `break`, and `continue` retain normal block semantics.
+
+While validating the original data-viz reproduction, the imported star background exposed a
+second crate-evaluator parity gap: `Math.perlin` was still engine-evaluator-only. Deterministic
+Perlin noise and the remaining array/vector math helpers used by the same Math surface now live in
+`meow-meow-script`, allowing the imported star factory to complete on the RuntimeSpec path.
+
 ## Validation
 
 - Add a focused `meow-meow-script` runtime test for a component containing a `for` loop.
@@ -107,9 +126,19 @@ The solution must not execute imperative blocks twice or change keyframe callbac
   legacy evaluator.
 - Assert the minimal layout root has four children and four styles before LayoutSystem runs.
 - Tick LayoutSystem and assert nonzero computed height plus four generated backgrounds.
-- Re-run `planar-auto-transparency-optimization.mms` and assert 12 rows, 144 cells, 144 `__bg`
-  renderables, and 144 matching `VisualWorld` instances.
+- Re-run `planar-auto-transparency-optimization.mms` and assert 24 rows, 576 cells, 576 `__bg`
+  renderables, 576 opaque cubes, and 576 matching `VisualWorld` instances.
 - Confirm keyframe and other intentionally deferred component bodies retain their current behavior.
+
+Completed regression coverage:
+
+- crate tests cover nested loops, conditionals, `while`, reassignment, `break`, `continue`, child
+  ordering, and explicit deferred-body preservation;
+- the planar benchmark integration test asserts 24 rows, 576 cells, 576 translucent cell styles,
+  and 576 opaque cubes after RuntimeSpec evaluation, then ticks layout and asserts all 576
+  generated `__bg` quads exist; and
+- the data-viz integration test loads with its canonical source identity and render assets, then
+  asserts that the imported star background creates star renderables.
 
 ## Relationship to transparency work
 

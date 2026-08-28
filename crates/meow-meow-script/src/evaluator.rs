@@ -11,7 +11,11 @@ use crate::object::{
     CeChild, HeapHandle, MaterializedCE, MaterializedConstructor, MaterializedOperation,
     MaterializedProperty, Object, ObjectId, RuntimeClosure, Value,
 };
-use crate::runtime::{Catalog, ComponentNamePolicy, SignalDeclaration, ValueSignature, api_key};
+use crate::block_effect_analyzer::BlockEffectAnalyzer;
+use crate::runtime::{
+    Catalog, ComponentBodyMode, ComponentNamePolicy, ComponentOperationIds, ComponentSpec,
+    SignalDeclaration, ValueSignature, api_key,
+};
 use crate::{MeowMeowParser, MeowMeowTokenizer, SourceId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +103,21 @@ impl<'a, H: Host> Evaluator<'a, H> {
     ) -> Self {
         Self { host, scopes, emitted: vec![], heap, callbacks, catalog: Some(catalog), context: Some(context),
             source_id, module_cache, module_depth: 0 }
+    }
+
+    pub(crate) fn for_materialization(host: &'a mut H, catalog: Arc<Catalog>) -> Self {
+        Self {
+            host,
+            scopes: vec![HashMap::from([("null".into(), Value::Null)])],
+            emitted: Vec::new(),
+            heap: HeapHandle::new(),
+            callbacks: HashMap::new(),
+            catalog: Some(catalog),
+            context: None,
+            source_id: None,
+            module_cache: HashMap::new(),
+            module_depth: 0,
+        }
     }
 
     pub(crate) fn into_session_state(self) -> (
@@ -893,12 +912,20 @@ impl<'a, H: Host> Evaluator<'a, H> {
         let operations = self.catalog.as_ref().and_then(|catalog| {
             catalog.component_operations.get(&component_key).cloned()
         });
+        let component_spec = self
+            .catalog
+            .as_ref()
+            .and_then(|catalog| catalog.components.get(&component_key))
+            .cloned();
+        let body_mode = component_spec
+            .as_deref()
+            .map_or(ComponentBodyMode::Standard, |spec| spec.body_mode);
         let mut tree = MaterializedCE {
             component_type: self.catalog.as_ref().map_or_else(
                 || component.component_type.0.clone(),
                 |catalog| catalog.components.get(&component.component_type.0.to_lowercase())
                     .map(|spec| spec.name.clone()).unwrap_or_else(|| component.component_type.0.clone())),
-            component_property_assignment_only: false,
+            component_property_assignment_only: body_mode == ComponentBodyMode::PropsOnly,
             constructor: first.map_or_else(
                 || MaterializedConstructor {
                     name: None,
@@ -927,60 +954,25 @@ impl<'a, H: Host> Evaluator<'a, H> {
             deferred_block: None,
             children: Vec::new(),
         };
-        for statement in &component.body.statements {
-            match statement {
-                Statement::Reassign {
-                    target: Expression::Identifier(name),
-                    value,
-                } => tree.properties.push(MaterializedProperty {
-                    operation_id: operations.as_ref().and_then(|ids| {
-                        ids.properties.get(&name.0.to_lowercase()).copied()
-                    }),
-                    name: name.0.clone(),
-                    value: self.eval_expr(value)?,
-                }),
-                Statement::Expression(Expression::Component(child)) => {
-                    tree.children.push(CeChild::Spawn(self.materialize(child)?))
-                }
-                Statement::Expression(expression) => {
-                    if let Expression::Call(call) = expression {
-                        if let Expression::Identifier(method) = call.callee.as_ref() {
-                            if self.is_component_body_builder_call(&method.0) {
-                                let args = call
-                                    .args
-                                    .iter()
-                                    .map(|arg| self.eval_expr(arg))
-                                    .collect::<Result<Vec<_>, _>>()?;
-                                tree.initializer_calls.push(MaterializedOperation {
-                                    operation_id: operations.as_ref().and_then(|ids| {
-                                        ids.builder_calls.get(&method.0.to_lowercase()).copied()
-                                    }),
-                                    name: method.0.clone(),
-                                    arguments: args,
-                                });
-                                continue;
-                            }
-                        }
-                    }
-                    let value = self.eval_expr(expression)?;
-                    match value {
-                        Value::ComponentExpr(child) => tree.children.push(CeChild::Spawn(*child)),
-                        Value::ComponentObject { id, .. } => {
-                            tree.children.push(CeChild::Attach(id))
-                        }
-                        Value::String(_) => tree.positionals.push(value),
-                        _ => {}
-                    }
-                }
-                _ => {
-                    tree.deferred_block = Some(RuntimeClosure {
-                        body: component.body.clone(),
-                        captured_env: Arc::new(self.snapshot()),
-                        heap: HeapHandle::new(),
-                        analysis: None,
-                    });
-                    break;
-                }
+        if body_mode == ComponentBodyMode::Deferred {
+            tree.deferred_block = Some(RuntimeClosure {
+                body: component.body.clone(),
+                captured_env: Arc::new(self.snapshot()),
+                heap: self.heap.clone(),
+                analysis: Some(BlockEffectAnalyzer::analyze_keyframe_block(&component.body)),
+            });
+        } else {
+            let flow = self.eval_component_body_block(
+                &component.body,
+                &mut tree,
+                operations.as_deref(),
+                component_spec.as_deref(),
+                body_mode,
+            )?;
+            if matches!(flow, Flow::Break | Flow::LoopContinue) {
+                return Err(EvalError::Runtime(
+                    "break or continue used outside a component-body loop".into(),
+                ));
             }
         }
         if let Some(catalog) = &self.catalog {
@@ -1013,6 +1005,214 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
         }
         Ok(tree)
+    }
+
+    fn eval_component_body_block(
+        &mut self,
+        block: &BlockStatement,
+        tree: &mut MaterializedCE,
+        operations: Option<&ComponentOperationIds>,
+        component_spec: Option<&ComponentSpec>,
+        body_mode: ComponentBodyMode,
+    ) -> Result<Flow, EvalError> {
+        self.scopes.push(HashMap::new());
+        let result = (|| {
+            for statement in &block.statements {
+                let flow = self.eval_component_body_statement(
+                    statement,
+                    tree,
+                    operations,
+                    component_spec,
+                    body_mode,
+                )?;
+                if !matches!(flow, Flow::Continue) {
+                    return Ok(flow);
+                }
+            }
+            Ok(Flow::Continue)
+        })();
+        self.scopes.pop();
+        result
+    }
+
+    fn eval_component_body_statement(
+        &mut self,
+        statement: &Statement,
+        tree: &mut MaterializedCE,
+        operations: Option<&ComponentOperationIds>,
+        component_spec: Option<&ComponentSpec>,
+        body_mode: ComponentBodyMode,
+    ) -> Result<Flow, EvalError> {
+        match statement {
+            Statement::Expression(expression) => {
+                if let Expression::Call(call) = expression
+                    && let Expression::Identifier(method) = call.callee.as_ref()
+                    && self.is_component_body_builder_call(&method.0)
+                {
+                    let args = call
+                        .args
+                        .iter()
+                        .map(|arg| self.eval_expr(arg))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    tree.initializer_calls.push(MaterializedOperation {
+                        operation_id: operations.and_then(|ids| {
+                            ids.builder_calls.get(&method.0.to_lowercase()).copied()
+                        }),
+                        name: method.0.clone(),
+                        arguments: args,
+                    });
+                    return Ok(Flow::Continue);
+                }
+
+                let value = self.eval_expr(expression)?;
+                match value {
+                    Value::ComponentExpr(child) => tree.children.push(CeChild::Spawn(*child)),
+                    Value::ComponentObject { id, .. } => tree.children.push(CeChild::Attach(id)),
+                    Value::String(_) => tree.positionals.push(value),
+                    _ => {}
+                }
+                Ok(Flow::Continue)
+            }
+            Statement::Reassign {
+                target: Expression::Identifier(name),
+                value,
+            } if self.should_capture_component_property(
+                name.0.as_str(),
+                component_spec,
+                body_mode,
+            ) => {
+                tree.properties.push(MaterializedProperty {
+                    operation_id: operations.and_then(|ids| {
+                        ids.properties.get(&name.0.to_lowercase()).copied()
+                    }),
+                    name: name.0.clone(),
+                    value: self.eval_expr(value)?,
+                });
+                Ok(Flow::Continue)
+            }
+            Statement::Assignment(_) | Statement::Reassign { .. } | Statement::Import { .. } => {
+                self.eval_statement(statement)
+            }
+            Statement::Return(value) => Ok(Flow::Return(match &value.value {
+                Some(expression) => self.eval_expr(expression)?,
+                None => Value::Null,
+            })),
+            Statement::Block(block) => {
+                self.eval_component_body_block(
+                    block,
+                    tree,
+                    operations,
+                    component_spec,
+                    body_mode,
+                )
+            }
+            Statement::If(statement) => {
+                if truthy(&self.eval_expr(&statement.condition)?) {
+                    self.eval_component_body_block(
+                        &statement.then_branch,
+                        tree,
+                        operations,
+                        component_spec,
+                        body_mode,
+                    )
+                } else if let Some(branch) = &statement.else_branch {
+                    match branch {
+                        ElseBranch::Block(block) => {
+                            self.eval_component_body_block(
+                                block,
+                                tree,
+                                operations,
+                                component_spec,
+                                body_mode,
+                            )
+                        }
+                        ElseBranch::If(nested) => self.eval_component_body_statement(
+                            &Statement::If((**nested).clone()),
+                            tree,
+                            operations,
+                            component_spec,
+                            body_mode,
+                        ),
+                    }
+                } else {
+                    Ok(Flow::Continue)
+                }
+            }
+            Statement::ForIn {
+                binding,
+                iterable,
+                body,
+            } => {
+                let values = match self.eval_expr(iterable)? {
+                    Value::Array(values) => values,
+                    other => {
+                        return Err(EvalError::Runtime(format!(
+                            "for/in expected array, got {other:?}"
+                        )));
+                    }
+                };
+                for value in values {
+                    self.scopes
+                        .push(HashMap::from([(binding.0.clone(), value)]));
+                    let flow =
+                        self.eval_component_body_block(
+                            body,
+                            tree,
+                            operations,
+                            component_spec,
+                            body_mode,
+                        )?;
+                    self.scopes.pop();
+                    match flow {
+                        Flow::Break => break,
+                        Flow::LoopContinue => continue,
+                        Flow::Return(value) => return Ok(Flow::Return(value)),
+                        Flow::Continue => {}
+                    }
+                }
+                Ok(Flow::Continue)
+            }
+            Statement::While { condition, body } => {
+                while truthy(&self.eval_expr(condition)?) {
+                    match self.eval_component_body_block(
+                        body,
+                        tree,
+                        operations,
+                        component_spec,
+                        body_mode,
+                    )? {
+                        Flow::Break => break,
+                        Flow::LoopContinue => continue,
+                        Flow::Return(value) => return Ok(Flow::Return(value)),
+                        Flow::Continue => {}
+                    }
+                }
+                Ok(Flow::Continue)
+            }
+            Statement::Break => Ok(Flow::Break),
+            Statement::Continue => Ok(Flow::LoopContinue),
+        }
+    }
+
+    fn should_capture_component_property(
+        &self,
+        name: &str,
+        component_spec: Option<&ComponentSpec>,
+        body_mode: ComponentBodyMode,
+    ) -> bool {
+        if body_mode == ComponentBodyMode::PropsOnly {
+            return true;
+        }
+        if matches!(name, "name" | "id" | "guid" | "class") {
+            return true;
+        }
+        // A pre-existing lexical binding remains an ordinary reassignment in
+        // structural bodies. Otherwise a declared field is authored component
+        // data rather than a new lexical binding.
+        if self.lookup(name).is_some() {
+            return false;
+        }
+        component_spec.is_none_or(|component| component.properties.contains_key(name))
     }
 
     fn is_component_body_builder_call(&self, name: &str) -> bool {
@@ -1262,35 +1462,115 @@ fn range(args: &[Value]) -> Result<Value, EvalError> {
 }
 
 fn math(method: &str, args: &[Value]) -> Result<Value, EvalError> {
-    let nums = args
-        .iter()
-        .map(|v| {
-            if let Value::Number(n) = v {
-                Ok(*n)
-            } else {
-                Err(EvalError::Runtime(format!("Math.{method} expects numbers")))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let value = match (method, nums.as_slice()) {
-        ("sin", [x]) => x.sin(),
-        ("cos", [x]) => x.cos(),
-        ("tan", [x]) => x.tan(),
-        ("sqrt", [x]) => x.sqrt(),
-        ("abs", [x]) => x.abs(),
-        ("floor", [x]) => x.floor(),
-        ("ceil", [x]) => x.ceil(),
-        ("round", [x]) => x.round(),
-        ("atan", [x]) => x.atan(),
-        ("atan2", [y, x]) => y.atan2(*x),
-        ("clamp", [x, lo, hi]) => x.clamp(*lo, *hi),
-        _ => {
-            return Err(EvalError::Runtime(format!(
-                "unknown or invalid Math.{method}"
-            )));
+    let number = |index: usize| match args.get(index) {
+        Some(Value::Number(value)) => Ok(*value),
+        _ => Err(EvalError::Runtime(format!(
+            "Math.{method}(): argument {index} must be a number"
+        ))),
+    };
+    let require_len = |expected: usize| {
+        if args.len() == expected {
+            Ok(())
+        } else {
+            Err(EvalError::Runtime(format!(
+                "Math.{method}(): expected {expected} arguments, got {}",
+                args.len()
+            )))
         }
     };
-    Ok(Value::Number(value))
+
+    match method {
+        "sin" | "cos" | "tan" | "sqrt" | "abs" | "floor" | "ceil" | "round" | "atan" => {
+            require_len(1)?;
+            let value = number(0)?;
+            Ok(Value::Number(match method {
+                "sin" => value.sin(),
+                "cos" => value.cos(),
+                "tan" => value.tan(),
+                "sqrt" => value.sqrt(),
+                "abs" => value.abs(),
+                "floor" => value.floor(),
+                "ceil" => value.ceil(),
+                "round" => value.round(),
+                "atan" => value.atan(),
+                _ => unreachable!(),
+            }))
+        }
+        "atan2" => {
+            require_len(2)?;
+            Ok(Value::Number(number(0)?.atan2(number(1)?)))
+        }
+        "perlin" if matches!(args.len(), 2 | 3) => Ok(Value::Number(crate::math::perlin(
+            number(0)?,
+            number(1)?,
+            if args.len() == 3 { Some(number(2)?) } else { None },
+        ))),
+        "clamp" => {
+            require_len(3)?;
+            Ok(Value::Number(number(0)?.clamp(number(1)?, number(2)?)))
+        }
+        "smoothstep" => {
+            require_len(3)?;
+            let value = number(0)?;
+            let edge0 = number(1)?;
+            let edge1 = number(2)?;
+            if (edge1 - edge0).abs() <= f64::EPSILON {
+                return Err(EvalError::Runtime(
+                    "Math.smoothstep(): edge0 and edge1 must be distinct".into(),
+                ));
+            }
+            let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+            Ok(Value::Number(t * t * (3.0 - 2.0 * t)))
+        }
+        "dot" => {
+            require_len(2)?;
+            let lhs = number_array(&args[0], "Math.dot(): argument 0")?;
+            let rhs = number_array(&args[1], "Math.dot(): argument 1")?;
+            if lhs.len() != rhs.len() {
+                return Err(EvalError::Runtime(format!(
+                    "Math.dot(): arrays must have equal length, got {} and {}",
+                    lhs.len(),
+                    rhs.len()
+                )));
+            }
+            Ok(Value::Number(
+                lhs.iter().zip(rhs).map(|(lhs, rhs)| lhs * rhs).sum(),
+            ))
+        }
+        "cross" => {
+            require_len(2)?;
+            let lhs = number_array(&args[0], "Math.cross(): argument 0")?;
+            let rhs = number_array(&args[1], "Math.cross(): argument 1")?;
+            if lhs.len() != 3 || rhs.len() != 3 {
+                return Err(EvalError::Runtime(
+                    "Math.cross(): both arguments must be three-element arrays".into(),
+                ));
+            }
+            Ok(Value::Array(vec![
+                Value::Number(lhs[1] * rhs[2] - lhs[2] * rhs[1]),
+                Value::Number(lhs[2] * rhs[0] - lhs[0] * rhs[2]),
+                Value::Number(lhs[0] * rhs[1] - lhs[1] * rhs[0]),
+            ]))
+        }
+        _ => Err(EvalError::Runtime(format!(
+            "unknown or invalid Math.{method}"
+        ))),
+    }
+}
+
+fn number_array(value: &Value, context: &str) -> Result<Vec<f64>, EvalError> {
+    let Value::Array(values) = value else {
+        return Err(EvalError::Runtime(format!("{context} must be an array")));
+    };
+    values
+        .iter()
+        .map(|value| match value {
+            Value::Number(value) => Ok(*value),
+            _ => Err(EvalError::Runtime(format!(
+                "{context} contains a non-number"
+            ))),
+        })
+        .collect()
 }
 
 fn binary_values(op: &BinOpKind, lhs: Value, rhs: Value) -> Result<Value, EvalError> {

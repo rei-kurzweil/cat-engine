@@ -147,8 +147,15 @@ impl fmt::Debug for OperationId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComponentBodyMode {
+    /// Evaluate the body immediately as a structural MMS block. Component
+    /// values produced by expressions become children in authored order.
     Standard,
+    /// Like [`Self::Standard`], but identifier assignments are component
+    /// properties even when a lexical binding with the same name exists.
     PropsOnly,
+    /// Preserve the body as an executable closure owned by the component.
+    /// This is intended for imperative components such as keyframes.
+    Deferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -865,6 +872,7 @@ impl ValueSignature {
 pub(crate) struct ComponentSpec {
     pub name: String,
     pub aliases: Vec<String>,
+    pub body_mode: ComponentBodyMode,
     pub constructors: HashMap<String, ValueSignature>,
     pub builder_calls: HashMap<String, ValueSignature>,
     pub properties: HashMap<String, ValueType>,
@@ -948,18 +956,7 @@ impl Runtime {
             return Err(EvalError::Runtime("expected exactly one component expression".into()));
         };
         let mut host = Hostless;
-        let tag = NEXT_SESSION_TAG.fetch_add(1, Ordering::Relaxed);
-        let mut context = HostContext::new(tag);
-        let mut evaluator = Evaluator::for_session(
-            &mut host,
-            vec![HashMap::from([("null".into(), Value::Null)])],
-            HeapHandle::new(),
-            HashMap::new(),
-            self.catalog.clone(),
-            &mut context,
-            None,
-            HashMap::new(),
-        );
+        let mut evaluator = Evaluator::for_materialization(&mut host, self.catalog.clone());
         evaluator.materialize(component)
     }
     pub fn session<H: Host>(&self, host: H) -> Session<H> {
@@ -1015,6 +1012,7 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
         });
         let component = Arc::new(ComponentSpec {
             name: declaration.name.clone(), aliases: declaration.aliases.clone(),
+            body_mode: declaration.body_mode,
             constructors: declaration.constructors.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
             builder_calls: declaration.builder_calls.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
             properties: declaration.properties.iter().map(|item| (item.name.clone(), item.value_type.clone())).collect(),
@@ -1199,7 +1197,7 @@ fn adopt_transport_components(context: &mut HostContext, value: &crate::Transpor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{EventStreamHost, HostError, HostRequest, HostResponse, TransportValue};
+    use crate::{CeChild, EventStreamHost, HostError, HostRequest, HostResponse, TransportValue};
 
     struct FixedHandleHost {
         handle: crate::ComponentHandle,
@@ -1291,6 +1289,130 @@ mod tests {
         assert_eq!(tree.properties[0].name, "title");
         assert!(tree.properties[0].operation_id.is_some());
         assert_eq!(tree.properties[0].value, Value::String("hello".into()));
+    }
+
+    #[test]
+    fn structural_component_bodies_materialize_control_flow_children_in_order() {
+        let runtime = runtime();
+        let tree = runtime
+            .runtime()
+            .materialize_component(
+                r#"
+                Panel.new(99) {
+                    Panel.new(-1) {}
+                    for row in range(2) {
+                        for column in range(3) {
+                            if column == 1 {
+                                Panel.new(row * 10 + column) {}
+                            } else {
+                                Panel.new(row * 10 + column) {}
+                            }
+                        }
+                    }
+                    Panel.new(100) {}
+                }
+                "#,
+            )
+            .unwrap();
+
+        let constructor_values = tree
+            .children
+            .iter()
+            .map(|child| match child {
+                CeChild::Spawn(child) => child.constructor.arguments[0].clone(),
+                CeChild::Attach(_) => panic!("hostless materialization should not attach handles"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            constructor_values,
+            [-1.0, 0.0, 1.0, 2.0, 10.0, 11.0, 12.0, 100.0]
+                .into_iter()
+                .map(Value::Number)
+                .collect::<Vec<_>>()
+        );
+        assert!(tree.deferred_block.is_none());
+    }
+
+    #[test]
+    fn structural_component_body_while_break_continue_and_reassignment_are_eager() {
+        let runtime = runtime();
+        let tree = runtime
+            .runtime()
+            .materialize_component(
+                r#"
+                Panel.new(0) {
+                    let index = 0
+                    while index < 6 {
+                        index = index + 1
+                        if index == 2 { continue }
+                        if index == 5 { break }
+                        Panel.new(index) {}
+                    }
+                }
+                "#,
+            )
+            .unwrap();
+
+        let constructor_values = tree
+            .children
+            .iter()
+            .map(|child| match child {
+                CeChild::Spawn(child) => child.constructor.arguments[0].clone(),
+                CeChild::Attach(_) => panic!("hostless materialization should not attach handles"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            constructor_values,
+            [1.0, 3.0, 4.0]
+                .into_iter()
+                .map(Value::Number)
+                .collect::<Vec<_>>()
+        );
+        assert!(tree.properties.iter().all(|property| property.name != "index"));
+    }
+
+    #[test]
+    fn hostless_structural_body_splices_let_bound_components_as_fresh_children() {
+        let runtime = runtime();
+        let tree = runtime
+            .runtime()
+            .materialize_component(
+                r#"
+                Panel.new(0) {
+                    let child = Panel.new(7) {}
+                    child
+                }
+                "#,
+            )
+            .unwrap();
+
+        let [CeChild::Spawn(child)] = tree.children.as_slice() else {
+            panic!("let-bound hostless component should remain a fresh structural child")
+        };
+        assert_eq!(child.constructor.arguments, [Value::Number(7.0)]);
+    }
+
+    #[test]
+    fn deferred_component_body_mode_preserves_the_body_without_executing_it() {
+        let mut builder = RuntimeSpec::builder::<()>();
+        builder.with_standard_builtins().component("Keyframe", |component| {
+            component
+                .body_mode(ComponentBodyMode::Deferred)
+                .constructor(
+                    "at",
+                    ValueSignature::new(vec![ValueType::Number], ValueType::Component),
+                );
+        });
+        let runtime = builder.build().unwrap();
+        let tree = runtime
+            .runtime()
+            .materialize_component("Keyframe.at(1) { operation_that_must_not_run() }")
+            .unwrap();
+
+        assert!(tree.initializer_calls.is_empty());
+        let deferred = tree.deferred_block.expect("deferred keyframe body");
+        assert_eq!(deferred.body.statements.len(), 1);
+        assert!(deferred.analysis.is_some());
     }
 
     #[test]
