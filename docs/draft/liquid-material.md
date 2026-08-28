@@ -98,6 +98,22 @@ included: refracting already-composited arbitrary transparency needs a different
 compositing contract. The liquid pass depth-tests against opaque geometry and keeps depth writes
 off.
 
+### Relationship to the mirror architecture
+
+Liquid should reuse the *architectural pattern* of the renderer's mirror support: the renderer
+creates an auxiliary image and binds it to a dedicated material pass. The image source differs:
+
+```text
+mirror: reflected-camera scene capture -> mirror material samples it
+liquid: current-camera opaque-scene snapshot -> liquid material samples it with distortion
+```
+
+A mirror capture requires rendering the scene again from a reflected camera and may be unique to a
+mirror. Liquid should instead share one opaque-scene snapshot per window frame or XR eye across all
+liquid instances. The existing mirror path is therefore the reference for dynamic texture binding,
+per-view target ownership, and special-material pipeline routing; it is not the source of the
+liquid image or its pass ordering.
+
 ## Transparency and ordering contract
 
 Liquid is ordinary transparent content, not layout-owned planar transparency metadata.
