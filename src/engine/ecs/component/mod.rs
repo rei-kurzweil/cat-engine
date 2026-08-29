@@ -49,7 +49,6 @@ pub mod html_element;
 pub mod http_client;
 pub mod http_server;
 pub mod humanoid_bone_map;
-pub mod morph_target;
 pub mod ik_chain;
 pub mod input;
 pub mod input_transform_mode;
@@ -64,6 +63,7 @@ pub mod layout_visual_placement;
 pub mod light_quantization;
 pub mod mesh;
 pub mod mirror;
+pub mod morph_target;
 pub mod music_note;
 pub mod normal_visualisation;
 pub mod opacity;
@@ -128,7 +128,7 @@ pub use audio_mix::AudioMixComponent;
 pub use audio_oscillator::{AudioOscillator, AudioOscillatorComponent, OscillatorType};
 pub use audio_output::AudioOutputComponent;
 pub use avatar_body_yaw::AvatarBodyYawComponent;
-pub use avatar_control::AvatarControlComponent;
+pub use avatar_control::{AvatarControlComponent, HeadMotionGazePolicy};
 pub use background::BackgroundComponent;
 pub use background_color::BackgroundColorComponent;
 pub use bloom::BloomComponent;
@@ -177,7 +177,6 @@ pub use html_element::{ElementType, HtmlElementComponent};
 pub use http_client::HttpClientComponent;
 pub use http_server::HttpServerComponent;
 pub use humanoid_bone_map::{AuthoredSlot, HumanoidBoneMapComponent, HumanoidSlot};
-pub use morph_target::{MorphFactorState, MorphTargetBindingComponent, MorphTargetInfo, MorphTargetKey, MorphTargetMapComponent};
 pub use ik_chain::{IKChainComponent, IKSolver};
 pub use input::InputComponent;
 pub use input_transform_mode::{ForwardAxis, InputTransformModeComponent, RollAxis};
@@ -194,6 +193,10 @@ pub use layout_visual_placement::LayoutVisualPlacementComponent;
 pub use light_quantization::LightQuantizationComponent;
 pub use mesh::MeshComponent;
 pub use mirror::MirrorComponent;
+pub use morph_target::{
+    MorphFactorState, MorphTargetBindingComponent, MorphTargetInfo, MorphTargetKey,
+    MorphTargetMapComponent,
+};
 pub(crate) use music_note::NotePitch;
 pub use music_note::{MusicNote, MusicNoteComponent};
 pub use normal_visualisation::NormalVisualisationComponent;
@@ -256,7 +259,9 @@ pub use transition::{TransitionComponent, TransitionEasing, TransitionReplacePol
 pub use transparent_cutout::TransparentCutoutComponent;
 pub use uv::UVComponent;
 pub use xr::XrComponent;
-pub use xr_eye_tracking::{XREyeTrackingComponent, XREyeTrackingHtcComponent};
+pub use xr_eye_tracking::{
+    HeadRotationCompensation, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+};
 pub type XRHandComponent = ControllerXRComponent;
 
 /// For now, our "LightComponent" is a point light.

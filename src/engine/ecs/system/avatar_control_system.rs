@@ -2,11 +2,11 @@ use crate::engine::ecs::component::HumanoidSlot;
 use crate::engine::ecs::component::{
     AvatarControlComponent, BoneRestPoseComponent, Camera3DComponent, CameraXRComponent,
     CollisionComponent, CollisionResponseComponent, CollisionShape, CollisionShapeComponent,
-    ControllerHand, ControllerPoseSource, ControllerXRComponent, GLTFComponent, IKChainComponent,
-    IKSolver, InputXRComponent, QuatYawFollowComponent, SerializeComponent, TransformComponent,
-    TransformDropComponent, TransformForkTRSComponent, TransformMapRotationComponent,
-    TransformMapScaleComponent, TransformMapTranslationComponent, XREyeTrackingComponent,
-    XREyeTrackingHtcComponent,
+    ControllerHand, ControllerPoseSource, ControllerXRComponent, GLTFComponent,
+    HeadMotionGazePolicy, HeadRotationCompensation, IKChainComponent, IKSolver, InputXRComponent,
+    QuatYawFollowComponent, SerializeComponent, TransformComponent, TransformDropComponent,
+    TransformForkTRSComponent, TransformMapRotationComponent, TransformMapScaleComponent,
+    TransformMapTranslationComponent, XREyeTrackingComponent, XREyeTrackingHtcComponent,
 };
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
@@ -95,7 +95,7 @@ fn tick_one(
     retargeting: &mut JointBasisRetargetingSystem,
     humanoid_maps: &mut HumanoidBoneMapSystem,
     emit: &mut dyn SignalEmitter,
-    _dt_sec: f32,
+    dt_sec: f32,
     log_alignment: bool,
 ) {
     // --- Init phase ---
@@ -153,7 +153,7 @@ fn tick_one(
     }
 
     update_hand_pose_corrections(id, world, emit, log_alignment);
-    update_eye_tracking(id, world, humanoid_maps, emit);
+    update_eye_tracking(id, world, humanoid_maps, emit, dt_sec);
 }
 
 /// Apply the newest direct-child eye-tracker sample to each independently
@@ -164,6 +164,7 @@ fn update_eye_tracking(
     world: &mut World,
     humanoid_maps: &mut HumanoidBoneMapSystem,
     emit: &mut dyn SignalEmitter,
+    dt_sec: f32,
 ) {
     let report = humanoid_maps
         .request_for_avc(world, avc_id)
@@ -176,9 +177,112 @@ fn update_eye_tracking(
         )
     });
     let (left_gaze, right_gaze) = newest_direct_eye_gaze(world, avc_id);
+    let (left_gaze, right_gaze) = apply_head_motion_gaze_policy(
+        avc_id,
+        world,
+        left_target,
+        right_target,
+        left_gaze,
+        right_gaze,
+        dt_sec,
+    );
     update_one_eye_tracking(avc_id, world, emit, true, left_target, left_gaze);
     update_one_eye_tracking(avc_id, world, emit, false, right_target, right_gaze);
     update_generic_osc_blink(avc_id, world, humanoid_maps);
+}
+
+const EYE_GAZE_FREEZE_ENTER_RAD_PER_SEC: f32 = 30.0_f32.to_radians();
+const EYE_GAZE_FREEZE_EXIT_RAD_PER_SEC: f32 = 25.0_f32.to_radians();
+const EYE_GAZE_FREEZE_RELEASE_SEC: f32 = 0.10;
+
+/// Freeze the last good head-relative gaze while the mapped eye-parent basis
+/// rotates quickly. This deliberately suppresses intentional eye movement
+/// during rapid head turns; it is a visual fallback for unstable tracking, not
+/// timestamped sample alignment.
+fn apply_head_motion_gaze_policy(
+    avc_id: ComponentId,
+    world: &mut World,
+    left_target: Option<ComponentId>,
+    right_target: Option<ComponentId>,
+    left: Option<ResolvedEyeGaze>,
+    right: Option<ResolvedEyeGaze>,
+    dt_sec: f32,
+) -> (Option<ResolvedEyeGaze>, Option<ResolvedEyeGaze>) {
+    let basis = [left_target, right_target]
+        .into_iter()
+        .flatten()
+        .find_map(|eye| {
+            world.parent_of(eye).and_then(|parent| {
+                world
+                    .get_component_by_id_as::<TransformComponent>(parent)
+                    .map(|transform| mat_to_quat(transform.transform.matrix_world))
+            })
+        });
+    let Some(basis) = basis else {
+        return (left, right);
+    };
+    let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(avc_id) else {
+        return (left, right);
+    };
+    if avc.head_motion_gaze_policy != HeadMotionGazePolicy::Freeze {
+        avc.last_eye_gaze_basis_rotation = Some(basis);
+        avc.eye_gaze_frozen = false;
+        avc.eye_gaze_still_time_sec = 0.0;
+        avc.frozen_left_eye_gaze = left.map(|gaze| gaze.direction);
+        avc.frozen_right_eye_gaze = right.map(|gaze| gaze.direction);
+        return (left, right);
+    }
+
+    let angular_speed = avc.last_eye_gaze_basis_rotation.map_or(0.0, |previous| {
+        let delta = quat_mul(quat_conjugate(previous), basis);
+        // q and -q encode the same orientation. Use |w| so a harmless sign
+        // choice from matrix-to-quaternion conversion never appears as a
+        // 360° head turn.
+        let angle = 2.0 * delta[3].abs().clamp(0.0, 1.0).acos();
+        angle / dt_sec.max(1e-4)
+    });
+    avc.last_eye_gaze_basis_rotation = Some(basis);
+
+    if !avc.eye_gaze_frozen && angular_speed >= EYE_GAZE_FREEZE_ENTER_RAD_PER_SEC {
+        avc.eye_gaze_frozen = true;
+        avc.eye_gaze_still_time_sec = 0.0;
+    }
+    if !avc.eye_gaze_frozen {
+        avc.frozen_left_eye_gaze = left.map(|gaze| gaze.direction);
+        avc.frozen_right_eye_gaze = right.map(|gaze| gaze.direction);
+        return (left, right);
+    }
+
+    if angular_speed <= EYE_GAZE_FREEZE_EXIT_RAD_PER_SEC {
+        avc.eye_gaze_still_time_sec += dt_sec.max(0.0);
+        if avc.eye_gaze_still_time_sec >= EYE_GAZE_FREEZE_RELEASE_SEC {
+            avc.eye_gaze_frozen = false;
+            avc.eye_gaze_still_time_sec = 0.0;
+            avc.frozen_left_eye_gaze = left.map(|gaze| gaze.direction);
+            avc.frozen_right_eye_gaze = right.map(|gaze| gaze.direction);
+            return (left, right);
+        }
+    } else {
+        avc.eye_gaze_still_time_sec = 0.0;
+    }
+
+    (
+        freeze_gaze(left, avc.frozen_left_eye_gaze),
+        freeze_gaze(right, avc.frozen_right_eye_gaze),
+    )
+}
+
+fn freeze_gaze(
+    live: Option<ResolvedEyeGaze>,
+    frozen_direction: Option<[f32; 3]>,
+) -> Option<ResolvedEyeGaze> {
+    frozen_direction.map(|direction| ResolvedEyeGaze {
+        direction,
+        // A frozen vector is the prior raw, head-relative gaze. Do not apply
+        // the rejected absolute-basis tracker experiment to it.
+        compensation: HeadRotationCompensation::Off,
+        sequence: live.map_or(0, |gaze| gaze.sequence),
+    })
 }
 
 /// Generic OSC closure owns mapped blink targets while present. The base value
@@ -189,20 +293,41 @@ fn update_generic_osc_blink(
     world: &mut World,
     humanoid_maps: &mut HumanoidBoneMapSystem,
 ) {
-    let closure = world.children_of(avc_id).iter().copied().filter_map(|id| {
-        world.get_component_by_id_as::<XREyeTrackingComponent>(id).map(|tracker| tracker.closure_sample)
-    }).filter_map(|sample| sample.closure.map(|value| (sample.sequence, value)))
-        .max_by_key(|(sequence, _)| *sequence).map(|(_, value)| value);
-    let Some(gltf_id) = humanoid_maps.request_for_avc(world, avc_id) else { return };
+    let closure = world
+        .children_of(avc_id)
+        .iter()
+        .copied()
+        .filter_map(|id| {
+            world
+                .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                .map(|tracker| tracker.closure_sample)
+        })
+        .filter_map(|sample| sample.closure.map(|value| (sample.sequence, value)))
+        .max_by_key(|(sequence, _)| *sequence)
+        .map(|(_, value)| value);
+    let Some(gltf_id) = humanoid_maps.request_for_avc(world, avc_id) else {
+        return;
+    };
     let labels = world.children_of(gltf_id).iter().copied().find_map(|id| {
-        world.get_component_by_id_as::<crate::engine::ecs::component::MorphTargetMapComponent>(id)
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::MorphTargetMapComponent>(id)
             .map(|map| map.slots().clone())
     });
     let Some(labels) = labels else { return };
-    let Some(gltf) = world.get_component_by_id_as_mut::<crate::engine::ecs::component::GLTFComponent>(gltf_id) else { return };
+    let Some(gltf) =
+        world.get_component_by_id_as_mut::<crate::engine::ecs::component::GLTFComponent>(gltf_id)
+    else {
+        return;
+    };
     for channel in ["left_eye_blink", "right_eye_blink"] {
-        let Some(label) = labels.get(channel) else { continue };
-        for info in gltf.morph_targets.iter().filter(|info| info.label.as_deref() == Some(label.as_str())) {
+        let Some(label) = labels.get(channel) else {
+            continue;
+        };
+        for info in gltf
+            .morph_targets
+            .iter()
+            .filter(|info| info.label.as_deref() == Some(label.as_str()))
+        {
             if let Some(state) = gltf.morph_factors.get_mut(&info.key) {
                 state.driver = closure;
             }
@@ -210,34 +335,51 @@ fn update_generic_osc_blink(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ResolvedEyeGaze {
+    direction: [f32; 3],
+    compensation: HeadRotationCompensation,
+    sequence: u64,
+}
+
 fn newest_direct_eye_gaze(
     world: &mut World,
     avc_id: ComponentId,
-) -> (Option<[f32; 3]>, Option<[f32; 3]>) {
-    let mut left = None::<(u64, [f32; 3])>;
-    let mut right = None::<(u64, [f32; 3])>;
+) -> (Option<ResolvedEyeGaze>, Option<ResolvedEyeGaze>) {
+    let mut left = None::<ResolvedEyeGaze>;
+    let mut right = None::<ResolvedEyeGaze>;
     for child in world.children_of(avc_id).iter().copied() {
         let sample = world
             .get_component_by_id_as::<XREyeTrackingComponent>(child)
-            .map(|tracker| tracker.gaze_sample)
+            .map(|tracker| (tracker.gaze_sample, tracker.head_rotation_compensation))
             .or_else(|| {
                 world
                     .get_component_by_id_as::<XREyeTrackingHtcComponent>(child)
-                    .map(|tracker| tracker.gaze_sample)
+                    .map(|tracker| (tracker.gaze_sample, tracker.head_rotation_compensation))
             });
-        let Some(sample) = sample else { continue };
+        let Some((sample, compensation)) = sample else {
+            continue;
+        };
         if let Some(gaze) = sample.left.filter(valid_gaze) {
-            if left.map_or(true, |current| sample.sequence > current.0) {
-                left = Some((sample.sequence, gaze));
+            if left.is_none_or(|current| sample.sequence > current.sequence) {
+                left = Some(ResolvedEyeGaze {
+                    direction: gaze,
+                    compensation,
+                    sequence: sample.sequence,
+                });
             }
         }
         if let Some(gaze) = sample.right.filter(valid_gaze) {
-            if right.map_or(true, |current| sample.sequence > current.0) {
-                right = Some((sample.sequence, gaze));
+            if right.is_none_or(|current| sample.sequence > current.sequence) {
+                right = Some(ResolvedEyeGaze {
+                    direction: gaze,
+                    compensation,
+                    sequence: sample.sequence,
+                });
             }
         }
     }
-    (left.map(|(_, gaze)| gaze), right.map(|(_, gaze)| gaze))
+    (left, right)
 }
 
 fn valid_gaze(gaze: &[f32; 3]) -> bool {
@@ -251,7 +393,7 @@ fn update_one_eye_tracking(
     emit: &mut dyn SignalEmitter,
     left: bool,
     target: Option<ComponentId>,
-    gaze: Option<[f32; 3]>,
+    gaze: Option<ResolvedEyeGaze>,
 ) {
     let previous = world
         .get_component_by_id_as::<AvatarControlComponent>(avc_id)
@@ -270,6 +412,7 @@ fn update_one_eye_tracking(
     let active = target.zip(gaze);
     if let Some((bone, gaze)) = active {
         let (_, rest_rotation, _) = read_bone_rest_pose(world, bone);
+        let gaze = gaze_in_eye_parent_basis(world, bone, gaze);
         let correction = shortest_arc_quat([0.0, 0.0, -1.0], gaze);
         update_local_rotation(world, emit, bone, quat_mul(correction, rest_rotation));
     } else if let Some(bone) = previous {
@@ -283,6 +426,25 @@ fn update_one_eye_tracking(
             avc.right_eye_tracking_bone_id = owned;
         }
     }
+}
+
+/// Convert a world-relative tracker direction into the local coordinates in
+/// which the eye-bone rotation is written.  For head-relative transports the
+/// raw direction remains byte-for-byte unchanged.
+fn gaze_in_eye_parent_basis(world: &World, bone: ComponentId, gaze: ResolvedEyeGaze) -> [f32; 3] {
+    if gaze.compensation == HeadRotationCompensation::Off {
+        return gaze.direction;
+    }
+    let Some(parent) = world.parent_of(bone) else {
+        return gaze.direction;
+    };
+    let Some(parent_transform) = world.get_component_by_id_as::<TransformComponent>(parent) else {
+        return gaze.direction;
+    };
+    quat_rotate_vec3(
+        quat_conjugate(mat_to_quat(parent_transform.transform.matrix_world)),
+        gaze.direction,
+    )
 }
 
 fn restore_eye_rest(world: &World, emit: &mut dyn SignalEmitter, bone: ComponentId) {
@@ -1600,7 +1762,18 @@ mod hand_pose_correction_tests {
         };
         assert_eq!(
             newest_direct_eye_gaze(&mut world, avc),
-            (Some([0.0, 0.0, -1.0]), Some([0.0, 1.0, 0.0]))
+            (
+                Some(ResolvedEyeGaze {
+                    direction: [0.0, 0.0, -1.0],
+                    compensation: HeadRotationCompensation::Off,
+                    sequence: 3,
+                }),
+                Some(ResolvedEyeGaze {
+                    direction: [0.0, 1.0, 0.0],
+                    compensation: HeadRotationCompensation::Off,
+                    sequence: 2,
+                }),
+            )
         );
     }
 
@@ -1619,12 +1792,105 @@ mod hand_pose_correction_tests {
             &mut emitted,
             true,
             Some(eye),
-            Some([1.0, 0.0, 0.0]),
+            Some(ResolvedEyeGaze {
+                direction: [1.0, 0.0, 0.0],
+                compensation: HeadRotationCompensation::Off,
+                sequence: 1,
+            }),
         );
         let expected = quat_mul(shortest_arc_quat([0.0, 0.0, -1.0], [1.0, 0.0, 0.0]), rest);
         assert_eq!(emitted.0, vec![expected]);
         update_one_eye_tracking(avc, &mut world, &mut emitted, true, Some(eye), None);
         assert_eq!(emitted.0.last(), Some(&rest));
+    }
+
+    #[test]
+    fn cancel_head_rotation_converts_world_gaze_to_eye_parent_basis() {
+        let mut world = World::default();
+        let parent = world.add_component(TransformComponent::new().with_rotation_quat([
+            0.0,
+            0.707_106_77,
+            0.0,
+            0.707_106_77,
+        ]));
+        let parent_transform = world
+            .get_component_by_id_as_mut::<TransformComponent>(parent)
+            .unwrap();
+        parent_transform.transform.matrix_world = parent_transform.transform.model;
+        let eye = world.add_component(TransformComponent::new());
+        world.add_child(parent, eye).unwrap();
+
+        let local = gaze_in_eye_parent_basis(
+            &world,
+            eye,
+            ResolvedEyeGaze {
+                direction: [1.0, 0.0, 0.0],
+                compensation: HeadRotationCompensation::CancelHeadRotation,
+                sequence: 1,
+            },
+        );
+        assert!((local[0]).abs() < 1e-5);
+        assert!((local[1]).abs() < 1e-5);
+        assert!((local[2] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn freeze_head_motion_policy_holds_last_gaze_during_a_rapid_turn() {
+        let mut world = World::default();
+        let avc = world.add_component(
+            AvatarControlComponent::new()
+                .with_head_motion_gaze_policy(HeadMotionGazePolicy::Freeze),
+        );
+        let parent = world.add_component(TransformComponent::new());
+        let eye = world.add_component(TransformComponent::new());
+        world.add_child(parent, eye).unwrap();
+        let old = ResolvedEyeGaze {
+            direction: [0.25, 0.0, -1.0],
+            compensation: HeadRotationCompensation::Off,
+            sequence: 1,
+        };
+        assert_eq!(
+            apply_head_motion_gaze_policy(
+                avc,
+                &mut world,
+                Some(eye),
+                None,
+                Some(old),
+                None,
+                1.0 / 60.0,
+            )
+            .0,
+            Some(old),
+        );
+
+        let rotated = TransformComponent::new()
+            .with_rotation_quat([0.0, 0.707_106_77, 0.0, 0.707_106_77])
+            .transform
+            .model;
+        world
+            .get_component_by_id_as_mut::<TransformComponent>(parent)
+            .unwrap()
+            .transform
+            .matrix_world = rotated;
+        let incoming = ResolvedEyeGaze {
+            direction: [-0.5, 0.0, -1.0],
+            compensation: HeadRotationCompensation::Off,
+            sequence: 2,
+        };
+        let frozen = apply_head_motion_gaze_policy(
+            avc,
+            &mut world,
+            Some(eye),
+            None,
+            Some(incoming),
+            None,
+            1.0 / 60.0,
+        )
+        .0
+        .unwrap();
+        assert_eq!(frozen.direction, old.direction);
+        assert_eq!(frozen.compensation, HeadRotationCompensation::Off);
+        assert_eq!(frozen.sequence, incoming.sequence);
     }
 
     fn left_arm_report(

@@ -565,6 +565,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         "listen",
                         component_signature([mms::ValueType::String, mms::ValueType::U16]),
                     );
+                    component.builder_call("head_rotation_compensation", strings(1));
                 }
                 "GridBinding" => {
                     component.constructor("grid", any(1));
@@ -614,6 +615,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     ] {
                         constructor_and_builder(component, method, floats(1));
                     }
+                    constructor_and_builder(component, "head_motion_gaze_policy", strings(1));
                 }
                 "TransformParent" => {
                     component.constructor("target", any(1));
@@ -877,12 +879,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     for method in ["padding_xy", "margin_xy"] {
                         component.builder_call(method, any(2));
                     }
-                    for method in [
-                        "margin_top",
-                        "margin_right",
-                        "margin_bottom",
-                        "margin_left",
-                    ] {
+                    for method in ["margin_top", "margin_right", "margin_bottom", "margin_left"] {
                         component.builder_call(method, any(1));
                     }
                     for method in [

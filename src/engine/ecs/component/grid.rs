@@ -1,4 +1,4 @@
-use crate::engine::ecs::{component::Component, ComponentId};
+use crate::engine::ecs::{ComponentId, component::Component};
 
 /// Coordinate frame used only to draw a grid. Snapping is always grid-local.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

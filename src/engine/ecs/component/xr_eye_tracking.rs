@@ -1,6 +1,29 @@
 use super::Component;
 use crate::engine::ecs::ComponentId;
 
+/// Declares the coordinate convention used by an eye-tracking transport.
+///
+/// `CancelHeadRotation` treats reported directions as world-relative and
+/// converts them into the target eye bone's parent-local basis in AVC.  The
+/// transport system intentionally retains the raw direction: only AVC knows
+/// the avatar hierarchy that supplies that basis.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HeadRotationCompensation {
+    #[default]
+    Off,
+    CancelHeadRotation,
+}
+
+impl HeadRotationCompensation {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(Self::Off),
+            "cancel" => Some(Self::CancelHeadRotation),
+            _ => None,
+        }
+    }
+}
+
 /// Latest usable gaze directions received from an eye-tracking source.
 ///
 /// This is runtime state, intentionally not exposed through MMS.  `sequence`
@@ -25,6 +48,7 @@ pub struct EyeClosureSample {
 pub struct XREyeTrackingComponent {
     pub host: String,
     pub port: u16,
+    pub head_rotation_compensation: HeadRotationCompensation,
     pub(crate) gaze_sample: EyeGazeSample,
     pub(crate) closure_sample: EyeClosureSample,
 }
@@ -33,6 +57,7 @@ impl XREyeTrackingComponent {
         Self {
             host: "127.0.0.1".into(),
             port: 9000,
+            head_rotation_compensation: HeadRotationCompensation::Off,
             gaze_sample: EyeGazeSample::default(),
             closure_sample: EyeClosureSample::default(),
         }
@@ -41,9 +66,14 @@ impl XREyeTrackingComponent {
         Self {
             host: host.into(),
             port,
+            head_rotation_compensation: HeadRotationCompensation::Off,
             gaze_sample: EyeGazeSample::default(),
             closure_sample: EyeClosureSample::default(),
         }
+    }
+    pub fn with_head_rotation_compensation(mut self, value: HeadRotationCompensation) -> Self {
+        self.head_rotation_compensation = value;
+        self
     }
 }
 impl Default for XREyeTrackingComponent {
@@ -68,6 +98,7 @@ impl Component for XREyeTrackingComponent {
 pub struct XREyeTrackingHtcComponent {
     pub host: String,
     pub port: u16,
+    pub head_rotation_compensation: HeadRotationCompensation,
     pub(crate) gaze_sample: EyeGazeSample,
 }
 impl XREyeTrackingHtcComponent {
@@ -75,6 +106,7 @@ impl XREyeTrackingHtcComponent {
         Self {
             host: "127.0.0.1".into(),
             port: 9002,
+            head_rotation_compensation: HeadRotationCompensation::Off,
             gaze_sample: EyeGazeSample::default(),
         }
     }
@@ -82,8 +114,13 @@ impl XREyeTrackingHtcComponent {
         Self {
             host: host.into(),
             port,
+            head_rotation_compensation: HeadRotationCompensation::Off,
             gaze_sample: EyeGazeSample::default(),
         }
+    }
+    pub fn with_head_rotation_compensation(mut self, value: HeadRotationCompensation) -> Self {
+        self.head_rotation_compensation = value;
+        self
     }
 }
 impl Default for XREyeTrackingHtcComponent {

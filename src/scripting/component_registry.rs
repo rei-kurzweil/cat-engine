@@ -24,19 +24,19 @@ use crate::engine::ecs::component::{
     EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode, FitBoundsTarget,
     FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent, GrabbableComponent,
     GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace, HtmlElementComponent,
-    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, MorphTargetMapComponent, IKChainComponent, IKSolver,
+    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver,
     InputComponent, InputTransformModeComponent, InputXRComponent, InputXRGamepadComponent,
     InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent, KeyframeComponent,
     LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent, MeshComponent,
-    MirrorComponent, MusicNote, MusicNoteComponent, NormalVisualisationComponent, OpacityComponent,
-    OptionComponent, OscillatorType, Overflow, OverlayComponent, PointLightComponent,
-    PointerComponent, PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent,
-    PoseCapturePoseComponent, Position, QuatTemporalFilterComponent, QuatYawFollowComponent,
-    RayCastComponent, RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType,
-    RenderGraphComponent, RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
-    RestAttachmentComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
-    SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
-    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
+    MirrorComponent, MorphTargetMapComponent, MusicNote, MusicNoteComponent,
+    NormalVisualisationComponent, OpacityComponent, OptionComponent, OscillatorType, Overflow,
+    OverlayComponent, PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
+    PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
+    QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
+    RaycastableShapeType, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
+    RendererStatsComponent, RestAttachmentComponent, RouterComponent, ScrollingComponent,
+    SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
+    SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
     SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
     SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
     TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
@@ -2453,6 +2453,38 @@ fn apply_call(
     method: &str,
     args: &[Value],
 ) -> Result<(), String> {
+    if let Some(tracker) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
+        match method {
+            "head_rotation_compensation" => {
+                tracker.head_rotation_compensation =
+                    crate::engine::ecs::component::HeadRotationCompensation::parse(arg_str(
+                        args, 0,
+                    )?)
+                    .ok_or_else(|| {
+                        "XREyeTracking.head_rotation_compensation expects 'off' or 'cancel'"
+                            .to_string()
+                    })?;
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+    if let Some(tracker) = world.get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(id) {
+        match method {
+            "head_rotation_compensation" => {
+                tracker.head_rotation_compensation =
+                    crate::engine::ecs::component::HeadRotationCompensation::parse(arg_str(
+                        args, 0,
+                    )?)
+                    .ok_or_else(|| {
+                        "XREyeTrackingHTC.head_rotation_compensation expects 'off' or 'cancel'"
+                            .to_string()
+                    })?;
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
     if world
         .get_component_by_id_as::<DraggableComponent>(id)
         .is_some()
@@ -3346,6 +3378,15 @@ fn apply_call(
                     .with_eye_height_from_head_bone(arg_f32(args, 0)?)
             }
             "head_ik_eye_height" => *avc = avc.clone().with_head_ik_eye_height(arg_f32(args, 0)?),
+            "head_motion_gaze_policy" => {
+                *avc = avc.clone().with_head_motion_gaze_policy(
+                    crate::engine::ecs::component::HeadMotionGazePolicy::parse(arg_str(args, 0)?)
+                        .ok_or_else(|| {
+                        "AvatarControl.head_motion_gaze_policy expects 'live' or 'freeze'"
+                            .to_string()
+                    })?,
+                )
+            }
             "neck_pin_disabled" => *avc = avc.clone().without_neck_pin(),
             "neck_pin_enabled" => *avc = avc.clone().with_neck_pin_enabled(arg_bool(args, 0)?),
             _ => {}
@@ -3373,15 +3414,23 @@ fn apply_call(
             .unwrap() = updated;
         return Ok(());
     }
-    if world.get_component_by_id_as::<MorphTargetMapComponent>(id).is_some() {
+    if world
+        .get_component_by_id_as::<MorphTargetMapComponent>(id)
+        .is_some()
+    {
         let updated = {
-            let map = world.get_component_by_id_as::<MorphTargetMapComponent>(id).unwrap().clone();
+            let map = world
+                .get_component_by_id_as::<MorphTargetMapComponent>(id)
+                .unwrap()
+                .clone();
             match method {
                 "slot" => map.slot(arg_str(args, 0)?, arg_str(args, 1)?)?,
                 _ => return Err(format!("unknown MorphTargetMap builder '.{method}'")),
             }
         };
-        *world.get_component_by_id_as_mut::<MorphTargetMapComponent>(id).unwrap() = updated;
+        *world
+            .get_component_by_id_as_mut::<MorphTargetMapComponent>(id)
+            .unwrap() = updated;
         return Ok(());
     }
 
@@ -3782,5 +3831,65 @@ mod tests {
             .get_component_by_id_as::<KeyframeComponent>(id)
             .expect("spawned keyframe exists");
         assert!(keyframe.callback.is_some());
+    }
+
+    #[test]
+    fn eye_tracking_head_rotation_compensation_builder_is_applied() {
+        let ce = MaterializedCE {
+            component_type: "XREyeTracking".to_string(),
+            component_property_assignment_only: false,
+            ctor_method: Some("on".to_string()),
+            ctor_args: vec![],
+            calls: vec![(
+                "head_rotation_compensation".to_string(),
+                vec![Value::String("cancel".to_string())],
+            )],
+            named: vec![],
+            positionals: vec![],
+            deferred_block: None,
+            children: vec![],
+        };
+
+        let mut world = World::default();
+        let mut emit = crate::engine::ecs::RxWorld::default();
+        let id = spawn_tree(&ce, None, &mut world, &mut emit).expect("spawn eye tracker");
+
+        assert_eq!(
+            world
+                .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                .unwrap()
+                .head_rotation_compensation,
+            crate::engine::ecs::component::HeadRotationCompensation::CancelHeadRotation,
+        );
+    }
+
+    #[test]
+    fn avatar_control_head_motion_gaze_policy_builder_is_applied() {
+        let ce = MaterializedCE {
+            component_type: "AvatarControl".to_string(),
+            component_property_assignment_only: false,
+            ctor_method: None,
+            ctor_args: vec![],
+            calls: vec![(
+                "head_motion_gaze_policy".to_string(),
+                vec![Value::String("freeze".to_string())],
+            )],
+            named: vec![],
+            positionals: vec![],
+            deferred_block: None,
+            children: vec![],
+        };
+
+        let mut world = World::default();
+        let mut emit = crate::engine::ecs::RxWorld::default();
+        let id = spawn_tree(&ce, None, &mut world, &mut emit).expect("spawn avatar control");
+
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(id)
+                .unwrap()
+                .head_motion_gaze_policy,
+            crate::engine::ecs::component::HeadMotionGazePolicy::Freeze,
+        );
     }
 }

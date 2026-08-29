@@ -1,0 +1,152 @@
+// VTuber eye-tracking mirror
+//
+// A minimal XR avatar scene for validating AVC automatic eye-bone tracking.
+// `XREyeTracking` must remain a *direct child* of `AVC`: AVC consumes its
+// retained gaze state while the existing XrEyeTrackingUpdated event remains
+// available to scripts. In ALVR, configure the VRChat Eye OSC sink to send to
+// 127.0.0.1:9000 (or use XREyeTracking.listen(host, port) below).
+//
+// The mirror is in front of the XR start pose. The bisket asset's humanoid map
+// supplies the eye slots automatically; an avatar without mapped eye slots is
+// left untouched.
+
+import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
+import { tripod_light } from "../assets/components/tripod_light.mms"
+import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
+import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
+
+RendererSettings { window_size(960, 720) }
+BGC.rgba(0.05, 0.07, 0.12, 1.0)
+AL.rgb(0.18, 0.18, 0.22)
+
+RenderGraph {
+    EmissivePass { BlurPass { radius_ndc(0.06) half_res(true) } }
+    Bloom { intensity(0.8) emissive_scale(1.1) }
+}
+
+BG.occlusion_and_lighting() {
+    star_kawaii_background([1.0, 0.78, 0.35, 1.0])
+}
+
+// Three physical studio fixtures make the mirror's lighting easy to inspect.
+tripod_light("eye_tracking_key", [-4.2, 0.0, 2.8], [0.0, 1.25, -1.5], SL.color(1.0, 0.78, 0.62).intensity(6.0).distance(11.0).angle(0.62).penumbra(0.35))
+tripod_light("eye_tracking_fill", [4.0, 0.0, 1.4], [0.0, 1.25, -1.5], SL.color(0.48, 0.68, 1.0).intensity(4.5).distance(11.0).angle(0.62).penumbra(0.35))
+tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1.0, 0.42, 0.78).intensity(5.0).distance(11.0).angle(0.62).penumbra(0.35))
+
+// An explicit list keeps the editor useful without materializing the default
+// world and assets panels in this focused capture scene.
+T.position(-2.75, 2.8, -1.5) {
+    EditorUI {
+        panels([{
+            panel = "settings"
+            config = {
+                show_armature = false
+                show_bounds = false
+                show_cameras = false
+                show_colliders = false
+                show_gltf_colliders = false
+                show_spring_bones = false
+            }
+        }])
+    }
+}
+
+ED {
+    // Low presentation stage, with colored block piles marking its edges.
+    T.position(0.0, -0.85, -1.5).scale(9.8, 0.16, 8.4) {
+        R.cube() { C.rgba(0.20, 0.22, 0.27, 1.0) }
+    }
+
+    // Left pile.
+    T.position(-7.70, -0.56, -0.7).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(1.0, 0.38, 0.56, 1.0) EM.on() } }
+    T.position(-7.70, -0.22, -0.7).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(1.0, 0.72, 0.20, 1.0) EM.on() } }
+    T.position(-7.35, -0.56, -0.7).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(0.40, 0.76, 1.0, 1.0) EM.on() } }
+
+    // Right pile.
+    T.position(7.70, -0.56, -0.7).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(0.44, 0.92, 0.66, 1.0) EM.on() } }
+    T.position(7.70, -0.22, -0.7).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(0.54, 0.48, 1.0, 1.0) EM.on() } }
+    T.position(7.35, -0.56, -0.7).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(1.0, 0.48, 0.82, 1.0) EM.on() } }
+
+    // Rear pile.
+    T.position(0.0, -0.56, 5.85).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(0.25, 0.78, 1.0, 1.0) EM.on() } }
+    T.position(0.0, -0.22, 5.85).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(0.98, 0.90, 0.30, 1.0) EM.on() } }
+    T.position(-0.35, -0.56, 5.85).scale(0.34, 0.34, 0.34) { Grabbable {} R.cube() { C.rgba(1.0, 0.48, 0.42, 1.0) EM.on() } }
+
+    // Deliberate versions of the friendly fallback-scene accents: a color cat
+    // and a rainbow row of planes behind the stage.
+    T.position(0.0, -0.10, -4.0).scale(0.50, 0.50, 0.50) {
+        Grabbable {}
+        GLTF.new("assets/models/color-cat.2.glb") {}
+    }
+    T.position(-1.40, 1.95, 1.75).scale(0.28, 0.28, 1.0) { R.plane() { C.rgba(1.0, 0.20, 0.20, 1.0) EM.on() } }
+    T.position(-0.84, 1.95, 1.75).scale(0.28, 0.28, 1.0) { R.plane() { C.rgba(1.0, 0.60, 0.20, 1.0) EM.on() } }
+    T.position(-0.28, 1.95, 1.75).scale(0.28, 0.28, 1.0) { R.plane() { C.rgba(1.0, 1.0, 0.20, 1.0) EM.on() } }
+    T.position(0.28, 1.95, 1.75).scale(0.28, 0.28, 1.0) { R.plane() { C.rgba(0.20, 0.80, 0.35, 1.0) EM.on() } }
+    T.position(0.84, 1.95, 1.75).scale(0.28, 0.28, 1.0) { R.plane() { C.rgba(0.20, 0.60, 1.0, 1.0) EM.on() } }
+    T.position(1.40, 1.95, 1.75).scale(0.28, 0.28, 1.0) { R.plane() { C.rgba(0.80, 0.20, 1.0, 1.0) EM.on() } }
+
+    // Full-body mirror facing the avatar.
+    T.position(0.0, 1.25, -4.5).scale(2.4, 2.4, 0.08) {
+        R.cube() { Mirror.quality(2048) {} }
+    }
+
+    T {
+        InputXR.on() {
+            InputXRGamepad { locomotion() speed(1.5) }
+            T {
+                AVC {
+                    // OpenXR's rest-forward is -Z.
+                    initial_yaw(3.14159)
+                    left_arm_pole_direction([1, -0.35, -1])
+                    right_arm_pole_direction([-1, -0.35, -1])
+                    hand_rotation_smoothing(220.0)
+                    head_motion_gaze_policy("freeze")
+
+                    T {
+                        GLTF.new("assets/models/bisket.glb") {
+                            // Bisket's VRM-style face mesh exposes these exact
+                            // targetNames on each of its eight material
+                            // primitives. Generic OSC closure fans each
+                            // semantic channel out to every matching target.
+                            MorphTargetMap.new()
+                                .slot("left_eye_blink", "Fcl_EYE_Close_L")
+                                .slot("right_eye_blink", "Fcl_EYE_Close_R")
+                            EM.on()
+                            bisket_colliders()
+                            bisket_shirt_physics(false)
+                        }
+                    }
+
+                    // AVC reparents this camera path to the mapped head.
+                    T.position(0.0, 0.08, 0.12) {
+                        CXR { Pointer {} }
+                    }
+
+                    // Direct child: enables automatic mapped left/right eye
+                    // bone rotation. AVC freezes retained gaze during rapid
+                    // head motion. For HTC packets, replace with XREyeTrackingHTC.on().
+                    XREyeTracking.on()
+
+                    // Direct children supply the left/right hand targets used
+                    // by AVC's mapped TwoBoneIK chains.
+                    XRHand.new(true, "Left", "GripAim").laser() {
+                        T {
+                            RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+                                Pointer {}
+                            }
+                        }
+                    }
+                    XRHand.new(true, "Right", "GripAim").laser() {
+                        T {
+                            RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
+                                Pointer {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+XR.on()

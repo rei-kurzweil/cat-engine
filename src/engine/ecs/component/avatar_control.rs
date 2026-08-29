@@ -1,6 +1,24 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::component::Component;
 
+/// How AVC treats retained eye-tracker gaze while the avatar head is moving.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HeadMotionGazePolicy {
+    #[default]
+    Live,
+    Freeze,
+}
+
+impl HeadMotionGazePolicy {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "live" => Some(Self::Live),
+            "freeze" => Some(Self::Freeze),
+            _ => None,
+        }
+    }
+}
+
 /// Coordinates all pose drivers for a humanoid avatar.
 ///
 /// **Design rule**: every transform driver that moves this avatar's bones must be a
@@ -122,6 +140,10 @@ pub struct AvatarControlComponent {
     /// Default: `None`.
     pub head_ik_eye_height: Option<f32>,
 
+    /// Suppress incoming gaze changes during rapid head motion. This is an
+    /// opt-in visual mitigation for unstable eye-tracking samples.
+    pub head_motion_gaze_policy: HeadMotionGazePolicy,
+
     // Runtime IDs set by AvatarControlSystem on first tick:
     pub(crate) head_mount: Option<ComponentId>,
     pub(crate) displaced_head: Option<ComponentId>,
@@ -152,6 +174,11 @@ pub struct AvatarControlComponent {
     /// Eye bones currently owned by AVC's automatic eye-tracking driver.
     pub(crate) left_eye_tracking_bone_id: Option<ComponentId>,
     pub(crate) right_eye_tracking_bone_id: Option<ComponentId>,
+    pub(crate) last_eye_gaze_basis_rotation: Option<[f32; 4]>,
+    pub(crate) eye_gaze_frozen: bool,
+    pub(crate) eye_gaze_still_time_sec: f32,
+    pub(crate) frozen_left_eye_gaze: Option<[f32; 3]>,
+    pub(crate) frozen_right_eye_gaze: Option<[f32; 3]>,
 
     /// Debug/diagnostic flag: skip creation of the body-rotation pipeline entirely.
     /// When `true`, model_root stays directly under AVC and only head rotation is applied.
@@ -299,6 +326,11 @@ impl AvatarControlComponent {
         self.head_ik_eye_height = Some(dy);
         self
     }
+
+    pub fn with_head_motion_gaze_policy(mut self, policy: HeadMotionGazePolicy) -> Self {
+        self.head_motion_gaze_policy = policy;
+        self
+    }
 }
 
 impl Default for AvatarControlComponent {
@@ -317,6 +349,7 @@ impl Default for AvatarControlComponent {
             hand_rotation_smoothing: None,
             avatar_height: None,
             eye_height_from_head_bone: None,
+            head_motion_gaze_policy: HeadMotionGazePolicy::Live,
             head_mount: None,
             displaced_head: None,
             left_hand_bone_id: None,
@@ -333,6 +366,11 @@ impl Default for AvatarControlComponent {
             humanoid_map_generation: 0,
             left_eye_tracking_bone_id: None,
             right_eye_tracking_bone_id: None,
+            last_eye_gaze_basis_rotation: None,
+            eye_gaze_frozen: false,
+            eye_gaze_still_time_sec: 0.0,
+            frozen_left_eye_gaze: None,
+            frozen_right_eye_gaze: None,
             skip_body_pipeline: false,
             ik_debug: false,
             head_ik_eye_height: None,
@@ -386,6 +424,9 @@ impl Component for AvatarControlComponent {
             .with_call("body_yaw_rate", vec![num(self.body_yaw_rate as f64)]);
         if !self.collision_enabled {
             c = c.with_call("collision_disabled", vec![]);
+        }
+        if self.head_motion_gaze_policy == HeadMotionGazePolicy::Freeze {
+            c = c.with_call("head_motion_gaze_policy", vec![s("freeze")]);
         }
         if (self.capsule_radius - 0.28).abs() > f32::EPSILON {
             c = c.with_call("capsule_radius", vec![num(self.capsule_radius as f64)]);
