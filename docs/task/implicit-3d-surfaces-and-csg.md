@@ -44,46 +44,54 @@ small benchmark in this document before committing to public MMS syntax.
 
 ## Proposed conceptual model
 
-`ImplicitSurface3D` is both an operation and a nesting component, analogous
+`ImplicitSurface` is both an operation and a nesting component, analogous
 to `CombineMesh`: primitives nested inside it describe sources, and the
 component owns one baked output mesh.  Unlike `CombineMesh`, its nested
 primitives describe scalar fields rather than direct visible renderables.
 
-`ImplicitSphere3D` is a child-only field primitive that contributes a sphere
-to the nearest owning `ImplicitSurface3D` ancestor.  A standalone implicit
+`ImplicitSphere` is a child-only field primitive that contributes a sphere
+to the nearest owning `ImplicitSurface` ancestor.  A standalone implicit
 sphere is invalid and should produce an actionable authoring error.
+
+The unqualified names are deliberate: this first operation generates a 3D
+triangle mesh, so a `3D` suffix adds no useful distinction.  A future 2D field
+feature would need a separately designed output contract (contours, filled
+planar mesh, or extrusion) rather than overloading this component.
 
 Illustrative syntax only:
 
 ```mms
-ImplicitSurface3D {
-    resolution(48)
+ImplicitSurface {
+    voxel_size(0.25)
     bounds([-12.0, -2.0, -12.0], [12.0, 8.0, 12.0])
     iso_level(0.0)
-    smoothness(0.8)
+    smooth_min_radius(0.8)
 
-    ImplicitSphere3D.center(-4.0, 0.0, 0.0).radius(5.5) {}
-    ImplicitSphere3D.center( 1.0, 0.4, 2.0).radius(6.0) {}
-    ImplicitSphere3D.center( 6.0, 0.0,-2.0).radius(4.0) {}
+    ImplicitSphere.center(-4.0, 0.0, 0.0).radius(5.5) {}
+    ImplicitSphere.center( 1.0, 0.4, 2.0).radius(6.0) {}
+    ImplicitSphere.center( 6.0, 0.0,-2.0).radius(4.0) {}
 }
 ```
 
 Names are deliberately provisional.  The public API must describe the field,
-its sampling bounds, resolution, isovalue, and smoothing semantics—not expose
-only an opaque pre-baked mesh.
+its sampling bounds, world-space voxel size, isovalue, and smoothing
+semantics—not expose only an opaque pre-baked mesh.  The implementation may
+enforce a maximum grid dimension and reject an overly fine voxel size for the
+chosen bounds.
 
 ## MVP scope
 
-1. `ImplicitSurface3D` component:
+1. `ImplicitSurface` component:
    - owns bounded field evaluation and the generated renderable/mesh;
    - supports explicit axis-aligned local bounds;
-   - supports a bounded resolution/voxel-size control with safe limits;
-   - supports an explicit isolevel and blend/smoothing parameter;
+   - takes a world-space `voxel_size`, while enforcing safe per-axis and total
+     sampling limits internally;
+   - supports an explicit isolevel and world-space smooth-min radius;
    - invalidates and rebakes when its field children or relevant properties
      change; and
    - has clear ownership, visibility, and editor-selection behavior comparable
      to `CombineMesh`.
-2. `ImplicitSphere3D` component:
+2. `ImplicitSphere` component:
    - has local center/transform and radius;
    - contributes to the nearest implicit-surface ancestor; and
    - supports overlapping spheres with documented smoothing behavior.
@@ -128,18 +136,23 @@ only an opaque pre-baked mesh.
 
 ### Field semantics
 
-- Define the signed-distance/sign convention and isosurface condition.
-- Define smooth union mathematically and state what `smoothness` means in
-  world units.
-- State whether child transforms are fully supported in the MVP.  Spheres can
-  initially use translation plus uniform scale/radius; nonuniform scaling must
-  either become an intentional ellipsoid feature or be rejected.
+- Define the sphere field as the actual signed distance function
+  `length(p - center) - radius`: negative is inside, zero is the surface, and
+  positive is outside.  With that convention, `iso_level(0.0)` is the normal
+  and unsurprising default.
+- Combine spheres using a documented smooth-min function.  Its
+  `smooth_min_radius` parameter is measured in world units and controls the
+  width of the blend region; a radius of zero (or an explicit hard-union mode)
+  gives ordinary SDF union.
+- In the MVP, `ImplicitSphere` supports translation plus a radius or uniform
+  scale only.  Reject non-uniform scaling with an authoring error; ellipsoids
+  are a later, intentional primitive rather than an approximate sphere SDF.
 - Validate finite numeric inputs, positive radii, nonempty bounds, and bounded
   resolution before allocating a sampling volume.
 
 ### CSG seam
 
-CSG operates only after `ImplicitSurface3D` produces a normal triangle mesh.
+CSG operates only after `ImplicitSurface` produces a normal triangle mesh.
 The initial useful operation is mesh **difference**:
 
 ```text
