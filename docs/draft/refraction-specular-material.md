@@ -1,13 +1,13 @@
-# Draft: liquid surface material
+# Draft: `RefractionSpecularMaterial`
 
 Status: draft / design exploration
 
 ## Purpose
 
-Provide a visually richer water or liquid surface for planar scenes, beginning with the ocean in
-`planar-auto-transparency-optimization.mms`. The initial goal is a bright, legible stylized liquid
-surface with optical refraction and specular highlights that makes the benchmark scene easier to
-read; it is not a fluid simulation.
+Define `RefractionSpecularMaterial`: a reusable transparent material that refracts an opaque-scene
+snapshot and adds view/light-dependent specular highlights. Its first presentation use case is a
+visually richer water surface in `planar-auto-transparency-optimization.mms`, but the material is
+not water-specific.
 
 The current ocean is a large translucent `R.plane()` using the ordinary toon material and a fixed
 purple-blue RGBA color. It is useful as a placement reference, but it cannot refract scene content
@@ -38,14 +38,15 @@ The exact MMS component/API is deferred, but the intended surface is conceptuall
 
 ```text
 R.plane() {
-  M.liquid({
-    shallow_color: [0.30, 0.78, 0.90, 0.58],
-    deep_color:    [0.08, 0.24, 0.56, 0.72],
-    wave_scale: 1.0,
-    wave_speed: 0.35,
-    wave_strength: 0.18,
+  M.refraction_specular({
+    transmission_tint: [0.18, 0.66, 0.86],
+    opacity: 0.62,
+    distortion_scale: 1.0,
+    distortion_speed: 0.35,
+    distortion_strength: 0.18,
     fresnel_strength: 0.32,
-    highlight_color: [0.92, 0.98, 1.0],
+    specular_color: [0.92, 0.98, 1.0],
+    specular_strength: 0.48,
   })
 }
 ```
@@ -55,23 +56,24 @@ engine. This is intentionally not a commitment to an MMS spelling.
 
 ## First rendering model
 
-The first liquid material is a dedicated transparent shader/pipeline variant. It samples a
+The first `RefractionSpecularMaterial` implementation is a dedicated transparent shader/pipeline
+variant. It samples a
 single-sample snapshot of the opaque scene color, adds a specular highlight, and composites into
 the foreground before ordinary transparent content is drawn.
 
-The liquid vertex shader should retain the existing mesh attributes and instance layout. It should
+Its vertex shader should retain the existing mesh attributes and instance layout. It should
 produce the ordinary world position and transformed normal, plus stable world-unit surface
 coordinates derived from the transformed local plane axes and projected `v_screen_uv` coordinates
 for sampling the captured opaque scene. It does **not** displace vertices in v1: the ordinary plane
 is too low-density for convincing geometric waves, so animated wave detail remains fragment-stage
 normal/distortion only.
 
-For each fragment, the liquid shader should:
+For each fragment, the material shader should:
 
 1. derive two scrolling procedural wave signals from surface coordinates and shared frame time;
 2. combine them into a small perturbed normal and refraction offset;
 3. sample the opaque-scene snapshot at the clamped, distorted `v_screen_uv`;
-4. tint that refracted color with the selected liquid shallow/deep color;
+4. tint that refracted color with the selected transmission color;
 5. add a restrained Fresnel/specular term from the perturbed normal, camera direction, and scene
    lights; and
 6. composite the result using the engine's documented transparent-alpha convention.
@@ -88,7 +90,7 @@ graph therefore needs this ordering:
 ```text
 opaque + cutout
   -> resolve/copy opaque scene color to a sampleable refraction source
-  -> liquid refraction/specular pass
+  -> refraction/specular material pass
   -> existing transparent single-layer and multilayer phases
   -> overlay / post-processing final work
 ```
@@ -100,7 +102,8 @@ off.
 
 ### Relationship to the mirror architecture
 
-Liquid should reuse the *architectural pattern* of the renderer's mirror support: the renderer
+`RefractionSpecularMaterial` should reuse the *architectural pattern* of the renderer's mirror
+support: the renderer
 creates an auxiliary image and binds it to a dedicated material pass. The image source differs:
 
 ```text
@@ -109,19 +112,20 @@ liquid: current-camera opaque-scene snapshot -> liquid material samples it with 
 ```
 
 A mirror capture requires rendering the scene again from a reflected camera and may be unique to a
-mirror. Liquid should instead share one opaque-scene snapshot per window frame or XR eye across all
-liquid instances. The existing mirror path is therefore the reference for dynamic texture binding,
+mirror. `RefractionSpecularMaterial` should instead share one opaque-scene snapshot per window
+frame or XR eye across all of its instances. The existing mirror path is therefore the reference for dynamic texture binding,
 per-view target ownership, and special-material pipeline routing; it is not the source of the
 liquid image or its pass ordering.
 
 ## Transparency and ordering contract
 
-Liquid is ordinary transparent content, not layout-owned planar transparency metadata.
+`RefractionSpecularMaterial` is ordinary transparent content, not layout-owned planar
+transparency metadata.
 
 - The initial blended material uses depth testing with depth writes off.
-- Liquid receives its own pass before the existing transparent single-layer stream because it needs
-  the opaque-scene refraction source. It does not silently join the batched generic transparent
-  material path.
+- It receives its own pass before the existing transparent single-layer stream because it needs the
+  opaque-scene refraction source. It does not silently join the batched generic transparent material
+  path.
 - An author who needs correct blending with other transparent surfaces must select the existing
   multilayer transparent policy; refraction of those surfaces is not supported in v1.
 - The material must not claim that a water plane is globally isolated merely because it is planar.
@@ -135,7 +139,7 @@ Today, built-in material handles and shader paths are static, and `MaterialUBO` 
 color, quantization, and emissive fields. A liquid implementation therefore needs:
 
 - one `MaterialHandle` and shader registration;
-- a liquid material parameter block and a shared per-frame `time_seconds` source;
+- a `RefractionSpecularMaterial` parameter block and a shared per-frame `time_seconds` source;
 - a sampleable, resolved opaque-scene-color snapshot for each window/XR eye and the descriptor
   layout needed to bind it during the liquid pass;
 - a dedicated liquid pass inserted after opaque/cutout and before generic transparent rendering;
@@ -160,9 +164,9 @@ path exists.
 
 1. Brighten the benchmark environment and tune the current flat ocean color; no new material.
 2. Add an opaque-scene snapshot and a dedicated pass with a pass-through liquid test shader.
-3. Add the liquid material parameter/time plumbing and refraction/specular shader.
+3. Add `RefractionSpecularMaterial` parameter/time plumbing and its refraction/specular shader.
 4. Verify desktop and XR eye-local snapshots, depth testing, and transparent-pass ordering.
-5. Expose the authoring API and provide a small standalone liquid example.
+5. Expose the authoring API and provide a small standalone water example.
 6. Consider depth tint, normal maps, reflection captures, and geometric waves only after measuring
    the first path's cost and compositing behavior.
 
