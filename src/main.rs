@@ -296,35 +296,37 @@ fn main() {
     // Scene files are MMS source — evaluated through the standard runner.
     if let engine::cli::CliCommand::Load { ref filename } = cli.command {
         println!("[CLI] Loading scene from '{}' (MMS)...", filename);
-        let out = mittens_engine::scripting::runner::MeowMeowRunner::eval_with_runtime_spec_at_path(
-            &std::fs::read_to_string(filename).unwrap_or_default(),
-            Some(filename),
+        let source = std::fs::read_to_string(filename).unwrap_or_default();
+        match mittens_engine::scripting::runner::RuntimeSpecSession::start_at_path(
+            &source,
+            filename,
             &mut universe.world,
             &mut universe.systems.rx,
             Some(&mut universe.render_assets),
             &mut universe.command_queue,
-        );
-        if !out.errors.is_empty() {
-            for e in &out.errors {
-                eprintln!("[CLI] {e}");
-            }
-            eprintln!("[CLI] Scene load failed; no fallback scene will be shown.");
-            return;
-        } else {
-            println!("[CLI] Scene loaded ({} intents queued).", out.intents.len());
-            for intent in out.intents {
-                engine::ecs::SignalEmitter::push_intent_now(
+        ) {
+            Ok((session, out)) => {
+                universe.set_runtime_spec_session(session);
+                println!("[CLI] Scene loaded ({} intents queued).", out.intents.len());
+                for intent in out.intents {
+                    engine::ecs::SignalEmitter::push_intent_now(
+                        &mut universe.command_queue,
+                        engine::ecs::ComponentId::default(),
+                        intent,
+                    );
+                }
+                universe.systems.process_commands(
+                    &mut universe.world,
+                    &mut universe.visuals,
+                    &mut universe.render_assets,
                     &mut universe.command_queue,
-                    engine::ecs::ComponentId::default(),
-                    intent,
                 );
             }
-            universe.systems.process_commands(
-                &mut universe.world,
-                &mut universe.visuals,
-                &mut universe.render_assets,
-                &mut universe.command_queue,
-            );
+            Err(error) => {
+                eprintln!("[CLI] {error}");
+                eprintln!("[CLI] Scene load failed; no fallback scene will be shown.");
+                return;
+            }
         }
     } else {
         // Build demo scene if not loading

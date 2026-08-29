@@ -611,11 +611,18 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 _ => return Err(EvalError::Runtime("table field must be an identifier".into())),
             };
             return match lhs {
+                Value::Identifier(name) if name == "Math" => match key.as_str() {
+                    "pi" => Ok(Value::Number(std::f64::consts::PI)),
+                    "e" => Ok(Value::Number(std::f64::consts::E)),
+                    _ => Err(EvalError::Runtime(format!("unknown Math constant '{key}'"))),
+                },
                 Value::Map(values) => Ok(values.get(key).cloned().unwrap_or(Value::Null)),
                 Value::Object(id) => id
                     .with_map(|values| values.get(key).cloned().unwrap_or(Value::Null))
                     .ok_or_else(|| EvalError::Runtime("stale table reference".into())),
-                _ => Err(EvalError::Runtime("field access requires a table".into())),
+                other => Err(EvalError::Runtime(format!(
+                    "field access requires a table; receiver was {other:?}"
+                ))),
             };
         }
         let lhs = self.eval_expr(lhs)?;

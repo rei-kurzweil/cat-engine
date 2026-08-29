@@ -19,6 +19,7 @@ pub struct Universe {
     repl: Option<crate::engine::repl::Repl>,
     repl_backend: Option<crate::engine::repl::ReplBackend>,
     meow_meow_repl: Option<crate::scripting::repl::MeowMeowRepl>,
+    runtime_spec_session: Option<crate::scripting::runner::RuntimeSpecSession>,
 
     renderer: graphics::VulkanoRenderer,
 }
@@ -37,6 +38,7 @@ impl Universe {
             repl: None,
             repl_backend: None,
             meow_meow_repl: None,
+            runtime_spec_session: None,
         }
     }
 
@@ -84,6 +86,15 @@ impl Universe {
             }
             Err(error) => eprintln!("[mms] {error}"),
         }
+    }
+
+    /// Retain one file-backed MMS session so its `on(...)` callbacks can be
+    /// serviced on later engine frames. Replacing a session closes the old one.
+    pub fn set_runtime_spec_session(
+        &mut self,
+        session: crate::scripting::runner::RuntimeSpecSession,
+    ) {
+        self.runtime_spec_session = Some(session);
     }
 
     /// Explicitly retry OpenXR initialization after launching without a runtime.
@@ -344,6 +355,27 @@ impl Universe {
         }
     }
 
+    fn service_runtime_spec_callbacks(&mut self) {
+        let Some(mut session) = self.runtime_spec_session.take() else {
+            return;
+        };
+        let output = session.service_callbacks(
+            &mut self.world,
+            &mut self.systems.rx,
+            Some(&mut self.render_assets),
+            &mut self.command_queue,
+        );
+        self.runtime_spec_session = Some(session);
+
+        for error in output.errors {
+            eprintln!("[mms] callback error: {error}");
+        }
+        for intent in output.intents {
+            self.command_queue
+                .push_intent_now(ecs::ComponentId::default(), intent);
+        }
+    }
+
     /// Initialize the renderer for a window.
     /// This must be called before rendering.
     pub fn init_renderer_for_window(
@@ -427,6 +459,10 @@ impl Universe {
             &mut self.command_queue,
             dt_sec,
         );
+
+        // Systems dispatch Rx events during tick. Run queued MMS callbacks
+        // before the command drain so their intents take effect this frame.
+        self.service_runtime_spec_callbacks();
 
         // Process commands after tick so any commands queued during tick are processed in the same frame
         let vr_commands_started = self.systems.vr_perf_enabled().then(Instant::now);

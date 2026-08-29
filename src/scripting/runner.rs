@@ -1264,6 +1264,22 @@ mod runtime_spec_session_tests {
     use crate::engine::ecs::{CommandQueue, EventSignal, Signal};
 
     #[test]
+    fn runtime_spec_session_supports_math_constants_as_properties() {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut commands = CommandQueue::new();
+        let source = r#"
+            Transform.rotation(0.0, Math.pi, 0.0) { name = "pi-rotation" }
+        "#;
+
+        let (_session, _intents) =
+            RuntimeSpecSession::start(source, &mut world, &mut rx, None, &mut commands).unwrap();
+        assert!(world
+            .all_components()
+            .any(|id| world.component_label(id) == Some("pi-rotation")));
+    }
+
+    #[test]
     fn queued_click_callbacks_toggle_emissive_and_retain_table_state() {
         let mut world = World::default();
         let mut rx = RxWorld::default();
