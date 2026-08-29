@@ -7,17 +7,19 @@ a replacement for tracked-hand IK or the existing body-yaw follow policy.
 
 ## Observed need
 
-With hand tracking, a user can move an arm far enough around the torso that
-the resolved upper-arm pose is anatomically implausible unless the torso also
-turns.  The current body-yaw follow responds only to head yaw, so it cannot
-assist in this case.
+With ordinary, valid hand tracking, a user can move one hand across the body.
+Its solved upper arm can then rotate inward far enough that the elbow-side end
+of the upper arm visibly overlaps the torso.  How conspicuous this is depends
+on the current torso orientation; it does not require tracker loss.  The
+current body-yaw follow responds only to head yaw, so it cannot assist in this
+case.
 
 ## Outcome
 
 After hand tracking and arm IK resolve, AVC may turn the torso a limited amount
-when the resolved upper-arm pose indicates that doing so would restore a valid
-shoulder/torso relationship.  The turn must remain compatible with the
-head-facing constraint and compose with ordinary body-yaw follow.
+when the resolved upper arm's elbow-side joint enters a torso IK collider.
+The turn must restore clearance while remaining compatible with the head-facing
+constraint and composing with ordinary body-yaw follow.
 
 ## Ordering and ownership
 
@@ -34,10 +36,14 @@ actually reaches.
 
 ## Constraint contract
 
-- Use both resolved upper-arm orientations/shoulder directions, not just hand
-  positions, as the input signal.
-- Apply only the minimum torso yaw that brings an offending arm back toward its
-  configured valid region.
+- Use a dedicated torso IK collider at the upper-arm end joint where the lower
+  arm begins.  This is an IK constraint/collision primitive, not a spring-bone
+  collider and not a tracker-loss fallback.
+- Detect penetration from the *resolved* upper-arm end joint after arm IK, not
+  merely from the controller target or hand position.
+- Apply only the minimum torso yaw that restores collider clearance.  An
+  upper-arm angular region may be retained as a simpler approximation or an
+  additional guard, but collider penetration is the primary activation signal.
 - Never turn the torso if that would put the head-facing direction outside a
   configured compatible range.
 - Resolve simultaneous left/right requests together; opposing requests must
@@ -60,15 +66,16 @@ is active.
 ## Non-goals
 
 - full-body IK, foot placement, or locomotion steering;
-- rotating the torso merely because a hand is far away;
+- rotating the torso merely because a hand is far away or tracking is absent;
 - replacing authored upper-body animation; or
 - changing the current eye-tracking freeze experiment.  The latter remains
   available for separate headset investigation.
 
 ## Acceptance scenarios
 
-1. Moving one tracked hand behind the torso causes a smooth, bounded torso
-   assist only after the arm pose crosses its configured threshold.
+1. Moving one normally tracked hand across the torso causes a smooth, bounded
+   torso assist only when the resolved upper arm's elbow-side joint penetrates
+   the torso IK collider.
 2. Returning the hand to a normal range smoothly releases the assist without a
    snap or residual torso drift.
 3. Opposing left/right arm requests remain stable and do not oscillate.
@@ -76,7 +83,7 @@ is active.
    or bounds the assist according to the head-facing limit.
 5. Existing head-driven body yaw still works when neither arm requires assist.
 6. Tracker loss, missing humanoid arm mappings, and IK failure leave the
-   current torso behavior unchanged.
+   current torso behavior unchanged; they do not activate this constraint.
 
 ## Related code
 
