@@ -100,7 +100,7 @@ ED {
                     left_arm_pole_direction([1, -0.35, -1])
                     right_arm_pole_direction([-1, -0.35, -1])
                     hand_rotation_smoothing(220.0)
-                    head_motion_gaze_policy("freeze")
+                    // head_motion_gaze_policy("freeze")
 
                     T {
                         GLTF.new("assets/models/bisket.glb") {
