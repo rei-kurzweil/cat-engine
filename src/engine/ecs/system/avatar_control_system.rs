@@ -6,7 +6,8 @@ use crate::engine::ecs::component::{
     HeadMotionGazePolicy, HeadRotationCompensation, IKChainComponent, IKSolver, InputXRComponent,
     QuatYawFollowComponent, SerializeComponent, TransformComponent, TransformDropComponent,
     TransformForkTRSComponent, TransformMapRotationComponent, TransformMapScaleComponent,
-    TransformMapTranslationComponent, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+    EyeRotationLimits, TransformMapTranslationComponent, XREyeTrackingComponent,
+    XREyeTrackingHtcComponent,
 };
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
@@ -177,6 +178,10 @@ fn update_eye_tracking(
         )
     });
     let (left_gaze, right_gaze) = newest_direct_eye_gaze(world, avc_id);
+    let (left_gaze, right_gaze) = (
+        left_gaze.map(clamp_eye_gaze_rotation),
+        right_gaze.map(clamp_eye_gaze_rotation),
+    );
     let (left_gaze, right_gaze) = apply_head_motion_gaze_policy(
         avc_id,
         world,
@@ -278,9 +283,10 @@ fn freeze_gaze(
 ) -> Option<ResolvedEyeGaze> {
     frozen_direction.map(|direction| ResolvedEyeGaze {
         direction,
-        // A frozen vector is the prior raw, head-relative gaze. Do not apply
-        // the rejected absolute-basis tracker experiment to it.
+        // A frozen vector is the already-limited, head-relative gaze from the
+        // prior frame. Do not apply absolute-basis compensation to it.
         compensation: HeadRotationCompensation::Off,
+        rotation_limits: live.and_then(|gaze| gaze.rotation_limits),
         sequence: live.map_or(0, |gaze| gaze.sequence),
     })
 }
@@ -339,7 +345,33 @@ fn update_generic_osc_blink(
 struct ResolvedEyeGaze {
     direction: [f32; 3],
     compensation: HeadRotationCompensation,
+    rotation_limits: Option<EyeRotationLimits>,
     sequence: u64,
+}
+
+/// Clamp raw head-local gaze with independent yaw and pitch caps. Transport
+/// samples intentionally remain unchanged; this is an AVC rig-pose policy.
+fn clamp_eye_gaze_rotation(mut gaze: ResolvedEyeGaze) -> ResolvedEyeGaze {
+    let Some(limits) = gaze.rotation_limits else {
+        return gaze;
+    };
+    let [x, y, z] = gaze.direction;
+    let horizontal = (x * x + z * z).sqrt();
+    let yaw = x.atan2(-z);
+    let pitch = y.atan2(horizontal);
+    let yaw = if yaw < 0.0 {
+        yaw.max(-limits.left)
+    } else {
+        yaw.min(limits.right)
+    };
+    let pitch = if pitch < 0.0 {
+        pitch.max(-limits.down)
+    } else {
+        pitch.min(limits.up)
+    };
+    let cos_pitch = pitch.cos();
+    gaze.direction = [yaw.sin() * cos_pitch, pitch.sin(), -yaw.cos() * cos_pitch];
+    gaze
 }
 
 fn newest_direct_eye_gaze(
@@ -351,13 +383,27 @@ fn newest_direct_eye_gaze(
     for child in world.children_of(avc_id).iter().copied() {
         let sample = world
             .get_component_by_id_as::<XREyeTrackingComponent>(child)
-            .map(|tracker| (tracker.gaze_sample, tracker.head_rotation_compensation))
+            .map(|tracker| {
+                (
+                    tracker.gaze_sample,
+                    tracker.head_rotation_compensation,
+                    tracker.rotation_limits,
+                    tracker.rotation_limits_per_eye,
+                )
+            })
             .or_else(|| {
                 world
                     .get_component_by_id_as::<XREyeTrackingHtcComponent>(child)
-                    .map(|tracker| (tracker.gaze_sample, tracker.head_rotation_compensation))
+                    .map(|tracker| {
+                        (
+                            tracker.gaze_sample,
+                            tracker.head_rotation_compensation,
+                            tracker.rotation_limits,
+                            tracker.rotation_limits_per_eye,
+                        )
+                    })
             });
-        let Some((sample, compensation)) = sample else {
+        let Some((sample, compensation, shared_limits, per_eye_limits)) = sample else {
             continue;
         };
         if let Some(gaze) = sample.left.filter(valid_gaze) {
@@ -365,6 +411,10 @@ fn newest_direct_eye_gaze(
                 left = Some(ResolvedEyeGaze {
                     direction: gaze,
                     compensation,
+                    rotation_limits: crate::engine::ecs::component::combined_eye_rotation_limits(
+                        shared_limits,
+                        per_eye_limits[0],
+                    ),
                     sequence: sample.sequence,
                 });
             }
@@ -374,6 +424,10 @@ fn newest_direct_eye_gaze(
                 right = Some(ResolvedEyeGaze {
                     direction: gaze,
                     compensation,
+                    rotation_limits: crate::engine::ecs::component::combined_eye_rotation_limits(
+                        shared_limits,
+                        per_eye_limits[1],
+                    ),
                     sequence: sample.sequence,
                 });
             }
@@ -1701,7 +1755,8 @@ mod hand_pose_correction_tests {
     use super::*;
     use crate::engine::ecs::component::xr_eye_tracking::EyeGazeSample;
     use crate::engine::ecs::component::{
-        ComponentRef, RestAttachmentComponent, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+        ComponentRef, EyeRotationLimits, RestAttachmentComponent, XREyeTrackingComponent,
+        XREyeTrackingHtcComponent,
     };
     use crate::engine::ecs::system::{
         HumanoidSlotProvenance, HumanoidSlotReport, HumanoidSlotStatus, ResolvedHumanoidTarget,
@@ -1766,15 +1821,65 @@ mod hand_pose_correction_tests {
                 Some(ResolvedEyeGaze {
                     direction: [0.0, 0.0, -1.0],
                     compensation: HeadRotationCompensation::Off,
+                    rotation_limits: None,
                     sequence: 3,
                 }),
                 Some(ResolvedEyeGaze {
                     direction: [0.0, 1.0, 0.0],
                     compensation: HeadRotationCompensation::Off,
+                    rotation_limits: None,
                     sequence: 2,
                 }),
             )
         );
+    }
+
+    #[test]
+    fn shared_rotation_limits_clamp_yaw_and_pitch() {
+        let limits = EyeRotationLimits::from_array([0.2, 0.3, 0.4, 0.5]);
+        let gaze = clamp_eye_gaze_rotation(ResolvedEyeGaze {
+            direction: [0.8, 0.8, -1.0],
+            compensation: HeadRotationCompensation::Off,
+            rotation_limits: Some(limits),
+            sequence: 1,
+        });
+        assert!((gaze.direction[0].atan2(-gaze.direction[2]) - 0.3).abs() < 1e-5);
+        assert!((gaze.direction[1].atan2((gaze.direction[0].powi(2) + gaze.direction[2].powi(2)).sqrt()) - 0.4).abs() < 1e-5);
+    }
+
+    #[test]
+    fn per_eye_rotation_limits_are_independent() {
+        let mut world = World::default();
+        let avc = world.add_component(AvatarControlComponent::new());
+        let tracker = world.add_component(
+            XREyeTrackingComponent::on().with_rotation_limits_per_eye(
+                [0.1, 0.2, 0.3, 0.4],
+                [0.5, 0.6, 0.7, 0.8],
+            ),
+        );
+        world.add_child(avc, tracker).unwrap();
+        world.get_component_by_id_as_mut::<XREyeTrackingComponent>(tracker).unwrap().gaze_sample = EyeGazeSample {
+            left: Some([1.0, 0.0, -1.0]), right: Some([1.0, 0.0, -1.0]), sequence: 1,
+        };
+        let (left, right) = newest_direct_eye_gaze(&mut world, avc);
+        let left = clamp_eye_gaze_rotation(left.unwrap());
+        let right = clamp_eye_gaze_rotation(right.unwrap());
+        assert!((left.direction[0].atan2(-left.direction[2]) - 0.2).abs() < 1e-5);
+        assert!((right.direction[0].atan2(-right.direction[2]) - 0.6).abs() < 1e-5);
+    }
+
+    #[test]
+    fn shared_and_per_eye_rotation_limits_use_tighter_cap() {
+        let gaze = clamp_eye_gaze_rotation(ResolvedEyeGaze {
+            direction: [1.0, 0.0, -1.0],
+            compensation: HeadRotationCompensation::Off,
+            rotation_limits: crate::engine::ecs::component::combined_eye_rotation_limits(
+                Some(EyeRotationLimits::from_array([0.5, 0.5, 0.5, 0.5])),
+                Some(EyeRotationLimits::from_array([0.3, 0.2, 0.3, 0.3])),
+            ),
+            sequence: 1,
+        });
+        assert!((gaze.direction[0].atan2(-gaze.direction[2]) - 0.2).abs() < 1e-5);
     }
 
     #[test]
@@ -1795,6 +1900,7 @@ mod hand_pose_correction_tests {
             Some(ResolvedEyeGaze {
                 direction: [1.0, 0.0, 0.0],
                 compensation: HeadRotationCompensation::Off,
+                rotation_limits: None,
                 sequence: 1,
             }),
         );
@@ -1826,6 +1932,7 @@ mod hand_pose_correction_tests {
             ResolvedEyeGaze {
                 direction: [1.0, 0.0, 0.0],
                 compensation: HeadRotationCompensation::CancelHeadRotation,
+                rotation_limits: None,
                 sequence: 1,
             },
         );
@@ -1847,6 +1954,7 @@ mod hand_pose_correction_tests {
         let old = ResolvedEyeGaze {
             direction: [0.25, 0.0, -1.0],
             compensation: HeadRotationCompensation::Off,
+            rotation_limits: None,
             sequence: 1,
         };
         assert_eq!(
@@ -1875,6 +1983,7 @@ mod hand_pose_correction_tests {
         let incoming = ResolvedEyeGaze {
             direction: [-0.5, 0.0, -1.0],
             compensation: HeadRotationCompensation::Off,
+            rotation_limits: None,
             sequence: 2,
         };
         let frozen = apply_head_motion_gaze_policy(
@@ -1891,6 +2000,37 @@ mod hand_pose_correction_tests {
         assert_eq!(frozen.direction, old.direction);
         assert_eq!(frozen.compensation, HeadRotationCompensation::Off);
         assert_eq!(frozen.sequence, incoming.sequence);
+    }
+
+    #[test]
+    fn freeze_policy_holds_the_already_limited_gaze() {
+        let mut world = World::default();
+        let avc = world.add_component(
+            AvatarControlComponent::new().with_head_motion_gaze_policy(HeadMotionGazePolicy::Freeze),
+        );
+        let parent = world.add_component(TransformComponent::new());
+        let eye = world.add_component(TransformComponent::new());
+        world.add_child(parent, eye).unwrap();
+        let limits = Some(EyeRotationLimits::from_array([0.2; 4]));
+        let limited = clamp_eye_gaze_rotation(ResolvedEyeGaze {
+            direction: [1.0, 0.0, -1.0], compensation: HeadRotationCompensation::Off,
+            rotation_limits: limits, sequence: 1,
+        });
+        apply_head_motion_gaze_policy(avc, &mut world, Some(eye), None, Some(limited), None, 1.0 / 60.0);
+        let rotated = TransformComponent::new()
+            .with_rotation_quat([0.0, 0.707_106_77, 0.0, 0.707_106_77])
+            .transform
+            .model;
+        world.get_component_by_id_as_mut::<TransformComponent>(parent).unwrap().transform.matrix_world = rotated;
+        let incoming = clamp_eye_gaze_rotation(ResolvedEyeGaze {
+            direction: [-1.0, 0.0, -1.0], compensation: HeadRotationCompensation::Off,
+            rotation_limits: limits, sequence: 2,
+        });
+        let frozen = apply_head_motion_gaze_policy(
+            avc, &mut world, Some(eye), None, Some(incoming), None, 1.0 / 60.0,
+        ).0.unwrap();
+        assert_eq!(frozen.direction, limited.direction);
+        assert!((frozen.direction[0].atan2(-frozen.direction[2]) - 0.2).abs() < 1e-5);
     }
 
     fn left_arm_report(

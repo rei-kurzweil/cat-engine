@@ -566,6 +566,8 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         component_signature([mms::ValueType::String, mms::ValueType::U16]),
                     );
                     component.builder_call("head_rotation_compensation", strings(1));
+                    component.builder_call("rotation_limits", floats(4));
+                    component.builder_call("rotation_limits_per_eye", any(2));
                 }
                 "GridBinding" => {
                     component.constructor("grid", any(1));

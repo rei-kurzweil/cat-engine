@@ -124,8 +124,9 @@ ED {
 
                     // Direct child: enables automatic mapped left/right eye
                     // bone rotation. AVC freezes retained gaze during rapid
-                    // head motion. For HTC packets, replace with XREyeTrackingHTC.on().
-                    XREyeTracking.on()
+                    // head motion; the tracker caps head-local gaze first.
+                    // For HTC packets, replace with XREyeTrackingHTC.on().
+                    XREyeTracking.on().rotation_limits(0.65, 0.65, 0.45, 0.45)
 
                     // Direct children supply the left/right hand targets used
                     // by AVC's mapped TwoBoneIK chains.

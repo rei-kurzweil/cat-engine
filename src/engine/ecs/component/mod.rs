@@ -260,7 +260,8 @@ pub use transparent_cutout::TransparentCutoutComponent;
 pub use uv::UVComponent;
 pub use xr::XrComponent;
 pub use xr_eye_tracking::{
-    HeadRotationCompensation, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+    combined_eye_rotation_limits, EyeRotationLimits, HeadRotationCompensation,
+    XREyeTrackingComponent, XREyeTrackingHtcComponent,
 };
 pub type XRHandComponent = ControllerXRComponent;
 

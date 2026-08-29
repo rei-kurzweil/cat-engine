@@ -1222,6 +1222,42 @@ fn arg_str(args: &[Value], i: usize) -> Result<&str, String> {
 fn arg_f32_arr<const N: usize>(args: &[Value], i: usize) -> Result<[f32; N], String> {
     val_as_f32_array(arg(args, i)?)
 }
+fn validate_rotation_limits(
+    values: [f32; 4],
+    component: &str,
+) -> Result<crate::engine::ecs::component::EyeRotationLimits, String> {
+    if values.iter().all(|value| value.is_finite() && *value >= 0.0) {
+        Ok(crate::engine::ecs::component::EyeRotationLimits::from_array(values))
+    } else {
+        Err(format!(
+            "{component}.rotation_limits expects four finite, non-negative radians"
+        ))
+    }
+}
+fn rotation_limits_call_args(
+    args: &[Value],
+    component: &str,
+) -> Result<crate::engine::ecs::component::EyeRotationLimits, String> {
+    if args.len() != 4 {
+        return Err(format!("{component}.rotation_limits expects four radians"));
+    }
+    validate_rotation_limits(
+        [
+            arg_f32(args, 0)?,
+            arg_f32(args, 1)?,
+            arg_f32(args, 2)?,
+            arg_f32(args, 3)?,
+        ],
+        component,
+    )
+}
+fn rotation_limits_array_arg(
+    args: &[Value],
+    i: usize,
+    component: &str,
+) -> Result<crate::engine::ecs::component::EyeRotationLimits, String> {
+    validate_rotation_limits(arg_f32_arr::<4>(args, i)?, component)
+}
 fn arg_str_vec(args: &[Value], i: usize) -> Result<Vec<String>, String> {
     val_as_str_vec(arg(args, i)?)
 }
@@ -2465,6 +2501,15 @@ fn apply_call(
                             .to_string()
                     })?;
             }
+            "rotation_limits" => {
+                tracker.rotation_limits = Some(rotation_limits_call_args(args, "XREyeTracking")?);
+            }
+            "rotation_limits_per_eye" => {
+                tracker.rotation_limits_per_eye = [
+                    Some(rotation_limits_array_arg(args, 0, "XREyeTracking")?),
+                    Some(rotation_limits_array_arg(args, 1, "XREyeTracking")?),
+                ];
+            }
             _ => {}
         }
         return Ok(());
@@ -2480,6 +2525,15 @@ fn apply_call(
                         "XREyeTrackingHTC.head_rotation_compensation expects 'off' or 'cancel'"
                             .to_string()
                     })?;
+            }
+            "rotation_limits" => {
+                tracker.rotation_limits = Some(rotation_limits_call_args(args, "XREyeTrackingHTC")?);
+            }
+            "rotation_limits_per_eye" => {
+                tracker.rotation_limits_per_eye = [
+                    Some(rotation_limits_array_arg(args, 0, "XREyeTrackingHTC")?),
+                    Some(rotation_limits_array_arg(args, 1, "XREyeTrackingHTC")?),
+                ];
             }
             _ => {}
         }
@@ -3861,6 +3915,59 @@ mod tests {
                 .head_rotation_compensation,
             crate::engine::ecs::component::HeadRotationCompensation::CancelHeadRotation,
         );
+    }
+
+    #[test]
+    fn eye_tracking_rotation_limit_builders_match_for_both_trackers() {
+        let mut world = World::default();
+        for htc in [false, true] {
+            let id = if htc {
+                world.add_component(XREyeTrackingHtcComponent::on())
+            } else {
+                world.add_component(XREyeTrackingComponent::on())
+            };
+            apply_call(
+                &mut world,
+                id,
+                "rotation_limits",
+                &[Value::Number(0.1), Value::Number(0.2), Value::Number(0.3), Value::Number(0.4)],
+            )
+            .unwrap();
+            apply_call(
+                &mut world,
+                id,
+                "rotation_limits_per_eye",
+                &[
+                    Value::Array(vec![Value::Number(0.5), Value::Number(0.6), Value::Number(0.7), Value::Number(0.8)]),
+                    Value::Array(vec![Value::Number(0.9), Value::Number(1.0), Value::Number(1.1), Value::Number(1.2)]),
+                ],
+            )
+            .unwrap();
+            let limits = if htc {
+                let tracker = world.get_component_by_id_as::<XREyeTrackingHtcComponent>(id).unwrap();
+                (tracker.rotation_limits, tracker.rotation_limits_per_eye)
+            } else {
+                let tracker = world.get_component_by_id_as::<XREyeTrackingComponent>(id).unwrap();
+                (tracker.rotation_limits, tracker.rotation_limits_per_eye)
+            };
+            assert_eq!(limits.0.unwrap().right, 0.2);
+            assert_eq!(limits.1[0].unwrap().up, 0.7);
+            assert_eq!(limits.1[1].unwrap().down, 1.2);
+        }
+    }
+
+    #[test]
+    fn eye_tracking_rotation_limits_reject_negative_and_non_finite_values() {
+        let mut world = World::default();
+        let id = world.add_component(XREyeTrackingComponent::on());
+        assert!(apply_call(
+            &mut world, id, "rotation_limits",
+            &[Value::Number(-0.1), Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)],
+        ).is_err());
+        assert!(apply_call(
+            &mut world, id, "rotation_limits",
+            &[Value::Number(f64::INFINITY), Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)],
+        ).is_err());
     }
 
     #[test]
