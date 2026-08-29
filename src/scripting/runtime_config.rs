@@ -615,7 +615,6 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     ] {
                         constructor_and_builder(component, method, floats(1));
                     }
-                    constructor_and_builder(component, "head_motion_gaze_policy", strings(1));
                 }
                 "TransformParent" => {
                     component.constructor("target", any(1));
@@ -1112,6 +1111,7 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     ] {
                         constructor_and_builder(component, method, floats(1));
                     }
+                    constructor_and_builder(component, "head_motion_gaze_policy", strings(1));
                     no_arg_constructors_and_builders(
                         component,
                         &[
