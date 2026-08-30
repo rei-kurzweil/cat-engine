@@ -2,8 +2,10 @@
 
 Date: 2026-08-29
 
-Status: investigation / MVP design required; depends on
-[mesh CSG operations](mesh-csg-operations.md)
+Status: roadmap. Active standalone implementation slice:
+[Implicit surface system first slice](implicit-surface-first-slice.md).
+Post-bake boolean integration still depends on
+[mesh CSG operations](mesh-csg-operations.md).
 
 ## Motivation
 
@@ -19,28 +21,26 @@ The desired workflow is:
 3. use constructive solid geometry (CSG) to cut it cleanly against the
    staircase, landings, path, and world boundary.
 
-This task defines the implicit-field half of the workflow.  The general
-post-bake CSG operation is intentionally designed and implemented first in
-[mesh CSG operations](mesh-csg-operations.md).  It is linked from
+This task defines the implicit-field half of the workflow. The standalone
+field sampling, mesh bake, and derived-output lifecycle are fixed by
+[the active first slice](implicit-surface-first-slice.md) and may proceed
+without CSG. Feeding that baked mesh into a post-bake boolean still depends on
+[mesh CSG operations](mesh-csg-operations.md). This roadmap is linked from
 [the anime VN staircase-background task](anime-vn-staircase-background-example.md).
 
-## Questions to resolve before implementation
+## Questions retained for later slices
 
-- Which Rust crate(s), if any, can generate an isosurface from scalar-field
-  samples with acceptable licensing, maintained dependencies, and a `CpuMesh`
-  compatible output path?
 - Is marching cubes sufficient for the MVP, or is dual contouring required for
-  sharp CSG-adjacent features?  The expected answer is marching cubes first.
-- What field blend is needed for overlapping spheres: hard union, metaball
-  addition, or smooth minimum?  The MVP needs an explicit, controllable
-  smooth-union/blend-radius value; it must not hide the blend behavior.
+  sharp CSG-adjacent features? The first slice deliberately starts with
+  marching cubes; revisit only with a failing sharp-feature scenario.
 - How does the completed CSG operand contract accept an `ImplicitSurface`
   baked mesh without leaking CSG concepts into scalar-field evaluation?
 
-Record the selected crates, versions, licenses, numerical limitations, and a
-small benchmark in this document before committing to public MMS syntax.
+The active first-slice tracker selects the initial field blend and meshing
+candidate and owns its dependency gate, numerical characterization, and small
+benchmark before committing public MMS syntax.
 
-## Proposed conceptual model
+## Chosen first-slice conceptual model
 
 `ImplicitSurface` is both an operation and a nesting component, analogous
 to `CombineMesh`: primitives nested inside it describe sources, and the
@@ -56,26 +56,24 @@ triangle mesh, so a `3D` suffix adds no useful distinction.  A future 2D field
 feature would need a separately designed output contract (contours, filled
 planar mesh, or extrusion) rather than overloading this component.
 
-Illustrative syntax only:
+The focused first slice fixes the initial spelling as:
 
 ```mms
-ImplicitSurface {
-    voxel_size(0.25)
-    bounds([-12.0, -2.0, -12.0], [12.0, 8.0, 12.0])
-    iso_level(0.0)
-    smooth_min_radius(0.8)
-
-    ImplicitSphere.center(-4.0, 0.0, 0.0).radius(5.5) {}
-    ImplicitSphere.center( 1.0, 0.4, 2.0).radius(6.0) {}
-    ImplicitSphere.center( 6.0, 0.0,-2.0).radius(4.0) {}
+ImplicitSurface
+    .bounds(-12.0, -2.0, -12.0, 12.0, 8.0, 12.0)
+    .voxel_size(0.25)
+    .iso_level(0.0)
+    .smooth_min_radius(0.8) {
+    T.position(-4.0, 0.0, 0.0) { ImplicitSphere.radius(5.5) {} }
+    T.position( 1.0, 0.4, 2.0) { ImplicitSphere.radius(6.0) {} }
+    T.position( 6.0, 0.0,-2.0) { ImplicitSphere.radius(4.0) {} }
 }
 ```
 
-Names are deliberately provisional.  The public API must describe the field,
-its sampling bounds, world-space voxel size, isovalue, and smoothing
-semantics—not expose only an opaque pre-baked mesh.  The implementation may
-enforce a maximum grid dimension and reject an overly fine voxel size for the
-chosen bounds.
+The public API describes the field, its sampling bounds, world-space voxel
+size, isovalue, and smoothing semantics rather than exposing only an opaque
+pre-baked mesh. The focused tracker defines the initial sampling limits and
+validation behavior.
 
 ## MVP scope
 
@@ -128,8 +126,8 @@ chosen bounds.
 - Source components remain represented enough for editor inspection and MMS
   round-trip.  Do not lose authored field parameters merely because the mesh
   was baked.
-- Decide whether the sources collapse by default or follow a
-  `CombineMesh.keep_transforms()`-like policy; document the choice and test it.
+- The first slice always retains authored field sources for editing and MMS
+  round-trip; only the generated mesh is system-owned.
 
 ### Field semantics
 
