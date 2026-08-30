@@ -12,6 +12,7 @@ use crate::engine::graphics::primitives::TransformMatrix;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeshOutputKind {
     CombineMesh,
+    ImplicitSurface,
 }
 
 /// Local bounds and placement for one mesh-backed runtime output.

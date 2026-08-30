@@ -1317,6 +1317,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lin_alg"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54862356f5aefd08c1280144613f13c3b71a6320f2c069555d4d16670c2ff7f3"
+dependencies = [
+ "num-traits",
+ "paste",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1362,6 +1372,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "mcubes"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21305627b2a9263c95af711933a586d40a0ad97c232b28772133f8e6d59686f8"
+dependencies = [
+ "lin_alg",
 ]
 
 [[package]]
@@ -1433,6 +1452,7 @@ dependencies = [
  "gltf",
  "heapless",
  "image",
+ "mcubes",
  "meow-meow-script",
  "mittens-query",
  "openxr",
@@ -1994,6 +2014,12 @@ dependencies = [
  "smallvec",
  "windows-link",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "percent-encoding"

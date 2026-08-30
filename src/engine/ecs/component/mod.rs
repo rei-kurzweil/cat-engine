@@ -54,6 +54,7 @@ pub mod input;
 pub mod input_transform_mode;
 pub mod input_xr;
 pub mod input_xr_gamepad;
+pub mod implicit_surface;
 pub mod inspect_layout;
 pub mod joint_retarget_basis;
 pub mod keyframe;
@@ -184,6 +185,7 @@ pub use input_xr::InputXRComponent;
 pub use input_xr_gamepad::{
     InputXRGamepadComponent, XrAxisControl, XrButtonControl, XrHandPreference,
 };
+pub use implicit_surface::{ImplicitSphereComponent, ImplicitSurfaceComponent};
 pub use inspect_layout::InspectLayoutComponent;
 pub use joint_retarget_basis::JointRetargetBasisComponent;
 pub use keyframe::KeyframeComponent;

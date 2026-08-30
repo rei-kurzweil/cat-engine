@@ -64,6 +64,57 @@ fn constructive_solid_geometry_example_is_valid_mms_syntax() {
 }
 
 #[test]
+fn implicit_surface_example_is_valid_mms_syntax() {
+    let path = repo_path("examples/implicit-surface.mms");
+    let source = fs::read_to_string(&path).expect("read implicit-surface example");
+    let program = parse(&source);
+    assert!(
+        !program.is_empty(),
+        "implicit-surface example should author a scene"
+    );
+
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+        &source,
+        path.to_str(),
+        &mut world,
+        &mut rx,
+        Some(&mut assets),
+        &mut queue,
+    );
+    assert!(
+        output.errors.is_empty(),
+        "implicit-surface example failed to materialize: {:?}",
+        output.errors
+    );
+    let surfaces = world
+        .all_components()
+        .filter(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::ImplicitSurfaceComponent>(
+                    id,
+                )
+                .is_some()
+        })
+        .count();
+    let spheres = world
+        .all_components()
+        .filter(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::ImplicitSphereComponent>(
+                    id,
+                )
+                .is_some()
+        })
+        .count();
+    assert_eq!(surfaces, 2);
+    assert_eq!(spheres, 8);
+}
+
+#[test]
 fn migrated_keyframe_mms_examples_materialize_in_live_worlds() {
     for scene in [
         "animation-example.mms",

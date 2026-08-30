@@ -45,6 +45,7 @@ pub mod grid_gesture;
 pub mod grid_system;
 pub mod http_client_system;
 pub mod http_server_system;
+pub mod implicit_surface_system;
 pub mod humanoid_bone_map_system;
 pub mod morph_target_system;
 pub mod ik;
@@ -124,6 +125,7 @@ pub use grabbable_system::GrabbableSystem;
 pub use grid_system::GridSystem;
 pub use http_client_system::HttpClientSystem;
 pub use http_server_system::HttpServerSystem;
+pub use implicit_surface_system::ImplicitSurfaceSystem;
 pub use humanoid_bone_map_system::{
     HumanoidBoneMapReport, HumanoidBoneMapSystem, HumanoidSlotProvenance, HumanoidSlotReport,
     HumanoidSlotStatus, ResolvedHumanoidTarget, ResolvedHumanoidTargetKind,

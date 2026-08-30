@@ -19,6 +19,7 @@ use crate::engine::ecs::system::GltfBoundsVisualizationSystem;
 use crate::engine::ecs::system::HttpClientSystem;
 use crate::engine::ecs::system::HttpServerSystem;
 use crate::engine::ecs::system::InputSystem;
+use crate::engine::ecs::system::ImplicitSurfaceSystem;
 use crate::engine::ecs::system::InputXRGamepadSystem;
 use crate::engine::ecs::system::LightSystem;
 use crate::engine::ecs::system::MeshBoundsSystem;
@@ -97,6 +98,7 @@ pub struct SystemWorld {
     pub collision_response: CollisionResponseSystem,
     pub skinned_mesh: SkinnedMeshSystem,
     pub combine_mesh: CombineMeshSystem,
+    pub implicit_surface: ImplicitSurfaceSystem,
     pub mesh_bounds: MeshBoundsSystem,
     pub renderable: RenderableSystem,
     pub clipping: ClippingSystem,
@@ -2463,6 +2465,14 @@ impl SystemWorld {
         // Ensure any imported assets are registered before renderables try to resolve meshes/textures.
         self.gltf
             .flush_imports(render_assets, &mut self.texture, uploader);
+
+        self.implicit_surface.reconcile_and_build(
+            world,
+            visuals,
+            render_assets,
+            uploader,
+            &mut self.mesh_bounds,
+        );
 
         let collapse_roots = self.combine_mesh.reconcile_and_build(
             world,

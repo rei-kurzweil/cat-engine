@@ -2,7 +2,7 @@
 
 Date: 2026-08-29
 
-Status: active; implementation-ready first slice of
+Status: implemented; accepted first slice of
 [Implicit 3D surfaces and CSG for terrain](implicit-3d-surfaces-and-csg.md)
 
 ## Outcome and stop condition
@@ -220,9 +220,10 @@ fingerprint, root model, local bounds, and last failed fingerprint belong to
 `ImplicitSurfaceSystem`. They must never serialize.
 
 The first slice registers the derived visual against the `ImplicitSurface`
-root with `MaterialHandle::TOON_MESH`, white tint, placeholder UVs, and normal
-lighting. Custom material, color, texture, emissive, transparency, and UV
-policy are follow-up work. Selection and raycast identity must resolve to the
+root with `MaterialHandle::TOON_MESH`, placeholder UVs, and normal lighting. A
+direct `Color` child supplies its tint and can update without a remesh; white is
+the fallback. Custom material, texture, emissive, transparency, inherited
+style, and UV policy are follow-up work. Selection identity resolves to the
 authored root rather than to a hidden runtime component.
 
 Add `MeshOutputKind::ImplicitSurface` and register one aggregate local bound
@@ -340,11 +341,11 @@ Add `examples/implicit-surface.mms`, runnable with:
 cargo run --release -- load examples/implicit-surface.mms
 ```
 
-Show three asymmetrically placed overlapping spheres as one smooth, lit mesh.
-Choose bounds with obvious empty margin, use a positive smooth-min radius, and
-light the waist between spheres so the blend is visible. Keep the scene free
-of CSG, imported models, `CombineMesh`, editor-heavy content, and unrelated
-field primitives.
+The example is the first composition study for `anime-vn-background.mms`: a
+three-sphere hillside descending toward camera-right and a camera-left tree
+with a plain brown cube trunk and a five-sphere smooth deciduous canopy. Both
+implicit surfaces have direct color children and explicit empty-margin bounds.
+It remains free of CSG, imported models, and `CombineMesh`.
 
 ## Implementation order
 
@@ -377,11 +378,29 @@ field primitives.
 
 ## Implementation record
 
-Fill this section during implementation with:
+- Pinned `mcubes = "=0.1.7"`. `cargo tree -i mcubes` resolves only
+  `mittens-engine -> mcubes 0.1.7`; its default feature is enabled. The lockfile
+  expansion is `mcubes -> lin_alg -> num-traits` plus `paste`, and the backend
+  is MIT licensed.
+- The private adapter confirmed `x + y * nx + z * nx * ny` sample packing,
+  offsets backend coordinates into authored bounds, validates indices and
+  closed edges, orients by signed volume, recomputes smooth normals, and emits
+  deterministic indexed output. Neighbor-aware spatial welding uses a
+  tolerance of `1e-4` of the smallest cell width; this fixed backend drift in
+  the asymmetric demo fixtures without approaching adjacent grid features.
+- Centered-sphere release characterization on 2026-08-29:
 
-- resolved `cargo tree -i mcubes` and enabled feature summary;
-- lockfile and license decision;
-- observed packing, winding, welding, empty-field, and determinism results;
-- 32-cubed, 48-cubed, and 64-cubed release benchmark results;
-- final example path and visual-validation notes; and
-- focused test commands used for acceptance.
+  | Cells | Samples | Triangles | Grid bytes | Bake time |
+  | --- | ---: | ---: | ---: | ---: |
+  | 32³ | 35,937 | 4,280 | 143,748 | 11.024 ms |
+  | 48³ | 117,649 | 9,512 | 470,596 | 24.664 ms |
+  | 64³ | 274,625 | 17,192 | 1,098,500 | 47.622 ms |
+
+- Final example: `examples/implicit-surface.mms`. The release loader completed
+  all eight startup stages with both derived meshes accepted and no
+  `ImplicitSurfaceSystem` diagnostics.
+- Acceptance commands:
+  `cargo check --locked`, `cargo test --locked implicit_surface --lib`,
+  `cargo test --locked implicit_mesh --lib`, the ignored release
+  characterization test, and
+  `cargo run --release -- load examples/implicit-surface.mms`.
