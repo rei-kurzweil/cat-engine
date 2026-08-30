@@ -46,6 +46,7 @@ ImplicitSurface
     .voxel_size(0.90)
     .iso_level(0.0)
     .smooth_min_radius(2.80) {
+
     name = "rolling-hill-lattice"
     C.rgba(0.34, 0.58, 0.24, 1.0)
 
@@ -54,6 +55,7 @@ ImplicitSurface
             let x = (column - 5.5) * 7.2
             let z = 10.5 - row * 7.2
             let y = terrain_height(row, x, z, terrain_seed)
+
             T.position(x, y, z) {
                 ImplicitSphere.radius(6.20) {}
             }
@@ -74,20 +76,21 @@ T.position(3.1, -1.1, 6.0) {
         .voxel_size(0.13)
         .iso_level(0.0)
         .smooth_min_radius(0.55) {
+
         name = "deciduous-canopy"
         C.rgba(0.20, 0.52, 0.18, 1.0)
 
         T.position(-0.85, 2.25, 0.05) {
-            ImplicitSphere.radius(1.65) {}
+            ImplicitSphere.radius(0.65) {}
         }
         T.position(0.80, 2.35, 0.10) {
-            ImplicitSphere.radius(1.55) {}
+            ImplicitSphere.radius(1.25) {}
         }
         T.position(-0.10, 3.15, -0.20) {
-            ImplicitSphere.radius(1.50) {}
+            ImplicitSphere.radius(0.50) {}
         }
         T.position(-0.15, 2.35, 0.95) {
-            ImplicitSphere.radius(1.35) {}
+            ImplicitSphere.radius(0.35) {}
         }
         T.position(0.15, 2.25, -1.00) {
             ImplicitSphere.radius(1.30) {}
