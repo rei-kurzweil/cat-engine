@@ -2,7 +2,12 @@
 
 Date: 2026-08-29
 
-Status: proposed; prerequisite for implicit-surface terrain
+Status: roadmap; prerequisite for implicit-surface terrain
+
+Active implementation slice:
+[CSG system first slice](csg-system-first-slice.md). The child task fixes the
+public `CSG { Subtraction { ... } }` model, retained-source lifecycle, and
+first-slice exclusions; this document remains the broader roadmap.
 
 ## Chosen MVP backend: `csgrs`
 
@@ -202,6 +207,7 @@ mesh booleans, and no implicit-surface-specific CSG API should be introduced.
 
 ## Related work
 
+- [Active first slice: CSG system subtraction](csg-system-first-slice.md)
 - [Implicit 3D surfaces and CSG for terrain](implicit-3d-surfaces-and-csg.md)
 - [Anime VN staircase background MMS examples](anime-vn-staircase-background-example.md)
 - [Hierarchical BVH for mesh intersection, GLTF, and `CombineMesh`](hierarchical-bvh-mesh-intersection.md)
