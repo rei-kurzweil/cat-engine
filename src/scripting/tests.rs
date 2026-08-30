@@ -56,6 +56,14 @@ fn repo_path(rel: &str) -> PathBuf {
 }
 
 #[test]
+fn constructive_solid_geometry_example_is_valid_mms_syntax() {
+    let source = fs::read_to_string(repo_path("examples/constructive-solid-geometry.mms"))
+        .expect("read CSG example");
+    let program = parse(&source);
+    assert!(!program.is_empty(), "CSG example should author a scene");
+}
+
+#[test]
 fn migrated_keyframe_mms_examples_materialize_in_live_worlds() {
     for scene in [
         "animation-example.mms",

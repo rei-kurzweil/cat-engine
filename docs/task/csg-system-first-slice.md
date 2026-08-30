@@ -361,3 +361,18 @@ Fill this section during implementation with:
 - observed disjoint, fully consuming, and near-coplanar behavior;
 - the final example path; and
 - the focused test commands used for acceptance.
+
+### 2026-08-29 backend gate
+
+- Authored the example first at
+  `examples/constructive-solid-geometry.mms`, as requested.
+- Attempting to resolve the required exact dependency with
+  `cargo tree -i csgrs` failed before an inverse tree could be produced:
+  `csgrs v0.20.1` requires `core2 = "^0.4"`, but the only matching release,
+  `core2 v0.4.0`, is yanked.
+- Because a fresh lockfile cannot resolve the required backend, neither the
+  enabled feature tree nor an acceptable lockfile-impact comparison can be
+  produced. Per the backend verification gate, the dependency addition was
+  removed again and public MMS components were not registered. The repository
+  therefore remains buildable while the backend pin or upstream packaging is
+  reassessed.
