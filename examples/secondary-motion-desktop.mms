@@ -11,7 +11,7 @@ import { camera_icon } from "../assets/components/icons.mms"
 // inspected without an XR runtime.
 
 RendererSettings { window_size(1280, 720) }
-BGC.rgba(0.01, 0.02, 0.09, 1.0)
+BGC.rgba(0.01, 0.01, 0.01, 1.0)
 AL.rgb(0.24, 0.27, 0.38)
 Clock.bpm(120) {}
 
