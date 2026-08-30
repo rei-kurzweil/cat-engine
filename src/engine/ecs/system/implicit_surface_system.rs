@@ -599,20 +599,69 @@ mod tests {
 
     #[test]
     fn demo_hill_and_canopy_fields_extract_as_closed_meshes() {
-        let cases = [
+        let mut terrain = Vec::new();
+        let seed = 23.0f32;
+        let smoothstep = |value: f32, edge0: f32, edge1: f32| {
+            let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        for row in 0..12 {
+            for column in 0..12 {
+                let x = (column as f32 - 5.5) * 7.2;
+                let z = 10.5 - row as f32 * 7.2;
+                let y = if row <= 1 {
+                    -7.90
+                } else {
+                    let downhill = (row as f32 - 1.0) * 0.20;
+                    let seed_x = seed * 1.31;
+                    let seed_z = seed * 0.73;
+                    let rolling = crate::utils::math::perlin(
+                        (x * 0.025 + 13.0 + seed_x) as f64,
+                        (z * 0.025 - 7.0 - seed_z) as f64,
+                        None,
+                    ) as f32;
+                    let noise_fade = smoothstep(row as f32, 1.0, 3.0);
+                    -7.90 - downhill + rolling * 0.85 * noise_fade
+                };
+                terrain.push(([x, y, z], 6.20));
+            }
+        }
+        let near_average = terrain[..12]
+            .iter()
+            .map(|(center, _)| center[1])
+            .sum::<f32>()
+            / 12.0;
+        let far_average = terrain[132..]
+            .iter()
+            .map(|(center, _)| center[1])
+            .sum::<f32>()
+            / 12.0;
+        assert!(terrain[..24]
+            .iter()
+            .all(|(center, _)| center[1] == -7.90));
+        assert!(
+            near_average > far_average,
+            "terrain must continue descending away from the camera"
+        );
+        let rolling_min = terrain[24..]
+            .iter()
+            .map(|(center, _)| center[1])
+            .fold(f32::INFINITY, f32::min);
+        let rolling_max = terrain[24..]
+            .iter()
+            .map(|(center, _)| center[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(rolling_max - rolling_min > 0.85);
+        let cases = vec![
             (
                 crate::engine::graphics::implicit_mesh::ImplicitGridSpec {
-                    bounds_min: [-7.0, -12.0, -11.5],
-                    bounds_max: [16.0, 3.5, 4.0],
-                    cells: [96, 65, 65],
+                    bounds_min: [-47.0, -22.0, -76.5],
+                    bounds_max: [47.0, 3.0, 18.0],
+                    cells: [105, 28, 105],
                     iso_level: 0.0,
                 },
-                vec![
-                    ([1.0, -4.6, -3.8], 6.2),
-                    ([5.2, -5.2, -3.3], 5.6),
-                    ([9.3, -5.9, -2.8], 4.9),
-                ],
-                1.25,
+                terrain,
+                2.80,
             ),
             (
                 crate::engine::graphics::implicit_mesh::ImplicitGridSpec {

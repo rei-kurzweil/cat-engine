@@ -342,10 +342,12 @@ cargo run --release -- load examples/implicit-surface.mms
 ```
 
 The example is the first composition study for `anime-vn-background.mms`: a
-three-sphere hillside descending toward camera-right and a camera-left tree
-with a plain brown cube trunk and a five-sphere smooth deciduous canopy. Both
-implicit surfaces have direct color children and explicit empty-margin bounds.
-It remains free of CSG, imported models, and `CombineMesh`.
+procedural 12×12 sphere lattice scaled fourfold across X/Z. Its first two rows
+support the camera and tree before dropping `0.25` units per row, with
+deterministic broad/detail `Math.perlin` height offsets. A camera-right
+foreground tree has a plain brown cube trunk and a five-sphere smooth deciduous
+canopy. Both implicit surfaces have direct color children and explicit
+empty-margin bounds. It remains free of CSG, imported models, and `CombineMesh`.
 
 ## Implementation order
 

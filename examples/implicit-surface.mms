@@ -17,37 +17,54 @@ T.position(-5.0, 7.0, 4.0) {
     PL.color(0.72, 0.84, 1.0).intensity(5.0).distance(24.0)
 }
 
-// Camera-right hillside: successively lower overlapping spheres make the
-// skyline and ground plane slope down toward the right edge of the shot.
+// Change this one value to explore another deterministic landscape. Math.perlin
+// has no seed argument yet, so the seed selects stable coordinate offsets.
+let terrain_seed = 23.0
+
+fn terrain_height(row, x, z, seed) {
+    // The first two rows straddle the tree at z=6. Their calibrated sphere
+    // centers put the fused ground at the bottom of the existing trunk.
+    if row <= 1.0 {
+        return -7.90
+    }
+
+    let downhill = (row - 1.0) * 0.20
+    let seed_x = seed * 1.31
+    let seed_z = seed * 0.73
+    // One readable, lower-frequency layer. Fade it in after the plateau so the
+    // tree transition stays level, then let it produce broad rolling variation.
+    let rolling = Math.perlin(x * 0.025 + 13.0 + seed_x, z * 0.025 - 7.0 - seed_z)
+    let noise_fade = Math.smoothstep(row, 1.0, 3.0)
+    return -7.90 - downhill + rolling * 0.85 * noise_fade
+}
+
+// A 12x12 lattice of large overlapping implicit spheres. Its X/Z footprint is
+// four times the previous study. The nearest row is centered under the camera,
+// the tree lies between the first two rows, and later rows roll downward.
 ImplicitSurface
-    .bounds(-7.0, -12.0, -11.5, 16.0, 3.5, 4.0)
-    .voxel_size(0.24)
+    .bounds(-47.0, -22.0, -76.5, 47.0, 3.0, 18.0)
+    .voxel_size(0.90)
     .iso_level(0.0)
-    .smooth_min_radius(1.25) {
-    name = "descending-right-hill"
+    .smooth_min_radius(2.80) {
+    name = "rolling-hill-lattice"
     C.rgba(0.34, 0.58, 0.24, 1.0)
 
-    T.position(1.0, -4.6, -3.8) {
-        ImplicitSphere.radius(6.2) {}
-    }
-    T.position(5.2, -5.2, -3.3) {
-        ImplicitSphere.radius(5.6) {}
-    }
-    T.position(9.3, -5.9, -2.8) {
-        ImplicitSphere.radius(4.9) {}
+    for row in range(12) {
+        for column in range(12) {
+            let x = (column - 5.5) * 7.2
+            let z = 10.5 - row * 7.2
+            let y = terrain_height(row, x, z, terrain_seed)
+            T.position(x, y, z) {
+                ImplicitSphere.radius(6.20) {}
+            }
+        }
     }
 }
 
-// Simple temporary lawn beneath the camera. The eventual staircase/path CSG
-// scene will replace or trim this transition without moving the hill study.
-T.position(0.0, -1.72, 1.0).scale(16.0, 0.10, 10.0) {
-    R.cube() { C.rgba(0.30, 0.50, 0.22, 1.0) }
-}
-
-// Nearer camera-left deciduous tree. The trunk stays intentionally plain until
-// a bark texture exists; the canopy is a softly fused cluster rather than a
-// collection of visibly intersecting sphere meshes.
-T.position(-3.5, 0.0, -0.8) {
+// Camera-right foreground tree, placed between the camera and the rolling
+// hill view. The trunk stays intentionally plain until a bark texture exists;
+// the canopy is a softly fused cluster rather than intersecting sphere meshes.
+T.position(3.1, -1.1, 6.0) {
     T.position(0.0, -0.05, 0.0).scale(0.38, 2.35, 0.42) {
         R.cube() { C.rgba(0.34, 0.18, 0.075, 1.0) }
     }

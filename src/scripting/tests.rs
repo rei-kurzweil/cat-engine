@@ -111,7 +111,7 @@ fn implicit_surface_example_is_valid_mms_syntax() {
         })
         .count();
     assert_eq!(surfaces, 2);
-    assert_eq!(spheres, 8);
+    assert_eq!(spheres, 149);
 }
 
 #[test]
