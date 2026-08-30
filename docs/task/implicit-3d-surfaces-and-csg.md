@@ -2,7 +2,8 @@
 
 Date: 2026-08-29
 
-Status: investigation / MVP design required
+Status: investigation / MVP design required; depends on
+[mesh CSG operations](mesh-csg-operations.md)
 
 ## Motivation
 
@@ -18,8 +19,9 @@ The desired workflow is:
 3. use constructive solid geometry (CSG) to cut it cleanly against the
    staircase, landings, path, and world boundary.
 
-This task defines the smallest credible component/API investigation to unlock
-that workflow.  It is linked from
+This task defines the implicit-field half of the workflow.  The general
+post-bake CSG operation is intentionally designed and implemented first in
+[mesh CSG operations](mesh-csg-operations.md).  It is linked from
 [the anime VN staircase-background task](anime-vn-staircase-background-example.md).
 
 ## Questions to resolve before implementation
@@ -32,12 +34,8 @@ that workflow.  It is linked from
 - What field blend is needed for overlapping spheres: hard union, metaball
   addition, or smooth minimum?  The MVP needs an explicit, controllable
   smooth-union/blend-radius value; it must not hide the blend behavior.
-- Which CSG implementation/crate can robustly consume the baked triangle mesh
-  and the existing primitive/combined mesh representations?  Validate its
-  behavior on non-manifold, coplanar, and near-coincident input before making
-  it part of an authoring promise.
-- Can CSG be a separate post-bake operation in the first slice, rather than
-  being fused into field evaluation?  This is the preferred MVP boundary.
+- How does the completed CSG operand contract accept an `ImplicitSurface`
+  baked mesh without leaking CSG concepts into scalar-field evaluation?
 
 Record the selected crates, versions, licenses, numerical limitations, and a
 small benchmark in this document before committing to public MMS syntax.
@@ -100,12 +98,11 @@ chosen bounds.
    - generate positions, normals, indices, and stable enough winding for
      normal materials/lights; and
    - register the output through the existing render-assets pathway.
-4. CSG investigation and minimal integration:
-   - prove triangle-mesh difference against a box/plane-derived cutter;
-   - specify tolerances and failure handling;
-   - if the crate is reliable, expose a narrowly scoped post-bake difference
-     operation; otherwise retain CSG as a documented follow-up, not a
-     half-functional public component.
+4. CSG integration after the prerequisite task:
+   - make a baked `ImplicitSurface` a supported operand of the completed CSG
+     operation;
+   - demonstrate a difference with closed stair/path clearance cutters; and
+   - preserve CSG's documented tolerances and failure behavior.
 5. Validation scene:
    - a small MMS example with 2–4 overlapping spheres, visible smoothing
      changes, and a simple cutter; and
@@ -153,32 +150,39 @@ chosen bounds.
 ### CSG seam
 
 CSG operates only after `ImplicitSurface` produces a normal triangle mesh.
-The initial useful operation is mesh **difference**:
+The initial useful operation is mesh **difference** defined by the linked
+[mesh CSG operations task](mesh-csg-operations.md):
 
 ```text
 smooth sphere field -> baked terrain mesh -> subtract stair/path cutters
 ```
 
 This lets large overlapping spheres make curvature while explicit staircase
-geometry retains crisp edges.  Keep cutter geometry and operation order
-visible in MMS/serialization.  Never silently apply a failed boolean result;
-emit a useful diagnostic and preserve the last known-good mesh if possible.
+geometry retains crisp edges.  `CSG` must not be nested inside
+`ImplicitSurface` in this slice: the field system evaluates only field
+primitives, and the CSG system consumes its baked result as an operand.  Keep
+cutter geometry and operation order visible in MMS/serialization.  Never
+silently apply a failed boolean result; emit a useful diagnostic and preserve
+the last known-good mesh if possible.
 
 ## Investigation plan
 
 1. Inventory existing `CpuMesh`, `Renderable`, `CombineMesh`, mesh bounds,
    asset registration, and serialization seams.
-2. Research candidate Rust crates using their current upstream documentation,
-   licenses, and small local proof-of-concept branches.
-3. Benchmark representative volumes (for example 32³, 48³, and 64³ samples)
+2. Complete the CSG crate, lifecycle, tolerance, and operand-contract decision
+   in [mesh CSG operations](mesh-csg-operations.md).
+3. Research candidate isosurface-generation crates using their current
+   upstream documentation, licenses, and small local proof-of-concept
+   branches.
+4. Benchmark representative volumes (for example 32³, 48³, and 64³ samples)
    and record mesh count, bake time, memory, and main-thread impact.
-4. Prototype two overlapping spheres with hard union and smooth union; inspect
+5. Prototype two overlapping spheres with hard union and smooth union; inspect
    normals, seams, and repeatable output.
-5. Prototype a box difference that trims the output without holes, inverted
-   normals, or catastrophic failure on a small tolerance sweep.
-6. Decide the public MMS names only after these experiments establish what can
+6. Feed that baked mesh to the CSG operation and prototype stair/path cutter
+   differences without holes, inverted normals, or catastrophic failure.
+7. Decide the public MMS names only after these experiments establish what can
    be made reliable.
-7. Add focused unit tests plus an MMS integration scene before connecting the
+8. Add focused unit tests plus an MMS integration scene before connecting the
    terrain to the anime VN example.
 
 ## Acceptance criteria
@@ -192,8 +196,8 @@ emit a useful diagnostic and preserve the last known-good mesh if possible.
   round-trip limitation approved before release.
 - The generated aggregate behaves correctly for removal, bounds, and editor
   selection.
-- A documented, tested CSG-difference conclusion exists: either a reliable
-  minimal operation with known tolerances, or an explicit decision to defer
-  public CSG until the chosen backend is viable.
+- The CSG prerequisite has a documented, tested difference operation with
+  known tolerances, and a baked `ImplicitSurface` succeeds as one of its
+  supported operands.
 - The staircase background can replace its temporary hill stand-in without
   changing its stair/path coordinate contract.
