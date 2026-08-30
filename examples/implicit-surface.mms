@@ -5,6 +5,8 @@
 // Run with:
 //   cargo run --release -- load examples/implicit-surface.mms
 
+import { transform_info_panel } from "../assets/components/ui/transform_info_panel.mms"
+
 RendererSettings { window_size(1440, 900) }
 BGC.rgba(0.66, 0.84, 0.98, 1.0)
 AL.rgb(0.30, 0.32, 0.28)
@@ -100,9 +102,18 @@ T.position(3.1, -1.1, 6.0) {
 
 // Fixed first-person framing for the future anime VN background. Camera3D
 // looks along local -Z; fly controls remain useful while shaping the scene.
+let player_camera = T.position(0.0, 1.2, 10.5) {
+    C3D { Pointer {} }
+}
+
 I.speed(2.4) {
     InputTransformMode.forward_z() { roll_axis_z() }
-    T.position(0.0, 1.2, 10.5) {
-        C3D { Pointer {} }
-    }
+    player_camera
+}
+
+// The panel starts in front of the player, but is independent from the camera:
+// drag its title bar on desktop or grip-grab it in XR to use it as a movable
+// world-space measuring aid. Its displayed values stay bound to player_camera.
+T.position(-0.85, 1.9, 7.8) {
+    transform_info_panel(player_camera)
 }

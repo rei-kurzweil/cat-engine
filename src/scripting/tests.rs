@@ -112,6 +112,35 @@ fn implicit_surface_example_is_valid_mms_syntax() {
         .count();
     assert_eq!(surfaces, 2);
     assert_eq!(spheres, 149);
+    assert_eq!(
+        world
+            .all_components()
+            .filter(|&id| {
+                world
+                    .get_component_by_id_as::<crate::engine::ecs::component::GrabbableComponent>(id)
+                    .is_some()
+            })
+            .count(),
+        1,
+        "implicit-surface should materialize one grabbable telemetry panel"
+    );
+    assert_eq!(
+        world
+            .all_components()
+            .filter(|&id| {
+                world
+                    .get_component_by_id_as::<crate::engine::ecs::component::DraggableComponent>(id)
+                    .is_some()
+            })
+            .count(),
+        1,
+        "implicit-surface should materialize one draggable telemetry title"
+    );
+    assert!(world.all_components().any(|id| {
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::TextComponent>(id)
+            .is_some_and(|text| text.text == "telemetry")
+    }));
 }
 
 #[test]
@@ -2621,6 +2650,54 @@ fn global_frame_tick_handler_reads_translation_and_dt() {
         signal.intent.as_ref().map(|intent| &intent.value),
         Some(crate::engine::ecs::IntentValue::SetText { text, .. }) if text == "frame-observed"
     )));
+}
+
+#[test]
+fn transform_info_panel_updates_its_explicit_target_on_frame_tick() {
+    let src = r##"
+        import { transform_info_panel } from "../assets/components/ui/transform_info_panel.mms"
+
+        let target = T.position(-1.234567, 0.0, 10.5) { name = "telemetry_target" }
+        target
+        transform_info_panel(target)
+    "##;
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+
+    let out = MeowMeowRunner::eval_with_world_at_path(
+        src,
+        Some("examples/_mms_test_transform_info_panel.mms"),
+        &mut world,
+        &mut rx,
+        &mut emit,
+    );
+    assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
+    assert!(rx.has_global_handlers(crate::engine::ecs::SignalKind::FrameTick));
+
+    rx.dispatch_event_handlers(
+        &mut world,
+        &Signal::event(
+            ComponentId::default(),
+            EventSignal::FrameTick { dt_sec: 0.1 },
+        ),
+    );
+    let texts: Vec<_> = rx
+        .drain_ready_intents()
+        .into_iter()
+        .filter_map(|signal| match signal.intent.as_ref().map(|intent| &intent.value) {
+            Some(IntentValue::SetText { text, .. }) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "x: -1.23457".to_string(),
+            "y: 0.00000".to_string(),
+            "z: 10.50000".to_string(),
+        ]
+    );
 }
 
 #[test]
