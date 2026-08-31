@@ -340,6 +340,15 @@ window targets, XR eyes, mirror captures, resize validation, and live Vulkan val
 focused proof. Overlapping transmissive-surface ordering also remains open; this first fixture uses
 non-overlapping panels so its result does not depend on that policy.
 
+The current snapshot intentionally contains sharp emissive source color but not its later Bloom
+blur. Do not fix that by sampling only the blurred Bloom target or by adding it in the refraction
+shader: the final compositor would then add an unrefracted halo a second time. The next capture
+slice must make one sampleable **opaque-plus-Bloom composite** before refraction, then use that
+composite as both the refraction source and the preserved live destination. See
+[Refraction sampling of post-process composite](../refraction-postprocess-composite-capture.md).
+Sphere visual diagnosis and a later bevel modifier are tracked separately in
+[Refraction visual diagnostics and bevel](../refraction-visual-diagnostics-and-bevel.md).
+
 ### Phase 3: rough transmission
 
 - [ ] Add the separate rough-transmission fragment shader and pipeline routing.
