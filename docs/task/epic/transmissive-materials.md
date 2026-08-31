@@ -153,7 +153,8 @@ Exact storage names may adapt to the material-instance work, but these ownership
 - the fragment-stage enum chooses surface shading behavior;
 - the resolved Vulkan graphics pipeline is a cache product, not material identity;
 - `MaterialHandle` identifies a registered definition or instance;
-- the renderer selects the concrete static versus cached-deformed vertex module independently;
+- the renderable/import path explicitly records the concrete static versus cached-deformed geometry
+  variant, and the renderer selects that vertex module independently of the material;
 - a material instance owns its transmission parameters;
 - a per-view descriptor supplies scene color and viewport data;
 - an ordinary authored base texture remains distinct from the renderer-owned scene-color input.
@@ -176,9 +177,11 @@ vertex-stage family
 ```
 
 Changing only `Toon` to `Refraction` exchanges the fragment component while retaining the
-compatible mesh-surface vertex interface. Changing an instance from static to cached-deformed
-exchanges the concrete vertex module while retaining the same fragment stage. Neither operation
-requires a new authored material-model name for the cross-product.
+compatible mesh-surface vertex interface. Changing an instance's explicitly recorded geometry
+variant from static to cached-deformed exchanges the concrete vertex module while retaining the
+same fragment stage. Pipeline resolution validates that a cached-deformed variant owns a valid
+deformation-cache range. Neither operation requires a new authored material-model name for the
+cross-product.
 
 ### Common transmission inputs
 

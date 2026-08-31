@@ -273,6 +273,32 @@ Describes drawable geometry and material state consumed by the renderable system
 Renderable.cube()
 ```
 
+### `RefractionComponent`
+<!-- catalog:component source="RefractionComponent" mms="direct" names="Refraction" -->
+Selects sharp screen-space refraction for its immediate parent renderable. `Color.rgba` supplies
+the transmission tint and compositing alpha. IOR must be at least `1.0`; thickness and strength are
+non-negative; edge fade is measured in normalized viewport coordinates and lies in `0.0..=0.5`.
+**Directly constructible** as `Refraction`. Sources: [Rust implementation](../../../src/engine/ecs/component/transmission.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
+```mms parse-only
+Renderable.cube() {
+    Color.rgba(0.85, 0.95, 1.0, 0.75)
+    Refraction.ior(1.45).thickness(0.08).strength(1.0).edge_fade(0.02)
+}
+```
+
+### `RoughTransmissionComponent`
+<!-- catalog:component source="RoughTransmissionComponent" mms="direct" names="RoughTransmission" -->
+Selects filtered screen-space transmission for its immediate parent renderable. It shares the
+sharp-refraction inputs and adds roughness in `0.0..=1.0`; `Color.rgba` supplies tint and alpha.
+Attach at most one `Refraction` or `RoughTransmission` component to a renderable.
+**Directly constructible** as `RoughTransmission`. Sources: [Rust implementation](../../../src/engine/ecs/component/transmission.rs) and [MMS registry](../../../src/scripting/component_registry.rs).
+```mms parse-only
+Renderable.cube() {
+    Color.rgba(0.85, 0.95, 1.0, 0.75)
+    RoughTransmission.ior(1.45).thickness(0.08).strength(1.0).edge_fade(0.02).roughness(0.4)
+}
+```
+
 ### `RendererSettingsComponent`
 <!-- catalog:component source="RendererSettingsComponent" mms="direct" names="RendererSettings" -->
 Carries renderer settings state used when that engine feature is present in a component tree. Use it when a tree needs this state or behavior. Rendering systems; lifecycle registration/removal intents connect it to visual state.

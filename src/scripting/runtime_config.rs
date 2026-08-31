@@ -471,6 +471,14 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 "Color" => {
                     host_constructor(component, canonical, "rgba", floats(4));
                 }
+                "Refraction" | "RoughTransmission" => {
+                    for method in ["ior", "thickness", "strength", "edge_fade"] {
+                        host_constructor_and_builder(component, canonical, method, floats(1));
+                    }
+                    if canonical == "RoughTransmission" {
+                        host_constructor_and_builder(component, canonical, "roughness", floats(1));
+                    }
+                }
                 "BackgroundColor" => {
                     host_constructor(component, canonical, "rgba", floats(4));
                 }

@@ -83,6 +83,7 @@ pub mod signal_route_upward;
 pub mod stencil_clip;
 pub mod style;
 pub mod transparent_cutout;
+pub mod transmission;
 pub mod xr;
 pub mod xr_eye_tracking;
 
@@ -259,6 +260,10 @@ pub use transform_temporal_filter::{
 };
 pub use transition::{TransitionComponent, TransitionEasing, TransitionReplacePolicy};
 pub use transparent_cutout::TransparentCutoutComponent;
+pub use transmission::{
+    RefractionComponent, RoughTransmissionComponent, TransmissionOptions, TransmissiveModel,
+    resolve_transmissive_model,
+};
 pub use uv::UVComponent;
 pub use xr::XrComponent;
 pub use xr_eye_tracking::{

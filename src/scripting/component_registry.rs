@@ -34,8 +34,9 @@ use crate::engine::ecs::component::{
     OverlayComponent, PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
     PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
     QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
-    RaycastableShapeType, RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RendererStatsComponent, RestAttachmentComponent, RouterComponent, ScrollingComponent,
+    RaycastableShapeType, RefractionComponent, RenderGraphComponent, RenderableComponent,
+    RendererSettingsComponent, RendererStatsComponent, RestAttachmentComponent,
+    RoughTransmissionComponent, RouterComponent, ScrollingComponent,
     SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
     SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
     SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
@@ -155,10 +156,12 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "Raycast",
     "Raycastable",
     "RaycastableShape",
+    "Refraction",
     "RenderGraph",
     "Renderable",
     "RendererSettings",
     "RendererStats",
+    "RoughTransmission",
     "Router",
     "Scrolling",
     "SecondaryMotion",
@@ -1467,6 +1470,20 @@ fn create_component(
             )),
             _ => add!(ColorComponent::new()),
         },
+        "Refraction" => {
+            let id = world.add_component(RefractionComponent::new());
+            if let Some(method) = ctor {
+                apply_call(world, id, method, args)?;
+            }
+            Ok(id)
+        }
+        "RoughTransmission" => {
+            let id = world.add_component(RoughTransmissionComponent::new());
+            if let Some(method) = ctor {
+                apply_call(world, id, method, args)?;
+            }
+            Ok(id)
+        }
         "Renderable" => match ctor {
             Some("cube") => add!(RenderableComponent::cube()),
             Some("polygon") => with_render_assets_mut(|render_assets| {
@@ -2506,6 +2523,14 @@ fn apply_call(
     method: &str,
     args: &[Value],
 ) -> Result<(), String> {
+    if let Some(component) = world.get_component_by_id_as_mut::<RefractionComponent>(id) {
+        component.apply_builder(method, arg_f32(args, 0)?)?;
+        return Ok(());
+    }
+    if let Some(component) = world.get_component_by_id_as_mut::<RoughTransmissionComponent>(id) {
+        component.apply_builder(method, arg_f32(args, 0)?)?;
+        return Ok(());
+    }
     if let Some(surface) = world.get_component_by_id_as_mut::<ImplicitSurfaceComponent>(id) {
         match method {
             "bounds" => {

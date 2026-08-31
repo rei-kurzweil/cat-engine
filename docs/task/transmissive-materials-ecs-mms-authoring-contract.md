@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: proposed
+Status: implemented (renderer integration intentionally deferred)
 
 Parent epic: [Transmissive materials: refraction and rough transmission](epic/transmissive-materials.md)
 
@@ -145,16 +145,19 @@ dedicated transmissive render-stream phase and material-instance storage.
 
 ## Focused implementation slice
 
-- [ ] Add the shared options type with defaults and fallible validation.
-- [ ] Add `RefractionComponent` and `RoughTransmissionComponent` with builder methods.
-- [ ] Export both components through the ECS component module.
-- [ ] Register both component types, constructors, and builder signatures in every active MMS
+- [x] Add the shared options type with defaults and fallible validation.
+- [x] Add `RefractionComponent` and `RoughTransmissionComponent` with builder methods.
+- [x] Export both components through the ECS component module.
+- [x] Register both component types, constructors, and builder signatures in every active MMS
       construction path.
-- [ ] Add initialization intents only as needed to invalidate/re-resolve the owning renderable; do
-      not add renderer handle switching.
-- [ ] Implement stable `to_mms_ast()` output for both components.
-- [ ] Add the immediate-child resolver and duplicate-material error.
-- [ ] Document both components in the MMS component guide.
+- [x] Add no initialization intent yet: no renderer state consumes this semantic value in this
+      slice, so there is nothing to invalidate. Do not add renderer handle switching.
+- [x] Implement stable `to_mms_ast()` output for both components.
+- [x] Add the immediate-child resolver and duplicate-material error.
+- [x] Document both components in the MMS component guide.
+- [x] Add focused refraction and rough-transmission desktop examples with four 4:4:1 panels,
+      movable cameras, the Kawaii star background, and bloom.
+- [x] Add a mixed XR-only example with both material types and no desktop camera or avatar.
 
 ## Tests
 
@@ -167,6 +170,8 @@ dedicated transmissive render-stream phase and material-instance storage.
 - Two transmission children produce a deterministic, actionable error.
 - Resolved `Color` becomes tint and alpha without changing existing non-transmissive color behavior.
 - Static and cached-deformed renderables resolve to the same authored `TransmissiveModel`.
+- The three demo scenes materialize with their expected material counts; desktop scenes have one
+  `Camera3D`, while the XR-only scene has one `CameraXR` and no `Camera3D`.
 
 ## Acceptance criteria
 
@@ -185,7 +190,8 @@ stable, implement the same-frame per-view opaque scene snapshot and diagnostic s
 
 ## Stop condition
 
-Stop when both examples round-trip through MMS, resolve deterministically from a renderable's
-immediate children, and expose validated semantic material data for the later renderer task. Any
+Stop when both material forms round-trip through MMS, all three demo scenes materialize, resolution
+is deterministic from a renderable's immediate children, and validated semantic material data is
+exposed for the later renderer task. Any
 Vulkan work, animation API, shared mutable material instances, shader hot reload, or custom shader
 authoring belongs to a follow-up task.

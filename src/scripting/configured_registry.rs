@@ -9,8 +9,9 @@ use meow_meow_script as mms;
 use crate::engine::ecs::component::{
     AmbientLightComponent, BackgroundColorComponent, BloomComponent, BlurPassComponent,
     Camera3DComponent, ColorComponent, DirectionalLightComponent, EmissiveComponent,
-    EmissivePassComponent, PointerComponent, RaycastableComponent, RenderGraphComponent,
-    RenderableComponent, RendererSettingsComponent, TransformComponent,
+    EmissivePassComponent, PointerComponent, RaycastableComponent, RefractionComponent,
+    RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
+    RoughTransmissionComponent, TransformComponent,
 };
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 
@@ -29,9 +30,11 @@ const DIRECT_COMPONENTS: &[&str] = &[
     "EmissivePass",
     "Pointer",
     "Raycastable",
+    "Refraction",
     "RenderGraph",
     "Renderable",
     "RendererSettings",
+    "RoughTransmission",
     "Transform",
 ];
 
@@ -183,6 +186,8 @@ fn create_component(
             f32_arg(args, 3)?,
         )),
         "Color" => world.add_component(ColorComponent::new()),
+        "Refraction" => world.add_component(RefractionComponent::new()),
+        "RoughTransmission" => world.add_component(RoughTransmissionComponent::new()),
         "Emissive" => world.add_component(match constructor {
             Some("off") => EmissiveComponent::off(),
             _ => EmissiveComponent::on(),
@@ -291,6 +296,18 @@ fn apply_call(
                 .get_component_by_id_as_mut::<EmissiveComponent>(id)
                 .ok_or("missing Emissive after construction")?
                 .intensity = f32_arg(args, 0)?.max(0.0);
+        }
+        "Refraction" => {
+            world
+                .get_component_by_id_as_mut::<RefractionComponent>(id)
+                .ok_or("missing Refraction after construction")?
+                .apply_builder(method, f32_arg(args, 0)?)?;
+        }
+        "RoughTransmission" => {
+            world
+                .get_component_by_id_as_mut::<RoughTransmissionComponent>(id)
+                .ok_or("missing RoughTransmission after construction")?
+                .apply_builder(method, f32_arg(args, 0)?)?;
         }
         "Bloom" => {
             let bloom = world
@@ -497,5 +514,56 @@ mod tests {
         let record = world.get_component_record(id).unwrap();
         assert_eq!(record.name, "root");
         assert_eq!(record.classes, ["scene", "visible"]);
+    }
+
+    #[test]
+    fn transmissive_material_builders_use_the_direct_runtime_path() {
+        use crate::engine::ecs::component::{
+            ColorComponent, TransmissiveModel, resolve_transmissive_model,
+        };
+
+        let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
+        let tree = configured
+            .runtime()
+            .materialize_component(
+                "Renderable.cube() { Color.rgba(0.8, 0.9, 1.0, 0.7) Refraction.ior(1.45).thickness(0.08).strength(0.9).edge_fade(0.03) }",
+            )
+            .unwrap();
+
+        let mut world = World::default();
+        let mut emit = crate::engine::ecs::CommandQueue::new();
+        let renderable = try_spawn_tree(
+            &tree,
+            configured.bindings(),
+            &mut world,
+            &mut emit,
+            false,
+        )
+        .expect("transmission components should stay on the direct path")
+        .unwrap();
+
+        let model = resolve_transmissive_model(&world, renderable).unwrap();
+        let Some(TransmissiveModel::Refraction(options)) = model else {
+            panic!("expected Refraction, got {model:?}");
+        };
+        assert_eq!(options.ior, 1.45);
+        assert_eq!(options.thickness, 0.08);
+        assert_eq!(options.strength, 0.9);
+        assert_eq!(options.edge_fade, 0.03);
+        assert!(world.children_of(renderable).iter().any(|&child| {
+            world
+                .get_component_by_id_as::<ColorComponent>(child)
+                .is_some_and(|color| color.rgba == [0.8, 0.9, 1.0, 0.7])
+        }));
+    }
+
+    #[test]
+    fn runtime_vocabulary_rejects_roughness_on_sharp_refraction() {
+        let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
+        let error = configured
+            .runtime()
+            .materialize_component("Refraction.roughness(0.5) {}")
+            .unwrap_err();
+        assert!(error.to_string().contains("roughness"), "{error}");
     }
 }

@@ -5534,6 +5534,138 @@ fn roundtrip_emissive_custom_intensity() {
 }
 
 #[test]
+fn roundtrip_refraction_preserves_authored_options() {
+    use crate::engine::ecs::component::RefractionComponent;
+
+    let mut original = RefractionComponent::new();
+    original.apply_builder("ior", 1.45).unwrap();
+    original.apply_builder("thickness", 0.08).unwrap();
+    original.apply_builder("strength", 0.9).unwrap();
+    original.apply_builder("edge_fade", 0.03).unwrap();
+
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<RefractionComponent>(id)
+        .unwrap();
+    assert_eq!(*got, original);
+}
+
+#[test]
+fn roundtrip_rough_transmission_preserves_authored_options() {
+    use crate::engine::ecs::component::RoughTransmissionComponent;
+
+    let mut original = RoughTransmissionComponent::new();
+    original.apply_builder("ior", 1.33).unwrap();
+    original.apply_builder("thickness", 0.2).unwrap();
+    original.apply_builder("strength", 0.75).unwrap();
+    original.apply_builder("edge_fade", 0.04).unwrap();
+    original.apply_builder("roughness", 0.6).unwrap();
+
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<RoughTransmissionComponent>(id)
+        .unwrap();
+    assert_eq!(*got, original);
+}
+
+#[test]
+fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
+    use crate::engine::ecs::component::{
+        Camera3DComponent, CameraXRComponent, RefractionComponent, RoughTransmissionComponent,
+    };
+
+    for (path, source, refractions, rough_transmissions, cameras_3d, cameras_xr) in [
+        (
+            "examples/refraction.mms",
+            include_str!("../../examples/refraction.mms"),
+            4,
+            0,
+            1,
+            0,
+        ),
+        (
+            "examples/rough-transmission.mms",
+            include_str!("../../examples/rough-transmission.mms"),
+            0,
+            4,
+            1,
+            0,
+        ),
+        (
+            "examples/transmissive-xr.mms",
+            include_str!("../../examples/transmissive-xr.mms"),
+            2,
+            2,
+            0,
+            1,
+        ),
+    ] {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut emit = CommandQueue::new();
+        let mut render_assets = RenderAssets::new();
+        let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+            source,
+            Some(path),
+            &mut world,
+            &mut rx,
+            Some(&mut render_assets),
+            &mut emit,
+        );
+        assert!(output.errors.is_empty(), "{path}: {:?}", output.errors);
+
+        assert_eq!(
+            world
+                .all_components()
+                .filter(|id| {
+                    world
+                        .get_component_by_id_as::<RefractionComponent>(*id)
+                        .is_some()
+                })
+                .count(),
+            refractions,
+            "{path}: refraction count",
+        );
+        assert_eq!(
+            world
+                .all_components()
+                .filter(|id| {
+                    world
+                        .get_component_by_id_as::<RoughTransmissionComponent>(*id)
+                        .is_some()
+                })
+                .count(),
+            rough_transmissions,
+            "{path}: rough transmission count",
+        );
+        assert_eq!(
+            world
+                .all_components()
+                .filter(|id| {
+                    world
+                        .get_component_by_id_as::<Camera3DComponent>(*id)
+                        .is_some()
+                })
+                .count(),
+            cameras_3d,
+            "{path}: Camera3D count",
+        );
+        assert_eq!(
+            world
+                .all_components()
+                .filter(|id| {
+                    world
+                        .get_component_by_id_as::<CameraXRComponent>(*id)
+                        .is_some()
+                })
+                .count(),
+            cameras_xr,
+            "{path}: CameraXR count",
+        );
+    }
+}
+
+#[test]
 fn roundtrip_ambient_light() {
     use crate::engine::ecs::component::AmbientLightComponent;
     let (world, id) = roundtrip_component(AmbientLightComponent::rgb(0.1, 0.5, 0.9));
