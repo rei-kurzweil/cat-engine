@@ -21,6 +21,7 @@ not one implementation patch.
 
 Related current work:
 
+- [ECS and MMS authoring contract](../transmissive-materials-ecs-mms-authoring-contract.md)
 - [Implemented render-to-texture bridge](../../spec/render-to-texture.md)
 - [Animated shader-material inputs](../animated-shader-material-inputs-mms-animation-system.md)
 - [Single-layer transparency contract](../single-layer-transparency-depth-write-contract.md)
