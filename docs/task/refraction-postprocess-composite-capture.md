@@ -1,15 +1,21 @@
-# Task: Refraction sampling of the post-process composite
+# Task: Prevent Bloom from bypassing refraction
 
 Status: next renderer slice.
 
 ## Problem
 
 Sharp refraction currently snapshots `main_color` after background, opaque, and cutout rendering.
-Bloom extraction, blur, and final composition happen later. The refracted image therefore includes
-the sharp emissive object but not its blurred halo.
+That contains the normally shaded, sharp emissive object, so that base object can be refracted.
 
-Sampling only the blurred Bloom target is not correct: refraction needs the full scene, and the
-normal final Bloom composite would still add an unrefracted halo over the refractive silhouette.
+Bloom is different: after the refraction pass, the renderer redraws emissive geometry into a
+separate Bloom source, blurs it, and the final fullscreen composite adds that blurred image over
+`main_color`. This late additive layer is not sampled by refraction and is not displaced by the
+refractive surface. Consequently, a lens can show the underlying emissive object refracted while
+its glow remains at the original, unrefracted screen position.
+
+Sampling only the blurred Bloom target is not correct: refraction needs the full scene. Leaving
+the normal final Bloom composite in place is also not correct, because it continues to add an
+unrefracted halo over the refractive silhouette.
 
 ## Required result
 

@@ -48,6 +48,39 @@ Related current work:
 8. Screen-edge behavior is defined. Invalid UVs never produce transparent or uninitialized holes;
    the first slice clamps/fades to a valid scene-color sample. Accurate off-screen content is a
    later guard-band or ray-traced feature.
+9. When Bloom is active, sharp refraction samples an opaque-plus-Bloom composite, not just opaque
+   scene color and not the Bloom texture alone. Build that composite before refraction, then use it
+   as both the refraction source and the preserved destination, so Bloom is refracted once rather
+   than added again as an unrefracted halo.
+
+## Post-process inclusion and cost
+
+Refraction can include post-processing that is available before its draw phase. For Bloom, the
+correct ordering is:
+
+```text
+background + opaque + cutout -> main_color
+emissive extraction -> bloom source -> blur
+main_color + blurred Bloom -> composited_scene
+composited_scene -> refraction -> remaining transparency/overlay -> present
+```
+
+This bends the Bloom glow together with the bright object behind the refractive surface. Today the
+sharp emissive surface is in `main_color` and can therefore be refracted, but the Bloom system
+later redraws emissive geometry into its own source, blurs it, and adds that result over the whole
+screen. The additive halo consequently bypasses refraction and remains at its original screen
+position within the refractive silhouette. Sampling only `main_color` preserves that failure;
+sampling only the blurred Bloom texture loses the base scene; and compositing Bloom again after
+refraction leaves an incorrect, unrefracted duplicate within the surface.
+
+The cost is not another scene render. Relative to the current post-process path, this changes the
+time at which the existing Bloom work runs and adds one full-viewport composite/copy (or a
+load-preserving render pass) plus a sampleable per-view color target. The exact implementation
+depends on attachment/transition constraints, but it is principally bandwidth and image-memory
+cost: roughly one extra single-sample color image per active view, with a full-screen read/write.
+In XR that cost is paid independently for each eye. When Bloom is disabled, avoid this extra
+composite and retain the cheaper opaque scene-color snapshot. Measure GPU time and allocated image
+memory for Bloom off/on, desktop, and both XR eyes before making this the default supported path.
 
 ## What “sample the entire screen” means
 
