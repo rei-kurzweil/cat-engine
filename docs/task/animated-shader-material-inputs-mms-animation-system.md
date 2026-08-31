@@ -2,6 +2,8 @@
 
 Status: proposed / investigation
 
+Parent architecture: [Materials v2: shader programs, vertex-family resolution, and typed parameters](epic/materials-v2.md)
+
 ## Motivation
 
 Scenes such as `examples/planar-auto-transparency-optimization.mms` should eventually be able to

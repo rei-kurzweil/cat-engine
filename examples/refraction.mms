@@ -1,6 +1,7 @@
 // Refraction comparison scene. Each panel is a cube scaled 4:4:1 so it reads
 // as a square, thick pane while preserving enough depth to inspect its edges.
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
+import { transform_info_panel } from "../assets/components/ui/transform_info_panel.mms"
 
 RendererSettings { window_size(1280, 800) }
 BGC.rgba(0.012, 0.012, 0.040, 1.0)
@@ -60,12 +61,19 @@ refraction_panel("refraction_ior_1_80", [ 1.9, -1.9, 0.0], [1.00, 0.68, 0.78, 1.
 
 // The sphere's smoothly changing normals should bend the neon lines continuously.
 // It sits slightly in front of the panes so its silhouette remains easy to inspect.
-T.position(0.0, 0.0, 0.75).scale(1.35, 1.35, 1.35) {
+let refraction_sphere = T.position(0.0, 0.0, 0.75).scale(1.35, 1.35, 1.35) {
     name = "refraction_sphere"
     R.sphere() {
         C.rgba(0.88, 0.96, 1.00, 1.0)
         Refraction.ior(1.52).thickness(0.22).strength(1.0).edge_fade(0.025)
     }
+}
+refraction_sphere
+
+// Standalone world-space telemetry for the sphere above. It is intentionally a
+// sibling of the scene objects, not a child of the camera or the inspected mesh.
+T.position(-4.7, 2.8, 5.5) {
+    transform_info_panel(refraction_sphere)
 }
 
 // Movable desktop fly camera; local -Z is forward.

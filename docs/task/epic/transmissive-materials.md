@@ -21,6 +21,7 @@ not one implementation patch.
 
 Related current work:
 
+- [Materials v2: shader programs, vertex-family resolution, and typed parameters](materials-v2.md)
 - [ECS and MMS authoring contract](../transmissive-materials-ecs-mms-authoring-contract.md)
 - [Implemented render-to-texture bridge](../../spec/render-to-texture.md)
 - [Animated shader-material inputs](../animated-shader-material-inputs-mms-animation-system.md)
