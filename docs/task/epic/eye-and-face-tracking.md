@@ -32,6 +32,9 @@ and the HTC transport adds per-eye face data where the sender provides it.
    safe defaults, and per-rig presets.
 4. [Head-motion probe and sample alignment](../eye-tracking-head-rotation-compensation-sample-alignment.md):
    synchronized source capture, time-series analysis, and evidence-gated opt-in mitigation.
+5. [Unified two-eye normalization and AVC routing](../unified-two-eye-tracking-normalization-and-avc-routing.md):
+   shared gaze/closure semantics, combined and unilateral fallback, and transport-neutral morph
+   application.
 
 ## Boundaries
 

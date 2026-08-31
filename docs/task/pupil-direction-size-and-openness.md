@@ -2,6 +2,9 @@
 
 Parent: [Eye and face tracking epic](epic/eye-and-face-tracking.md)
 
+Normalization and AVC routing contract:
+[Unified two-eye tracking normalization and AVC routing](unified-two-eye-tracking-normalization-and-avc-routing.md)
+
 ## Goal
 
 Drive the eye data that avatars commonly expose while making incoming pupil
