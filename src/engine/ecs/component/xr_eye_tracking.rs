@@ -36,11 +36,15 @@ pub struct EyeGazeSample {
     pub sequence: u64,
 }
 
-/// Generic OSC reports one closure value for both eyes. It has its own
-/// sequence because closure packets are independent from gaze packets.
+/// Latest normalized per-eye closure values (`0 = open`, `1 = closed`).
+///
+/// It has its own sequence because closure packets are independent from gaze
+/// packets. Transports with one combined value duplicate it into both eyes;
+/// transports with independent openness preserve each eye after conversion.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EyeClosureSample {
-    pub closure: Option<f32>,
+    pub left: Option<f32>,
+    pub right: Option<f32>,
     pub sequence: u64,
 }
 
@@ -161,6 +165,7 @@ pub struct XREyeTrackingHtcComponent {
     pub rotation_limits: Option<EyeRotationLimits>,
     pub rotation_limits_per_eye: [Option<EyeRotationLimits>; 2],
     pub(crate) gaze_sample: EyeGazeSample,
+    pub(crate) closure_sample: EyeClosureSample,
 }
 impl XREyeTrackingHtcComponent {
     pub fn on() -> Self {
@@ -171,6 +176,7 @@ impl XREyeTrackingHtcComponent {
             rotation_limits: None,
             rotation_limits_per_eye: [None; 2],
             gaze_sample: EyeGazeSample::default(),
+            closure_sample: EyeClosureSample::default(),
         }
     }
     pub fn listen(host: impl Into<String>, port: u16) -> Self {
@@ -181,6 +187,7 @@ impl XREyeTrackingHtcComponent {
             rotation_limits: None,
             rotation_limits_per_eye: [None; 2],
             gaze_sample: EyeGazeSample::default(),
+            closure_sample: EyeClosureSample::default(),
         }
     }
     pub fn with_head_rotation_compensation(mut self, value: HeadRotationCompensation) -> Self {

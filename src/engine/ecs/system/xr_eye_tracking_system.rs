@@ -51,7 +51,8 @@ impl XREyeTrackingSystem {
             // on the next frame instead of leaving an avatar permanently
             // blinking.
             if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
-                component.closure_sample.closure = None;
+                component.closure_sample.left = None;
+                component.closure_sample.right = None;
             }
             let c = world
                 .get_component_by_id_as::<XREyeTrackingComponent>(id)
@@ -75,6 +76,7 @@ impl XREyeTrackingSystem {
                 let mut bytes = [0u8; 1024];
                 let mut received_update = false;
                 let mut received_gaze = false;
+                let mut received_closure = false;
                 while let Ok(len) = s.recv(&mut bytes) {
                     let packet = &bytes[..len];
                     match decode_osc(packet) {
@@ -82,6 +84,7 @@ impl XREyeTrackingSystem {
                             received_gaze |= combined_look.is_some()
                                 || left_look.is_some()
                                 || right_look.is_some();
+                            received_closure |= combined_openness.is_some();
                             let sample = self.standard_samples.entry(id).or_default();
                             if combined_look.is_some() {
                                 sample.combined_look = combined_look;
@@ -117,10 +120,16 @@ impl XREyeTrackingSystem {
                             component.gaze_sample = gaze_sample;
                         }
                     }
-                    if let Some(closure) = sample.combined_openness.filter(|value| value.is_finite()) {
-                        let sequence = self.next_sequence();
-                        if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
-                            component.closure_sample = EyeClosureSample { closure: Some(closure.clamp(0.0, 1.0)), sequence };
+                    if received_closure {
+                        if let Some(closure_sample) = standard_closure_sample(
+                            sample.combined_openness,
+                            self.next_sequence(),
+                        ) {
+                            if let Some(component) = world
+                                .get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
+                            {
+                                component.closure_sample = closure_sample;
+                            }
                         }
                     }
                     emit.push_event(
@@ -148,6 +157,12 @@ impl XREyeTrackingSystem {
         self.htc_sockets.retain(|id, _| ids.contains(id));
         self.failed_htc_binds.retain(|id| ids.contains(id));
         for id in ids {
+            if let Some(component) =
+                world.get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(id)
+            {
+                component.closure_sample.left = None;
+                component.closure_sample.right = None;
+            }
             let c = world
                 .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
                 .unwrap();
@@ -178,16 +193,20 @@ impl XREyeTrackingSystem {
                     }
                 }
                 for (left, right) in packets {
-                    let sequence = self.next_sequence();
-                    let gaze_sample =
-                        htc_gaze_sample(&left, &right, sequence).unwrap_or(EyeGazeSample {
-                            sequence,
-                            ..EyeGazeSample::default()
-                        });
+                    let gaze_sample = htc_gaze_sample(&left, &right, self.next_sequence());
+                    let closure_sequence = self.next_sequence();
+                    let closure_sample = htc_closure_sample(&left, &right, closure_sequence);
                     if let Some(component) =
                         world.get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(id)
                     {
-                        component.gaze_sample = gaze_sample;
+                        if let Some(gaze_sample) = gaze_sample {
+                            component.gaze_sample = gaze_sample;
+                        }
+                        component.closure_sample =
+                            closure_sample.unwrap_or(EyeClosureSample {
+                                sequence: closure_sequence,
+                                ..EyeClosureSample::default()
+                            });
                     }
                     emit.push_event(id, EventSignal::XrEyeTrackingHtcUpdated { left, right });
                 }
@@ -221,7 +240,8 @@ fn standard_gaze_sample(sample: StandardEyeSample, sequence: u64) -> Option<EyeG
         .right_look
         .and_then(normalized_look)
         .or_else(|| sample.combined_look.and_then(normalized_look));
-    (left.is_some() || right.is_some()).then_some(EyeGazeSample {
+    let (left, right) = complete_eye_pair(left, right);
+    left.is_some().then_some(EyeGazeSample {
         left,
         right,
         sequence,
@@ -231,7 +251,45 @@ fn standard_gaze_sample(sample: StandardEyeSample, sequence: u64) -> Option<EyeG
 fn htc_gaze_sample(left: &HtcEye, right: &HtcEye, sequence: u64) -> Option<EyeGazeSample> {
     let left = left.look.and_then(normalized_look);
     let right = right.look.and_then(normalized_look);
-    (left.is_some() || right.is_some()).then_some(EyeGazeSample {
+    let (left, right) = complete_eye_pair(left, right);
+    left.is_some().then_some(EyeGazeSample {
+        left,
+        right,
+        sequence,
+    })
+}
+
+fn complete_eye_pair<T: Copy>(left: Option<T>, right: Option<T>) -> (Option<T>, Option<T>) {
+    match (left, right) {
+        (Some(left), Some(right)) => (Some(left), Some(right)),
+        (Some(value), None) | (None, Some(value)) => (Some(value), Some(value)),
+        (None, None) => (None, None),
+    }
+}
+
+fn standard_closure_sample(closure: Option<f32>, sequence: u64) -> Option<EyeClosureSample> {
+    let closure = closure
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.0, 1.0))?;
+    Some(EyeClosureSample {
+        left: Some(closure),
+        right: Some(closure),
+        sequence,
+    })
+}
+
+fn htc_closure_sample(
+    left: &HtcEye,
+    right: &HtcEye,
+    sequence: u64,
+) -> Option<EyeClosureSample> {
+    let to_closure = |openness: Option<f32>| {
+        openness
+            .filter(|value| value.is_finite())
+            .map(|value| (1.0 - value).clamp(0.0, 1.0))
+    };
+    let (left, right) = complete_eye_pair(to_closure(left.openness), to_closure(right.openness));
+    left.is_some().then_some(EyeClosureSample {
         left,
         right,
         sequence,
@@ -410,6 +468,56 @@ mod tests {
         )
         .expect("combined fallback");
         assert_eq!(invalid_individual.left, Some([0.0, 0.0, -1.0]));
+
+        let unilateral = standard_gaze_sample(
+            StandardEyeSample {
+                left_look: Some([0.0, 1.0, 0.0]),
+                ..StandardEyeSample::default()
+            },
+            11,
+        )
+        .expect("unilateral fallback");
+        assert_eq!(unilateral.left, Some([0.0, 1.0, 0.0]));
+        assert_eq!(unilateral.right, unilateral.left);
+    }
+
+    #[test]
+    fn closure_normalization_duplicates_combined_and_preserves_htc_per_eye() {
+        assert_eq!(
+            standard_closure_sample(Some(0.7), 4).map(|sample| {
+                (sample.left, sample.right, sample.sequence)
+            }),
+            Some((Some(0.7), Some(0.7), 4))
+        );
+
+        let left = HtcEye {
+            look: None,
+            position: None,
+            openness: Some(0.25),
+            wide: None,
+            squeeze: None,
+            pupil_diameter: None,
+        };
+        let right = HtcEye {
+            openness: Some(0.8),
+            ..left.clone()
+        };
+        let closure = htc_closure_sample(&left, &right, 5).expect("HTC closure");
+        assert_eq!(closure.left, Some(0.75));
+        assert!((closure.right.unwrap() - 0.2).abs() < 1e-6);
+        assert_eq!(closure.sequence, 5);
+
+        let unilateral = htc_closure_sample(
+            &left,
+            &HtcEye {
+                openness: None,
+                ..right
+            },
+            6,
+        )
+        .expect("unilateral HTC closure fallback");
+        assert_eq!(unilateral.left, Some(0.75));
+        assert_eq!(unilateral.right, unilateral.left);
     }
 
     #[test]
@@ -473,5 +581,11 @@ mod tests {
         assert_eq!(right.pupil_diameter, Some(3.2));
         assert_eq!(left.position, Some([0.1, 0.2]));
         assert_eq!(right.position, Some([0.3, 0.4]));
+
+        let gaze = htc_gaze_sample(&left, &right, 12).expect("per-eye HTC gaze");
+        assert_ne!(gaze.left, gaze.right);
+        let closure = htc_closure_sample(&left, &right, 13).expect("per-eye HTC closure");
+        assert_eq!(closure.left, Some(0.75));
+        assert!((closure.right.unwrap() - 0.2).abs() < 1e-6);
     }
 }

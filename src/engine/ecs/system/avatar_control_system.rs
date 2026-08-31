@@ -193,7 +193,7 @@ fn update_eye_tracking(
     );
     update_one_eye_tracking(avc_id, world, emit, true, left_target, left_gaze);
     update_one_eye_tracking(avc_id, world, emit, false, right_target, right_gaze);
-    update_generic_osc_blink(avc_id, world, humanoid_maps);
+    update_eye_blink(avc_id, world, humanoid_maps);
 }
 
 const EYE_GAZE_FREEZE_ENTER_RAD_PER_SEC: f32 = 30.0_f32.to_radians();
@@ -291,29 +291,56 @@ fn freeze_gaze(
     })
 }
 
-/// Generic OSC closure owns mapped blink targets while present. The base value
-/// is never overwritten, so removing/loss of the tracker restores editor and
-/// imported defaults automatically.
-fn update_generic_osc_blink(
+/// The newest normalized closure for each eye owns its mapped blink target
+/// while present. The base value is never overwritten, so removing/loss of a
+/// tracker restores editor and imported defaults automatically.
+fn update_eye_blink(
     avc_id: ComponentId,
     world: &mut World,
     humanoid_maps: &mut HumanoidBoneMapSystem,
 ) {
-    let closure = world
-        .children_of(avc_id)
-        .iter()
-        .copied()
-        .filter_map(|id| {
-            world
-                .get_component_by_id_as::<XREyeTrackingComponent>(id)
-                .map(|tracker| tracker.closure_sample)
-        })
-        .filter_map(|sample| sample.closure.map(|value| (sample.sequence, value)))
-        .max_by_key(|(sequence, _)| *sequence)
-        .map(|(_, value)| value);
+    let closure = newest_direct_eye_closure(world, avc_id);
     let Some(gltf_id) = humanoid_maps.request_for_avc(world, avc_id) else {
         return;
     };
+    apply_eye_blink_drivers(world, gltf_id, closure);
+}
+
+fn newest_direct_eye_closure(
+    world: &World,
+    avc_id: ComponentId,
+) -> (Option<f32>, Option<f32>) {
+    let mut left = None::<(u64, f32)>;
+    let mut right = None::<(u64, f32)>;
+    for id in world.children_of(avc_id).iter().copied() {
+        let sample = world
+            .get_component_by_id_as::<XREyeTrackingComponent>(id)
+            .map(|tracker| tracker.closure_sample)
+            .or_else(|| {
+                world
+                    .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
+                    .map(|tracker| tracker.closure_sample)
+            });
+        let Some(sample) = sample else { continue };
+        if let Some(value) = sample.left {
+            if left.is_none_or(|(sequence, _)| sample.sequence > sequence) {
+                left = Some((sample.sequence, value));
+            }
+        }
+        if let Some(value) = sample.right {
+            if right.is_none_or(|(sequence, _)| sample.sequence > sequence) {
+                right = Some((sample.sequence, value));
+            }
+        }
+    }
+    (left.map(|(_, value)| value), right.map(|(_, value)| value))
+}
+
+fn apply_eye_blink_drivers(
+    world: &mut World,
+    gltf_id: ComponentId,
+    closure: (Option<f32>, Option<f32>),
+) {
     let labels = world.children_of(gltf_id).iter().copied().find_map(|id| {
         world
             .get_component_by_id_as::<crate::engine::ecs::component::MorphTargetMapComponent>(id)
@@ -325,7 +352,10 @@ fn update_generic_osc_blink(
     else {
         return;
     };
-    for channel in ["left_eye_blink", "right_eye_blink"] {
+    for (channel, closure) in [
+        ("left_eye_blink", closure.0),
+        ("right_eye_blink", closure.1),
+    ] {
         let Some(label) = labels.get(channel) else {
             continue;
         };
@@ -1753,9 +1783,10 @@ fn rest_model_relative_to(
 #[cfg(test)]
 mod hand_pose_correction_tests {
     use super::*;
-    use crate::engine::ecs::component::xr_eye_tracking::EyeGazeSample;
+    use crate::engine::ecs::component::xr_eye_tracking::{EyeClosureSample, EyeGazeSample};
     use crate::engine::ecs::component::{
-        ComponentRef, EyeRotationLimits, RestAttachmentComponent, XREyeTrackingComponent,
+        ComponentRef, EyeRotationLimits, MorphFactorState, MorphTargetInfo, MorphTargetKey,
+        MorphTargetMapComponent, RestAttachmentComponent, XREyeTrackingComponent,
         XREyeTrackingHtcComponent,
     };
     use crate::engine::ecs::system::{
@@ -1832,6 +1863,107 @@ mod hand_pose_correction_tests {
                 }),
             )
         );
+    }
+
+    #[test]
+    fn blink_routing_chooses_each_eye_and_drives_its_morph_independently() {
+        let mut world = World::default();
+        let avc = world.add_component(AvatarControlComponent::new());
+        let standard = world.add_component(XREyeTrackingComponent::on());
+        let htc = world.add_component(XREyeTrackingHtcComponent::on());
+        let descendant = world.add_component(XREyeTrackingComponent::on());
+        world.add_child(avc, standard).unwrap();
+        world.add_child(avc, htc).unwrap();
+        world.add_child(standard, descendant).unwrap();
+
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingComponent>(standard)
+            .unwrap()
+            .closure_sample = EyeClosureSample {
+            left: Some(0.2),
+            right: Some(0.3),
+            sequence: 2,
+        };
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(htc)
+            .unwrap()
+            .closure_sample = EyeClosureSample {
+            left: Some(0.8),
+            right: None,
+            sequence: 3,
+        };
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingComponent>(descendant)
+            .unwrap()
+            .closure_sample = EyeClosureSample {
+            left: Some(1.0),
+            right: Some(1.0),
+            sequence: 99,
+        };
+
+        let closure = newest_direct_eye_closure(&world, avc);
+        assert_eq!(closure, (Some(0.8), Some(0.3)));
+
+        let left_key = MorphTargetKey {
+            node_index: 0,
+            primitive_index: 0,
+            target_index: 0,
+        };
+        let right_key = MorphTargetKey {
+            target_index: 1,
+            ..left_key
+        };
+        let mut gltf = GLTFComponent::new("test.glb");
+        gltf.morph_targets = vec![
+            MorphTargetInfo {
+                key: left_key,
+                label: Some("BlinkLeft".into()),
+                base_factor: 0.1,
+            },
+            MorphTargetInfo {
+                key: right_key,
+                label: Some("BlinkRight".into()),
+                base_factor: 0.15,
+            },
+        ];
+        gltf.morph_factors.insert(
+            left_key,
+            MorphFactorState {
+                base: 0.1,
+                driver: None,
+            },
+        );
+        gltf.morph_factors.insert(
+            right_key,
+            MorphFactorState {
+                base: 0.15,
+                driver: None,
+            },
+        );
+        let gltf_id = world.add_component(gltf);
+        let map = world.add_component(
+            MorphTargetMapComponent::new()
+                .with_slot("left_eye_blink", "BlinkLeft")
+                .with_slot("right_eye_blink", "BlinkRight"),
+        );
+        world.add_child(gltf_id, map).unwrap();
+
+        apply_eye_blink_drivers(&mut world, gltf_id, closure);
+        let gltf = world
+            .get_component_by_id_as::<GLTFComponent>(gltf_id)
+            .unwrap();
+        assert_eq!(gltf.morph_factors[&left_key].driver, Some(0.8));
+        assert_eq!(gltf.morph_factors[&right_key].driver, Some(0.3));
+        assert_eq!(gltf.morph_factors[&left_key].base, 0.1);
+        assert_eq!(gltf.morph_factors[&right_key].base, 0.15);
+        apply_eye_blink_drivers(&mut world, gltf_id, (None, None));
+        let gltf = world
+            .get_component_by_id_as::<GLTFComponent>(gltf_id)
+            .unwrap();
+        assert_eq!(gltf.morph_factors[&left_key].driver, None);
+        assert_eq!(gltf.morph_factors[&right_key].driver, None);
+        assert_eq!(gltf.morph_factors[&left_key].effective(), 0.1);
+        assert_eq!(gltf.morph_factors[&right_key].effective(), 0.15);
     }
 
     #[test]

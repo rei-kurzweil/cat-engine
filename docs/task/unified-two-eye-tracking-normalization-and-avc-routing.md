@@ -1,6 +1,6 @@
 # Unified two-eye tracking normalization and AVC routing
 
-Status: planned / HTC gaze transport works, shared blink routing pending
+Status: slice 1 and slice 2 implemented / headset validation pending
 
 Parent: [Eye and face tracking epic](epic/eye-and-face-tracking.md)
 
@@ -69,22 +69,21 @@ So VRCFaceTracking already receives HTC blinking as closedness-like expression c
 missing behavior is specific to Mittens' consumer state: `XREyeTrackingHTC` decodes openness but
 currently retains only gaze for AVC.
 
-## Current divergence to remove
+## Prior divergence (resolved)
 
-`XREyeTrackingComponent` owns:
+Before this task, `XREyeTrackingComponent` owned:
 
 - retained left/right gaze;
 - one combined closure sample from OSC.
 
-`XREyeTrackingHtcComponent` owns:
+while `XREyeTrackingHtcComponent` owned:
 
 - retained left/right gaze;
 - no retained openness/closure; HTC geometric fields are event-only.
 
-AVC then has a source-specific function named `update_generic_osc_blink` that looks only at
-`XREyeTrackingComponent` and fans one value to both morph targets. This is the wrong ownership
-boundary. Source-specific interpretation belongs in `XREyeTrackingSystem`; AVC should read one
-normalized contract from either component.
+AVC also had a source-specific function named `update_generic_osc_blink`. The first implementation
+slice removed that divergence: both components now retain the same normalized left/right gaze and
+closure samples, and source-specific interpretation remains in `XREyeTrackingSystem`.
 
 ## Normalized representation
 
@@ -214,7 +213,7 @@ driver. One eye may release while the other remains driven when exact per-eye da
 
 ## Implementation slices
 
-### Slice 1 — shared two-eye closure
+### Slice 1 — shared two-eye closure (implemented)
 
 - Generalize `EyeClosureSample` from one `Option<f32>` to left/right values.
 - Add normalized closure state to `XREyeTrackingHtcComponent`.
@@ -223,10 +222,11 @@ driver. One eye may release while the other remains driven when exact per-eye da
 - Rename and generalize AVC blink routing across both component types.
 - Add focused transport, arbitration, morph application, and stale-release tests.
 
-This slice is complete when switching ALVR between VRChat OSC and Mittens UDP produces the same
-bilateral blink for the same physical blink, while HTC can also preserve distinct left/right values.
+Code and fixture coverage are complete. Live headset validation remains: switching ALVR between
+VRChat OSC and Mittens UDP should produce the same bilateral blink for the same physical blink,
+while HTC also preserves distinct left/right values.
 
-### Slice 2 — shared normalized gaze ownership
+### Slice 2 — shared normalized gaze ownership (implemented)
 
 - Factor OSC combined/per-eye and HTC per-eye fallback into one tested expansion helper.
 - Store the same gaze sample type on both components.
