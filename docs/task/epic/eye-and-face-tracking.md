@@ -35,6 +35,9 @@ and the HTC transport adds per-eye face data where the sender provides it.
 5. [Unified two-eye normalization and AVC routing](../unified-two-eye-tracking-normalization-and-avc-routing.md):
    shared gaze/closure semantics, combined and unilateral fallback, and transport-neutral morph
    application.
+6. [HTC pupil-position posing for VRoid eyes](../htc-pupil-position-vroid-positional-eye-posing.md):
+   builder-configured positional eye posing and an evidence-based comparison with quaternion-driven
+   eye rotation.
 
 ## Boundaries
 
