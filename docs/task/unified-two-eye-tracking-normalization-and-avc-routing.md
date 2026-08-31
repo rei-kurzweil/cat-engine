@@ -31,10 +31,16 @@ VRChat Eye OSC sends `EyesClosedAmount`, whose semantic direction is the inverse
 1 = closed
 ```
 
-ALVR could invert HTC openness before writing the custom packet, but that would make the packet stop
-representing the HTC source value and would require changing or versioning the existing contract.
-The useful consistency boundary is the first normalized Mittens state, not necessarily every source
-wire format. Normalize exactly once when decoding:
+### Settled transport-boundary decision
+
+Keep every HTC-specific field in its native HTC meaning through the ALVR client, `EyeDataHtc`, and
+the Mittens binary UDP packet. ALVR must not rename, invert, clamp, combine, or otherwise normalize
+`eye_openness`, `eye_wide`, `eye_squeeze`, pupil position, or pupil diameter for AVC. Validity remains
+explicit rather than being encoded as a replacement numeric value.
+
+Mittens owns all conversion from the HTC-native representation into engine semantics. The useful
+consistency boundary is the first normalized Mittens state, not the source wire format. Normalize
+exactly once after decoding and before storing the state consumed by AVC:
 
 ```text
 OSC closure = clamp(EyesClosedAmount, 0, 1)
@@ -43,6 +49,10 @@ HTC closure = clamp(1 - eye_openness, 0, 1)
 
 Events may continue to expose source-native `openness` for diagnostics. AVC must not know which
 formula produced normalized `closure`.
+
+This preserves a lossless diagnostic view of the hardware data, avoids making ALVR aware of avatar
+semantics, and lets future consumers reinterpret HTC fields without undoing an irreversible sender
+conversion.
 
 ## What ALVR's VRCFaceTracking sink does
 
@@ -167,9 +177,9 @@ Examples:
 - Later, normalize and retain pupil position, diameter, wide, and squeeze through the same two-eye
   structure.
 
-Do not change the Mittens v1 UDP field from openness to closure merely to simplify AVC. If the wire
-format is changed for timestamps or other reasons, version it explicitly and document whether v2
-continues to carry native openness.
+Do not change the Mittens UDP field from openness to closure merely to simplify AVC. Future protocol
+versions must continue to carry HTC fields with their native meanings; version changes may add
+timestamps, provenance, or fields, but must not silently redefine existing HTC values.
 
 ## AVC consumption and arbitration
 
@@ -252,6 +262,8 @@ bilateral blink for the same physical blink, while HTC can also preserve distinc
 - Gaze limits and head-motion experiments do not alter closure or other semantic channels.
 - The v1 HTC packet and script update events remain compatible unless an explicitly versioned
   migration is approved.
+- ALVR preserves HTC-native fields and validity without AVC-oriented inversion or normalization;
+  all conversion to closure and other engine semantics occurs in Mittens.
 
 ## Related files
 
