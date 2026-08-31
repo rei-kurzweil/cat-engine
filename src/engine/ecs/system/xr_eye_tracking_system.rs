@@ -1,6 +1,7 @@
 use crate::engine::ecs::component::xr_eye_tracking::{EyeClosureSample, EyeGazeSample};
 use crate::engine::ecs::component::{XREyeTrackingComponent, XREyeTrackingHtcComponent};
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter, World};
+use crate::utils::math::quat_rotate_vec3;
 use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
 
@@ -323,52 +324,61 @@ pub struct HtcEye {
     pub squeeze: Option<f32>,
     pub pupil_diameter: Option<f32>,
 }
-/// ALVR Mittens packet: 84 byte, `M`, protocol v1, little-endian floats. Layout follows the ALVR face tracking wire format.
+/// ALVR Mittens packet: 84 bytes, `M`, protocol v1, little-endian floats.
 pub fn decode_htc(b: &[u8]) -> Option<(HtcEye, HtcEye)> {
     if b.len() != 84 || b[0] != b'M' || b[1] != 1 {
         return None;
     }
-    let mut p = 4;
-    let eye = |p: &mut usize| {
-        let flags = u32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?);
-        *p += 4;
-        let f = |p: &mut usize| {
-            let x = f32::from_le_bytes(b.get(*p..*p + 4)?.try_into().ok()?);
-            *p += 4;
-            Some(x)
-        };
-        let vals = [
-            f(p)?,
-            f(p)?,
-            f(p)?,
-            f(p)?,
-            f(p)?,
-            f(p)?,
-            f(p)?,
-            f(p)?,
-            f(p)?,
-        ];
-        if vals.iter().any(|x| !x.is_finite()) {
+    let flags = b[2];
+    let f = |offset: usize| {
+        let value = f32::from_le_bytes(b.get(offset..offset + 4)?.try_into().ok()?);
+        value.is_finite().then_some(value)
+    };
+    let quat_look = |offset: usize| {
+        let q = [f(offset)?, f(offset + 4)?, f(offset + 8)?, f(offset + 12)?];
+        let length_sq = q.iter().map(|value| value * value).sum::<f32>();
+        if length_sq <= 1e-12 {
             return None;
-        };
+        }
+        let inv_length = length_sq.sqrt().recip();
+        Some(quat_rotate_vec3(
+            q.map(|value| value * inv_length),
+            [0.0, 0.0, -1.0],
+        ))
+    };
+    let eye = |right: bool| {
+        let gaze_bit = if right { 1 } else { 0 };
+        let geometry_bit = if right { 3 } else { 2 };
+        let diameter_bit = if right { 5 } else { 4 };
+        let position_bit = if right { 7 } else { 6 };
+        let gaze_offset = if right { 20 } else { 4 };
+        let geometry_offset = if right { 48 } else { 36 };
+        let diameter_offset = if right { 64 } else { 60 };
+        let position_offset = if right { 76 } else { 68 };
+
         Some(HtcEye {
-            look: if flags & 1 != 0 {
-                Some([vals[0], vals[1], vals[2]])
-            } else {
-                None
-            },
-            position: if flags & 2 != 0 {
-                Some([vals[3], vals[4]])
-            } else {
-                None
-            },
-            openness: if flags & 4 != 0 { Some(vals[5]) } else { None },
-            wide: if flags & 8 != 0 { Some(vals[6]) } else { None },
-            squeeze: if flags & 16 != 0 { Some(vals[7]) } else { None },
-            pupil_diameter: if flags & 32 != 0 { Some(vals[8]) } else { None },
+            look: (flags & (1 << gaze_bit) != 0)
+                .then(|| quat_look(gaze_offset))
+                .flatten(),
+            position: (flags & (1 << position_bit) != 0)
+                .then(|| Some([f(position_offset)?, f(position_offset + 4)?]))
+                .flatten(),
+            openness: (flags & (1 << geometry_bit) != 0)
+                .then(|| f(geometry_offset))
+                .flatten(),
+            wide: (flags & (1 << geometry_bit) != 0)
+                .then(|| f(geometry_offset + 4))
+                .flatten(),
+            squeeze: (flags & (1 << geometry_bit) != 0)
+                .then(|| f(geometry_offset + 8))
+                .flatten(),
+            pupil_diameter: (flags & (1 << diameter_bit) != 0)
+                .then(|| f(diameter_offset))
+                .flatten(),
         })
     };
-    Some((eye(&mut p)?, eye(&mut p)?))
+
+    Some((eye(false)?, eye(true)?))
 }
 
 #[cfg(test)]
@@ -428,5 +438,40 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn decodes_alvr_mittens_v1_packet_layout() {
+        let mut packet = [0u8; 84];
+        packet[0] = b'M';
+        packet[1] = 1;
+        packet[2] = 0xff;
+        let mut put = |offset: usize, values: &[f32]| {
+            for (index, value) in values.iter().enumerate() {
+                packet[offset + index * 4..offset + index * 4 + 4]
+                    .copy_from_slice(&value.to_le_bytes());
+            }
+        };
+        put(4, &[0.0, 0.0, 0.0, 1.0]);
+        put(20, &[0.0, 1.0, 0.0, 0.0]);
+        put(36, &[0.25, 0.5, 0.75]);
+        put(48, &[0.8, 0.6, 0.4]);
+        put(60, &[3.1, 3.2]);
+        put(68, &[0.1, 0.2, 0.3, 0.4]);
+
+        let (left, right) = decode_htc(&packet).expect("ALVR packet");
+        assert_eq!(left.look, Some([0.0, 0.0, -1.0]));
+        let right_look = right.look.expect("right gaze");
+        assert!(right_look[0].abs() < 1e-6);
+        assert!(right_look[1].abs() < 1e-6);
+        assert!((right_look[2] - 1.0).abs() < 1e-6);
+        assert_eq!(left.openness, Some(0.25));
+        assert_eq!(left.wide, Some(0.5));
+        assert_eq!(left.squeeze, Some(0.75));
+        assert_eq!(right.openness, Some(0.8));
+        assert_eq!(left.pupil_diameter, Some(3.1));
+        assert_eq!(right.pupil_diameter, Some(3.2));
+        assert_eq!(left.position, Some([0.1, 0.2]));
+        assert_eq!(right.position, Some([0.3, 0.4]));
     }
 }

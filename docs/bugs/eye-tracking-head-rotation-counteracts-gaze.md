@@ -85,6 +85,8 @@ alignment rather than merely a static inverse head rotation.
 
 ## Related code and scene
 
+- `docs/task/eye-tracking-head-rotation-compensation-sample-alignment.md` — probe schema,
+  controlled recordings, analysis, and mitigation decision gates.
 - `src/engine/ecs/system/avatar_control_system.rs` — current gaze-to-eye-bone calculation.
 - `src/engine/ecs/system/xr_eye_tracking_system.rs` — OSC/HTC gaze transport decoding.
 - `examples/vtuber-eye-tracking-mirror.mms` — headset reproduction scene.

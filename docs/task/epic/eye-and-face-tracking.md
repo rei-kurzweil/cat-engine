@@ -30,6 +30,8 @@ and the HTC transport adds per-eye face data where the sender provides it.
    diameter.
 3. Avatar mapping and calibration UX: reusable semantic maps, diagnostics,
    safe defaults, and per-rig presets.
+4. [Head-motion probe and sample alignment](../eye-tracking-head-rotation-compensation-sample-alignment.md):
+   synchronized source capture, time-series analysis, and evidence-gated opt-in mitigation.
 
 ## Boundaries
 
