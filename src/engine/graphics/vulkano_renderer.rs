@@ -2817,7 +2817,10 @@ mod vulkano_backend {
                     color_format,
                     extent,
                     SampleCount::Sample1,
-                    ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                    ImageUsage::COLOR_ATTACHMENT
+                        | ImageUsage::TRANSFER_DST
+                        | ImageUsage::TRANSFER_SRC
+                        | ImageUsage::SAMPLED,
                 )?);
             }
             self.window_refraction_targets = Some(WindowRefractionTargets {
@@ -3006,6 +3009,228 @@ mod vulkano_backend {
             }
 
             publications
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn record_bloom_passes(
+            &mut self,
+            cbb: &mut AutoCommandBufferBuilder<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+            visual_world: &VisualWorld,
+            post_process: &PostProcessInvocation,
+            extent: [u32; 2],
+            global_set_fg: &Arc<DescriptorSet>,
+            global_set_bg: Option<&Arc<DescriptorSet>>,
+            rig_set: &Arc<DescriptorSet>,
+            emissive_instance_buffer: Option<&Subbuffer<[InstanceData]>>,
+            emissive_instance_count: usize,
+            emissive_cutout_instance_buffer: Option<&Subbuffer<[InstanceData]>>,
+            emissive_cutout_instance_count: usize,
+            background_emissive_instance_buffer: Option<&Subbuffer<[InstanceData]>>,
+            background_emissive_instance_count: usize,
+        ) -> Result<Option<Arc<ImageView>>, Box<dyn std::error::Error>> {
+            let bloom_radius_pixels = post_process
+                .config
+                .effective_blur_radius_pixels(post_process.targets.bloom_extent[0]);
+            let (
+                Some(bloom_cfg),
+                Some(bloom_source),
+                Some(bloom_a),
+                Some(bloom_b),
+                Some(radius_pixels),
+            ) = (
+                post_process.config.bloom.as_ref(),
+                post_process.targets.bloom_source.clone(),
+                post_process.targets.bloom_a.clone(),
+                post_process.targets.bloom_b.clone(),
+                bloom_radius_pixels,
+            )
+            else {
+                return Ok(None);
+            };
+
+            let has_foreground_emissive_content =
+                emissive_instance_count > 0 || emissive_cutout_instance_count > 0;
+            let has_background_emissive_content = background_emissive_instance_count > 0;
+            if !has_foreground_emissive_content && !has_background_emissive_content {
+                return Ok(None);
+            }
+
+            let begin_bloom_extraction = |cbb: &mut AutoCommandBufferBuilder<
+                vulkano::command_buffer::PrimaryAutoCommandBuffer,
+            >,
+                                          load_op: AttachmentLoadOp,
+                                          store_msaa_for_followup: bool|
+             -> Result<(), Box<dyn std::error::Error>> {
+                let mut bloom_attachment = RenderingAttachmentInfo {
+                    load_op,
+                    store_op: AttachmentStoreOp::Store,
+                    clear_value: match load_op {
+                        AttachmentLoadOp::Clear => Some(ClearValue::from([0.0, 0.0, 0.0, 0.0])),
+                        _ => None,
+                    },
+                    ..RenderingAttachmentInfo::image_view(
+                        post_process
+                            .targets
+                            .bloom_source_msaa
+                            .clone()
+                            .unwrap_or_else(|| bloom_source.clone()),
+                    )
+                };
+
+                if post_process.targets.bloom_source_msaa.is_some() {
+                    bloom_attachment.resolve_info = Some(
+                        RenderingAttachmentResolveInfo::image_view(bloom_source.clone()),
+                    );
+                    bloom_attachment.store_op = if store_msaa_for_followup {
+                        AttachmentStoreOp::Store
+                    } else {
+                        AttachmentStoreOp::DontCare
+                    };
+                }
+
+                cbb.begin_rendering(RenderingInfo {
+                    render_area_offset: [0, 0],
+                    render_area_extent: extent,
+                    layer_count: 1,
+                    color_attachments: vec![Some(bloom_attachment)],
+                    depth_attachment: Some(RenderingAttachmentInfo {
+                        load_op: AttachmentLoadOp::Load,
+                        store_op: AttachmentStoreOp::DontCare,
+                        ..RenderingAttachmentInfo::image_view(post_process.targets.depth.clone())
+                    }),
+                    ..Default::default()
+                })?;
+
+                cbb.set_viewport(
+                    0,
+                    vec![Viewport {
+                        offset: [0.0, extent[1] as f32],
+                        extent: [extent[0] as f32, -(extent[1] as f32)],
+                        depth_range: 0.0..=1.0,
+                        ..Default::default()
+                    }]
+                    .into(),
+                )?;
+                cbb.set_scissor(
+                    0,
+                    vec![Scissor {
+                        offset: [0, 0],
+                        extent,
+                        ..Default::default()
+                    }]
+                    .into(),
+                )?;
+                Ok(())
+            };
+
+            if has_foreground_emissive_content {
+                begin_bloom_extraction(
+                    cbb,
+                    AttachmentLoadOp::Clear,
+                    has_background_emissive_content,
+                )?;
+                if let Some(instance_buffer) = emissive_instance_buffer {
+                    self.record_instanced_draws_for_batches(
+                        cbb,
+                        global_set_fg,
+                        rig_set,
+                        instance_buffer,
+                        emissive_instance_count,
+                        visual_world.emissive_draw_batches(),
+                        self.pipeline_emissive_prepass_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh.clone(),
+                        self.pipeline_skinned_emissive_prepass_toon_mesh.clone(),
+                        self.pipeline_skinned_emissive_prepass_toon_mesh.clone(),
+                    )?;
+                }
+                if let Some(instance_buffer) = emissive_cutout_instance_buffer {
+                    self.record_instanced_draws_for_batches(
+                        cbb,
+                        global_set_fg,
+                        rig_set,
+                        instance_buffer,
+                        emissive_cutout_instance_count,
+                        visual_world.emissive_cutout_batches(),
+                        self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
+                        self.pipeline_skinned_emissive_prepass_toon_mesh_cutout
+                            .clone(),
+                        self.pipeline_skinned_emissive_prepass_toon_mesh_cutout
+                            .clone(),
+                    )?;
+                }
+                cbb.end_rendering()?;
+            }
+
+            if has_background_emissive_content {
+                begin_bloom_extraction(
+                    cbb,
+                    if has_foreground_emissive_content {
+                        AttachmentLoadOp::Load
+                    } else {
+                        AttachmentLoadOp::Clear
+                    },
+                    false,
+                )?;
+                if let Some(instance_buffer) = background_emissive_instance_buffer {
+                    let global_set_bg = global_set_bg
+                        .expect("background emissive extraction requires bg camera set");
+                    self.record_instanced_draws_for_batches(
+                        cbb,
+                        global_set_bg,
+                        rig_set,
+                        instance_buffer,
+                        background_emissive_instance_count,
+                        visual_world.background_occluded_lit_emissive_batches(),
+                        self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
+                        self.pipeline_skinned_emissive_prepass_depth_write_toon_mesh
+                            .clone(),
+                        self.pipeline_skinned_emissive_prepass_depth_write_toon_mesh
+                            .clone(),
+                    )?;
+                }
+                cbb.end_rendering()?;
+            }
+
+            let bloom_format = post_process.final_color_format;
+            let blur_h_dir = [1.0 / post_process.targets.bloom_extent[0] as f32, 0.0];
+            let blur_v_dir = [0.0, 1.0 / post_process.targets.bloom_extent[1] as f32];
+            self.post_processing_renderer.record_final_pass(
+                cbb,
+                bloom_format,
+                bloom_a.clone(),
+                post_process.targets.bloom_extent,
+                bloom_source,
+                None,
+                &post_process.config,
+            )?;
+            self.post_processing_renderer.record_blur_pass(
+                cbb,
+                bloom_format,
+                bloom_a.clone(),
+                bloom_b.clone(),
+                post_process.targets.bloom_extent,
+                blur_h_dir,
+                radius_pixels,
+            )?;
+            self.post_processing_renderer.record_blur_pass(
+                cbb,
+                bloom_format,
+                bloom_b,
+                bloom_a.clone(),
+                post_process.targets.bloom_extent,
+                blur_v_dir,
+                radius_pixels,
+            )?;
+
+            Ok((bloom_cfg.intensity > 0.0).then_some(bloom_a))
         }
 
         fn recreate_swapchain_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -3872,6 +4097,11 @@ mod vulkano_backend {
             let clear_color = visual_world.clear_color();
             let defer_overlay_until_before_final_composite =
                 post_process.is_some() && overlay_instance_count > 0;
+            let composite_bloom_before_refraction = sample_scene_color
+                && post_process
+                    .as_ref()
+                    .is_some_and(|post| post.config.bloom.is_some());
+            let mut blurred_bloom: Option<Arc<ImageView>> = None;
 
             let mut color_attachment_clear = RenderingAttachmentInfo {
                 load_op: AttachmentLoadOp::Clear,
@@ -4324,18 +4554,57 @@ mod vulkano_backend {
 
             if sample_scene_color {
                 cbb.end_rendering()?;
-                cbb.copy_image(CopyImageInfo::images(
-                    scene_color_source
+                let snapshot = scene_color_snapshot
+                    .as_ref()
+                    .expect("scene-color snapshot")
+                    .clone();
+
+                if composite_bloom_before_refraction {
+                    let post = post_process
                         .as_ref()
-                        .expect("scene-color source")
-                        .image()
-                        .clone(),
-                    scene_color_snapshot
-                        .as_ref()
-                        .expect("scene-color snapshot")
-                        .image()
-                        .clone(),
-                ))?;
+                        .expect("Bloom-before-refraction requires post-processing");
+                    blurred_bloom = self.record_bloom_passes(
+                        &mut cbb,
+                        visual_world,
+                        post,
+                        extent,
+                        &global_set_fg,
+                        global_set_bg.as_ref(),
+                        &rig_set,
+                        emissive_instance_buffer.as_ref(),
+                        emissive_instance_count,
+                        emissive_cutout_instance_buffer.as_ref(),
+                        emissive_cutout_instance_count,
+                        background_occluded_lit_emissive_instance_buffer.as_ref(),
+                        background_occluded_lit_emissive_instance_count,
+                    )?;
+                    self.post_processing_renderer.record_final_pass(
+                        &mut cbb,
+                        post.final_color_format,
+                        snapshot.clone(),
+                        extent,
+                        post.targets.main_color.clone(),
+                        blurred_bloom.clone(),
+                        &post.config,
+                    )?;
+                    self.post_processing_renderer.record_copy_pass(
+                        &mut cbb,
+                        post.final_color_format,
+                        color_attachment_view.clone(),
+                        extent,
+                        snapshot,
+                        self.msaa_samples,
+                    )?;
+                } else {
+                    cbb.copy_image(CopyImageInfo::images(
+                        scene_color_source
+                            .as_ref()
+                            .expect("scene-color source")
+                            .image()
+                            .clone(),
+                        snapshot.image().clone(),
+                    ))?;
+                }
 
                 let mut color_attachment_load = RenderingAttachmentInfo {
                     load_op: AttachmentLoadOp::Load,
@@ -4459,230 +4728,22 @@ mod vulkano_backend {
             }
 
             if let Some(post_process) = post_process {
-                let bloom_radius_pixels = post_process
-                    .config
-                    .effective_blur_radius_pixels(post_process.targets.bloom_extent[0]);
-
-                let mut blurred_bloom: Option<Arc<ImageView>> = None;
-                if let (
-                    Some(bloom_cfg),
-                    Some(bloom_source),
-                    Some(bloom_a),
-                    Some(bloom_b),
-                    Some(radius_pixels),
-                ) = (
-                    post_process.config.bloom.as_ref(),
-                    post_process.targets.bloom_source.clone(),
-                    post_process.targets.bloom_a.clone(),
-                    post_process.targets.bloom_b.clone(),
-                    bloom_radius_pixels,
-                ) {
-                    let has_foreground_emissive_content =
-                        emissive_instance_count > 0 || emissive_cutout_instance_count > 0;
-                    let has_background_occluded_lit_emissive_content =
-                        background_occluded_lit_emissive_instance_count > 0;
-
-                    if has_foreground_emissive_content
-                        || has_background_occluded_lit_emissive_content
-                    {
-                        let begin_bloom_extraction =
-                            |cbb: &mut AutoCommandBufferBuilder<
-                                vulkano::command_buffer::PrimaryAutoCommandBuffer,
-                            >,
-                             load_op: AttachmentLoadOp,
-                             store_msaa_for_followup: bool|
-                             -> Result<(), Box<dyn std::error::Error>> {
-                                let mut bloom_attachment = RenderingAttachmentInfo {
-                                    load_op,
-                                    store_op: AttachmentStoreOp::Store,
-                                    clear_value: match load_op {
-                                        AttachmentLoadOp::Clear => {
-                                            Some(ClearValue::from([0.0, 0.0, 0.0, 0.0]))
-                                        }
-                                        _ => None,
-                                    },
-                                    ..RenderingAttachmentInfo::image_view(
-                                        post_process
-                                            .targets
-                                            .bloom_source_msaa
-                                            .clone()
-                                            .unwrap_or_else(|| bloom_source.clone()),
-                                    )
-                                };
-
-                                if post_process.targets.bloom_source_msaa.is_some() {
-                                    bloom_attachment.resolve_info =
-                                        Some(RenderingAttachmentResolveInfo::image_view(
-                                            bloom_source.clone(),
-                                        ));
-                                    bloom_attachment.store_op = if store_msaa_for_followup {
-                                        AttachmentStoreOp::Store
-                                    } else {
-                                        AttachmentStoreOp::DontCare
-                                    };
-                                }
-
-                                cbb.begin_rendering(RenderingInfo {
-                                    render_area_offset: [0, 0],
-                                    render_area_extent: [extent[0], extent[1]],
-                                    layer_count: 1,
-                                    color_attachments: vec![Some(bloom_attachment)],
-                                    depth_attachment: Some(RenderingAttachmentInfo {
-                                        load_op: AttachmentLoadOp::Load,
-                                        store_op: AttachmentStoreOp::DontCare,
-                                        ..RenderingAttachmentInfo::image_view(
-                                            post_process.targets.depth.clone(),
-                                        )
-                                    }),
-                                    ..Default::default()
-                                })?;
-
-                                let bloom_viewport = Viewport {
-                                    offset: [0.0, extent[1] as f32],
-                                    extent: [extent[0] as f32, -(extent[1] as f32)],
-                                    depth_range: 0.0..=1.0,
-                                    ..Default::default()
-                                };
-
-                                cbb.set_viewport(0, vec![bloom_viewport].into())?;
-                                cbb.set_scissor(
-                                    0,
-                                    vec![Scissor {
-                                        offset: [0, 0],
-                                        extent: [extent[0], extent[1]],
-                                        ..Default::default()
-                                    }]
-                                    .into(),
-                                )?;
-
-                                Ok(())
-                            };
-
-                        if has_foreground_emissive_content {
-                            begin_bloom_extraction(
-                                &mut cbb,
-                                AttachmentLoadOp::Clear,
-                                has_background_occluded_lit_emissive_content,
-                            )?;
-
-                            if let Some(emissive_instance_buffer) =
-                                emissive_instance_buffer.as_ref()
-                            {
-                                self.record_instanced_draws_for_batches(
-                                    &mut cbb,
-                                    &global_set_fg,
-                                    &rig_set,
-                                    emissive_instance_buffer,
-                                    emissive_instance_count,
-                                    visual_world.emissive_draw_batches(),
-                                    self.pipeline_emissive_prepass_toon_mesh.clone(),
-                                    self.pipeline_emissive_prepass_toon_mesh.clone(),
-                                    self.pipeline_emissive_prepass_toon_mesh.clone(),
-                                    self.pipeline_emissive_prepass_toon_mesh.clone(),
-                                    self.pipeline_skinned_emissive_prepass_toon_mesh.clone(),
-                                    self.pipeline_skinned_emissive_prepass_toon_mesh.clone(),
-                                )?;
-                            }
-
-                            if let Some(emissive_cutout_instance_buffer) =
-                                emissive_cutout_instance_buffer.as_ref()
-                            {
-                                self.record_instanced_draws_for_batches(
-                                    &mut cbb,
-                                    &global_set_fg,
-                                    &rig_set,
-                                    emissive_cutout_instance_buffer,
-                                    emissive_cutout_instance_count,
-                                    visual_world.emissive_cutout_batches(),
-                                    self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
-                                    self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
-                                    self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
-                                    self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
-                                    self.pipeline_skinned_emissive_prepass_toon_mesh_cutout
-                                        .clone(),
-                                    self.pipeline_skinned_emissive_prepass_toon_mesh_cutout
-                                        .clone(),
-                                )?;
-                            }
-
-                            cbb.end_rendering()?;
-                        }
-
-                        if has_background_occluded_lit_emissive_content {
-                            begin_bloom_extraction(
-                                &mut cbb,
-                                if has_foreground_emissive_content {
-                                    AttachmentLoadOp::Load
-                                } else {
-                                    AttachmentLoadOp::Clear
-                                },
-                                false,
-                            )?;
-
-                            if let Some(background_occluded_lit_emissive_instance_buffer) =
-                                background_occluded_lit_emissive_instance_buffer.as_ref()
-                            {
-                                let global_set_bg = global_set_bg.as_ref().expect(
-                                    "background emissive extraction requires bg camera set",
-                                );
-                                self.record_instanced_draws_for_batches(
-                                    &mut cbb,
-                                    global_set_bg,
-                                    &rig_set,
-                                    background_occluded_lit_emissive_instance_buffer,
-                                    background_occluded_lit_emissive_instance_count,
-                                    visual_world.background_occluded_lit_emissive_batches(),
-                                    self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
-                                    self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
-                                    self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
-                                    self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
-                                    self.pipeline_skinned_emissive_prepass_depth_write_toon_mesh
-                                        .clone(),
-                                    self.pipeline_skinned_emissive_prepass_depth_write_toon_mesh
-                                        .clone(),
-                                )?;
-                            }
-
-                            cbb.end_rendering()?;
-                        }
-
-                        let bloom_format = post_process.final_color_format;
-                        let blur_h_dir = [1.0 / post_process.targets.bloom_extent[0] as f32, 0.0];
-                        let blur_v_dir = [0.0, 1.0 / post_process.targets.bloom_extent[1] as f32];
-
-                        self.post_processing_renderer.record_final_pass(
-                            &mut cbb,
-                            bloom_format,
-                            bloom_a.clone(),
-                            post_process.targets.bloom_extent,
-                            bloom_source,
-                            None,
-                            &post_process.config,
-                        )?;
-
-                        self.post_processing_renderer.record_blur_pass(
-                            &mut cbb,
-                            bloom_format,
-                            bloom_a.clone(),
-                            bloom_b.clone(),
-                            post_process.targets.bloom_extent,
-                            blur_h_dir,
-                            radius_pixels,
-                        )?;
-                        self.post_processing_renderer.record_blur_pass(
-                            &mut cbb,
-                            bloom_format,
-                            bloom_b,
-                            bloom_a.clone(),
-                            post_process.targets.bloom_extent,
-                            blur_v_dir,
-                            radius_pixels,
-                        )?;
-
-                        if bloom_cfg.intensity > 0.0 {
-                            blurred_bloom = Some(bloom_a);
-                        }
-                    }
+                if !composite_bloom_before_refraction {
+                    blurred_bloom = self.record_bloom_passes(
+                        &mut cbb,
+                        visual_world,
+                        &post_process,
+                        extent,
+                        &global_set_fg,
+                        global_set_bg.as_ref(),
+                        &rig_set,
+                        emissive_instance_buffer.as_ref(),
+                        emissive_instance_count,
+                        emissive_cutout_instance_buffer.as_ref(),
+                        emissive_cutout_instance_count,
+                        background_occluded_lit_emissive_instance_buffer.as_ref(),
+                        background_occluded_lit_emissive_instance_count,
+                    )?;
                 }
 
                 let final_output_view = post_process.final_output_view.clone();
@@ -4750,7 +4811,11 @@ mod vulkano_backend {
                     final_output_view.clone(),
                     extent,
                     post_process.targets.main_color.clone(),
-                    blurred_bloom,
+                    if composite_bloom_before_refraction {
+                        None
+                    } else {
+                        blurred_bloom
+                    },
                     &post_process.config,
                 )?;
 

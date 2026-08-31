@@ -222,7 +222,7 @@ pub struct PostProcessingRenderer {
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     sampler_linear: Arc<Sampler>,
     sampled_layout: Arc<DescriptorSetLayout>,
-    blit_pipelines: HashMap<Format, Arc<GraphicsPipeline>>,
+    blit_pipelines: HashMap<(Format, SampleCount), Arc<GraphicsPipeline>>,
     blur_pipelines: HashMap<Format, Arc<GraphicsPipeline>>,
     composite_pipelines: HashMap<Format, Arc<GraphicsPipeline>>,
     window_targets: Option<PostProcessTargetSet>,
@@ -398,7 +398,7 @@ impl PostProcessingRenderer {
             )
         } else {
             (
-                self.blit_pipeline(color_format)?,
+                self.blit_pipeline(color_format, SampleCount::Sample1)?,
                 self.sampled_set(main_color.clone(), main_color)?,
             )
         };
@@ -416,6 +416,31 @@ impl PostProcessingRenderer {
                     .as_ref()
                     .map(|b| b.intensity.max(0.0))
                     .unwrap_or(0.0),
+                radius_pixels: 0.0,
+            },
+        )
+    }
+
+    pub fn record_copy_pass(
+        &mut self,
+        cbb: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        color_format: Format,
+        output: Arc<ImageView>,
+        extent: [u32; 2],
+        source: Arc<ImageView>,
+        samples: SampleCount,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let pipeline = self.blit_pipeline(color_format, samples)?;
+        let set = self.sampled_set(source.clone(), source)?;
+        self.record_fullscreen_pass(
+            cbb,
+            output,
+            extent,
+            pipeline,
+            set,
+            PostProcessPushConstants {
+                direction: [0.0, 0.0],
+                bloom_intensity: 0.0,
                 radius_pixels: 0.0,
             },
         )
@@ -653,18 +678,21 @@ impl PostProcessingRenderer {
     fn blit_pipeline(
         &mut self,
         color_format: Format,
+        samples: SampleCount,
     ) -> Result<Arc<GraphicsPipeline>, Box<dyn std::error::Error>> {
-        if let Some(existing) = self.blit_pipelines.get(&color_format) {
+        let key = (color_format, samples);
+        if let Some(existing) = self.blit_pipelines.get(&key) {
             return Ok(existing.clone());
         }
 
         let pipeline = self.build_pipeline(
             color_format,
+            samples,
             blit_fs::load(self.device.clone())?
                 .entry_point("main")
                 .ok_or("missing post-process-copy.frag entry point")?,
         )?;
-        self.blit_pipelines.insert(color_format, pipeline.clone());
+        self.blit_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }
 
@@ -678,6 +706,7 @@ impl PostProcessingRenderer {
 
         let pipeline = self.build_pipeline(
             color_format,
+            SampleCount::Sample1,
             blur_fs::load(self.device.clone())?
                 .entry_point("main")
                 .ok_or("missing post-process-bloom-blur.frag entry point")?,
@@ -696,6 +725,7 @@ impl PostProcessingRenderer {
 
         let pipeline = self.build_pipeline(
             color_format,
+            SampleCount::Sample1,
             composite_fs::load(self.device.clone())?
                 .entry_point("main")
                 .ok_or("missing post-process-bloom-composite.frag entry point")?,
@@ -708,6 +738,7 @@ impl PostProcessingRenderer {
     fn build_pipeline(
         &self,
         color_format: Format,
+        samples: SampleCount,
         fragment_entry: vulkano::shader::EntryPoint,
     ) -> Result<Arc<GraphicsPipeline>, Box<dyn std::error::Error>> {
         let vs = fullscreen_vs::load(self.device.clone())?;
@@ -737,7 +768,10 @@ impl PostProcessingRenderer {
         ci.input_assembly_state = Some(InputAssemblyState::default());
         ci.viewport_state = Some(ViewportState::default());
         ci.rasterization_state = Some(RasterizationState::default());
-        ci.multisample_state = Some(MultisampleState::default());
+        ci.multisample_state = Some(MultisampleState {
+            rasterization_samples: samples,
+            ..Default::default()
+        });
         ci.color_blend_state = Some(ColorBlendState::with_attachment_states(
             1,
             ColorBlendAttachmentState::default(),

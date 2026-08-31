@@ -1,6 +1,6 @@
 # Task: Prevent Bloom from bypassing refraction
 
-Status: next renderer slice.
+Status: desktop implementation complete; visual/Vulkan validation pending.
 
 ## Problem
 
@@ -40,13 +40,14 @@ is bound as the draw destination.
 
 ## Work
 
-- [ ] Extract the existing Bloom extraction/blur sequence into a callable stage that can run before
+- [x] Extract the existing Bloom extraction/blur sequence into a callable stage that can run before
       the refraction phase while preserving depth-based emissive filtering.
-- [ ] Allocate/reuse `composited_scene` by view extent, format, MSAA mode, and frames in flight.
-- [ ] Composite `main_color` and the blurred Bloom result into that target before refraction.
-- [ ] Preserve the composited result as the destination beneath refraction, then run ordinary
+- [x] Reuse the per-frame refraction snapshot as `composited_scene`, recreated by view extent and
+      format and kept single-sample across MSAA modes.
+- [x] Composite `main_color` and the blurred Bloom result into that target before refraction.
+- [x] Preserve the composited result as the destination beneath refraction, then run ordinary
       transparency and overlay exactly once.
-- [ ] Make the final pass a blit when the Bloom composition has already been consumed; do not add
+- [x] Make the final pass a blit when the Bloom composition has already been consumed; do not add
       Bloom a second time.
 - [ ] Cover Bloom enabled/disabled, no emissive content, MSAA on/off, resize, and target ownership
       transitions.
