@@ -216,6 +216,12 @@ pub struct VisualWorld {
     opaque_stream: Vec<RenderOp>,
     opaque_stream_instances: Vec<u32>,
 
+    // Dedicated scene-color refraction phase, drawn after opaque/cutout and before
+    // ordinary transparency.
+    refraction_order: Vec<u32>,
+    refraction_stream: Vec<RenderOp>,
+    refraction_stream_instances: Vec<u32>,
+
     // Transparent draw data.
     // - Single-layer: cached (order does not depend on view), instanced.
     transparent_single_draw_order: Vec<u32>,
@@ -241,6 +247,8 @@ pub struct VisualInstance {
     pub texture: Option<crate::engine::graphics::TextureHandle>,
     pub texture_filtering: TextureFiltering,
     pub quant_steps: f32,
+    /// IOR, effective thickness, strength, and viewport-edge fade.
+    pub transmission: [f32; 4],
 
     /// Base index into `VisualWorld::bones_palette`.
     pub bones_base: u32,
@@ -361,6 +369,10 @@ impl Default for VisualWorld {
 
             opaque_stream: Vec::new(),
             opaque_stream_instances: Vec::new(),
+
+            refraction_order: Vec::new(),
+            refraction_stream: Vec::new(),
+            refraction_stream_instances: Vec::new(),
 
             transparent_single_draw_order: Vec::new(),
             transparent_single_stream: Vec::new(),
@@ -2553,6 +2565,31 @@ impl VisualWorld {
         (ops, instances)
     }
 
+    pub fn refraction_stream(&self) -> (&[RenderOp], &[u32]) {
+        (&self.refraction_stream, &self.refraction_stream_instances)
+    }
+
+    pub fn refraction_stream_excluding(
+        &self,
+        excluded_instance: Option<InstanceHandle>,
+    ) -> (Vec<RenderOp>, Vec<u32>) {
+        let mut ops = Vec::new();
+        let mut instances = Vec::new();
+        self.build_phase_render_stream_excluding(
+            &self.refraction_order,
+            excluded_instance,
+            &mut ops,
+            &mut instances,
+        );
+        (ops, instances)
+    }
+
+    pub fn has_refraction_instances(&self) -> bool {
+        self.instances
+            .iter()
+            .any(|instance| instance.renderable.material.is_refraction())
+    }
+
     /// Indices into `instances()` in the order they should be drawn (emissive cutout batching).
     pub fn emissive_cutout_order(&self) -> &[u32] {
         &self.emissive_cutout_order
@@ -2722,6 +2759,7 @@ impl VisualWorld {
         self.emissive_draw_order.clear();
         self.cutout_order.clear();
         self.emissive_cutout_order.clear();
+        self.refraction_order.clear();
         self.transparent_single_draw_order.clear();
         self.overlay_order.clear();
         self.stencil_clip_order.clear();
@@ -2739,6 +2777,8 @@ impl VisualWorld {
                 } else {
                     self.background_order.push(i as u32);
                 }
+            } else if inst.renderable.material.is_refraction() {
+                self.refraction_order.push(i as u32);
             } else if inst.transparent_cutout {
                 self.cutout_order.push(i as u32);
             } else if !Self::is_transparent(inst) {
@@ -2870,6 +2910,26 @@ impl VisualWorld {
             has_stencil_clips,
             &mut self.cutout_stream,
             &mut self.cutout_stream_instances,
+        );
+
+        self.refraction_order.sort_by_key(|&i| {
+            let inst = self.instances[i as usize];
+            let r = inst.renderable;
+            let tex = inst.texture.map(|t| t.0).unwrap_or(u32::MAX);
+            (
+                inst.stencil_ref,
+                r.material.0,
+                r.mesh.0,
+                tex,
+                inst.texture_filtering as u8,
+            )
+        });
+        Self::build_phase_render_stream(
+            instances,
+            &self.refraction_order,
+            has_stencil_clips,
+            &mut self.refraction_stream,
+            &mut self.refraction_stream_instances,
         );
 
         self.emissive_cutout_order
@@ -3032,6 +3092,7 @@ impl VisualWorld {
             texture,
             texture_filtering: TextureFiltering::default(),
             quant_steps: sanitize_quant_steps(quant_steps),
+            transmission: [1.5, 0.1, 1.0, 0.02],
 
             bones_base: 0,
             bones_count: 0,
@@ -3224,6 +3285,16 @@ impl VisualWorld {
         }
     }
 
+    pub fn update_transmission(&mut self, handle: InstanceHandle, options: [f32; 4]) -> bool {
+        if let Some(&idx) = self.handle_to_index.get(&handle) {
+            self.instances[idx].transmission = options;
+            self.dirty_instance_data = true;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn post_processing(&self) -> &PostProcessingConfig {
         &self.post_processing
     }
@@ -3309,6 +3380,7 @@ impl VisualWorld {
             let texture = self.instances[idx].texture;
             let texture_filtering = self.instances[idx].texture_filtering;
             let quant_steps = self.instances[idx].quant_steps;
+            let transmission = self.instances[idx].transmission;
             let bones_base = self.instances[idx].bones_base;
             let bones_count = self.instances[idx].bones_count;
             let deformed_base = self.instances[idx].deformed_base;
@@ -3331,6 +3403,7 @@ impl VisualWorld {
                 texture,
                 texture_filtering,
                 quant_steps,
+                transmission,
                 bones_base,
                 bones_count,
                 deformed_base,

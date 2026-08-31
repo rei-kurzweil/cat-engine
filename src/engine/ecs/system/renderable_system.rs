@@ -5,7 +5,8 @@ use crate::engine::ecs::component::morph_target::active_factors;
 use crate::engine::ecs::component::{
     BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
-    RendererSettingsComponent, TransparentCutoutComponent, UVComponent,
+    RendererSettingsComponent, TransparentCutoutComponent, TransmissiveModel, UVComponent,
+    resolve_transmissive_model,
 };
 use crate::engine::ecs::component::{GLTFComponent, MorphTargetBindingComponent};
 
@@ -1245,9 +1246,27 @@ impl RenderableSystem {
                 }
             }
 
+            let transmission = match resolve_transmissive_model(world, p.renderable_cid) {
+                Ok(value) => value,
+                Err(error) => {
+                    eprintln!("[RenderableSystem] {error}");
+                    None
+                }
+            };
+            let resolved_material = match transmission {
+                Some(TransmissiveModel::Refraction(_)) => match p.material {
+                    MaterialHandle::SKINNED_TOON_MESH
+                    | MaterialHandle::SKINNED_EMISSIVE_TOON_MESH => {
+                        MaterialHandle::SKINNED_REFRACTION_MESH
+                    }
+                    _ => MaterialHandle::REFRACTION_MESH,
+                },
+                _ => p.material,
+            };
+
             let gpu_r = GpuRenderable {
                 mesh,
-                material: p.material,
+                material: resolved_material,
             };
 
             let model = match TransformSystem::world_model(world, p.renderable_cid) {
@@ -1318,6 +1337,17 @@ impl RenderableSystem {
                 None,
                 quant_steps,
             );
+            if let Some(TransmissiveModel::Refraction(options)) = transmission {
+                let _ = visuals.update_transmission(
+                    handle,
+                    [
+                        options.ior,
+                        options.thickness,
+                        options.strength,
+                        options.edge_fade,
+                    ],
+                );
+            }
             if let Some(renderable_comp) =
                 world.get_component_by_id_as_mut::<RenderableComponent>(p.renderable_cid)
             {
@@ -1552,9 +1582,12 @@ mod tests {
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         BackgroundComponent, ColorComponent, EmissiveComponent, OpacityComponent, OverlayComponent,
-        RenderableComponent, TextComponent, TransformComponent, TransparentCutoutComponent,
+        RefractionComponent, RenderableComponent, TextComponent, TransformComponent,
+        TransparentCutoutComponent,
     };
-    use crate::engine::graphics::primitives::MeshHandle;
+    use crate::engine::graphics::primitives::{
+        CpuMeshHandle, MaterialHandle, MeshHandle, Renderable,
+    };
     use crate::engine::graphics::{CpuMesh, MeshUploader, RenderAssets, VisualWorld};
 
     #[derive(Default)]
@@ -1668,6 +1701,64 @@ mod tests {
             .expect("renderable handle after flush");
         let instance = visuals.instance(handle).expect("visual instance");
         assert!(instance.overlay);
+    }
+
+    #[test]
+    fn flush_pending_routes_refraction_by_geometry_variant_and_preserves_options() {
+        for (source_material, expected_material) in [
+            (MaterialHandle::TOON_MESH, MaterialHandle::REFRACTION_MESH),
+            (
+                MaterialHandle::SKINNED_TOON_MESH,
+                MaterialHandle::SKINNED_REFRACTION_MESH,
+            ),
+        ] {
+            let mut world = World::default();
+            let mut visuals = VisualWorld::default();
+            let mut renderable_system = RenderableSystem::default();
+            let mut render_assets = RenderAssets::new();
+            let mut uploader = TestUploader::default();
+            let mut queue = CommandQueue::new();
+
+            let transform = world.add_component(TransformComponent::new());
+            let renderable = world.add_component(RenderableComponent::new(Renderable::new(
+                CpuMeshHandle::CUBE,
+                source_material,
+            )));
+            let mut refraction = RefractionComponent::new();
+            refraction.apply_builder("ior", 1.33).unwrap();
+            refraction.apply_builder("thickness", 0.18).unwrap();
+            refraction.apply_builder("strength", 0.8).unwrap();
+            refraction.apply_builder("edge_fade", 0.04).unwrap();
+            let refraction = world.add_component(refraction);
+            world.add_child(transform, renderable).unwrap();
+            world.add_child(renderable, refraction).unwrap();
+
+            renderable_system.register_renderable_from_world(
+                &mut world,
+                &mut visuals,
+                renderable,
+            );
+            assert!(renderable_system.flush_pending(
+                &mut world,
+                &mut visuals,
+                &mut render_assets,
+                &mut uploader,
+                &mut queue,
+            ));
+
+            let handle = world
+                .get_component_by_id_as::<RenderableComponent>(renderable)
+                .and_then(RenderableComponent::get_handle)
+                .unwrap();
+            let instance = visuals.instance(handle).unwrap();
+            assert_eq!(instance.renderable.material, expected_material);
+            assert_eq!(instance.transmission, [1.33, 0.18, 0.8, 0.04]);
+
+            visuals.prepare_draw_cache();
+            assert_eq!(visuals.refraction_stream().1.len(), 1);
+            assert!(visuals.opaque_stream().1.is_empty());
+            assert!(visuals.transparent_single_stream().1.is_empty());
+        }
     }
 
     #[test]

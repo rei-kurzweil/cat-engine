@@ -209,6 +209,13 @@ mod vulkano_backend {
         }
     }
 
+    mod refraction_mesh_fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            path: "assets/shaders/refraction-mesh.frag",
+        }
+    }
+
     mod skinned_toon_mesh_vs {
         vulkano_shaders::shader! {
             ty: "vertex",
@@ -307,6 +314,9 @@ mod vulkano_backend {
         pub i_deformed_base: u32,
         #[format(R32_UINT)]
         pub i_deformed_count: u32,
+
+        #[format(R32G32B32A32_SFLOAT)]
+        pub i_transmission: [f32; 4],
     }
 
     #[derive(BufferContents, Debug, Clone, Copy, Default)]
@@ -399,6 +409,7 @@ mod vulkano_backend {
 
         pub textures: HashMap<TextureHandle, VulkanoGpuTexture>,
         pub sampler_linear: Arc<Sampler>,
+        pub sampler_scene_color: Arc<Sampler>,
         pub sampler_nearest: Arc<Sampler>,
         pub sampler_nearest_mag: Arc<Sampler>,
         pub default_white_texture: TextureHandle,
@@ -439,6 +450,9 @@ mod vulkano_backend {
         pub pipeline_skinned_emissive_prepass_toon_mesh: Arc<GraphicsPipeline>,
         pub pipeline_skinned_emissive_prepass_toon_mesh_cutout: Arc<GraphicsPipeline>,
         pub pipeline_skinned_emissive_prepass_depth_write_toon_mesh: Arc<GraphicsPipeline>,
+
+        pub pipeline_refraction_mesh: Arc<GraphicsPipeline>,
+        pub pipeline_skinned_refraction_mesh: Arc<GraphicsPipeline>,
 
         /// Writes stencil INCR (enter clip region). Color write off, depth test off.
         pub pipeline_stencil_incr: Arc<GraphicsPipeline>,
@@ -486,6 +500,7 @@ mod vulkano_backend {
         >,
         pending_runtime_texture_updates: HashMap<TextureHandle, VulkanoGpuTexture>,
         window_runtime_debug_targets: Option<WindowRuntimeDebugTargets>,
+        window_refraction_targets: Option<WindowRefractionTargets>,
 
         // Cached bones palette SSBOs (set=2 binding=1).
         //
@@ -542,6 +557,12 @@ mod vulkano_backend {
         color_format: Format,
         msaa_color_views: Vec<Arc<ImageView>>,
         color_views: Vec<Arc<ImageView>>,
+    }
+
+    struct WindowRefractionTargets {
+        extent: [u32; 2],
+        color_format: Format,
+        views: Vec<Arc<ImageView>>,
     }
 
     #[derive(Clone)]
@@ -665,6 +686,14 @@ mod vulkano_backend {
                     base_color: [1.0, 1.0, 1.0, 1.0],
                     quant_steps: 1.0,
                     emissive: 1,
+                    _pad0: 0,
+                    _pad1: 0,
+                },
+                crate::engine::graphics::MaterialHandle::REFRACTION_MESH
+                | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH => MaterialUBO {
+                    base_color: [1.0, 1.0, 1.0, 1.0],
+                    quant_steps: 1.0,
+                    emissive: 0,
                     _pad0: 0,
                     _pad1: 0,
                 },
@@ -863,6 +892,7 @@ mod vulkano_backend {
             let fs = toon_mesh_fs::load(device.clone())?;
             let emissive_fs = emissive_toon_mesh_fs::load(device.clone())?;
             let mirror_fs = mirror_mesh_fs::load(device.clone())?;
+            let refraction_fs = refraction_mesh_fs::load(device.clone())?;
             let grid_vs = grid_mesh_vs::load(device.clone())?;
             let grid_fs = grid_square_mesh_fs::load(device.clone())?;
 
@@ -917,6 +947,31 @@ mod vulkano_backend {
                 PipelineShaderStageCreateInfo::new(
                     fs.entry_point("main")
                         .ok_or("missing toon-mesh.frag entry point")?,
+                ),
+            ];
+
+            let refraction_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    vs.entry_point("main")
+                        .ok_or("missing toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    refraction_fs
+                        .entry_point("main")
+                        .ok_or("missing refraction-mesh.frag entry point")?,
+                ),
+            ];
+
+            let skinned_refraction_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    skinned_vs
+                        .entry_point("main")
+                        .ok_or("missing cached-skinned-toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    refraction_fs
+                        .entry_point("main")
+                        .ok_or("missing refraction-mesh.frag entry point")?,
                 ),
             ];
 
@@ -1095,6 +1150,15 @@ mod vulkano_backend {
                         binding: 1,
                         format: Format::R32_UINT,
                         offset: 92,
+                        ..Default::default()
+                    },
+                )
+                .attribute(
+                    12,
+                    VertexInputAttributeDescription {
+                        binding: 1,
+                        format: Format::R32G32B32A32_SFLOAT,
+                        offset: 96,
                         ..Default::default()
                     },
                 );
@@ -1481,6 +1545,18 @@ mod vulkano_backend {
                 pipeline_ci_skinned_emissive_transparent,
             )?;
 
+            let mut pipeline_ci_refraction = pipeline_ci_transparent.clone();
+            pipeline_ci_refraction.stages = refraction_stages.into();
+            let pipeline_refraction_mesh =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_refraction)?;
+
+            let mut pipeline_ci_skinned_refraction = pipeline_ci_transparent.clone();
+            pipeline_ci_skinned_refraction.stages = skinned_refraction_stages.into();
+            pipeline_ci_skinned_refraction.vertex_input_state =
+                Some(vertex_input_state_skinned.clone());
+            let pipeline_skinned_refraction_mesh =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_refraction)?;
+
             let mut pipeline_ci_skinned_cutout = pipeline_ci_cutout.clone();
             pipeline_ci_skinned_cutout.stages = skinned_stages.into();
             pipeline_ci_skinned_cutout.vertex_input_state =
@@ -1763,6 +1839,16 @@ mod vulkano_backend {
             let sampler_linear =
                 Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear())?;
 
+            let sampler_scene_color = Sampler::new(
+                device.clone(),
+                SamplerCreateInfo {
+                    mag_filter: Filter::Linear,
+                    min_filter: Filter::Linear,
+                    address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                    ..Default::default()
+                },
+            )?;
+
             let sampler_nearest = Sampler::new(
                 device.clone(),
                 SamplerCreateInfo {
@@ -1798,6 +1884,7 @@ mod vulkano_backend {
 
                 textures: HashMap::new(),
                 sampler_linear,
+                sampler_scene_color,
                 sampler_nearest,
                 sampler_nearest_mag,
                 default_white_texture: TextureHandle(0),
@@ -1840,6 +1927,9 @@ mod vulkano_backend {
                 pipeline_skinned_emissive_prepass_toon_mesh_cutout,
                 pipeline_skinned_emissive_prepass_depth_write_toon_mesh,
 
+                pipeline_refraction_mesh,
+                pipeline_skinned_refraction_mesh,
+
                 pipeline_stencil_incr,
                 pipeline_stencil_decr,
                 pipeline_overlay_clipped,
@@ -1871,6 +1961,7 @@ mod vulkano_backend {
                 cached_material_sets: HashMap::new(),
                 pending_runtime_texture_updates: HashMap::new(),
                 window_runtime_debug_targets: None,
+                window_refraction_targets: None,
 
                 cached_bones_buffers: Vec::new(),
                 cached_bones_slot_valid: Vec::new(),
@@ -2302,6 +2393,7 @@ mod vulkano_backend {
                 extent,
                 post_process,
                 None,
+                None,
             )?;
 
             let device = self.context.device().clone();
@@ -2446,6 +2538,7 @@ mod vulkano_backend {
                         mirror_extent,
                         None,
                         runtime_texture_publication,
+                        None,
                     )?;
 
                     let prior = self
@@ -2699,6 +2792,42 @@ mod vulkano_backend {
             Ok(())
         }
 
+        fn ensure_window_refraction_targets(
+            &mut self,
+            frame_count: usize,
+            extent: [u32; 2],
+            color_format: Format,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            let needs_recreate = self
+                .window_refraction_targets
+                .as_ref()
+                .is_none_or(|targets| {
+                    targets.extent != extent
+                        || targets.color_format != color_format
+                        || targets.views.len() != frame_count
+                });
+            if !needs_recreate {
+                return Ok(());
+            }
+
+            let mut views = Vec::with_capacity(frame_count);
+            for _ in 0..frame_count {
+                views.push(Self::create_color_target_view(
+                    self.context.memory_allocator().clone(),
+                    color_format,
+                    extent,
+                    SampleCount::Sample1,
+                    ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                )?);
+            }
+            self.window_refraction_targets = Some(WindowRefractionTargets {
+                extent,
+                color_format,
+                views,
+            });
+            Ok(())
+        }
+
         fn build_stencil_clip_debug_batches(
             visual_world: &VisualWorld,
         ) -> Vec<crate::engine::graphics::visual_world::DrawBatch> {
@@ -2814,6 +2943,7 @@ mod vulkano_backend {
                     i_opacity: 1.0,
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
+                    i_transmission: inst.transmission,
                 }
             });
 
@@ -3000,6 +3130,7 @@ mod vulkano_backend {
                         i_opacity: inst.opacity,
                         i_deformed_base: inst.deformed_base,
                         i_deformed_count: inst.deformed_count,
+                        i_transmission: inst.transmission,
                     }
                 });
 
@@ -3044,6 +3175,7 @@ mod vulkano_backend {
                     i_opacity: inst.opacity,
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
+                    i_transmission: inst.transmission,
                 }
             });
 
@@ -3078,7 +3210,9 @@ mod vulkano_backend {
                 | crate::engine::graphics::MaterialHandle::EMISSIVE_TOON_MESH
                 | crate::engine::graphics::MaterialHandle::SKINNED_EMISSIVE_TOON_MESH
                 | crate::engine::graphics::MaterialHandle::GRID_MESH
-                | crate::engine::graphics::MaterialHandle::MIRROR => {}
+                | crate::engine::graphics::MaterialHandle::MIRROR
+                | crate::engine::graphics::MaterialHandle::REFRACTION_MESH
+                | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH => {}
                 _ => return Ok(None),
             }
 
@@ -3484,6 +3618,7 @@ mod vulkano_backend {
             extent: [u32; 2],
             post_process: Option<PostProcessInvocation>,
             runtime_texture_publication: Option<(TextureHandle, Arc<ImageView>)>,
+            scene_color_snapshot: Option<Arc<ImageView>>,
         ) -> Result<
             Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
             Box<dyn std::error::Error>,
@@ -3568,6 +3703,27 @@ mod vulkano_backend {
                     visual_world.cutout_stream()
                 };
             let cutout_instance_count = cutout_instances.len();
+
+            // --- Sharp scene-color refraction pass ---
+            let owned_refraction_stream = excluded_instance
+                .map(|excluded| visual_world.refraction_stream_excluding(Some(excluded)));
+            let (refraction_ops, refraction_instances) =
+                if let Some((ops, instances)) = owned_refraction_stream.as_ref() {
+                    (&ops[..], &instances[..])
+                } else {
+                    visual_world.refraction_stream()
+                };
+            let refraction_instance_count = refraction_instances.len();
+            let refraction_instance_buffer = self.build_instance_buffer_for_order_opt(
+                &*visual_world,
+                refraction_instances,
+            )?;
+            let scene_color_source = scene_color_snapshot.as_ref().and_then(|_| {
+                post_process
+                    .as_ref()
+                    .map(|post_process| post_process.targets.main_color.clone())
+            });
+            let sample_scene_color = scene_color_source.is_some();
 
             // --- Overlay pass ---
             // Buffer indexed by overlay_stream().1; use its length for cache invalidation.
@@ -3730,7 +3886,9 @@ mod vulkano_backend {
                 // The multisampled attachment doesn't need to be stored when resolve is used,
                 // except when post-process is active and we plan to reopen the scene color
                 // attachment for a deferred overlay pass before final composite.
-                color_attachment_clear.store_op = if defer_overlay_until_before_final_composite {
+                color_attachment_clear.store_op = if defer_overlay_until_before_final_composite
+                    || sample_scene_color
+                {
                     AttachmentStoreOp::Store
                 } else {
                     AttachmentStoreOp::DontCare
@@ -3756,7 +3914,7 @@ mod vulkano_backend {
                 depth_attachment: Some(depth_attachment_clear.clone()),
                 stencil_attachment: Some(RenderingAttachmentInfo {
                     load_op: AttachmentLoadOp::Clear,
-                    store_op: if defer_overlay_until_before_final_composite {
+                    store_op: if defer_overlay_until_before_final_composite || sample_scene_color {
                         AttachmentStoreOp::Store
                     } else {
                         AttachmentStoreOp::DontCare
@@ -3862,15 +4020,45 @@ mod vulkano_backend {
             // `global_set_fg` is the *foreground* variant used for normal scene rendering
             // (opaque + transparent passes). Its camera UBO uses the full view matrix,
             // so camera translation causes normal parallax.
+            let fallback_scene_color = self
+                .textures
+                .get(&self.default_white_texture)
+                .ok_or("missing default scene-color texture")?
+                .view
+                .clone();
             let global_set_fg = DescriptorSet::new(
                 self.descriptor_set_allocator.clone(),
                 self.set_layouts.global.clone(),
                 [
-                    WriteDescriptorSet::buffer(0, camera_buffer_fg),
+                    WriteDescriptorSet::buffer(0, camera_buffer_fg.clone()),
                     WriteDescriptorSet::buffer(1, lights_buffer.clone()),
+                    WriteDescriptorSet::image_view_sampler(
+                        2,
+                        fallback_scene_color.clone(),
+                        self.sampler_scene_color.clone(),
+                    ),
                 ],
                 [],
             )?;
+
+            let global_set_refraction = if let Some(snapshot) = scene_color_snapshot.as_ref() {
+                Some(DescriptorSet::new(
+                    self.descriptor_set_allocator.clone(),
+                    self.set_layouts.global.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, camera_buffer_fg.clone()),
+                        WriteDescriptorSet::buffer(1, lights_buffer.clone()),
+                        WriteDescriptorSet::image_view_sampler(
+                            2,
+                            snapshot.clone(),
+                            self.sampler_scene_color.clone(),
+                        ),
+                    ],
+                    [],
+                )?)
+            } else {
+                None
+            };
 
             // Background global set: same layout + lights, but view translation removed.
             //
@@ -3913,6 +4101,11 @@ mod vulkano_backend {
                     [
                         WriteDescriptorSet::buffer(0, camera_buffer_bg),
                         WriteDescriptorSet::buffer(1, lights_buffer.clone()),
+                        WriteDescriptorSet::image_view_sampler(
+                            2,
+                            fallback_scene_color,
+                            self.sampler_scene_color.clone(),
+                        ),
                     ],
                     [],
                 )?;
@@ -4126,6 +4319,87 @@ mod vulkano_backend {
                     cutout_instance_buffer,
                     cutout_instance_count,
                     Some((cutout_ops, cutout_instances)),
+                )?;
+            }
+
+            if sample_scene_color {
+                cbb.end_rendering()?;
+                cbb.copy_image(CopyImageInfo::images(
+                    scene_color_source
+                        .as_ref()
+                        .expect("scene-color source")
+                        .image()
+                        .clone(),
+                    scene_color_snapshot
+                        .as_ref()
+                        .expect("scene-color snapshot")
+                        .image()
+                        .clone(),
+                ))?;
+
+                let mut color_attachment_load = RenderingAttachmentInfo {
+                    load_op: AttachmentLoadOp::Load,
+                    store_op: AttachmentStoreOp::Store,
+                    ..RenderingAttachmentInfo::image_view(color_attachment_view.clone())
+                };
+                if let Some(resolve_view) = color_resolve_view.clone() {
+                    color_attachment_load.resolve_info =
+                        Some(RenderingAttachmentResolveInfo::image_view(resolve_view));
+                    color_attachment_load.store_op =
+                        if defer_overlay_until_before_final_composite {
+                            AttachmentStoreOp::Store
+                        } else {
+                            AttachmentStoreOp::DontCare
+                        };
+                }
+
+                cbb.begin_rendering(RenderingInfo {
+                    render_area_offset: [0, 0],
+                    render_area_extent: [extent[0], extent[1]],
+                    layer_count: 1,
+                    color_attachments: vec![Some(color_attachment_load)],
+                    depth_attachment: Some(RenderingAttachmentInfo {
+                        load_op: AttachmentLoadOp::Load,
+                        store_op: if post_process.is_some() {
+                            AttachmentStoreOp::Store
+                        } else {
+                            AttachmentStoreOp::DontCare
+                        },
+                        ..RenderingAttachmentInfo::image_view(depth_view.clone())
+                    }),
+                    stencil_attachment: Some(RenderingAttachmentInfo {
+                        load_op: AttachmentLoadOp::Load,
+                        store_op: if defer_overlay_until_before_final_composite {
+                            AttachmentStoreOp::Store
+                        } else {
+                            AttachmentStoreOp::DontCare
+                        },
+                        ..RenderingAttachmentInfo::image_view(depth_view.clone())
+                    }),
+                    ..Default::default()
+                })?;
+                cbb.set_viewport(0, vec![viewport.clone()].into())?;
+                cbb.set_scissor(
+                    0,
+                    vec![Scissor {
+                        offset: [0, 0],
+                        extent: [extent[0], extent[1]],
+                        ..Default::default()
+                    }]
+                    .into(),
+                )?;
+            }
+
+            if let Some(refraction_instance_buffer) = refraction_instance_buffer.as_ref() {
+                self.record_refraction_draws(
+                    &mut cbb,
+                    visual_world,
+                    global_set_refraction.as_ref().unwrap_or(&global_set_fg),
+                    &rig_set,
+                    refraction_instance_buffer,
+                    refraction_instance_count,
+                    Some((refraction_ops, refraction_instances)),
+                    sample_scene_color,
                 )?;
             }
 
@@ -4663,6 +4937,22 @@ mod vulkano_backend {
                 None
             };
 
+            let scene_color_snapshot = if visual_world.has_refraction_instances()
+                && post_process.is_some()
+            {
+                self.ensure_window_refraction_targets(
+                    self.swapchain_state.swapchain_views.len(),
+                    extent,
+                    self.swapchain_state.swapchain.image_format(),
+                )?;
+                self.window_refraction_targets
+                    .as_ref()
+                    .and_then(|targets| targets.views.get(image_i as usize))
+                    .cloned()
+            } else {
+                None
+            };
+
             let device = self.context.device().clone();
             let queue = self.context.graphics_queue().clone();
 
@@ -4725,6 +5015,7 @@ mod vulkano_backend {
                 extent,
                 post_process,
                 None,
+                scene_color_snapshot,
             )?;
 
             // Ensure we never render into a swapchain image (and its paired depth attachment)

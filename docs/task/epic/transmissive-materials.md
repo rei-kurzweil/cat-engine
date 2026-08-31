@@ -274,7 +274,8 @@ For the first slice:
 - they do not write depth;
 - all transmissive surfaces sample the same immutable opaque scene snapshot;
 - their own tint/alpha blends into the live destination color;
-- overlapping transmissive surfaces are sorted for compositing, but recursive transmission is not
+- the first fixture keeps transmissive panels non-overlapping; view-dependent compositing order for
+  overlapping transmissive surfaces remains follow-up work, and recursive transmission is not
   claimed;
 - ordinary transparent content is not visible through transmission unless a later design adds a
   pre-transmission transparent subset.
@@ -297,7 +298,7 @@ silently treated as `transparent_single`.
       capabilities, vertex inputs, and render-state/phase compatibility.
 - [ ] Define material-instance identity, dirtying, batching, and MMS serialization in coordination
       with the animated shader-material task.
-- [ ] Define the dedicated transmissive render-stream phase and its depth/sort policy.
+- [x] Define the dedicated transmissive render-stream phase and its depth/sort policy.
 
 Exit gate: compatible vertex and fragment components can be exchanged through one typed interface;
 a registered material can express either transmission model without adding a `SKINNED_*` public
@@ -318,16 +319,26 @@ feedback validation errors and no one-frame ghosting.
 
 ### Phase 2: sharp refraction
 
-- [ ] Add the dedicated refraction fragment shader and pipeline routing.
-- [ ] Add IOR, effective thickness/strength, tint, and edge-fade inputs.
-- [ ] Support both static and cached-deformed geometry through renderer-selected vertex variants.
-- [ ] Define front-face/back-face behavior for closed meshes; start with a documented single-surface
+- [x] Add the dedicated refraction fragment shader and pipeline routing.
+- [x] Add IOR, effective thickness/strength, tint, and edge-fade inputs.
+- [x] Support both static and cached-deformed geometry through renderer-selected vertex variants.
+- [x] Define front-face/back-face behavior for closed meshes; start with a documented single-surface
       approximation if true entry/exit thickness is not yet available.
-- [ ] Clamp/fade invalid UVs so the material never reveals black or transparent gaps.
-- [ ] Add a centered lens fixture whose lookups visibly cross the lens silhouette.
+- [x] Clamp/fade invalid UVs so the material never reveals black or transparent gaps.
+- [x] Add centered panel fixtures whose lookups can visibly cross their silhouettes.
 
 Exit gate: the fixture shows a sharp displaced background across the whole lens, including samples
 originating outside its silhouette, and camera/object motion has no previous-frame trail.
+
+Current first-visual-slice status: the desktop window path captures the Bloom/post-processing
+`main_color` target after background, opaque, and cutout draws, then reopens the live attachment and
+draws the dedicated refraction phase. Static and cached-deformed vertex pipelines share
+`refraction-mesh.frag`. Closed meshes currently use a two-sided, single-interface approximation:
+the fragment normal is oriented for the rasterized face, but no entry/exit ray pair or physical
+interior distance is reconstructed. The full Phase 1 gate remains open because non-post-processed
+window targets, XR eyes, mirror captures, resize validation, and live Vulkan validation still need
+focused proof. Overlapping transmissive-surface ordering also remains open; this first fixture uses
+non-overlapping panels so its result does not depend on that policy.
 
 ### Phase 3: rough transmission
 

@@ -184,9 +184,11 @@ dedicated transmissive render-stream phase and material-instance storage.
 
 ## Follow-up
 
-Once this contract is implemented, continue with Phase 0 of the parent epic: introduce typed
-material definitions and the dedicated transmissive render-stream phase. After that boundary is
-stable, implement the same-frame per-view opaque scene snapshot and diagnostic sampling shader.
+The first renderer follow-up is now present for sharp desktop refraction: the renderer routes
+`Refraction` into a dedicated phase and, when Bloom/post-processing supplies a transferable main
+color target, captures background/opaque/cutout color for the refraction shader. See the parent
+epic for the deliberately open work: the general typed material-definition replacement,
+non-post-processed targets, XR/mirror snapshots, live Vulkan validation, and rough transmission.
 
 ## Stop condition
 

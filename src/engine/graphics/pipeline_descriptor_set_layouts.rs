@@ -13,6 +13,7 @@ pub struct PipelineDescriptorSetLayouts {
     /// Bindings:
     /// - `binding=0`: camera UBO (view/proj + misc per-frame values)
     /// - `binding=1`: lights SSBO
+    /// - `binding=2`: immutable scene color for later transmissive phases
     ///
     /// Note: the renderer may build multiple descriptor sets with this same layout
     /// (e.g. a foreground variant and a background variant). They share the same
@@ -50,6 +51,12 @@ impl PipelineDescriptorSetLayouts {
         lights_binding.descriptor_count = 1;
         lights_binding.stages = ShaderStages::FRAGMENT;
         bindings.insert(1, lights_binding);
+
+        let mut scene_color_binding =
+            DescriptorSetLayoutBinding::descriptor_type(DescriptorType::CombinedImageSampler);
+        scene_color_binding.descriptor_count = 1;
+        scene_color_binding.stages = ShaderStages::FRAGMENT;
+        bindings.insert(2, scene_color_binding);
 
         let global = DescriptorSetLayout::new(
             device.clone(),

@@ -315,6 +315,18 @@ impl Material {
         vertex_shader: "assets/shaders/mirror-mesh.vert",
         fragment_shader: "assets/shaders/mirror-mesh.frag",
     };
+
+    /// Sharp scene-color refraction for ordinary static meshes.
+    pub const REFRACTION_MESH: Material = Material {
+        vertex_shader: "assets/shaders/toon-mesh.vert",
+        fragment_shader: "assets/shaders/refraction-mesh.frag",
+    };
+
+    /// Sharp scene-color refraction using the cached-deformation vertex path.
+    pub const SKINNED_REFRACTION_MESH: Material = Material {
+        vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
+        fragment_shader: "assets/shaders/refraction-mesh.frag",
+    };
 }
 
 impl MaterialHandle {
@@ -338,4 +350,14 @@ impl MaterialHandle {
 
     /// Mirror material for planar reflections.
     pub const MIRROR: MaterialHandle = MaterialHandle(6);
+
+    /// Static mesh with the sharp-refraction fragment stage.
+    pub const REFRACTION_MESH: MaterialHandle = MaterialHandle(7);
+
+    /// Cached-deformed mesh with the sharp-refraction fragment stage.
+    pub const SKINNED_REFRACTION_MESH: MaterialHandle = MaterialHandle(8);
+
+    pub const fn is_refraction(self) -> bool {
+        matches!(self, Self::REFRACTION_MESH | Self::SKINNED_REFRACTION_MESH)
+    }
 }

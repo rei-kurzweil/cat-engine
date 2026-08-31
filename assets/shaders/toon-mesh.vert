@@ -12,6 +12,7 @@ layout(location = 4) in vec4 i_model_c3;
 layout(location = 6) in vec4 i_color;
 layout(location = 7) in float i_emissive;
 layout(location = 9) in float i_opacity;
+layout(location = 12) in vec4 i_transmission;
 
 // Set 0: global camera.
 // Unified camera path: clip = proj * view * world.
@@ -30,6 +31,7 @@ layout(location = 1) out vec3 v_normal;
 layout(location = 2) out vec2 v_uv;
 layout(location = 3) out vec4 v_color;
 layout(location = 4) flat out float v_emissive;
+layout(location = 5) flat out vec4 v_transmission;
 
 void main() {
     mat4 model = mat4(i_model_c0, i_model_c1, i_model_c2, i_model_c3);
@@ -45,6 +47,7 @@ void main() {
     v_color = i_color;
     v_color.a *= i_opacity;
     v_emissive = i_emissive;
+    v_transmission = i_transmission;
 
     gl_Position = ubo.proj * ubo.view * world;
 }

@@ -262,7 +262,7 @@ pub use transition::{TransitionComponent, TransitionEasing, TransitionReplacePol
 pub use transparent_cutout::TransparentCutoutComponent;
 pub use transmission::{
     RefractionComponent, RoughTransmissionComponent, TransmissionOptions, TransmissiveModel,
-    resolve_transmissive_model,
+    resolve_immediate_transmissive_model, resolve_transmissive_model,
 };
 pub use uv::UVComponent;
 pub use xr::XrComponent;

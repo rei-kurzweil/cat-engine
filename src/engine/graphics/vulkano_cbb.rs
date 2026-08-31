@@ -19,7 +19,8 @@ impl VulkanoState {
             crate::engine::graphics::MaterialHandle::SKINNED_EMISSIVE_TOON_MESH => {
                 pipeline_skinned_emissive
             }
-            crate::engine::graphics::MaterialHandle::SKINNED_TOON_MESH => pipeline_skinned,
+            crate::engine::graphics::MaterialHandle::SKINNED_TOON_MESH
+            | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH => pipeline_skinned,
             _ => pipeline_toon,
         }
     }
@@ -458,6 +459,54 @@ impl VulkanoState {
             self.pipeline_toon_mesh_cutout_clipped.clone(),
             self.pipeline_mirror_mesh_cutout_clipped.clone(),
             self.pipeline_emissive_toon_mesh_cutout_clipped.clone(),
+        )
+    }
+
+    pub(super) fn record_refraction_draws(
+        &mut self,
+        cbb: &mut AutoCommandBufferBuilder<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+        visual_world: &VisualWorld,
+        global_set: &Arc<DescriptorSet>,
+        rig_set: &Arc<DescriptorSet>,
+        instance_buffer: &Subbuffer<[InstanceData]>,
+        instance_count: usize,
+        stream_override: Option<(&[crate::engine::graphics::visual_world::RenderOp], &[u32])>,
+        sample_scene_color: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if instance_count == 0 {
+            return Ok(());
+        }
+
+        let (ops, stream_instances) =
+            stream_override.unwrap_or_else(|| visual_world.refraction_stream());
+        let (static_pipeline, skinned_pipeline) = if sample_scene_color {
+            (
+                self.pipeline_refraction_mesh.clone(),
+                self.pipeline_skinned_refraction_mesh.clone(),
+            )
+        } else {
+            (
+                self.pipeline_toon_mesh_transparent.clone(),
+                self.pipeline_skinned_toon_mesh_transparent.clone(),
+            )
+        };
+        self.record_phase_stream_draws(
+            cbb,
+            visual_world,
+            global_set,
+            rig_set,
+            instance_buffer,
+            ops,
+            stream_instances,
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            skinned_pipeline.clone(),
+            skinned_pipeline,
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            static_pipeline,
         )
     }
 

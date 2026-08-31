@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use crate::engine::ecs::component::{
-    ColorComponent, ImplicitSphereComponent, ImplicitSurfaceComponent,
+    ColorComponent, ImplicitSphereComponent, ImplicitSurfaceComponent, TransmissiveModel,
+    resolve_immediate_transmissive_model,
 };
 use crate::engine::ecs::system::{MeshBoundsSystem, MeshOutputKind, TransformSystem};
 use crate::engine::ecs::{ComponentId, World};
@@ -27,6 +28,8 @@ struct ImplicitOutput {
     fingerprint: u64,
     root_model: [[f32; 4]; 4],
     color: [f32; 4],
+    material: MaterialHandle,
+    transmission: Option<[f32; 4]>,
     sphere_ids: Vec<ComponentId>,
 }
 
@@ -69,7 +72,7 @@ impl ImplicitSurfaceSystem {
         for root in roots {
             let fingerprint = authored_fingerprint(world, root);
             match self.build_input(world, root) {
-                Ok((spec, spheres, root_model, color)) => {
+                Ok((spec, spheres, root_model, color, material, transmission)) => {
                     if self
                         .outputs
                         .get(&root)
@@ -89,6 +92,18 @@ impl ImplicitSurfaceSystem {
                             }
                             output.color = color;
                         }
+                        if output.material != material {
+                            if let Some(handle) = output.handle {
+                                visuals.update_material(handle, material);
+                            }
+                            output.material = material;
+                        }
+                        if output.transmission != transmission {
+                            if let (Some(handle), Some(options)) = (output.handle, transmission) {
+                                visuals.update_transmission(handle, options);
+                            }
+                            output.transmission = transmission;
+                        }
                         continue;
                     }
 
@@ -106,6 +121,8 @@ impl ImplicitSurfaceSystem {
                                     fingerprint,
                                     root_model,
                                     color,
+                                    material,
+                                    transmission,
                                     sphere_ids,
                                 }
                             } else {
@@ -131,7 +148,7 @@ impl ImplicitSurfaceSystem {
                                 };
                                 let handle = visuals.register(
                                     root,
-                                    GpuRenderable::new(gpu_mesh, MaterialHandle::TOON_MESH),
+                                    GpuRenderable::new(gpu_mesh, material),
                                     Transform {
                                         model: root_model,
                                         matrix_world: root_model,
@@ -148,6 +165,9 @@ impl ImplicitSurfaceSystem {
                                     None,
                                     3.0,
                                 );
+                                if let Some(options) = transmission {
+                                    visuals.update_transmission(handle, options);
+                                }
                                 mesh_bounds.register_or_update(
                                     root,
                                     local_bounds,
@@ -159,6 +179,8 @@ impl ImplicitSurfaceSystem {
                                     fingerprint,
                                     root_model,
                                     color,
+                                    material,
+                                    transmission,
                                     sphere_ids,
                                 }
                             };
@@ -191,7 +213,17 @@ impl ImplicitSurfaceSystem {
         &self,
         world: &World,
         root: ComponentId,
-    ) -> Result<(ImplicitGridSpec, Vec<SphereField>, [[f32; 4]; 4], [f32; 4]), String> {
+    ) -> Result<
+        (
+            ImplicitGridSpec,
+            Vec<SphereField>,
+            [[f32; 4]; 4],
+            [f32; 4],
+            MaterialHandle,
+            Option<[f32; 4]>,
+        ),
+        String,
+    > {
         let surface = *world
             .get_component_by_id_as::<ImplicitSurfaceComponent>(root)
             .ok_or_else(|| "surface component disappeared".to_string())?;
@@ -257,6 +289,24 @@ impl ImplicitSurfaceSystem {
                     .map(|c| c.rgba)
             })
             .unwrap_or([1.0; 4]);
+        let (material, transmission) = match resolve_immediate_transmissive_model(world, root)? {
+            Some(TransmissiveModel::Refraction(options)) => (
+                MaterialHandle::REFRACTION_MESH,
+                Some([
+                    options.ior,
+                    options.thickness,
+                    options.strength,
+                    options.edge_fade,
+                ]),
+            ),
+            Some(TransmissiveModel::RoughTransmission { .. }) => {
+                return Err(
+                    "ImplicitSurface supports Refraction, but RoughTransmission is not implemented yet"
+                        .into(),
+                );
+            }
+            None => (MaterialHandle::TOON_MESH, None),
+        };
         Ok((
             ImplicitGridSpec {
                 bounds_min: surface.bounds_min,
@@ -267,6 +317,8 @@ impl ImplicitSurfaceSystem {
             spheres,
             root_model,
             color,
+            material,
+            transmission,
         ))
     }
 
@@ -495,10 +547,12 @@ mod tests {
     };
     use crate::engine::ecs::ComponentId;
     use crate::engine::ecs::World;
-    use crate::engine::ecs::component::{ImplicitSphereComponent, ImplicitSurfaceComponent};
+    use crate::engine::ecs::component::{
+        ImplicitSphereComponent, ImplicitSurfaceComponent, RefractionComponent,
+    };
     use crate::engine::ecs::system::MeshBoundsSystem;
     use crate::engine::graphics::mesh::CpuMesh;
-    use crate::engine::graphics::primitives::MeshHandle;
+    use crate::engine::graphics::primitives::{MaterialHandle, MeshHandle};
     use crate::engine::graphics::{MeshUploader, RenderAssets, VisualWorld};
     use crate::utils::math::mat4_identity;
 
@@ -595,6 +649,61 @@ mod tests {
         );
         assert!(visuals.instances().is_empty());
         assert!(bounds.output(root).is_none());
+    }
+
+    #[test]
+    fn applies_refraction_to_the_baked_implicit_surface_without_rebaking() {
+        let mut world = World::default();
+        let root = world.add_component(ImplicitSurfaceComponent {
+            bounds_min: [-1.5; 3],
+            bounds_max: [1.5; 3],
+            voxel_size: 0.25,
+            iso_level: 0.0,
+            smooth_min_radius: 0.0,
+        });
+        let sphere = world.add_component(ImplicitSphereComponent::radius(1.0));
+        let mut refraction = RefractionComponent::new();
+        refraction.apply_builder("ior", 1.33).unwrap();
+        refraction.apply_builder("thickness", 0.18).unwrap();
+        let refraction = world.add_component(refraction);
+        world.add_child(root, sphere).unwrap();
+        world.add_child(root, refraction).unwrap();
+
+        let mut system = ImplicitSurfaceSystem::default();
+        let mut visuals = VisualWorld::new();
+        let mut assets = RenderAssets::new();
+        let mut uploader = TestUploader::default();
+        let mut bounds = MeshBoundsSystem::default();
+        system.reconcile_and_build(
+            &world,
+            &mut visuals,
+            &mut assets,
+            &mut uploader,
+            &mut bounds,
+        );
+
+        assert_eq!(uploader.uploads, 1);
+        let instance = &visuals.instances()[0];
+        assert_eq!(instance.renderable.material, MaterialHandle::REFRACTION_MESH);
+        assert_eq!(instance.transmission, [1.33, 0.18, 1.0, 0.02]);
+
+        world
+            .get_component_by_id_as_mut::<RefractionComponent>(refraction)
+            .unwrap()
+            .apply_builder("strength", 0.65)
+            .unwrap();
+        system.reconcile_and_build(
+            &world,
+            &mut visuals,
+            &mut assets,
+            &mut uploader,
+            &mut bounds,
+        );
+        assert_eq!(uploader.uploads, 1, "material edits must not rebake the mesh");
+        assert_eq!(
+            visuals.instances()[0].transmission,
+            [1.33, 0.18, 0.65, 0.02]
+        );
     }
 
     #[test]

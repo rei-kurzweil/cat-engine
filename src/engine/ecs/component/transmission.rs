@@ -227,8 +227,18 @@ pub fn resolve_transmissive_model(
         ));
     }
 
+    resolve_immediate_transmissive_model(world, renderable)
+}
+
+/// Resolves one direct `Refraction` or `RoughTransmission` child for a mesh-owning
+/// component. Callers that specifically own a `RenderableComponent` should use
+/// [`resolve_transmissive_model`] so its topology validation remains enforced.
+pub fn resolve_immediate_transmissive_model(
+    world: &World,
+    owner: ComponentId,
+) -> Result<Option<TransmissiveModel>, String> {
     let mut resolved = None;
-    for &child in world.children_of(renderable) {
+    for &child in world.children_of(owner) {
         let candidate =
             if let Some(component) = world.get_component_by_id_as::<RefractionComponent>(child) {
                 Some(TransmissiveModel::Refraction(component.options))
@@ -244,7 +254,7 @@ pub fn resolve_transmissive_model(
         if let Some(candidate) = candidate {
             if resolved.is_some() {
                 return Err(format!(
-                    "renderable {renderable:?} has multiple immediate transmission components; attach exactly one Refraction or RoughTransmission"
+                    "transmission owner {owner:?} has multiple immediate transmission components; attach exactly one Refraction or RoughTransmission"
                 ));
             }
             resolved = Some(candidate);
