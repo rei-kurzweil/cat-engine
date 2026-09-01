@@ -113,6 +113,9 @@ determines how much source information exists before that filtering.
 
 ## 2. Optional foreground-depth comparison
 
+Implementation and A/B acceptance are tracked in
+[Optional refraction foreground-depth comparison](../task/refraction-depth-compare-configuration.md).
+
 The proposed material API is:
 
 ```mms

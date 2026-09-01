@@ -96,3 +96,9 @@ scene-query cost and are not required to stop the foreground leak.
 - Recursive refraction or correct ordering between overlapping transmissive surfaces.
 - Refraction through ordinary transparent objects.
 - Ray-traced intersections, depth peeling, or an unbounded per-fragment search.
+
+## Follow-up configuration and Bloom boundary
+
+- [Optional refraction foreground-depth comparison](refraction-depth-compare-configuration.md)
+  tracks the per-material A/B switch and the observed case where foreground-origin Bloom extends
+  beyond the source geometry's depth silhouette.
