@@ -9,8 +9,8 @@ Current timed authoring calls `MusicNote.*(..., source_handle)` or live source m
 are retained only as historical design context.
 
 Unified vocabulary for sound-producing nodes in the audio graph. Covers
-oscillators and PCM clips under one umbrella term so triggering, scheduling,
-and graph wiring can be described once.
+oscillators, PCM clips, and live audio inputs under one umbrella term so
+triggering, scheduling, and graph wiring can be described once.
 
 Supersedes the source-naming portion of:
 
@@ -23,9 +23,10 @@ Supersedes the source-naming portion of:
 
 | Term | Meaning | Layer |
 |---|---|---|
-| `AudioSource` | Umbrella: any playable sound-producing node | architecture |
+| `AudioSource` | Umbrella: any graph node which supplies audio samples | architecture |
 | `AudioOscillator` | Procedural synthesized source | ECS + MMS |
 | `AudioClip` | PCM-backed playable source | ECS + MMS |
+| `AudioInput` | Live host/device PCM source | ECS + MMS |
 | `AudioOutput` | Sink / root output node | ECS + MMS |
 | `AudioEffect` | Signal-processing node in the graph | ECS + MMS |
 | `AudioClipAsset` | Decoded PCM data in `AudioAssets` registry | engine-internal |
@@ -42,15 +43,24 @@ verb, never an authored node.
 |---|---|---|---|
 | Oscillator | `AudioOscillatorComponent` | none (synthesized) | gate-driven |
 | Clip | `AudioClipComponent` | `AudioClipAsset` in `AudioAssets` | cursor-driven |
+| Input | `AudioInputComponent` | live CPAL capture runtime | continuous; compiled as `AudioGraphNodeKind::InputSource` |
 
-Both connect to an `AudioOutputComponent` ancestor to be included in the
-compiled DSP graph. Detached sources stay loaded but silent.
+All three connect to an `AudioOutputComponent` ancestor to be included in the
+compiled DSP graph. Detached sources stay silent. A detached `AudioInput` may
+remain active while an explicit non-graph consumer such as `Visemes` references
+it; that does not make it audible.
+
+The input component is itself the authored source. There is no separate
+`AudioInputSource` wrapper. See
+[audio input and visemes](audio-input-and-visemes.md) for capture, analysis,
+thread, and MMS contracts.
 
 ---
 
-## 3. Unified trigger intent
+## 3. Unified trigger intent for playable sources
 
-One intent triggers any `AudioSource`:
+One intent triggers playable `AudioSource` variants (`AudioOscillator` and
+`AudioClip`):
 
 ```rust
 IntentValue::AudioSchedulePlay {
@@ -67,6 +77,10 @@ IntentValue::AudioSchedulePlay {
 Naming rationale: "play" is source-agnostic. "note" is oscillator-flavored.
 `MusicNote` remains the payload shape when pitch/velocity/duration apply.
 
+`AudioInput` is continuous and does not respond to `AudioSchedulePlay`.
+Component/consumer lifecycle controls capture, while ordinary graph gates and
+effects control an attached input's audible monitoring path.
+
 Deprecated (oscillator-specific, to be folded in):
 
 - `OscillatorScheduleSetNote`
@@ -76,15 +90,15 @@ Deprecated (oscillator-specific, to be folded in):
 
 ## 4. Per-variant trigger semantics
 
-| Field | Oscillator | Clip |
-|---|---|---|
-| `note.pitch` | sets oscillator frequency | maps to playback rate (resample) |
-| `note.velocity` | sets gain | scales gain |
-| `note.duration` | gate ON, then gate OFF after duration | stop playback after duration |
-| `gain` (generic) | overrides velocity gain | overrides velocity gain |
-| `rate` (generic) | ignored (use pitch) | playback rate; overrides note.pitch mapping |
-| `duration` (generic) | overrides note.duration | overrides note.duration |
-| no `note`, no fields | gate ON indefinitely | play from cursor=0 to end |
+| Field | Oscillator | Clip | Input |
+|---|---|---|---|
+| `note.pitch` | sets oscillator frequency | maps to playback rate (resample) | not applicable |
+| `note.velocity` | sets gain | scales gain | not applicable |
+| `note.duration` | gate ON, then gate OFF after duration | stop playback after duration | not applicable |
+| `gain` (generic) | overrides velocity gain | overrides velocity gain | not applicable |
+| `rate` (generic) | ignored (use pitch) | playback rate; overrides note.pitch mapping | not applicable |
+| `duration` (generic) | overrides note.duration | overrides note.duration | not applicable |
+| no `note`, no fields | gate ON indefinitely | play from cursor=0 to end | not applicable |
 
 Trigger always resets clip cursor to 0 unless `AudioTriggerMode` says
 otherwise (see clip component).
@@ -100,6 +114,7 @@ Authored components and compiled runtime nodes are allowed to diverge.
 | `AudioOutputComponent`     | output sink node |
 | `AudioOscillatorComponent` | oscillator DSP node |
 | `AudioClipComponent`       | `AudioClipPlayer` (cursor + asset ref) |
+| `AudioInputComponent`      | `InputSource` (capture queue consumer) |
 | `AudioEffectComponent`     | per-kind internal effect node |
 
 `AudioGraphCompiler` owns the lowering. Authored components are scene

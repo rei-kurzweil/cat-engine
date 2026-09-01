@@ -12,15 +12,18 @@ latency and release behavior.
 
 The public model has four separate responsibilities:
 
-- `AudioInput` selects and owns a capture endpoint.
-- `SpeechViseme` configures speech analysis and retains its latest semantic
+- `AudioInput` is a live-capture `AudioSource`, alongside `AudioOscillator` and
+  `AudioClip`.
+- `Visemes` configures speech analysis and retains its latest semantic
   output.
 - `AvatarControlSystem` routes retained semantic channels to the controlled
   avatar.
 - `MorphTargetMap` maps those channels to model-specific morph target labels.
 
-Microphone audio may become an audio-graph source later, but graph playback is
-not required to ship microphone-driven mouth movement.
+The first audio-input slice compiles an attached `AudioInput` as
+`AudioGraphNodeKind::InputSource`. Graph attachment makes it audible; a
+detached input referenced by `Visemes` remains usable for mouth movement
+without being routed to speakers.
 
 ## Why this is a separate epic
 
@@ -65,9 +68,9 @@ main thread.
                      │                              │
 AvatarControlSystem ─┘                     CPAL input callback
         │                                          │
-        │ semantic channel weights                 │ future explicit tap
+        │ semantic channel weights                 │ independent bounded tap
         ▼                                          ▼
-MorphTargetMap -> GLTF morph drivers        audio graph input source
+MorphTargetMap -> GLTF morph drivers        RT `InputSource`
 ```
 
 These are distinct execution contexts:
@@ -83,7 +86,7 @@ These are distinct execution contexts:
    rejects stale generations, stores the latest retained sample, and applies it
    through the avatar/morph path.
 4. **CPAL output callback** — continues to own audio rendering. It does not
-   participate in speech recognition. A later graph-input node may read a
+   participate in speech recognition. A compiled `InputSource` reads its own
    separate capture queue.
 
 The capture callback is already a thread from the engine's perspective. We do
@@ -97,7 +100,7 @@ owned thread is specifically the speech-analysis worker.
 | `AudioInputComponent` | authored device/config intent and observable status | PCM buffers, recognizer model, glTF state |
 | capture runtime | CPAL stream, negotiated format, sequence counter, bounded producers | ECS mutation, speech inference |
 | speech worker | recognizer backend and its temporal state | `World`, `ComponentId` lookup, morph labels |
-| `SpeechVisemeComponent` | source reference, analysis policy, latest retained frame/status | worker implementation details |
+| `VisemesComponent` | source reference, analysis policy, latest retained frame/status | worker implementation details |
 | `AvatarControlSystem` | selection of the newest direct tracker and avatar routing | device access, phoneme recognition |
 | `MorphTargetMapComponent` | semantic channel -> model target label | tracker/backend-specific names |
 | `GLTFComponent` | per-instance morph factor state | capture or analysis lifecycle |
@@ -165,7 +168,7 @@ enum SpeechWorkerCommand {
 }
 ```
 
-The first implementation should permit one active `SpeechViseme` analysis
+The first implementation should permit one active `Visemes` analysis
 session per `AudioInput`. Supporting multiple recognizers per input requires an
 explicit fan-out policy and is not accidental behavior.
 
@@ -282,12 +285,12 @@ Removing, disabling, or materially reconfiguring the component increments its
 generation and tears down the old stream. Shutdown must not wait from an audio
 callback.
 
-### `SpeechVisemeComponent`
+### `VisemesComponent`
 
 Tracker/analysis declaration:
 
 ```rust
-pub struct SpeechVisemeComponent {
+pub struct VisemesComponent {
     pub source: ComponentRef, // must resolve to AudioInput
     pub enabled: bool,
     pub backend: SpeechBackendSelector,
@@ -296,12 +299,12 @@ pub struct SpeechVisemeComponent {
     pub release_ms: f32,
     pub silence_release_ms: f32,
     pub min_confidence: f32,
-    pub sample: Option<SpeechVisemeSample>,
-    pub status: SpeechVisemeStatus,
+    pub sample: Option<VisemeSample>,
+    pub status: VisemesStatus,
 }
 ```
 
-Like eye tracking, a `SpeechViseme` direct child of `AVC` is eligible to drive
+Like eye tracking, a `Visemes` direct child of `AVC` is eligible to drive
 that avatar. Its `source` is an explicit handle; topology does not imply which
 microphone to use. If several enabled direct speech trackers exist, select the
 newest valid sample by monotonic sequence/time, matching the retained-sample
@@ -338,12 +341,10 @@ Component construction and builder configuration should follow the current MMS
 component registry/runtime catalog model:
 
 ```mms
-let microphone = AudioInput.default() {
-    enabled(true)
-}
+let microphone = AudioInput {}
 
 AVC {
-    SpeechViseme.new(microphone) {
+    Visemes.from(microphone) {
         language("en")
         attack_ms(35)
         release_ms(80)
@@ -368,50 +369,89 @@ Proposed constructors/builders:
 
 | Component | Surface | Meaning |
 | --- | --- | --- |
-| `AudioInput` | `.default()` | default host input device |
-| `AudioInput` | `.device(name_or_id)` | explicit device; deferred until stable enumeration exists |
+| `AudioInput` | bare `{}` or `.default()` | default host input device |
+| `AudioInput` | `.device_number(index)` | session-local enumerated input device |
+| `AudioInput` | `.device(name_or_id)` | explicit device identity |
 | `AudioInput` | `.enabled(bool)` | capture lifecycle intent |
-| `SpeechViseme` | `.new(audio_input)` | explicit capture source |
-| `SpeechViseme` | `.backend(name)` | backend preset; optional in the first slice |
-| `SpeechViseme` | `.language(tag)` | backend language hint |
-| `SpeechViseme` | `.attack_ms/.release_ms(...)` | coarticulation envelope |
-| `SpeechViseme` | `.silence_release_ms(...)` | stale/silence mouth release |
-| `SpeechViseme` | `.min_confidence(...)` | reject uncertain observations |
+| `Visemes` | `.from(audio_input)` | explicit capture source |
+| `Visemes` | `.backend(name)` | backend preset; optional in the first slice |
+| `Visemes` | `.language(tag)` | backend language hint |
+| `Visemes` | `.attack_ms/.release_ms(...)` | coarticulation envelope |
+| `Visemes` | `.silence_release_ms(...)` | stale/silence mouth release |
+| `Visemes` | `.min_confidence(...)` | reject uncertain observations |
 
 Runtime methods such as `.start()` and `.stop()` are not needed initially;
 `enabled(...)` is durable authored state and lifecycle follows component attach,
 update, and removal. If imperative methods are later added, they must use the
 canonical host-side component method dispatch rather than evaluator-only logic.
 
-## Relationship to the audio graph
-
-An input endpoint and an audio-graph source are related but not identical:
-
-- `AudioInput` represents one captured device stream.
-- speech analysis subscribes to that stream without making it audible.
-- a future compiled `AudioInputSource` graph node may subscribe to the same
-  stream for monitoring, recording, metering, or effects.
-
-Suggested later authoring shape:
+Device enumeration is a host API rather than a component constructor:
 
 ```mms
-let microphone = AudioInput.default()
+let devices = Audio.input_devices() // string[]
+```
+
+The separate `Audio` namespace avoids making `AudioInput` ambiguous between a
+component type and a built-in/host API namespace.
+
+## Relationship to the audio graph
+
+`AudioInput` is directly an `AudioSource`:
+
+- `AudioOscillator` synthesizes samples;
+- `AudioClip` reads decoded PCM;
+- `AudioInput` reads live captured PCM.
+
+The same live input handle may be attached to an audio graph and referenced by
+`Visemes`:
+
+```mms
+let microphone = AudioInput {}
+let visemes = Visemes.from(microphone)
 
 AudioOutput {
-    AudioInputSource.new(microphone) {
-        AudioGain.new(0.0) // explicit monitoring policy
-    }
+    microphone
+}
+
+AVC {
+    visemes
 }
 ```
 
-`AudioGraphCompiler` would lower `AudioInputSource` to an RT node that reads a
-dedicated bounded queue. Merely creating `AudioInput` must never route the
-microphone to speakers: implicit monitoring creates feedback and surprises.
+The first slice extends `AudioGraphNodeKind` with `InputSource` and compiles an
+attached `AudioInput` directly to that runtime node. There is no separate
+`AudioInputSource.new(microphone)` wrapper.
 
-The first viseme slice should leave this graph node unimplemented while keeping
-the capture runtime capable of explicit fan-out. Recording, echo cancellation,
-noise suppression, spatialization, and network voice transport are separate
-workstreams.
+Graph and analysis consumers receive separate bounded capture queues. A
+detached input referenced by `Visemes` remains inaudible. Attaching it beneath
+`AudioOutput` makes monitoring explicit and therefore carries the ordinary
+feedback risk. Recording, echo cancellation, noise suppression, spatialization,
+and network voice transport are separate workstreams.
+
+## V2 live data access from MMS
+
+V2 makes a live `Visemes` instance readable as a host-owned component receiver:
+
+```mms
+let microphone = AudioInput {}
+let visemes = Visemes.from(microphone)
+
+let all = visemes.weights() // f32[]
+let aa = visemes.weight(0)  // f32
+let names = visemes.names() // string[]
+```
+
+These use ordinary `.` receiver syntax and the MMS component-method host
+protocol. Each call messages the Mittens host, validates the live component
+handle, and returns a copied snapshot of the newest viseme data retained on the
+main thread. It never reads worker memory directly and never blocks waiting for
+inference.
+
+`weights()` and `names()` use one authoritative canonical ordering;
+`weight(i)` and `name(i)` address that same ordering. Before the first valid
+frame and after silence/staleness, weight reads return the neutral zero vector.
+V2 is specified fully in
+[`docs/spec/audio-input-and-visemes.md`](../../spec/audio-input-and-visemes.md).
 
 ## Avatar-control integration
 
@@ -420,7 +460,7 @@ system that searches for avatars globally.
 
 Per tick, after speech-worker events have been drained:
 
-1. `AvatarControlSystem` finds enabled direct `SpeechViseme` children.
+1. `AvatarControlSystem` finds enabled direct `Visemes` children.
 2. It selects the newest valid retained sample.
 3. It requests/resolves the AVC-owned glTF through the same authoritative
    avatar mapping path used by blink routing.
@@ -463,7 +503,7 @@ The backend belongs behind an engine-owned trait so tests can use a deterministi
 fake:
 
 ```rust
-trait StreamingSpeechVisemeBackend: Send {
+trait StreamingVisemeBackend: Send {
     fn configure(&mut self, format: RecognizerFormat) -> Result<(), String>;
     fn reset(&mut self);
     fn push_audio(&mut self, mono_pcm: &[f32], frame_start: u64)
@@ -490,6 +530,7 @@ specific names to the component API.
 ### Task 2: audio input component and device lifecycle
 
 - add `AudioInputComponent` and MMS registration/catalog signatures;
+- add `Audio.input_devices()` host API enumeration;
 - add `AudioInputSystem` runtime ownership;
 - negotiate the default CPAL input format and expose status/diagnostics;
 - implement generation-safe start, disable, reconfigure, removal, and shutdown;
@@ -498,7 +539,18 @@ specific names to the component API.
 Exit: fixed PCM blocks arrive off the callback with bounded behavior, and
 component teardown cannot leave a live stream or blocked join.
 
-### Task 3: bounded capture protocol
+### Task 3: audio graph `InputSource`
+
+- add `AudioInput` to the authored `AudioSource` vocabulary;
+- add `AudioGraphNodeKind::InputSource` and its RT equivalent;
+- compile an attached `AudioInput` directly, without a wrapper component;
+- give render and analysis consumers independent bounded queues;
+- prove a detached analysis-only input is inaudible and an attached input is
+  rendered through ordinary graph effects.
+
+Exit: `AudioInput` is a first-class compiled audio source in the initial slice.
+
+### Task 4: bounded capture protocol
 
 - implement the fixed-block SPSC queue and preallocated callback staging;
 - carry source generation, sequence, and captured-frame timestamps;
@@ -509,7 +561,7 @@ component teardown cannot leave a live stream or blocked join.
 Exit: callback code is allocation-free/non-blocking and discontinuities are
 observable.
 
-### Task 4: backend spike and fixture corpus
+### Task 5: backend spike and fixture corpus
 
 - define the backend trait and deterministic fake;
 - compare candidate streaming recognizers using recorded fixtures;
@@ -519,19 +571,19 @@ observable.
 Exit: the epic has an evidence-backed backend choice and reproducible fixtures,
 not only live-microphone anecdotes.
 
-### Task 5: speech worker and retained component state
+### Task 6: speech worker and retained component state
 
-- add `SpeechVisemeComponent`, control/events, worker lifecycle, and statuses;
+- add `VisemesComponent`, control/events, worker lifecycle, and statuses;
 - perform worker-side remix/resample, inference, phoneme-to-viseme mapping,
   smoothing, and silence detection;
-- drain events in `SpeechVisemeSystem` and reject stale generations;
+- drain events in `VisemeSystem` and reject stale generations;
 - clear retained output on timeout, overflow reset, disable, failure, and
   removal.
 
 Exit: deterministic PCM fixtures produce deterministic timestamped canonical
 viseme frames without touching an avatar.
 
-### Task 6: morph driver ownership/composition
+### Task 7: morph driver ownership/composition
 
 - audit the current single `MorphFactorState::driver` ownership assumption;
 - add named driver ownership/composition or enforce and diagnose exclusive
@@ -542,9 +594,9 @@ viseme frames without touching an avatar.
 Exit: blink, speech, editor/manual control, and future face tracking have a
 documented conflict policy.
 
-### Task 7: AVC viseme routing
+### Task 8: AVC viseme routing
 
-- consume only direct eligible `SpeechViseme` children;
+- consume only direct eligible `Visemes` children;
 - resolve AVC glTF and cached map slots to structural keys;
 - apply weights and release them on every invalid/stale lifecycle path;
 - diagnose missing map, missing labels, duplicate labels, and driver conflicts
@@ -553,7 +605,7 @@ documented conflict policy.
 Exit: a fake speech backend drives a synthetic mapped avatar and releases to
 base state on silence/removal.
 
-### Task 8: MMS scene and live validation
+### Task 9: MMS scene and live validation
 
 - add a focused VTuber microphone example;
 - show a five-vowel map and the selected reduction preset;
@@ -564,13 +616,14 @@ base state on silence/removal.
 Exit: speaking into the selected microphone moves the example avatar's mouth,
 silence closes/releases it, and audio/render threads remain stable.
 
-### Deferred task: audio graph input source
+### V2 task: live viseme data access
 
-- add explicit `AudioInputSource.new(audio_input)` authored vocabulary;
-- add a dedicated capture-to-render queue and compiled RT source node;
-- define monitoring gain, channel layout, latency, and feedback-safe defaults;
-- validate graph effects do not influence the analysis feed unless an explicit
-  processed-analysis tap is later designed.
+- register `weights() -> f32[]`, `weight(index) -> f32`,
+  `names() -> string[]`, and `name(index) -> string` on live `Visemes`;
+- dispatch through canonical host-side component methods;
+- return copied snapshots from retained main-thread state, never worker memory;
+- define neutral, stale, disabled, removed, and index-error behavior;
+- verify top-level and runtime-closure calls use identical host semantics.
 
 ## Validation and acceptance criteria
 
@@ -628,6 +681,8 @@ Initial latency targets for the backend spike, subject to measurement:
 
 ## Related documents and code
 
+- `docs/spec/audio-input-and-visemes.md` — authoritative v1/v2 component,
+  graph, thread, AVC, and live-read API contract.
 - `docs/draft/audio_decoding_thread.md` — existing worker/thread ownership
   model.
 - `docs/spec/audio-sources.md` — audio vocabulary and authored-versus-runtime
