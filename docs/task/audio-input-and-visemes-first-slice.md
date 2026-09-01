@@ -213,6 +213,8 @@ expected generation-safe worker lifecycle with a deterministic fake unit.
 
 ### 7. Recognition backend spike and adapter
 
+Evaluation tracker: [viseme detection backend evaluation](viseme-detection-backend-evaluation.md).
+
 - [ ] Define the streaming backend trait behind the preallocated unit.
 - [ ] Add a deterministic fake backend for tests.
 - [ ] Build a small recorded PCM fixture corpus covering voiced speech,
