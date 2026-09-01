@@ -18,6 +18,15 @@ PCM block → preallocated analysis unit → timestamped canonical VisemeFrame
 
 No backend phoneme name or model-specific class crosses this boundary.
 
+## Naming decision
+
+Keep `Visemes` as the public/avatar-facing component. A phoneme is an acoustic
+or linguistic unit; a viseme is a visual mouth pose. The mapping is not
+one-to-one: `/p/`, `/b/`, and `/m/` commonly share a closed-lips pose, while a
+single phoneme can look different with coarticulation, language, and avatar
+style. A selected backend may produce phonemes internally, but its adapter
+reduces them to canonical viseme weights before they leave the worker.
+
 ## First-slice target
 
 The backend must produce a useful five-vowel reduction:

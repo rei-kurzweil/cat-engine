@@ -18,6 +18,15 @@ Ship the smallest end-to-end path in which:
 6. Silence, failure, disable, and removal release those temporary morph
    drivers.
 
+Before viseme recognition is selected, implement the shared observable capture
+path in [audio amplitude observation](audio-amplitude-observation.md). It is
+both a microphone diagnostic gate and a useful fallback when recognition is
+not available.
+
+An initialized enabled `Amplitude` observer is an audio-input consumer even
+when detached from `AudioOutput`; placing it directly beneath `AVC` makes its
+retained main-thread measurement eligible for avatar-side use, not audible.
+
 The authoritative API contract is
 [audio input and visemes](../spec/audio-input-and-visemes.md). The broader
 design and deferred work are tracked by the

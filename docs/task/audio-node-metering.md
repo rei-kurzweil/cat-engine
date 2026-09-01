@@ -1,13 +1,14 @@
 # Audio-node metering
 
 Date: 2026-09-01
-Status: queued after audio input and visemes first slice
+Status: queued after [audio amplitude observation](audio-amplitude-observation.md)
 
 ## Goal
 
-Provide one general, retained measurement surface for the signal emitted by
-any `AudioSource` or audio-graph node. `AudioInput` is its first practical
-consumer, but must not receive a microphone-only level API.
+Provide one general, retained measurement surface for a compiled audio-graph
+node. The source-level RMS path is now tracked separately as
+[audio amplitude observation](audio-amplitude-observation.md); this task
+extends that model to graph nodes and post-effect/output measurements.
 
 ## First proposed retained metrics
 
@@ -35,9 +36,8 @@ replacement for offline clip loudness normalization.
 ## Deferred API decision
 
 Choose whether authoring uses an explicit `AudioMeter` graph child, a
-diagnostic system-owned meter, or both. The first viseme slice may use an
-internal capture RMS only for worker diagnostics, but it must not expose a
-separate `AudioInput.level()` API.
+diagnostic system-owned meter, or both. `Amplitude.from(source)` remains the
+source-level API; it must not silently change to post-effect semantics.
 
 ## Acceptance
 
