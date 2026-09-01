@@ -1,11 +1,11 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::Transform;
+use crate::engine::graphics::GpuRenderable;
+use crate::engine::graphics::MsaaMode;
 use crate::engine::graphics::deformation::{DeformationRange, DeformationRangeAllocator};
 use crate::engine::graphics::post_processing::PostProcessingConfig;
 use crate::engine::graphics::primitives::InstanceHandle;
 use crate::engine::graphics::primitives::TransformMatrix;
-use crate::engine::graphics::GpuRenderable;
-use crate::engine::graphics::MsaaMode;
 use crate::engine::graphics::{Skin, SkinId};
 use slotmap::{Key, SlotMap};
 use std::collections::HashMap;
@@ -119,6 +119,7 @@ pub struct VisualWorld {
     clear_color: [f32; 4],
     renderer_msaa_mode: MsaaMode,
     preferred_window_size: Option<[u32; 2]>,
+    transmission_depth_compare: bool,
     post_processing: PostProcessingConfig,
 
     mirrors: Vec<VisualMirror>,
@@ -232,33 +233,6 @@ pub struct VisualWorld {
     transparent_multi_draw_batches: Vec<DrawBatch>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct TransmissionFlags(u32);
-
-impl TransmissionFlags {
-    pub const NONE: Self = Self(0);
-    pub const DEPTH_COMPARE: Self = Self(1 << 0);
-
-    pub const fn from_depth_compare(enabled: bool) -> Self {
-        if enabled {
-            Self::DEPTH_COMPARE
-        } else {
-            Self::NONE
-        }
-    }
-
-    pub const fn bits(self) -> u32 {
-        self.0
-    }
-}
-
-impl Default for TransmissionFlags {
-    fn default() -> Self {
-        Self::DEPTH_COMPARE
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct VisualInstance {
     pub renderable: GpuRenderable,
@@ -276,7 +250,6 @@ pub struct VisualInstance {
     pub quant_steps: f32,
     /// IOR, effective thickness, strength, and viewport-edge fade.
     pub transmission: [f32; 4],
-    pub transmission_flags: TransmissionFlags,
 
     /// Base index into `VisualWorld::bones_palette`.
     pub bones_base: u32,
@@ -323,6 +296,7 @@ impl Default for VisualWorld {
             clear_color: [0.0, 0.0, 0.0, 1.0],
             renderer_msaa_mode: MsaaMode::default(),
             preferred_window_size: None,
+            transmission_depth_compare: true,
             post_processing: PostProcessingConfig::default(),
             mirrors: Vec::new(),
             window_frame_dt_sec: 0.0,
@@ -426,15 +400,28 @@ impl VisualWorld {
     }
 
     pub fn active_morphs(&self, instance_index: usize) -> &[(u32, f32)] {
-        self.morph_inputs.get(instance_index).map(Vec::as_slice).unwrap_or(&[])
+        self.morph_inputs
+            .get(instance_index)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     /// Updates one instance's sparse morph palette input and invalidates only
     /// that cached deformation when the effective values actually changed.
     pub fn set_active_morphs(&mut self, cid: ComponentId, active_morphs: Vec<(u32, f32)>) -> bool {
-        let Some(&handle) = self.component_to_handle.get(&cid) else { return false; };
-        let Some(&idx) = self.handle_to_index.get(&handle) else { return false; };
-        if self.morph_inputs.get(idx).is_some_and(|current| *current == active_morphs) { return true; }
+        let Some(&handle) = self.component_to_handle.get(&cid) else {
+            return false;
+        };
+        let Some(&idx) = self.handle_to_index.get(&handle) else {
+            return false;
+        };
+        if self
+            .morph_inputs
+            .get(idx)
+            .is_some_and(|current| *current == active_morphs)
+        {
+            return true;
+        }
         self.morph_inputs[idx] = active_morphs;
         self.instances[idx].deformation_dirty = true;
         true
@@ -724,7 +711,7 @@ impl VisualWorld {
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderOp, TransmissionFlags, VisualWorld};
+    use super::{RenderOp, VisualWorld};
     use crate::engine::ecs::ComponentId;
     use crate::engine::graphics::primitives::{
         GpuRenderable, MaterialHandle, MeshHandle, Transform,
@@ -938,9 +925,11 @@ mod tests {
         assert_eq!(visuals.background_occluded_lit_order().len(), 1);
         assert!(!visuals.has_background_occluded_lit_emissive());
         assert!(visuals.background_occluded_lit_emissive_order().is_empty());
-        assert!(visuals
-            .background_occluded_lit_emissive_batches()
-            .is_empty());
+        assert!(
+            visuals
+                .background_occluded_lit_emissive_batches()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1032,20 +1021,24 @@ mod tests {
         );
 
         visuals.prepare_draw_cache();
-        assert!(visuals
-            .opaque_stream()
-            .0
-            .iter()
-            .all(|op| matches!(op, RenderOp::DrawBatch(_))));
+        assert!(
+            visuals
+                .opaque_stream()
+                .0
+                .iter()
+                .all(|op| matches!(op, RenderOp::DrawBatch(_)))
+        );
 
         assert!(visuals.register_stencil_clip(clip_handle, 0));
         assert!(visuals.update_stencil_ref(content_handle, 1));
         visuals.prepare_draw_cache();
-        assert!(visuals
-            .opaque_stream()
-            .0
-            .iter()
-            .any(|op| matches!(op, RenderOp::EnterClip { .. })));
+        assert!(
+            visuals
+                .opaque_stream()
+                .0
+                .iter()
+                .any(|op| matches!(op, RenderOp::EnterClip { .. }))
+        );
 
         assert!(visuals.unregister_stencil_clip(clip_handle));
         visuals.prepare_draw_cache();
@@ -1692,42 +1685,6 @@ mod tests {
         assert!(!transparent_single_instances.contains(&2));
         assert!(!transparent_multi_order.contains(&3));
     }
-
-    #[test]
-    fn transmission_flags_default_on_and_updates_dirty_instance_data() {
-        let mut visuals = VisualWorld::default();
-        let handle = visuals.register(
-            cid(80),
-            dummy_renderable(),
-            Transform::default(),
-            [1.0; 4],
-            1.0,
-            false,
-            false,
-            false,
-            false,
-            false,
-            0.0,
-            None,
-            3.0,
-        );
-        assert_eq!(
-            visuals.instance(handle).unwrap().transmission_flags,
-            TransmissionFlags::DEPTH_COMPARE
-        );
-        visuals.take_instance_data_dirty();
-
-        assert!(visuals.update_transmission(
-            handle,
-            [1.5, 0.1, 1.0, 0.02],
-            TransmissionFlags::NONE,
-        ));
-        assert_eq!(
-            visuals.instance(handle).unwrap().transmission_flags,
-            TransmissionFlags::NONE
-        );
-        assert!(visuals.take_instance_data_dirty());
-    }
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VisualLight {
@@ -2180,6 +2137,15 @@ impl VisualWorld {
         self.preferred_window_size = size.filter(|[w, h]| *w > 0 && *h > 0);
     }
 
+    pub fn transmission_depth_compare(&self) -> bool {
+        self.transmission_depth_compare
+    }
+
+    pub fn set_transmission_depth_compare(&mut self, enabled: bool) {
+        self.transmission_depth_compare = enabled;
+        self.dirty_camera = true;
+    }
+
     pub fn take_preferred_window_size(&mut self) -> Option<[u32; 2]> {
         self.preferred_window_size.take()
     }
@@ -2206,11 +2172,7 @@ impl VisualWorld {
 
     pub fn xr_frame_fps(&self) -> Option<f32> {
         let dt = self.xr_frame_dt_sec?;
-        if dt > 0.0 {
-            Some(1.0 / dt)
-        } else {
-            None
-        }
+        if dt > 0.0 { Some(1.0 / dt) } else { None }
     }
 
     pub fn set_xr_frame_dt_sec(&mut self, dt_sec: Option<f32>) {
@@ -3157,7 +3119,6 @@ impl VisualWorld {
             texture_filtering: TextureFiltering::default(),
             quant_steps: sanitize_quant_steps(quant_steps),
             transmission: [1.5, 0.1, 1.0, 0.02],
-            transmission_flags: TransmissionFlags::default(),
 
             bones_base: 0,
             bones_count: 0,
@@ -3350,15 +3311,9 @@ impl VisualWorld {
         }
     }
 
-    pub fn update_transmission(
-        &mut self,
-        handle: InstanceHandle,
-        options: [f32; 4],
-        flags: TransmissionFlags,
-    ) -> bool {
+    pub fn update_transmission(&mut self, handle: InstanceHandle, options: [f32; 4]) -> bool {
         if let Some(&idx) = self.handle_to_index.get(&handle) {
             self.instances[idx].transmission = options;
-            self.instances[idx].transmission_flags = flags;
             self.dirty_instance_data = true;
             true
         } else {
@@ -3452,7 +3407,6 @@ impl VisualWorld {
             let texture_filtering = self.instances[idx].texture_filtering;
             let quant_steps = self.instances[idx].quant_steps;
             let transmission = self.instances[idx].transmission;
-            let transmission_flags = self.instances[idx].transmission_flags;
             let bones_base = self.instances[idx].bones_base;
             let bones_count = self.instances[idx].bones_count;
             let deformed_base = self.instances[idx].deformed_base;
@@ -3476,7 +3430,6 @@ impl VisualWorld {
                 texture_filtering,
                 quant_steps,
                 transmission,
-                transmission_flags,
                 bones_base,
                 bones_count,
                 deformed_base,

@@ -1,8 +1,8 @@
 pub mod bounds;
 pub mod deformation;
-pub(crate) mod implicit_mesh;
 #[cfg(test)]
 pub(crate) mod deformation_reference;
+pub(crate) mod implicit_mesh;
 pub mod mesh;
 pub mod pipeline_descriptor_set_layouts;
 pub mod planar_transparency_optimizer;
@@ -30,7 +30,7 @@ pub use primitives::{
 
 pub use render_assets::{BuiltinMeshType, RenderAssets};
 pub use skin::{Skin, SkinId};
-pub use visual_world::{TextureFiltering, TransmissionFlags};
+pub use visual_world::TextureFiltering;
 pub use visual_world::VisualWorld;
 pub use visual_world::{CameraData, CameraTarget, VisualCamera};
 pub(crate) mod vulkano_texture_upload;

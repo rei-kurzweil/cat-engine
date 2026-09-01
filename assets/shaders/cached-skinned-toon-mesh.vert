@@ -13,7 +13,6 @@ layout(location = 7) in float i_emissive;
 layout(location = 9) in float i_opacity;
 layout(location = 10) in uint i_deformed_base;
 layout(location = 12) in vec4 i_transmission;
-layout(location = 13) in uint i_transmission_flags;
 
 layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 view;
@@ -22,7 +21,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     vec2 viewport;
     vec2 _pad0;
     vec3 ambient_light;
-    float _pad1;
+    uint renderer_flags;
 } ubo;
 
 struct DeformedVertex {
@@ -39,7 +38,6 @@ layout(location = 2) out vec2 v_uv;
 layout(location = 3) out vec4 v_color;
 layout(location = 4) flat out float v_emissive;
 layout(location = 5) flat out vec4 v_transmission;
-layout(location = 6) flat out uint v_transmission_flags;
 
 float sign_not_zero(float value) {
     return value < 0.0 ? -1.0 : 1.0;
@@ -73,6 +71,5 @@ void main() {
     v_color.a *= i_opacity;
     v_emissive = i_emissive;
     v_transmission = i_transmission;
-    v_transmission_flags = i_transmission_flags;
     gl_Position = ubo.proj * ubo.view * world;
 }

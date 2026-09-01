@@ -794,15 +794,17 @@ fn live_eval_emitted_tree_is_queryable_by_next_statement() {
 
     let out = MeowMeowRunner::eval_with_world(src, &mut world, &mut rx, &mut emit);
     assert!(out.errors.is_empty(), "errors: {:?}", out.errors);
-    assert!(world
-        .find_component(
-            world
-                .all_components()
-                .find(|&id| world.parent_of(id).is_none())
-                .unwrap(),
-            "#btn_a"
-        )
-        .is_some());
+    assert!(
+        world
+            .find_component(
+                world
+                    .all_components()
+                    .find(|&id| world.parent_of(id).is_none())
+                    .unwrap(),
+                "#btn_a"
+            )
+            .is_some()
+    );
 }
 
 #[test]
@@ -1223,7 +1225,8 @@ fn runtime_spec_json_host_api_round_trips_heap_backed_tables() {
     let mut world = World::default();
     let mut rx = RxWorld::default();
     let mut emit = CommandQueue::new();
-    let output = MeowMeowRunner::eval_with_runtime_spec(source, &mut world, &mut rx, None, &mut emit);
+    let output =
+        MeowMeowRunner::eval_with_runtime_spec(source, &mut world, &mut rx, None, &mut emit);
     assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
 }
 
@@ -1337,17 +1340,18 @@ fn data_viz_json_file_demo_loads_three_fixture_bars() {
         let content = world
             .children_of(bar)
             .iter()
-            .find_map(|&child| world
-                .get_component_by_id_as::<LayoutBoundsComponent>(child))
+            .find_map(|&child| world.get_component_by_id_as::<LayoutBoundsComponent>(child))
             .expect("bar content bounds")
             .content_local;
         let (visual, placement) = world
             .children_of(bar)
             .iter()
             .copied()
-            .filter(|&child| world
-                .get_component_by_id_as::<TransformComponent>(child)
-                .is_some())
+            .filter(|&child| {
+                world
+                    .get_component_by_id_as::<TransformComponent>(child)
+                    .is_some()
+            })
             .find_map(|visual| {
                 world.children_of(visual).iter().find_map(|&child| {
                     world
@@ -1511,9 +1515,13 @@ fn runtime_spec_json_host_api_reports_parse_and_encode_errors() {
         let mut world = World::default();
         let mut rx = RxWorld::default();
         let mut emit = CommandQueue::new();
-        let output = MeowMeowRunner::eval_with_runtime_spec(source, &mut world, &mut rx, None, &mut emit);
-        assert!(output.errors.iter().any(|error| error.contains(expected)),
-            "expected an error containing {expected:?}, got {:?}", output.errors);
+        let output =
+            MeowMeowRunner::eval_with_runtime_spec(source, &mut world, &mut rx, None, &mut emit);
+        assert!(
+            output.errors.iter().any(|error| error.contains(expected)),
+            "expected an error containing {expected:?}, got {:?}",
+            output.errors
+        );
     }
 }
 
@@ -1532,7 +1540,13 @@ fn runtime_spec_background_color_rgba_creates_its_color_child() {
     assert!(output.errors.is_empty(), "errors: {:?}", output.errors);
     let background = world
         .all_components()
-        .find(|&id| world.get_component_by_id_as::<crate::engine::ecs::component::BackgroundColorComponent>(id).is_some())
+        .find(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::BackgroundColorComponent>(
+                    id,
+                )
+                .is_some()
+        })
         .expect("BackgroundColor root");
     let color = *world.children_of(background).first().expect("Color child");
     assert_eq!(
@@ -1966,8 +1980,8 @@ fn live_eval_imported_factory_keyframe_closure_captures_live_component_objects()
 
 #[test]
 fn live_keyframe_block_music_note_emits_audio_schedule_play() {
-    use crate::engine::ecs::component::MusicNote;
     use crate::engine::ecs::IntentValue;
+    use crate::engine::ecs::component::MusicNote;
 
     let src = r##"
         Clock.bpm(60) {}
@@ -2747,10 +2761,12 @@ fn transform_info_panel_updates_its_explicit_target_on_frame_tick() {
     let texts: Vec<_> = rx
         .drain_ready_intents()
         .into_iter()
-        .filter_map(|signal| match signal.intent.as_ref().map(|intent| &intent.value) {
-            Some(IntentValue::SetText { text, .. }) => Some(text.clone()),
-            _ => None,
-        })
+        .filter_map(
+            |signal| match signal.intent.as_ref().map(|intent| &intent.value) {
+                Some(IntentValue::SetText { text, .. }) => Some(text.clone()),
+                _ => None,
+            },
+        )
         .collect();
     assert_eq!(
         texts,
@@ -3048,15 +3064,18 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
                 .count()
                 >= 6
         );
-        assert!(tree
-            .iter()
-            .any(|&id| world.component_label(id) == Some("tripod_light_housing")));
-        assert!(tree
-            .iter()
-            .any(|&id| world.component_label(id) == Some("tripod_light_rear_mount")));
-        assert!(tree
-            .iter()
-            .any(|&id| world.component_label(id) == Some("tripod_light_emissive_face")));
+        assert!(
+            tree.iter()
+                .any(|&id| world.component_label(id) == Some("tripod_light_housing"))
+        );
+        assert!(
+            tree.iter()
+                .any(|&id| world.component_label(id) == Some("tripod_light_rear_mount"))
+        );
+        assert!(
+            tree.iter()
+                .any(|&id| world.component_label(id) == Some("tripod_light_emissive_face"))
+        );
     }
 
     let scenery = [
@@ -3492,9 +3511,11 @@ fn tripod_light_without_a_mounted_light_has_no_emissive_face() {
         &mut emit,
     );
     assert!(output.errors.is_empty(), "{:?}", output.errors);
-    assert!(world
-        .all_components()
-        .all(|id| world.component_label(id) != Some("tripod_light_emissive_face")));
+    assert!(
+        world
+            .all_components()
+            .all(|id| world.component_label(id) != Some("tripod_light_emissive_face"))
+    );
     let fixture = world
         .all_components()
         .find(|id| world.component_label(*id) == Some("empty_fixture"))
@@ -4381,8 +4402,8 @@ fn toggle_icon_factories_accept_default_and_custom_colors() {
 
 #[test]
 fn primitives_module_spawns_wireframe_square_through_the_renderable_registry() {
-    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
     use crate::engine::ecs::component::RenderableComponent;
+    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
 
     let module_path = repo_path("assets/components/primitives.mms");
     let module = MeowMeowRunner::load_module_file(module_path.to_str().unwrap())
@@ -4723,8 +4744,8 @@ export fn procedural_defaults() {
 
     assert!(world.get_component_record(root).is_some());
     assert_eq!(world.children_of(root).len(), 9);
-    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
     use crate::engine::ecs::component::RenderableComponent;
+    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
     let authored: Vec<_> = world
         .children_of(root)
         .iter()
@@ -4766,8 +4787,8 @@ export fn procedural_defaults() {
 
 #[test]
 fn renderable_polygon_constructs_from_nested_arrays_and_serializes_losslessly() {
-    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
     use crate::engine::ecs::component::RenderableComponent;
+    use crate::engine::ecs::component::renderable::AuthoredRenderableShape;
 
     let points = vec![
         [-0.5, 0.25],
@@ -5604,7 +5625,6 @@ fn roundtrip_refraction_preserves_authored_options() {
     original.apply_builder("thickness", 0.08).unwrap();
     original.apply_builder("strength", 0.9).unwrap();
     original.apply_builder("edge_fade", 0.03).unwrap();
-    original.apply_bool_builder("depth_compare", false).unwrap();
 
     let (world, id) = roundtrip_component(original);
     let got = world
@@ -5623,7 +5643,6 @@ fn roundtrip_rough_transmission_preserves_authored_options() {
     original.apply_builder("strength", 0.75).unwrap();
     original.apply_builder("edge_fade", 0.04).unwrap();
     original.apply_builder("roughness", 0.6).unwrap();
-    original.apply_bool_builder("depth_compare", false).unwrap();
 
     let (world, id) = roundtrip_component(original);
     let got = world
@@ -6005,9 +6024,11 @@ fn roundtrip_xr_hand_laser() {
     let (world, id) = roundtrip_component(
         XRHandComponent::new(true, ControllerHand::Left, ControllerPoseKind::Aim).laser(),
     );
-    assert!(world
-        .get_component_by_id_as::<XRHandComponent>(id)
-        .is_some_and(|hand| hand.laser));
+    assert!(
+        world
+            .get_component_by_id_as::<XRHandComponent>(id)
+            .is_some_and(|hand| hand.laser)
+    );
 }
 
 #[test]
@@ -6743,15 +6764,21 @@ fn editor_ui_settings_only_materializes_under_authored_transform() {
         1,
         "re-registering EditorUI must not duplicate its selection marker"
     );
-    assert!(world
-        .find_component(editor_ui, "#editor_panel_layout_root")
-        .is_some());
-    assert!(world
-        .find_component(editor_ui, "#editor_panel_layout_selection")
-        .is_some());
-    assert!(world
-        .find_component(editor_ui, "#editor_settings_panel_root")
-        .is_some());
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_panel_layout_root")
+            .is_some()
+    );
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_panel_layout_selection")
+            .is_some()
+    );
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_settings_panel_root")
+            .is_some()
+    );
     for default_row in [
         "#editor_settings_armature_visibility",
         "#editor_settings_bounds_visibility",
@@ -6845,9 +6872,11 @@ fn editor_ui_settings_config_conditionally_authors_diagnostic_rows() {
                 .is_some()
         })
         .unwrap();
-    assert!(world
-        .find_component(editor_ui, "#editor_settings_bounds_visibility")
-        .is_some());
+    assert!(
+        world
+            .find_component(editor_ui, "#editor_settings_bounds_visibility")
+            .is_some()
+    );
     let title_bar = world
         .find_component(editor_ui, "#title_bar")
         .expect("settings panel title bar");
@@ -6999,9 +7028,11 @@ fn raycastable_drag_policy_mms_parses_and_rejects_invalid_values() {
     );
     assert_eq!(component.drag_mapping, DragMappingPolicy::ContactHit);
 
-    assert!(spawn("Raycastable.drag_continuation(\"sticky\") {}")
-        .1
-        .is_err());
+    assert!(
+        spawn("Raycastable.drag_continuation(\"sticky\") {}")
+            .1
+            .is_err()
+    );
     assert!(spawn("Raycastable.drag_mapping(\"screen\") {}").1.is_err());
 }
 
@@ -7313,13 +7344,16 @@ fn roundtrip_text_shadow() {
 #[test]
 fn roundtrip_renderer_settings_msaa_off() {
     use crate::engine::ecs::component::RendererSettingsComponent;
-    let original = RendererSettingsComponent::msaa_off().with_window_size(1920, 1080);
+    let original = RendererSettingsComponent::msaa_off()
+        .with_window_size(1920, 1080)
+        .with_transmission_depth_compare(false);
     let (world, id) = roundtrip_component(original);
     let got = world
         .get_component_by_id_as::<RendererSettingsComponent>(id)
         .unwrap();
     assert!(!got.msaa4x);
     assert_eq!(got.window_size, Some([1920, 1080]));
+    assert!(!got.transmission_depth_compare);
 }
 
 // --- Low value round-trip tests ---
@@ -7678,8 +7712,8 @@ fn roundtrip_music_note_c5() {
 #[cfg(any())]
 #[test]
 fn roundtrip_ik_chain_aim() {
-    use crate::engine::ecs::component::{IKChainComponent, IKSolver};
     use crate::engine::ecs::ComponentId;
+    use crate::engine::ecs::component::{IKChainComponent, IKSolver};
     use slotmap::Key;
     let sentinel = ComponentId::null();
     let original = IKChainComponent::new(
@@ -7815,19 +7849,25 @@ fn roundtrip_collision_response() {
 fn roundtrip_grabbable() {
     use crate::engine::ecs::component::GrabbableComponent;
     let (world, id) = roundtrip_component(GrabbableComponent::new());
-    assert!(world
-        .get_component_by_id_as::<GrabbableComponent>(id)
-        .is_some());
+    assert!(
+        world
+            .get_component_by_id_as::<GrabbableComponent>(id)
+            .is_some()
+    );
 
     let (world, id) = roundtrip_component(GrabbableComponent::parent());
-    assert!(world
-        .get_component_by_id_as::<GrabbableComponent>(id)
-        .is_some_and(|grabbable| grabbable.move_parent));
+    assert!(
+        world
+            .get_component_by_id_as::<GrabbableComponent>(id)
+            .is_some_and(|grabbable| grabbable.move_parent)
+    );
 
     let (world, id) = roundtrip_component(GrabbableComponent::off());
-    assert!(world
-        .get_component_by_id_as::<GrabbableComponent>(id)
-        .is_some_and(|grabbable| !grabbable.enabled));
+    assert!(
+        world
+            .get_component_by_id_as::<GrabbableComponent>(id)
+            .is_some_and(|grabbable| !grabbable.enabled)
+    );
 }
 
 #[test]

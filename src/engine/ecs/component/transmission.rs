@@ -1,13 +1,12 @@
 use crate::engine::ecs::{ComponentId, World};
 
 use super::Component;
-use super::ce_helpers::{CeBuilder, b, ce, num};
+use super::ce_helpers::{CeBuilder, ce, num};
 
 pub const DEFAULT_TRANSMISSION_IOR: f32 = 1.5;
 pub const DEFAULT_TRANSMISSION_THICKNESS: f32 = 0.1;
 pub const DEFAULT_TRANSMISSION_STRENGTH: f32 = 1.0;
 pub const DEFAULT_TRANSMISSION_EDGE_FADE: f32 = 0.02;
-pub const DEFAULT_TRANSMISSION_DEPTH_COMPARE: bool = true;
 pub const DEFAULT_ROUGH_TRANSMISSION_ROUGHNESS: f32 = 0.35;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -16,7 +15,6 @@ pub struct TransmissionOptions {
     pub thickness: f32,
     pub strength: f32,
     pub edge_fade: f32,
-    pub depth_compare: bool,
 }
 
 impl Default for TransmissionOptions {
@@ -26,7 +24,6 @@ impl Default for TransmissionOptions {
             thickness: DEFAULT_TRANSMISSION_THICKNESS,
             strength: DEFAULT_TRANSMISSION_STRENGTH,
             edge_fade: DEFAULT_TRANSMISSION_EDGE_FADE,
-            depth_compare: DEFAULT_TRANSMISSION_DEPTH_COMPARE,
         }
     }
 }
@@ -95,18 +92,6 @@ fn apply_common_builder(
     Ok(true)
 }
 
-fn apply_common_bool_builder(
-    options: &mut TransmissionOptions,
-    method: &str,
-    value: bool,
-) -> bool {
-    match method {
-        "depth_compare" => options.depth_compare = value,
-        _ => return false,
-    }
-    true
-}
-
 fn options_to_mms_ast(
     component: &str,
     options: TransmissionOptions,
@@ -123,9 +108,6 @@ fn options_to_mms_ast(
     }
     if options.edge_fade != DEFAULT_TRANSMISSION_EDGE_FADE {
         expression = expression.with_call("edge_fade", vec![num(options.edge_fade as f64)]);
-    }
-    if options.depth_compare != DEFAULT_TRANSMISSION_DEPTH_COMPARE {
-        expression = expression.with_call("depth_compare", vec![b(options.depth_compare)]);
     }
     expression
 }
@@ -145,14 +127,6 @@ impl RefractionComponent {
             Ok(())
         } else {
             Err(format!("Refraction: unknown builder '{method}'"))
-        }
-    }
-
-    pub fn apply_bool_builder(&mut self, method: &str, value: bool) -> Result<(), String> {
-        if apply_common_bool_builder(&mut self.options, method, value) {
-            Ok(())
-        } else {
-            Err(format!("Refraction: unknown boolean builder '{method}'"))
         }
     }
 }
@@ -205,16 +179,6 @@ impl RoughTransmissionComponent {
                 Ok(())
             }
             _ => Err(format!("RoughTransmission: unknown builder '{method}'")),
-        }
-    }
-
-    pub fn apply_bool_builder(&mut self, method: &str, value: bool) -> Result<(), String> {
-        if apply_common_bool_builder(&mut self.options, method, value) {
-            Ok(())
-        } else {
-            Err(format!(
-                "RoughTransmission: unknown boolean builder '{method}'"
-            ))
         }
     }
 }
@@ -326,46 +290,6 @@ mod tests {
         let mut rough = RoughTransmissionComponent::new();
         rough.apply_builder("roughness", 0.0).unwrap();
         rough.apply_builder("roughness", 1.0).unwrap();
-    }
-
-    #[test]
-    fn depth_compare_defaults_on_and_can_be_disabled_for_both_materials() {
-        let mut refraction = RefractionComponent::new();
-        let mut rough = RoughTransmissionComponent::new();
-        assert!(refraction.options.depth_compare);
-        assert!(rough.options.depth_compare);
-
-        refraction
-            .apply_bool_builder("depth_compare", false)
-            .unwrap();
-        rough.apply_bool_builder("depth_compare", false).unwrap();
-        assert!(!refraction.options.depth_compare);
-        assert!(!rough.options.depth_compare);
-    }
-
-    #[test]
-    fn serialization_only_emits_non_default_depth_compare() {
-        let world = World::default();
-        let default_ast = RefractionComponent::new().to_mms_ast(&world);
-        assert!(
-            default_ast
-                .constructors
-                .iter()
-                .all(|call| call.method.0 != "depth_compare")
-        );
-
-        let mut disabled = RefractionComponent::new();
-        disabled.apply_bool_builder("depth_compare", false).unwrap();
-        let disabled_ast = disabled.to_mms_ast(&world);
-        let call = disabled_ast
-            .constructors
-            .iter()
-            .find(|call| call.method.0 == "depth_compare")
-            .expect("disabled depth comparison should serialize");
-        assert_eq!(
-            call.args,
-            vec![crate::scripting::ast::Expression::Bool(false)]
-        );
     }
 
     #[test]

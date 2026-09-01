@@ -1,10 +1,10 @@
+use crate::engine::graphics::MeshUploader;
+use crate::engine::graphics::MsaaMode;
+use crate::engine::graphics::TextureUploader;
 use crate::engine::graphics::mesh::CpuMesh;
 use crate::engine::graphics::primitives::MeshHandle;
 use crate::engine::graphics::primitives::TextureHandle;
 use crate::engine::graphics::visual_world::VisualWorld;
-use crate::engine::graphics::MeshUploader;
-use crate::engine::graphics::MsaaMode;
-use crate::engine::graphics::TextureUploader;
 use std::sync::Arc;
 use winit::window::Window;
 
@@ -62,15 +62,16 @@ impl RendererPerfCounters {
 mod vulkano_backend {
     use super::RendererPerfCounters;
     use std::collections::HashMap;
-    use std::mem::{offset_of, size_of};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::mem::size_of;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use crate::engine::ecs::system::render_to_texture_system::INTERNAL_RENDERER_STENCIL_CLIP_DEBUG_SELECTOR;
     use crate::engine::ecs::ComponentId;
+    use crate::engine::ecs::system::render_to_texture_system::INTERNAL_RENDERER_STENCIL_CLIP_DEBUG_SELECTOR;
+    use crate::engine::graphics::MsaaMode;
     use crate::engine::graphics::deformation::{
-        build_workgroups, GpuActiveMorph, GpuBaseDeformationVertex, GpuDeformationJob,
-        GpuDeformationSkinVertex, GpuDeformationWorkgroup, GpuDeformedVertex, GpuMorphDelta,
+        GpuActiveMorph, GpuBaseDeformationVertex, GpuDeformationJob, GpuDeformationSkinVertex,
+        GpuDeformationWorkgroup, GpuDeformedVertex, GpuMorphDelta, build_workgroups,
     };
     use crate::engine::graphics::mesh::{CpuMesh, CpuVertex};
     use crate::engine::graphics::pipeline_descriptor_set_layouts::PipelineDescriptorSetLayouts;
@@ -82,11 +83,10 @@ mod vulkano_backend {
     use crate::engine::graphics::visual_world::{TextureFiltering, VisualWorld};
     use crate::engine::graphics::vulkano_swapchain::VulkanoSwapchainState;
     use crate::engine::graphics::vulkano_texture_upload;
-    use crate::engine::graphics::MsaaMode;
     use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer};
     use vulkano::command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        CopyBufferInfo, CopyImageInfo, PrimaryCommandBufferAbstract,
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, CopyImageInfo,
+        PrimaryCommandBufferAbstract, allocator::StandardCommandBufferAllocator,
     };
     use vulkano::command_buffer::{
         ClearAttachment, ClearRect, RenderingAttachmentInfo, RenderingAttachmentResolveInfo,
@@ -126,6 +126,9 @@ mod vulkano_backend {
         PipelineDescriptorSetLayoutCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
     };
 
+    use vulkano::DeviceSize;
+    use vulkano::Version;
+    use vulkano::VulkanObject;
     use vulkano::format::Format;
     use vulkano::image::sampler::{
         Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode,
@@ -137,9 +140,6 @@ mod vulkano_backend {
     use vulkano::render_pass::{AttachmentLoadOp, AttachmentStoreOp, ResolveMode};
     use vulkano::swapchain::{self, SwapchainPresentInfo};
     use vulkano::sync::{self, GpuFuture};
-    use vulkano::DeviceSize;
-    use vulkano::Version;
-    use vulkano::VulkanObject;
     use vulkano::{Validated, VulkanError};
     use vulkano_util::context::{VulkanoConfig, VulkanoContext};
     use winit::window::Window;
@@ -257,7 +257,7 @@ mod vulkano_backend {
 
         // Linear RGB ambient light in 0..1.
         pub ambient_light: [f32; 3],
-        pub _pad1: f32,
+        pub renderer_flags: u32,
     }
 
     #[derive(BufferContents, Clone, Copy, Debug, Default)]
@@ -317,14 +317,7 @@ mod vulkano_backend {
 
         #[format(R32G32B32A32_SFLOAT)]
         pub i_transmission: [f32; 4],
-        // Bitfield kept separate from the four authored transmission floats.
-        #[format(R32_UINT)]
-        pub i_transmission_flags: u32,
     }
-
-    const _: () = assert!(offset_of!(InstanceData, i_transmission) == 96);
-    const _: () = assert!(offset_of!(InstanceData, i_transmission_flags) == 112);
-    const _: () = assert!(size_of::<InstanceData>() == 116);
 
     #[derive(BufferContents, Debug, Clone, Copy, Default)]
     #[repr(C)]
@@ -1174,15 +1167,6 @@ mod vulkano_backend {
                         binding: 1,
                         format: Format::R32G32B32A32_SFLOAT,
                         offset: 96,
-                        ..Default::default()
-                    },
-                )
-                .attribute(
-                    13,
-                    VertexInputAttributeDescription {
-                        binding: 1,
-                        format: Format::R32_UINT,
-                        offset: 112,
                         ..Default::default()
                     },
                 );
@@ -3025,7 +3009,6 @@ mod vulkano_backend {
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
                     i_transmission: inst.transmission,
-                    i_transmission_flags: inst.transmission_flags.bits(),
                 }
             });
 
@@ -3435,7 +3418,6 @@ mod vulkano_backend {
                         i_deformed_base: inst.deformed_base,
                         i_deformed_count: inst.deformed_count,
                         i_transmission: inst.transmission,
-                        i_transmission_flags: inst.transmission_flags.bits(),
                     }
                 });
 
@@ -3481,7 +3463,6 @@ mod vulkano_backend {
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
                     i_transmission: inst.transmission,
-                    i_transmission_flags: inst.transmission_flags.bits(),
                 }
             });
 
@@ -3683,7 +3664,9 @@ mod vulkano_backend {
                 let active_morph_base = active_morphs.len() as u32;
                 if let Some(morph_delta_base) = mesh.morph_delta_base {
                     for &(target_index, weight) in visual_world.active_morphs(instance_index) {
-                        if (target_index as usize) < (self.deformation_morph_cpu.len() / mesh.vertex_count as usize) {
+                        if (target_index as usize)
+                            < (self.deformation_morph_cpu.len() / mesh.vertex_count as usize)
+                        {
                             active_morphs.push(GpuActiveMorph {
                                 delta_base: morph_delta_base + target_index * mesh.vertex_count,
                                 weight,
@@ -4020,10 +4003,8 @@ mod vulkano_backend {
                     visual_world.refraction_stream()
                 };
             let refraction_instance_count = refraction_instances.len();
-            let refraction_instance_buffer = self.build_instance_buffer_for_order_opt(
-                &*visual_world,
-                refraction_instances,
-            )?;
+            let refraction_instance_buffer =
+                self.build_instance_buffer_for_order_opt(&*visual_world, refraction_instances)?;
             let scene_color_source = scene_snapshot.as_ref().and_then(|_| {
                 post_process
                     .as_ref()
@@ -4197,13 +4178,12 @@ mod vulkano_backend {
                 // The multisampled attachment doesn't need to be stored when resolve is used,
                 // except when post-process is active and we plan to reopen the scene color
                 // attachment for a deferred overlay pass before final composite.
-                color_attachment_clear.store_op = if defer_overlay_until_before_final_composite
-                    || sample_scene_color
-                {
-                    AttachmentStoreOp::Store
-                } else {
-                    AttachmentStoreOp::DontCare
-                };
+                color_attachment_clear.store_op =
+                    if defer_overlay_until_before_final_composite || sample_scene_color {
+                        AttachmentStoreOp::Store
+                    } else {
+                        AttachmentStoreOp::DontCare
+                    };
             }
 
             let depth_resolve = scene_snapshot
@@ -4266,7 +4246,7 @@ mod vulkano_backend {
                 _pad0: [0.0, 0.0],
 
                 ambient_light: visual_world.ambient_light(),
-                _pad1: 0.0,
+                renderer_flags: u32::from(visual_world.transmission_depth_compare()),
             };
 
             let camera_buffer_fg: Subbuffer<CameraUBO> = Buffer::from_data(
@@ -4405,7 +4385,7 @@ mod vulkano_backend {
                     _pad0: [0.0, 0.0],
 
                     ambient_light: visual_world.ambient_light(),
-                    _pad1: 0.0,
+                    renderer_flags: u32::from(visual_world.transmission_depth_compare()),
                 };
 
                 let camera_buffer_bg: Subbuffer<CameraUBO> = Buffer::from_data(
@@ -4718,12 +4698,11 @@ mod vulkano_backend {
                 if let Some(resolve_view) = color_resolve_view.clone() {
                     color_attachment_load.resolve_info =
                         Some(RenderingAttachmentResolveInfo::image_view(resolve_view));
-                    color_attachment_load.store_op =
-                        if defer_overlay_until_before_final_composite {
-                            AttachmentStoreOp::Store
-                        } else {
-                            AttachmentStoreOp::DontCare
-                        };
+                    color_attachment_load.store_op = if defer_overlay_until_before_final_composite {
+                        AttachmentStoreOp::Store
+                    } else {
+                        AttachmentStoreOp::DontCare
+                    };
                 }
 
                 cbb.begin_rendering(RenderingInfo {
@@ -5577,26 +5556,50 @@ mod vulkano_backend {
             let morph_delta_base = if deformation_base.is_some() && !mesh.morph_targets.is_empty() {
                 let base = self.deformation_morph_cpu.len() as u32;
                 for target in &mesh.morph_targets {
-                    for (position_delta, normal_delta) in target.position_deltas.iter().zip(&target.normal_deltas) {
+                    for (position_delta, normal_delta) in
+                        target.position_deltas.iter().zip(&target.normal_deltas)
+                    {
                         self.deformation_morph_cpu.push(GpuMorphDelta {
-                            position_delta: [position_delta[0], position_delta[1], position_delta[2], 0.0],
+                            position_delta: [
+                                position_delta[0],
+                                position_delta[1],
+                                position_delta[2],
+                                0.0,
+                            ],
                             normal_delta: [normal_delta[0], normal_delta[1], normal_delta[2], 0.0],
                         });
                     }
                 }
                 let src = Buffer::from_iter(
-                    memory_allocator.clone(), BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
-                    AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::PREFER_HOST | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE, ..Default::default() },
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::TRANSFER_SRC,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
                     self.deformation_morph_cpu.iter().copied(),
                 )?;
                 let dst = Buffer::new_slice::<GpuMorphDelta>(
-                    memory_allocator.clone(), BufferCreateInfo { usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST, ..Default::default() },
-                    AllocationCreateInfo { memory_type_filter: MemoryTypeFilter::PREFER_DEVICE, ..Default::default() },
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                        ..Default::default()
+                    },
                     self.deformation_morph_cpu.len() as DeviceSize,
                 )?;
                 morph_replacement = Some((src, dst));
                 Some(base)
-            } else { None };
+            } else {
+                None
+            };
 
             // Copy staging -> device-local.
             let mut cbb = AutoCommandBufferBuilder::primary(

@@ -10,9 +10,7 @@ use crate::engine::ecs::{ComponentId, World};
 use crate::engine::graphics::bounds::Aabb;
 use crate::engine::graphics::implicit_mesh::{ImplicitGridSpec, extract_implicit_mesh};
 use crate::engine::graphics::primitives::{GpuRenderable, InstanceHandle, Transform};
-use crate::engine::graphics::{
-    MaterialHandle, MeshUploader, RenderAssets, TransmissionFlags, VisualWorld,
-};
+use crate::engine::graphics::{MaterialHandle, MeshUploader, RenderAssets, VisualWorld};
 use crate::utils::math::{mat4_identity, mat4_inverse, mat4_mul};
 
 const MAX_CELLS_PER_AXIS: usize = 128;
@@ -31,7 +29,7 @@ struct ImplicitOutput {
     root_model: [[f32; 4]; 4],
     color: [f32; 4],
     material: MaterialHandle,
-    transmission: Option<([f32; 4], TransmissionFlags)>,
+    transmission: Option<[f32; 4]>,
     sphere_ids: Vec<ComponentId>,
 }
 
@@ -101,10 +99,8 @@ impl ImplicitSurfaceSystem {
                             output.material = material;
                         }
                         if output.transmission != transmission {
-                            if let (Some(handle), Some((options, flags))) =
-                                (output.handle, transmission)
-                            {
-                                visuals.update_transmission(handle, options, flags);
+                            if let (Some(handle), Some(options)) = (output.handle, transmission) {
+                                visuals.update_transmission(handle, options);
                             }
                             output.transmission = transmission;
                         }
@@ -169,8 +165,8 @@ impl ImplicitSurfaceSystem {
                                     None,
                                     3.0,
                                 );
-                                if let Some((options, flags)) = transmission {
-                                    visuals.update_transmission(handle, options, flags);
+                                if let Some(options) = transmission {
+                                    visuals.update_transmission(handle, options);
                                 }
                                 mesh_bounds.register_or_update(
                                     root,
@@ -224,7 +220,7 @@ impl ImplicitSurfaceSystem {
             [[f32; 4]; 4],
             [f32; 4],
             MaterialHandle,
-            Option<([f32; 4], TransmissionFlags)>,
+            Option<[f32; 4]>,
         ),
         String,
     > {
@@ -296,15 +292,12 @@ impl ImplicitSurfaceSystem {
         let (material, transmission) = match resolve_immediate_transmissive_model(world, root)? {
             Some(TransmissiveModel::Refraction(options)) => (
                 MaterialHandle::REFRACTION_MESH,
-                Some((
-                    [
-                        options.ior,
-                        options.thickness,
-                        options.strength,
-                        options.edge_fade,
-                    ],
-                    TransmissionFlags::from_depth_compare(options.depth_compare),
-                )),
+                Some([
+                    options.ior,
+                    options.thickness,
+                    options.strength,
+                    options.edge_fade,
+                ]),
             ),
             Some(TransmissiveModel::RoughTransmission { .. }) => {
                 return Err(
@@ -560,7 +553,7 @@ mod tests {
     use crate::engine::ecs::system::MeshBoundsSystem;
     use crate::engine::graphics::mesh::CpuMesh;
     use crate::engine::graphics::primitives::{MaterialHandle, MeshHandle};
-    use crate::engine::graphics::{MeshUploader, RenderAssets, TransmissionFlags, VisualWorld};
+    use crate::engine::graphics::{MeshUploader, RenderAssets, VisualWorld};
     use crate::utils::math::mat4_identity;
 
     #[derive(Default)]
@@ -672,9 +665,6 @@ mod tests {
         let mut refraction = RefractionComponent::new();
         refraction.apply_builder("ior", 1.33).unwrap();
         refraction.apply_builder("thickness", 0.18).unwrap();
-        refraction
-            .apply_bool_builder("depth_compare", false)
-            .unwrap();
         let refraction = world.add_component(refraction);
         world.add_child(root, sphere).unwrap();
         world.add_child(root, refraction).unwrap();
@@ -694,19 +684,16 @@ mod tests {
 
         assert_eq!(uploader.uploads, 1);
         let instance = &visuals.instances()[0];
-        assert_eq!(instance.renderable.material, MaterialHandle::REFRACTION_MESH);
+        assert_eq!(
+            instance.renderable.material,
+            MaterialHandle::REFRACTION_MESH
+        );
         assert_eq!(instance.transmission, [1.33, 0.18, 1.0, 0.02]);
-        assert_eq!(instance.transmission_flags, TransmissionFlags::NONE);
 
         world
             .get_component_by_id_as_mut::<RefractionComponent>(refraction)
             .unwrap()
             .apply_builder("strength", 0.65)
-            .unwrap();
-        world
-            .get_component_by_id_as_mut::<RefractionComponent>(refraction)
-            .unwrap()
-            .apply_bool_builder("depth_compare", true)
             .unwrap();
         system.reconcile_and_build(
             &world,
@@ -715,14 +702,13 @@ mod tests {
             &mut uploader,
             &mut bounds,
         );
-        assert_eq!(uploader.uploads, 1, "material edits must not rebake the mesh");
+        assert_eq!(
+            uploader.uploads, 1,
+            "material edits must not rebake the mesh"
+        );
         assert_eq!(
             visuals.instances()[0].transmission,
             [1.33, 0.18, 0.65, 0.02]
-        );
-        assert_eq!(
-            visuals.instances()[0].transmission_flags,
-            TransmissionFlags::DEPTH_COMPARE
         );
     }
 
@@ -765,9 +751,7 @@ mod tests {
             .map(|(center, _)| center[1])
             .sum::<f32>()
             / 12.0;
-        assert!(terrain[..24]
-            .iter()
-            .all(|(center, _)| center[1] == -7.90));
+        assert!(terrain[..24].iter().all(|(center, _)| center[1] == -7.90));
         assert!(
             near_average > far_average,
             "terrain must continue descending away from the camera"

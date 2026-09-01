@@ -9,6 +9,7 @@ use crate::engine::graphics::MsaaMode;
 pub struct RendererSettingsComponent {
     pub msaa4x: bool,
     pub window_size: Option<[u32; 2]>,
+    pub transmission_depth_compare: bool,
 }
 
 impl RendererSettingsComponent {
@@ -16,6 +17,7 @@ impl RendererSettingsComponent {
         Self {
             msaa4x: true,
             window_size: None,
+            transmission_depth_compare: true,
         }
     }
 
@@ -23,6 +25,7 @@ impl RendererSettingsComponent {
         Self {
             msaa4x: false,
             window_size: None,
+            transmission_depth_compare: true,
         }
     }
 
@@ -30,6 +33,11 @@ impl RendererSettingsComponent {
         if width > 0 && height > 0 {
             self.window_size = Some([width, height]);
         }
+        self
+    }
+
+    pub fn with_transmission_depth_compare(mut self, enabled: bool) -> Self {
+        self.transmission_depth_compare = enabled;
         self
     }
 
@@ -82,6 +90,9 @@ impl Component for RendererSettingsComponent {
         };
         if let Some([w, h]) = self.window_size {
             ce = ce.with_call("window_size", vec![num(w as f64), num(h as f64)]);
+        }
+        if !self.transmission_depth_compare {
+            ce = ce.with_call("transmission_depth_compare", vec![b(false)]);
         }
         ce
     }

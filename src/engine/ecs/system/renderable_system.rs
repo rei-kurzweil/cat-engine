@@ -15,7 +15,7 @@ use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::graphics::bounds::Aabb;
 use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Transform};
-use crate::engine::graphics::{GpuRenderable, TransmissionFlags, VisualWorld};
+use crate::engine::graphics::{GpuRenderable, VisualWorld};
 use crate::engine::graphics::{MeshUploader, RenderAssets};
 use crate::engine::user_input::InputState;
 use std::collections::{HashMap, VecDeque};
@@ -951,6 +951,7 @@ impl RenderableSystem {
         // Global state: last registered wins.
         visuals.set_renderer_msaa_mode(settings.msaa_mode());
         visuals.set_preferred_window_size(settings.window_size);
+        visuals.set_transmission_depth_compare(settings.transmission_depth_compare);
     }
 
     /// Register a `NormalVisualisationComponent` for deferred spawning.
@@ -1346,7 +1347,6 @@ impl RenderableSystem {
                         options.strength,
                         options.edge_fade,
                     ],
-                    TransmissionFlags::from_depth_compare(options.depth_compare),
                 );
             }
             if let Some(renderable_comp) =
@@ -1589,9 +1589,7 @@ mod tests {
     use crate::engine::graphics::primitives::{
         CpuMeshHandle, MaterialHandle, MeshHandle, Renderable,
     };
-    use crate::engine::graphics::{
-        CpuMesh, MeshUploader, RenderAssets, TransmissionFlags, VisualWorld,
-    };
+    use crate::engine::graphics::{CpuMesh, MeshUploader, RenderAssets, VisualWorld};
 
     #[derive(Default)]
     struct TestUploader {
@@ -1732,18 +1730,11 @@ mod tests {
             refraction.apply_builder("thickness", 0.18).unwrap();
             refraction.apply_builder("strength", 0.8).unwrap();
             refraction.apply_builder("edge_fade", 0.04).unwrap();
-            refraction
-                .apply_bool_builder("depth_compare", false)
-                .unwrap();
             let refraction = world.add_component(refraction);
             world.add_child(transform, renderable).unwrap();
             world.add_child(renderable, refraction).unwrap();
 
-            renderable_system.register_renderable_from_world(
-                &mut world,
-                &mut visuals,
-                renderable,
-            );
+            renderable_system.register_renderable_from_world(&mut world, &mut visuals, renderable);
             assert!(renderable_system.flush_pending(
                 &mut world,
                 &mut visuals,
@@ -1759,7 +1750,6 @@ mod tests {
             let instance = visuals.instance(handle).unwrap();
             assert_eq!(instance.renderable.material, expected_material);
             assert_eq!(instance.transmission, [1.33, 0.18, 0.8, 0.04]);
-            assert_eq!(instance.transmission_flags, TransmissionFlags::NONE);
 
             visuals.prepare_draw_cache();
             assert_eq!(visuals.refraction_stream().1.len(), 1);

@@ -475,12 +475,6 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     for method in ["ior", "thickness", "strength", "edge_fade"] {
                         host_constructor_and_builder(component, canonical, method, floats(1));
                     }
-                    host_constructor_and_builder(
-                        component,
-                        canonical,
-                        "depth_compare",
-                        booleans(1),
-                    );
                     if canonical == "RoughTransmission" {
                         host_constructor_and_builder(component, canonical, "roughness", floats(1));
                     }
@@ -562,6 +556,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     host_constructor(component, canonical, "msaa_off", no_args());
                     host_constructor(component, canonical, "window_size", unsigned(2));
                     host_builder_call(component, canonical, "window_size", unsigned(2));
+                    host_constructor_and_builder(
+                        component,
+                        canonical,
+                        "transmission_depth_compare",
+                        booleans(1),
+                    );
                 }
                 "Grid" => {
                     constructor_and_builder(component, "spacing", floats(1));
@@ -1313,6 +1313,12 @@ mod tests {
             configured
                 .runtime()
                 .materialize_component("RendererSettings.window_size(960, 720) {}")
+                .is_ok()
+        );
+        assert!(
+            configured
+                .runtime()
+                .materialize_component("RendererSettings.transmission_depth_compare(false) {}")
                 .is_ok()
         );
         configured

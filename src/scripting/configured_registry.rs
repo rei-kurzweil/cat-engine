@@ -70,7 +70,10 @@ fn tree_is_direct(
     };
     let component = match bindings.get(operation_id) {
         Some(MittensBinding::ComponentConstructor { component, name })
-            if *name == tree.constructor.name.as_deref() => *component,
+            if *name == tree.constructor.name.as_deref() =>
+        {
+            *component
+        }
         Some(binding) => {
             return Err(format!(
                 "{operation_id:?} resolved to {binding:?}, not the selected constructor for {}",
@@ -89,20 +92,40 @@ fn tree_is_direct(
         return Ok(false);
     }
     for call in &tree.initializer_calls {
-        let Some(id) = call.operation_id else { return Ok(false) };
+        let Some(id) = call.operation_id else {
+            return Ok(false);
+        };
         match bindings.get(id) {
-            Some(MittensBinding::ComponentInitializer { component: bound_component, name, kind: ComponentInitializerKind::Call })
-                if *bound_component == component && *name == call.name => {}
-            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} call initializer '{}'", call.name)),
+            Some(MittensBinding::ComponentInitializer {
+                component: bound_component,
+                name,
+                kind: ComponentInitializerKind::Call,
+            }) if *bound_component == component && *name == call.name => {}
+            Some(binding) => {
+                return Err(format!(
+                    "{id:?} resolved to {binding:?}, not {component} call initializer '{}'",
+                    call.name
+                ));
+            }
             None => return Err(format!("unknown call initializer ID {id:?}")),
         }
     }
     for property in &tree.properties {
-        let Some(id) = property.operation_id else { return Ok(false) };
+        let Some(id) = property.operation_id else {
+            return Ok(false);
+        };
         match bindings.get(id) {
-            Some(MittensBinding::ComponentInitializer { component: bound_component, name, kind: ComponentInitializerKind::Property })
-                if *bound_component == component && *name == property.name => {}
-            Some(binding) => return Err(format!("{id:?} resolved to {binding:?}, not {component} property initializer '{}'", property.name)),
+            Some(MittensBinding::ComponentInitializer {
+                component: bound_component,
+                name,
+                kind: ComponentInitializerKind::Property,
+            }) if *bound_component == component && *name == property.name => {}
+            Some(binding) => {
+                return Err(format!(
+                    "{id:?} resolved to {binding:?}, not {component} property initializer '{}'",
+                    property.name
+                ));
+            }
             None => return Err(format!("unknown property initializer ID {id:?}")),
         }
     }
@@ -129,7 +152,10 @@ fn spawn_tree_uninitialized(
     })?;
     let component = match bindings.get(operation_id) {
         Some(MittensBinding::ComponentConstructor { component, name })
-            if *name == tree.constructor.name.as_deref() => *component,
+            if *name == tree.constructor.name.as_deref() =>
+        {
+            *component
+        }
         _ => {
             return Err(format!(
                 "{operation_id:?} is not the selected Mittens component constructor"
@@ -250,7 +276,10 @@ fn create_component(
                 | ("AmbientLight", "rgb")
                 | ("RenderGraph", "on" | "off")
                 | ("Pointer", "disabled")
-                | ("Raycastable", "disabled" | "drag_only" | "click_only" | "enabled")
+                | (
+                    "Raycastable",
+                    "disabled" | "drag_only" | "click_only" | "enabled"
+                )
                 | ("RendererSettings", "msaa_off")
         );
         if !factory_only {
@@ -298,24 +327,16 @@ fn apply_call(
                 .intensity = f32_arg(args, 0)?.max(0.0);
         }
         "Refraction" => {
-            let component = world
+            world
                 .get_component_by_id_as_mut::<RefractionComponent>(id)
-                .ok_or("missing Refraction after construction")?;
-            if method == "depth_compare" {
-                component.apply_bool_builder(method, bool_arg(args, 0)?)?;
-            } else {
-                component.apply_builder(method, f32_arg(args, 0)?)?;
-            }
+                .ok_or("missing Refraction after construction")?
+                .apply_builder(method, f32_arg(args, 0)?)?;
         }
         "RoughTransmission" => {
-            let component = world
+            world
                 .get_component_by_id_as_mut::<RoughTransmissionComponent>(id)
-                .ok_or("missing RoughTransmission after construction")?;
-            if method == "depth_compare" {
-                component.apply_bool_builder(method, bool_arg(args, 0)?)?;
-            } else {
-                component.apply_builder(method, f32_arg(args, 0)?)?;
-            }
+                .ok_or("missing RoughTransmission after construction")?
+                .apply_builder(method, f32_arg(args, 0)?)?;
         }
         "Bloom" => {
             let bloom = world
@@ -381,6 +402,15 @@ fn apply_call(
                 .get_component_by_id_as_mut::<RendererSettingsComponent>(id)
                 .ok_or("missing RendererSettings after construction")? = updated;
         }
+        "RendererSettings" if method == "transmission_depth_compare" => {
+            let settings = world
+                .get_component_by_id_as::<RendererSettingsComponent>(id)
+                .ok_or("missing RendererSettings after construction")?;
+            let updated = settings.with_transmission_depth_compare(bool_arg(args, 0)?);
+            *world
+                .get_component_by_id_as_mut::<RendererSettingsComponent>(id)
+                .ok_or("missing RendererSettings after construction")? = updated;
+        }
         _ => return Err(format!("unsupported direct call {component}.{method}")),
     }
     Ok(())
@@ -414,7 +444,11 @@ fn apply_node_properties(
                         .into_iter()
                         .map(str::to_owned)
                         .collect(),
-                    value => return Err(format!("class expects a string or string array, got {value:?}")),
+                    value => {
+                        return Err(format!(
+                            "class expects a string or string array, got {value:?}"
+                        ));
+                    }
                 };
             }
             other => return Err(format!("unsupported direct node property '{other}'")),
@@ -475,23 +509,15 @@ mod tests {
         let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
         let mut tree = configured
             .runtime()
-            .materialize_component(
-                "Transform.position(1.0, 2.0, 3.0).scale(2.0, 2.0, 2.0) {}",
-            )
+            .materialize_component("Transform.position(1.0, 2.0, 3.0).scale(2.0, 2.0, 2.0) {}")
             .unwrap();
         tree.constructor.operation_id = tree.initializer_calls[0].operation_id;
 
         let mut world = World::default();
         let mut emit = crate::engine::ecs::CommandQueue::new();
-        let error = try_spawn_tree(
-            &tree,
-            configured.bindings(),
-            &mut world,
-            &mut emit,
-            false,
-        )
-        .expect("a configured-ID mismatch must not use the legacy fallback")
-        .unwrap_err();
+        let error = try_spawn_tree(&tree, configured.bindings(), &mut world, &mut emit, false)
+            .expect("a configured-ID mismatch must not use the legacy fallback")
+            .unwrap_err();
 
         assert!(error.contains("not the selected constructor"), "{error}");
         assert_eq!(world.all_components().count(), 0);
@@ -502,23 +528,19 @@ mod tests {
         let configured = crate::scripting::runtime_config::build_mittens_runtime().unwrap();
         let tree = configured
             .runtime()
-            .materialize_component(
-                "Transform { name = \"root\" class = [\"scene\", \"visible\"] }",
-            )
+            .materialize_component("Transform { name = \"root\" class = [\"scene\", \"visible\"] }")
             .unwrap();
-        assert!(tree.properties.iter().all(|property| property.operation_id.is_some()));
+        assert!(
+            tree.properties
+                .iter()
+                .all(|property| property.operation_id.is_some())
+        );
 
         let mut world = World::default();
         let mut emit = crate::engine::ecs::CommandQueue::new();
-        let id = try_spawn_tree(
-            &tree,
-            configured.bindings(),
-            &mut world,
-            &mut emit,
-            false,
-        )
-        .expect("bound universal properties should stay on the direct path")
-        .unwrap();
+        let id = try_spawn_tree(&tree, configured.bindings(), &mut world, &mut emit, false)
+            .expect("bound universal properties should stay on the direct path")
+            .unwrap();
         let record = world.get_component_record(id).unwrap();
         assert_eq!(record.name, "root");
         assert_eq!(record.classes, ["scene", "visible"]);
@@ -534,21 +556,15 @@ mod tests {
         let tree = configured
             .runtime()
             .materialize_component(
-                "Renderable.cube() { Color.rgba(0.8, 0.9, 1.0, 0.7) Refraction.ior(1.45).thickness(0.08).strength(0.9).edge_fade(0.03).depth_compare(false) }",
+                "Renderable.cube() { Color.rgba(0.8, 0.9, 1.0, 0.7) Refraction.ior(1.45).thickness(0.08).strength(0.9).edge_fade(0.03) }",
             )
             .unwrap();
 
         let mut world = World::default();
         let mut emit = crate::engine::ecs::CommandQueue::new();
-        let renderable = try_spawn_tree(
-            &tree,
-            configured.bindings(),
-            &mut world,
-            &mut emit,
-            false,
-        )
-        .expect("transmission components should stay on the direct path")
-        .unwrap();
+        let renderable = try_spawn_tree(&tree, configured.bindings(), &mut world, &mut emit, false)
+            .expect("transmission components should stay on the direct path")
+            .unwrap();
 
         let model = resolve_transmissive_model(&world, renderable).unwrap();
         let Some(TransmissiveModel::Refraction(options)) = model else {
@@ -558,7 +574,6 @@ mod tests {
         assert_eq!(options.thickness, 0.08);
         assert_eq!(options.strength, 0.9);
         assert_eq!(options.edge_fade, 0.03);
-        assert!(!options.depth_compare);
         assert!(world.children_of(renderable).iter().any(|&child| {
             world
                 .get_component_by_id_as::<ColorComponent>(child)

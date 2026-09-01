@@ -26,17 +26,16 @@ use crate::engine::ecs::component::{
     GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace, HtmlElementComponent,
     HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver,
     ImplicitSphereComponent, ImplicitSurfaceComponent, InputComponent, InputTransformModeComponent,
-    InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent,
-    JointRetargetBasisComponent, JustifyContent, KeyframeComponent,
-    LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent, MeshComponent,
-    MirrorComponent, MorphTargetMapComponent, MusicNote, MusicNoteComponent,
-    NormalVisualisationComponent, OpacityComponent, OptionComponent, OscillatorType, Overflow,
-    OverlayComponent, PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
-    PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
-    QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
-    RaycastableShapeType, RefractionComponent, RenderGraphComponent, RenderableComponent,
-    RendererSettingsComponent, RendererStatsComponent, RestAttachmentComponent,
-    RoughTransmissionComponent, RouterComponent, ScrollingComponent,
+    InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent,
+    JustifyContent, KeyframeComponent, LayoutBoundsComponent, LayoutComponent,
+    LightQuantizationComponent, MeshComponent, MirrorComponent, MorphTargetMapComponent, MusicNote,
+    MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
+    OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
+    PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
+    Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
+    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RefractionComponent,
+    RenderGraphComponent, RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
+    RestAttachmentComponent, RoughTransmissionComponent, RouterComponent, ScrollingComponent,
     SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
     SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
     SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
@@ -1232,7 +1231,10 @@ fn validate_rotation_limits(
     values: [f32; 4],
     component: &str,
 ) -> Result<crate::engine::ecs::component::EyeRotationLimits, String> {
-    if values.iter().all(|value| value.is_finite() && *value >= 0.0) {
+    if values
+        .iter()
+        .all(|value| value.is_finite() && *value >= 0.0)
+    {
         Ok(crate::engine::ecs::component::EyeRotationLimits::from_array(values))
     } else {
         Err(format!(
@@ -2524,34 +2526,18 @@ fn apply_call(
     args: &[Value],
 ) -> Result<(), String> {
     if let Some(component) = world.get_component_by_id_as_mut::<RefractionComponent>(id) {
-        if method == "depth_compare" {
-            component.apply_bool_builder(method, arg_bool(args, 0)?)?;
-        } else {
-            component.apply_builder(method, arg_f32(args, 0)?)?;
-        }
+        component.apply_builder(method, arg_f32(args, 0)?)?;
         return Ok(());
     }
     if let Some(component) = world.get_component_by_id_as_mut::<RoughTransmissionComponent>(id) {
-        if method == "depth_compare" {
-            component.apply_bool_builder(method, arg_bool(args, 0)?)?;
-        } else {
-            component.apply_builder(method, arg_f32(args, 0)?)?;
-        }
+        component.apply_builder(method, arg_f32(args, 0)?)?;
         return Ok(());
     }
     if let Some(surface) = world.get_component_by_id_as_mut::<ImplicitSurfaceComponent>(id) {
         match method {
             "bounds" => {
-                surface.bounds_min = [
-                    arg_f32(args, 0)?,
-                    arg_f32(args, 1)?,
-                    arg_f32(args, 2)?,
-                ];
-                surface.bounds_max = [
-                    arg_f32(args, 3)?,
-                    arg_f32(args, 4)?,
-                    arg_f32(args, 5)?,
-                ];
+                surface.bounds_min = [arg_f32(args, 0)?, arg_f32(args, 1)?, arg_f32(args, 2)?];
+                surface.bounds_max = [arg_f32(args, 3)?, arg_f32(args, 4)?, arg_f32(args, 5)?];
             }
             "voxel_size" => surface.voxel_size = arg_f32(args, 0)?,
             "iso_level" => surface.iso_level = arg_f32(args, 0)?,
@@ -2605,7 +2591,8 @@ fn apply_call(
                     })?;
             }
             "rotation_limits" => {
-                tracker.rotation_limits = Some(rotation_limits_call_args(args, "XREyeTrackingHTC")?);
+                tracker.rotation_limits =
+                    Some(rotation_limits_call_args(args, "XREyeTrackingHTC")?);
             }
             "rotation_limits_per_eye" => {
                 tracker.rotation_limits_per_eye = [
@@ -3423,10 +3410,18 @@ fn apply_call(
         return Ok(());
     }
     if let Some(s) = world.get_component_by_id_as_mut::<RendererSettingsComponent>(id) {
-        if method == "window_size" {
-            *s = s
-                .clone()
-                .with_window_size(arg_f32(args, 0)? as u32, arg_f32(args, 1)? as u32);
+        match method {
+            "window_size" => {
+                *s = s
+                    .clone()
+                    .with_window_size(arg_f32(args, 0)? as u32, arg_f32(args, 1)? as u32);
+            }
+            "transmission_depth_compare" => {
+                *s = s
+                    .clone()
+                    .with_transmission_depth_compare(arg_bool(args, 0)?);
+            }
+            _ => {}
         }
         return Ok(());
     }
@@ -4008,7 +4003,12 @@ mod tests {
                 &mut world,
                 id,
                 "rotation_limits",
-                &[Value::Number(0.1), Value::Number(0.2), Value::Number(0.3), Value::Number(0.4)],
+                &[
+                    Value::Number(0.1),
+                    Value::Number(0.2),
+                    Value::Number(0.3),
+                    Value::Number(0.4),
+                ],
             )
             .unwrap();
             apply_call(
@@ -4016,16 +4016,30 @@ mod tests {
                 id,
                 "rotation_limits_per_eye",
                 &[
-                    Value::Array(vec![Value::Number(0.5), Value::Number(0.6), Value::Number(0.7), Value::Number(0.8)]),
-                    Value::Array(vec![Value::Number(0.9), Value::Number(1.0), Value::Number(1.1), Value::Number(1.2)]),
+                    Value::Array(vec![
+                        Value::Number(0.5),
+                        Value::Number(0.6),
+                        Value::Number(0.7),
+                        Value::Number(0.8),
+                    ]),
+                    Value::Array(vec![
+                        Value::Number(0.9),
+                        Value::Number(1.0),
+                        Value::Number(1.1),
+                        Value::Number(1.2),
+                    ]),
                 ],
             )
             .unwrap();
             let limits = if htc {
-                let tracker = world.get_component_by_id_as::<XREyeTrackingHtcComponent>(id).unwrap();
+                let tracker = world
+                    .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
+                    .unwrap();
                 (tracker.rotation_limits, tracker.rotation_limits_per_eye)
             } else {
-                let tracker = world.get_component_by_id_as::<XREyeTrackingComponent>(id).unwrap();
+                let tracker = world
+                    .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                    .unwrap();
                 (tracker.rotation_limits, tracker.rotation_limits_per_eye)
             };
             assert_eq!(limits.0.unwrap().right, 0.2);
@@ -4038,14 +4052,34 @@ mod tests {
     fn eye_tracking_rotation_limits_reject_negative_and_non_finite_values() {
         let mut world = World::default();
         let id = world.add_component(XREyeTrackingComponent::on());
-        assert!(apply_call(
-            &mut world, id, "rotation_limits",
-            &[Value::Number(-0.1), Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)],
-        ).is_err());
-        assert!(apply_call(
-            &mut world, id, "rotation_limits",
-            &[Value::Number(f64::INFINITY), Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)],
-        ).is_err());
+        assert!(
+            apply_call(
+                &mut world,
+                id,
+                "rotation_limits",
+                &[
+                    Value::Number(-0.1),
+                    Value::Number(0.0),
+                    Value::Number(0.0),
+                    Value::Number(0.0)
+                ],
+            )
+            .is_err()
+        );
+        assert!(
+            apply_call(
+                &mut world,
+                id,
+                "rotation_limits",
+                &[
+                    Value::Number(f64::INFINITY),
+                    Value::Number(0.0),
+                    Value::Number(0.0),
+                    Value::Number(0.0)
+                ],
+            )
+            .is_err()
+        );
     }
 
     #[test]
