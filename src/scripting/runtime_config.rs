@@ -702,6 +702,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 "Text" => {
                     component.positional(mms::ValueType::String);
                     component.builder_call("font_size", floats(1));
+                    host_method(
+                        component,
+                        canonical,
+                        "set_text",
+                        method(vec![mms::ValueType::String], mms::ValueType::Null),
+                    );
                 }
                 "TextInput" => {
                     component

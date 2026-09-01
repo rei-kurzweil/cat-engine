@@ -42,6 +42,14 @@ neon_line(-1.0, [0.10, 0.78, 1.00],  0.07)
 neon_line(-2.0, [0.28, 0.34, 1.00], -0.09)
 neon_line(-3.0, [0.88, 0.16, 1.00],  0.11)
 
+// Foreground-depth rejection reference. This narrow opaque card sits just in front of and beside
+// the sphere. Refraction may bend the background stripes near it, but must not pull the card's
+// nearer pixels sideways into the sphere when the displaced lookup crosses the card.
+T.position(1.62, 0.0, 2.35).scale(0.16, 1.55, 0.12) {
+    name = "refraction_foreground_depth_card"
+    R.cube() { C.rgba(1.0, 0.92, 0.12, 1.0) }
+}
+
 fn refraction_panel(panel_name, position, color, ior, thickness) {
     return T.position(position[0], position[1], position[2]).scale(1.6, 1.6, 0.4) {
         name = panel_name

@@ -1345,6 +1345,50 @@ mod runtime_spec_session_tests {
     }
 
     #[test]
+    fn retained_runtime_transform_info_panel_updates_text_on_frame_tick() {
+        let mut world = World::default();
+        let mut rx = RxWorld::default();
+        let mut commands = CommandQueue::new();
+        let source = r##"
+            import { transform_info_panel } from "../assets/components/ui/transform_info_panel.mms"
+
+            let target = Transform.position(-1.234567, 0.0, 10.5) { name = "telemetry_target" }
+            target
+            transform_info_panel(target)
+        "##;
+        let (mut session, output) = RuntimeSpecSession::start_at_path(
+            source,
+            "examples/_mms_test_transform_info_panel_runtime_spec.mms",
+            &mut world,
+            &mut rx,
+            None,
+            &mut commands,
+        )
+        .unwrap();
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
+
+        rx.dispatch_event_handlers(
+            &mut world,
+            &Signal::event(
+                ComponentId::default(),
+                EventSignal::FrameTick { dt_sec: 0.1 },
+            ),
+        );
+        let output = session.service_callbacks(&mut world, &mut rx, None, &mut commands);
+
+        assert!(output.errors.is_empty(), "{:?}", output.errors);
+        let texts: Vec<_> = output
+            .intents
+            .into_iter()
+            .filter_map(|intent| match intent {
+                IntentValue::SetText { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, ["x: -1.23457", "y: 0.00000", "z: 10.50000"]);
+    }
+
+    #[test]
     fn configured_runtime_sessions_are_isolated_and_close_disables_callback_delivery() {
         let configured =
             Arc::new(crate::scripting::runtime_config::build_mittens_runtime().unwrap());

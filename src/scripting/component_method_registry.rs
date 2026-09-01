@@ -1,6 +1,6 @@
 use crate::engine::ecs::component::{
     AudioBandPassFilterComponent, EmissiveComponent, RayCastComponent, TransformComponent,
-    TransitionComponent,
+    TextComponent, TransitionComponent,
 };
 use crate::engine::ecs::{ComponentId, IntentValue, PoseApplyMode, World};
 use crate::engine::transform::TransformSpace;
@@ -44,6 +44,21 @@ pub(crate) fn invoke_component_method(
     mut emit_intent: impl FnMut(IntentValue),
 ) -> Result<Value, String> {
     match (component_type, method) {
+        ("Text" | "TXT" | "text", "set_text") => {
+            world
+                .get_component_by_id_as::<TextComponent>(id)
+                .ok_or_else(|| "set_text(): not a TextComponent".to_string())?;
+            let [Value::String(text)] = args else {
+                return Err(format!(
+                    "set_text(): expected one string argument, got {args:?}"
+                ));
+            };
+            emit_intent(IntentValue::SetText {
+                component_id: id,
+                text: text.clone(),
+            });
+            Ok(Value::Null)
+        }
         ("TransformWorld", "trs") => {
             world
                 .get_component_by_id_as::<TransformComponent>(id)

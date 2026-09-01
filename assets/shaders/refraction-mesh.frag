@@ -21,6 +21,8 @@ layout(set = 0, binding = 0) uniform CameraUBO {
 // Immutable background + opaque + cutout color captured immediately before
 // the transmissive phase for this view.
 layout(set = 0, binding = 2) uniform sampler2D scene_color;
+// Single-sample opaque/cutout depth captured at the same boundary as scene_color.
+layout(set = 0, binding = 3) uniform sampler2D scene_depth;
 
 void main() {
     vec2 viewport = max(ubo.viewport, vec2(1.0));
@@ -48,6 +50,15 @@ void main() {
     float edge_fade = max(v_transmission.w, 1e-5);
     offset *= smoothstep(0.0, edge_fade, edge);
     vec2 refracted_uv = clamp(base_uv + offset, vec2(0.0), vec2(1.0));
+
+    // The color snapshot contains the nearest opaque surface at every coordinate. A displaced
+    // lookup must not pull a surface that is closer to the camera than this transmissive fragment
+    // sideways into the lens. Depth uses the engine's conventional 0-near, 1-far projection.
+    float candidate_depth = texture(scene_depth, refracted_uv).r;
+    const float foreground_bias = 1e-4;
+    if (candidate_depth + foreground_bias < gl_FragCoord.z) {
+        refracted_uv = base_uv;
+    }
 
     vec3 captured = texture(scene_color, refracted_uv).rgb;
     vec3 tint = mix(vec3(1.0), clamp(v_color.rgb, 0.0, 1.0), 0.25);

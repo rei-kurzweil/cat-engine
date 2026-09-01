@@ -134,7 +134,7 @@ mod vulkano_backend {
         ComputePipeline, DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint,
         PipelineShaderStageCreateInfo,
     };
-    use vulkano::render_pass::{AttachmentLoadOp, AttachmentStoreOp};
+    use vulkano::render_pass::{AttachmentLoadOp, AttachmentStoreOp, ResolveMode};
     use vulkano::swapchain::{self, SwapchainPresentInfo};
     use vulkano::sync::{self, GpuFuture};
     use vulkano::DeviceSize;
@@ -410,6 +410,7 @@ mod vulkano_backend {
         pub textures: HashMap<TextureHandle, VulkanoGpuTexture>,
         pub sampler_linear: Arc<Sampler>,
         pub sampler_scene_color: Arc<Sampler>,
+        pub sampler_scene_depth: Arc<Sampler>,
         pub sampler_nearest: Arc<Sampler>,
         pub sampler_nearest_mag: Arc<Sampler>,
         pub default_white_texture: TextureHandle,
@@ -562,7 +563,14 @@ mod vulkano_backend {
     struct WindowRefractionTargets {
         extent: [u32; 2],
         color_format: Format,
-        views: Vec<Arc<ImageView>>,
+        frames: Vec<RefractionSnapshotViews>,
+    }
+
+    #[derive(Clone)]
+    struct RefractionSnapshotViews {
+        color: Arc<ImageView>,
+        depth_attachment: Arc<ImageView>,
+        depth_sampled: Arc<ImageView>,
     }
 
     #[derive(Clone)]
@@ -1849,6 +1857,17 @@ mod vulkano_backend {
                 },
             )?;
 
+            let sampler_scene_depth = Sampler::new(
+                device.clone(),
+                SamplerCreateInfo {
+                    mag_filter: Filter::Nearest,
+                    min_filter: Filter::Nearest,
+                    mipmap_mode: SamplerMipmapMode::Nearest,
+                    address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                    ..Default::default()
+                },
+            )?;
+
             let sampler_nearest = Sampler::new(
                 device.clone(),
                 SamplerCreateInfo {
@@ -1885,6 +1904,7 @@ mod vulkano_backend {
                 textures: HashMap::new(),
                 sampler_linear,
                 sampler_scene_color,
+                sampler_scene_depth,
                 sampler_nearest,
                 sampler_nearest_mag,
                 default_white_texture: TextureHandle(0),
@@ -2804,15 +2824,15 @@ mod vulkano_backend {
                 .is_none_or(|targets| {
                     targets.extent != extent
                         || targets.color_format != color_format
-                        || targets.views.len() != frame_count
+                        || targets.frames.len() != frame_count
                 });
             if !needs_recreate {
                 return Ok(());
             }
 
-            let mut views = Vec::with_capacity(frame_count);
+            let mut frames = Vec::with_capacity(frame_count);
             for _ in 0..frame_count {
-                views.push(Self::create_color_target_view(
+                let color = Self::create_color_target_view(
                     self.context.memory_allocator().clone(),
                     color_format,
                     extent,
@@ -2821,12 +2841,54 @@ mod vulkano_backend {
                         | ImageUsage::TRANSFER_DST
                         | ImageUsage::TRANSFER_SRC
                         | ImageUsage::SAMPLED,
-                )?);
+                )?;
+                let depth_image = Image::new(
+                    self.context.memory_allocator().clone(),
+                    ImageCreateInfo {
+                        image_type: ImageType::Dim2d,
+                        format: VulkanoSwapchainState::DEPTH_FORMAT,
+                        extent: [extent[0], extent[1], 1],
+                        samples: SampleCount::Sample1,
+                        usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT
+                            | ImageUsage::TRANSFER_DST
+                            | ImageUsage::SAMPLED,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                        ..Default::default()
+                    },
+                )?;
+                let depth_attachment = ImageView::new(
+                    depth_image.clone(),
+                    ImageViewCreateInfo {
+                        subresource_range: ImageSubresourceRange {
+                            aspects: ImageAspects::DEPTH | ImageAspects::STENCIL,
+                            ..depth_image.subresource_range()
+                        },
+                        ..ImageViewCreateInfo::from_image(&depth_image)
+                    },
+                )?;
+                let depth_sampled = ImageView::new(
+                    depth_image.clone(),
+                    ImageViewCreateInfo {
+                        subresource_range: ImageSubresourceRange {
+                            aspects: ImageAspects::DEPTH,
+                            ..depth_image.subresource_range()
+                        },
+                        ..ImageViewCreateInfo::from_image(&depth_image)
+                    },
+                )?;
+                frames.push(RefractionSnapshotViews {
+                    color,
+                    depth_attachment,
+                    depth_sampled,
+                });
             }
             self.window_refraction_targets = Some(WindowRefractionTargets {
                 extent,
                 color_format,
-                views,
+                frames,
             });
             Ok(())
         }
@@ -3843,7 +3905,7 @@ mod vulkano_backend {
             extent: [u32; 2],
             post_process: Option<PostProcessInvocation>,
             runtime_texture_publication: Option<(TextureHandle, Arc<ImageView>)>,
-            scene_color_snapshot: Option<Arc<ImageView>>,
+            scene_snapshot: Option<RefractionSnapshotViews>,
         ) -> Result<
             Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
             Box<dyn std::error::Error>,
@@ -3943,7 +4005,7 @@ mod vulkano_backend {
                 &*visual_world,
                 refraction_instances,
             )?;
-            let scene_color_source = scene_color_snapshot.as_ref().and_then(|_| {
+            let scene_color_source = scene_snapshot.as_ref().and_then(|_| {
                 post_process
                     .as_ref()
                     .map(|post_process| post_process.targets.main_color.clone())
@@ -4125,7 +4187,14 @@ mod vulkano_backend {
                 };
             }
 
-            let depth_attachment_clear = RenderingAttachmentInfo {
+            let depth_resolve = scene_snapshot
+                .as_ref()
+                .filter(|_| self.msaa_samples != SampleCount::Sample1)
+                .map(|snapshot| RenderingAttachmentResolveInfo {
+                    mode: ResolveMode::SampleZero,
+                    ..RenderingAttachmentResolveInfo::image_view(snapshot.depth_attachment.clone())
+                });
+            let mut depth_attachment_clear = RenderingAttachmentInfo {
                 load_op: AttachmentLoadOp::Clear,
                 store_op: if post_process.is_some() {
                     AttachmentStoreOp::Store
@@ -4135,6 +4204,19 @@ mod vulkano_backend {
                 clear_value: Some(ClearValue::Depth(1.0)),
                 ..RenderingAttachmentInfo::image_view(depth_view.clone())
             };
+            depth_attachment_clear.resolve_info = depth_resolve.clone();
+
+            let mut stencil_attachment_clear = RenderingAttachmentInfo {
+                load_op: AttachmentLoadOp::Clear,
+                store_op: if defer_overlay_until_before_final_composite || sample_scene_color {
+                    AttachmentStoreOp::Store
+                } else {
+                    AttachmentStoreOp::DontCare
+                },
+                clear_value: Some(ClearValue::Stencil(0)),
+                ..RenderingAttachmentInfo::image_view(depth_view.clone())
+            };
+            stencil_attachment_clear.resolve_info = depth_resolve;
 
             let rendering_info_clear_color_and_depth = RenderingInfo {
                 render_area_offset: [0, 0],
@@ -4142,16 +4224,7 @@ mod vulkano_backend {
                 layer_count: 1,
                 color_attachments: vec![Some(color_attachment_clear)],
                 depth_attachment: Some(depth_attachment_clear.clone()),
-                stencil_attachment: Some(RenderingAttachmentInfo {
-                    load_op: AttachmentLoadOp::Clear,
-                    store_op: if defer_overlay_until_before_final_composite || sample_scene_color {
-                        AttachmentStoreOp::Store
-                    } else {
-                        AttachmentStoreOp::DontCare
-                    },
-                    clear_value: Some(ClearValue::Stencil(0)),
-                    ..RenderingAttachmentInfo::image_view(depth_view.clone())
-                }),
+                stencil_attachment: Some(stencil_attachment_clear),
                 ..Default::default()
             };
 
@@ -4271,7 +4344,7 @@ mod vulkano_backend {
                 [],
             )?;
 
-            let global_set_refraction = if let Some(snapshot) = scene_color_snapshot.as_ref() {
+            let global_set_refraction = if let Some(snapshot) = scene_snapshot.as_ref() {
                 Some(DescriptorSet::new(
                     self.descriptor_set_allocator.clone(),
                     self.set_layouts.global.clone(),
@@ -4280,8 +4353,13 @@ mod vulkano_backend {
                         WriteDescriptorSet::buffer(1, lights_buffer.clone()),
                         WriteDescriptorSet::image_view_sampler(
                             2,
-                            snapshot.clone(),
+                            snapshot.color.clone(),
                             self.sampler_scene_color.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            3,
+                            snapshot.depth_sampled.clone(),
+                            self.sampler_scene_depth.clone(),
                         ),
                     ],
                     [],
@@ -4554,10 +4632,17 @@ mod vulkano_backend {
 
             if sample_scene_color {
                 cbb.end_rendering()?;
-                let snapshot = scene_color_snapshot
+                let snapshot = scene_snapshot
                     .as_ref()
                     .expect("scene-color snapshot")
                     .clone();
+
+                if self.msaa_samples == SampleCount::Sample1 {
+                    cbb.copy_image(CopyImageInfo::images(
+                        depth_view.image().clone(),
+                        snapshot.depth_attachment.image().clone(),
+                    ))?;
+                }
 
                 if composite_bloom_before_refraction {
                     let post = post_process
@@ -4581,7 +4666,7 @@ mod vulkano_backend {
                     self.post_processing_renderer.record_final_pass(
                         &mut cbb,
                         post.final_color_format,
-                        snapshot.clone(),
+                        snapshot.color.clone(),
                         extent,
                         post.targets.main_color.clone(),
                         blurred_bloom.clone(),
@@ -4592,7 +4677,7 @@ mod vulkano_backend {
                         post.final_color_format,
                         color_attachment_view.clone(),
                         extent,
-                        snapshot,
+                        snapshot.color,
                         self.msaa_samples,
                     )?;
                 } else {
@@ -4602,7 +4687,7 @@ mod vulkano_backend {
                             .expect("scene-color source")
                             .image()
                             .clone(),
-                        snapshot.image().clone(),
+                        snapshot.color.image().clone(),
                     ))?;
                 }
 
@@ -5002,21 +5087,20 @@ mod vulkano_backend {
                 None
             };
 
-            let scene_color_snapshot = if visual_world.has_refraction_instances()
-                && post_process.is_some()
-            {
-                self.ensure_window_refraction_targets(
-                    self.swapchain_state.swapchain_views.len(),
-                    extent,
-                    self.swapchain_state.swapchain.image_format(),
-                )?;
-                self.window_refraction_targets
-                    .as_ref()
-                    .and_then(|targets| targets.views.get(image_i as usize))
-                    .cloned()
-            } else {
-                None
-            };
+            let scene_snapshot =
+                if visual_world.has_refraction_instances() && post_process.is_some() {
+                    self.ensure_window_refraction_targets(
+                        self.swapchain_state.swapchain_views.len(),
+                        extent,
+                        self.swapchain_state.swapchain.image_format(),
+                    )?;
+                    self.window_refraction_targets
+                        .as_ref()
+                        .and_then(|targets| targets.frames.get(image_i as usize))
+                        .cloned()
+                } else {
+                    None
+                };
 
             let device = self.context.device().clone();
             let queue = self.context.graphics_queue().clone();
@@ -5080,7 +5164,7 @@ mod vulkano_backend {
                 extent,
                 post_process,
                 None,
-                scene_color_snapshot,
+                scene_snapshot,
             )?;
 
             // Ensure we never render into a swapchain image (and its paired depth attachment)

@@ -1,6 +1,6 @@
 # Task: Prevent foreground color from leaking into screen-space refraction
 
-Status: tracked; investigate and implement after the per-view scene-color path is stable.
+Status: desktop implementation complete; visual, XR, rough-transmission, and cost proof pending.
 
 ## Problem
 
@@ -15,10 +15,9 @@ geometry covers the transmissive fragment's own pixel, ordinary depth testing al
 fragment correctly; the bug concerns a **displaced** lookup landing on foreground geometry elsewhere
 in the snapshot.
 
-The current shader cannot reject that lookup. `refraction-mesh.frag` samples only `scene_color` and
-does not receive scene depth. The current desktop, XR, and post-processing depth images are also
-depth/stencil attachments with the view's MSAA sample count, not a renderer-owned single-sample
-depth input prepared for transmission.
+Previously, `refraction-mesh.frag` sampled only `scene_color` and could not reject that lookup. The
+desktop post-processing path now prepares and binds a matching single-sample scene-depth snapshot.
+XR and other view families do not yet provide transmissive snapshots.
 
 ## Required behavior
 
@@ -53,28 +52,28 @@ scene-query cost and are not required to stop the foreground leak.
 
 ## Proposed first slice: depth-aware rejection
 
-- [ ] Add a renderer-owned, per-view, single-sample scene-depth input captured/resolved at the same
-      opaque/cutout boundary as scene color.
-- [ ] Use a depth-only image view when sampling the existing `D32_SFLOAT_S8_UINT` resource, or a
+- [x] Add a renderer-owned, per-window-frame, single-sample scene-depth input captured/resolved at
+      the same opaque/cutout boundary as scene color.
+- [x] Use a depth-only image view when sampling the existing `D32_SFLOAT_S8_UINT` resource, or a
       separate resolved depth target where MSAA/depth-resolve support requires it. Do not sample a
       multisampled attachment as though it were the existing `sampler2D` path.
-- [ ] Extend the refraction descriptor layout with scene depth and bind color/depth from the same
+- [x] Extend the refraction descriptor layout with scene depth and bind color/depth from the same
       view, eye, frame slot, extent, and projection.
-- [ ] Compare candidate scene depth with the current transmissive fragment depth using the engine's
+- [x] Compare candidate scene depth with the current transmissive fragment depth using the engine's
       `LessOrEqual`, clear-to-`1.0` depth convention. Prefer a centralized reconstruction/comparison
       helper if projection variants make raw depth comparison unsafe.
-- [ ] Reject candidates that are closer than the transmissive surface, with a small documented
+- [x] Reject candidates that are closer than the transmissive surface, with a small documented
       bias to avoid equality noise at intersections.
-- [ ] Initially fall back to the undisplaced scene-color coordinate. Keep viewport edge fading and
+- [x] Initially fall back to the undisplaced scene-color coordinate. Keep viewport edge fading and
       clamping as separate validity rules.
 - [ ] Apply the same rule to sharp refraction and, when implemented, rough transmission. A filtered
       rough lookup must not blend foreground samples back across the rejected boundary.
 
 ## Reproduction fixture
 
-- [ ] Add a high-contrast opaque foreground card, a grabbable refractive pane/sphere behind it, and
+- [x] Add a high-contrast opaque foreground card, a grabbable refractive pane/sphere behind it, and
       distinct background stripes or grid lines.
-- [ ] Arrange the foreground card beside part of the refractive silhouette so the surface remains
+- [x] Arrange the foreground card beside part of the refractive silhouette so the surface remains
       visible but its displaced lookup crosses onto the card.
 - [ ] Move the refractive object in front of and behind the card; verify the card is eligible only
       when it is behind the shaded transmissive interface.
@@ -97,4 +96,3 @@ scene-query cost and are not required to stop the foreground leak.
 - Recursive refraction or correct ordering between overlapping transmissive surfaces.
 - Refraction through ordinary transparent objects.
 - Ray-traced intersections, depth peeling, or an unbounded per-fragment search.
-

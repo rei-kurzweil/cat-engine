@@ -28,6 +28,8 @@ Related current work:
 - [Single-layer transparency contract](../single-layer-transparency-depth-write-contract.md)
 - [Dedicated mirror shader precedent](../mirror-dedicated-shader-refactor.md)
 - [Foreground-depth rejection for screen-space refraction](../refraction-foreground-depth-leakage.md)
+- [Refraction material specification](../../spec/material/refraction.md)
+- [Future material/renderer resource graph](../material-renderer-resource-graph.md)
 - [Base render-pipeline diagram](../../spec/render-graph-pipeline.svg)
 
 ## Decision summary

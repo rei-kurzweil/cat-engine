@@ -639,7 +639,7 @@ impl PostProcessingRenderer {
                 format: VulkanoSwapchainState::DEPTH_FORMAT,
                 extent: [extent[0], extent[1], 1],
                 samples,
-                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSFER_SRC,
                 ..Default::default()
             },
             AllocationCreateInfo {
