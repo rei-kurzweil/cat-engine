@@ -298,16 +298,24 @@ fn apply_call(
                 .intensity = f32_arg(args, 0)?.max(0.0);
         }
         "Refraction" => {
-            world
+            let component = world
                 .get_component_by_id_as_mut::<RefractionComponent>(id)
-                .ok_or("missing Refraction after construction")?
-                .apply_builder(method, f32_arg(args, 0)?)?;
+                .ok_or("missing Refraction after construction")?;
+            if method == "depth_compare" {
+                component.apply_bool_builder(method, bool_arg(args, 0)?)?;
+            } else {
+                component.apply_builder(method, f32_arg(args, 0)?)?;
+            }
         }
         "RoughTransmission" => {
-            world
+            let component = world
                 .get_component_by_id_as_mut::<RoughTransmissionComponent>(id)
-                .ok_or("missing RoughTransmission after construction")?
-                .apply_builder(method, f32_arg(args, 0)?)?;
+                .ok_or("missing RoughTransmission after construction")?;
+            if method == "depth_compare" {
+                component.apply_bool_builder(method, bool_arg(args, 0)?)?;
+            } else {
+                component.apply_builder(method, f32_arg(args, 0)?)?;
+            }
         }
         "Bloom" => {
             let bloom = world
@@ -526,7 +534,7 @@ mod tests {
         let tree = configured
             .runtime()
             .materialize_component(
-                "Renderable.cube() { Color.rgba(0.8, 0.9, 1.0, 0.7) Refraction.ior(1.45).thickness(0.08).strength(0.9).edge_fade(0.03) }",
+                "Renderable.cube() { Color.rgba(0.8, 0.9, 1.0, 0.7) Refraction.ior(1.45).thickness(0.08).strength(0.9).edge_fade(0.03).depth_compare(false) }",
             )
             .unwrap();
 
@@ -550,6 +558,7 @@ mod tests {
         assert_eq!(options.thickness, 0.08);
         assert_eq!(options.strength, 0.9);
         assert_eq!(options.edge_fade, 0.03);
+        assert!(!options.depth_compare);
         assert!(world.children_of(renderable).iter().any(|&child| {
             world
                 .get_component_by_id_as::<ColorComponent>(child)

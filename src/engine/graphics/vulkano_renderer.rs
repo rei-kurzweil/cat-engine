@@ -62,7 +62,7 @@ impl RendererPerfCounters {
 mod vulkano_backend {
     use super::RendererPerfCounters;
     use std::collections::HashMap;
-    use std::mem::size_of;
+    use std::mem::{offset_of, size_of};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -317,7 +317,14 @@ mod vulkano_backend {
 
         #[format(R32G32B32A32_SFLOAT)]
         pub i_transmission: [f32; 4],
+        // Bitfield kept separate from the four authored transmission floats.
+        #[format(R32_UINT)]
+        pub i_transmission_flags: u32,
     }
+
+    const _: () = assert!(offset_of!(InstanceData, i_transmission) == 96);
+    const _: () = assert!(offset_of!(InstanceData, i_transmission_flags) == 112);
+    const _: () = assert!(size_of::<InstanceData>() == 116);
 
     #[derive(BufferContents, Debug, Clone, Copy, Default)]
     #[repr(C)]
@@ -1167,6 +1174,15 @@ mod vulkano_backend {
                         binding: 1,
                         format: Format::R32G32B32A32_SFLOAT,
                         offset: 96,
+                        ..Default::default()
+                    },
+                )
+                .attribute(
+                    13,
+                    VertexInputAttributeDescription {
+                        binding: 1,
+                        format: Format::R32_UINT,
+                        offset: 112,
                         ..Default::default()
                     },
                 );
@@ -3009,6 +3025,7 @@ mod vulkano_backend {
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
                     i_transmission: inst.transmission,
+                    i_transmission_flags: inst.transmission_flags.bits(),
                 }
             });
 
@@ -3418,6 +3435,7 @@ mod vulkano_backend {
                         i_deformed_base: inst.deformed_base,
                         i_deformed_count: inst.deformed_count,
                         i_transmission: inst.transmission,
+                        i_transmission_flags: inst.transmission_flags.bits(),
                     }
                 });
 
@@ -3463,6 +3481,7 @@ mod vulkano_backend {
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
                     i_transmission: inst.transmission,
+                    i_transmission_flags: inst.transmission_flags.bits(),
                 }
             });
 

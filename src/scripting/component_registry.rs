@@ -2524,11 +2524,19 @@ fn apply_call(
     args: &[Value],
 ) -> Result<(), String> {
     if let Some(component) = world.get_component_by_id_as_mut::<RefractionComponent>(id) {
-        component.apply_builder(method, arg_f32(args, 0)?)?;
+        if method == "depth_compare" {
+            component.apply_bool_builder(method, arg_bool(args, 0)?)?;
+        } else {
+            component.apply_builder(method, arg_f32(args, 0)?)?;
+        }
         return Ok(());
     }
     if let Some(component) = world.get_component_by_id_as_mut::<RoughTransmissionComponent>(id) {
-        component.apply_builder(method, arg_f32(args, 0)?)?;
+        if method == "depth_compare" {
+            component.apply_bool_builder(method, arg_bool(args, 0)?)?;
+        } else {
+            component.apply_builder(method, arg_f32(args, 0)?)?;
+        }
         return Ok(());
     }
     if let Some(surface) = world.get_component_by_id_as_mut::<ImplicitSurfaceComponent>(id) {

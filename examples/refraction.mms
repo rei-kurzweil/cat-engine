@@ -50,23 +50,23 @@ T.position(1.62, 0.0, 2.35).scale(0.16, 1.55, 0.12) {
     R.cube() { C.rgba(1.0, 0.92, 0.12, 1.0) }
 }
 
-fn refraction_panel(panel_name, position, color, ior, thickness) {
+fn refraction_panel(panel_name, position, color, ior, thickness, depth_compare) {
     return T.position(position[0], position[1], position[2]).scale(1.6, 1.6, 0.4) {
         name = panel_name
         Grabbable {}
         R.cube() {
             C.rgba(color[0], color[1], color[2], color[3])
-            Refraction.ior(ior).thickness(thickness).strength(1.0).edge_fade(0.025)
+            Refraction.ior(ior).thickness(thickness).strength(1.0).edge_fade(0.025).depth_compare(depth_compare)
         }
     }
 }
 
 // Refraction should replace the covered scene sample. Keep alpha at 1.0 so the
 // fixture shows only the refracted lookup rather than blending in the original.
-refraction_panel("refraction_ior_1_10", [-1.9,  1.9, 0.0], [0.62, 0.88, 1.00, 1.0], 1.10, 0.05)
-refraction_panel("refraction_ior_1_33", [ 1.9,  1.9, 0.0], [0.72, 1.00, 0.88, 1.0], 1.33, 0.10)
-refraction_panel("refraction_ior_1_50", [-1.9, -1.9, 0.0], [0.94, 0.72, 1.00, 1.0], 1.50, 0.16)
-refraction_panel("refraction_ior_1_80", [ 1.9, -1.9, 0.0], [1.00, 0.68, 0.78, 1.0], 1.80, 0.24)
+refraction_panel("depth_compare_on_ior_1_10",  [-1.9,  1.9, 0.0], [0.62, 0.88, 1.00, 1.0], 1.10, 0.05, true)
+refraction_panel("depth_compare_off_ior_1_33", [ 1.9,  1.9, 0.0], [0.72, 1.00, 0.88, 1.0], 1.33, 0.10, false)
+refraction_panel("depth_compare_on_ior_1_50",  [-1.9, -1.9, 0.0], [0.94, 0.72, 1.00, 1.0], 1.50, 0.16, true)
+refraction_panel("depth_compare_off_ior_1_80", [ 1.9, -1.9, 0.0], [1.00, 0.68, 0.78, 1.0], 1.80, 0.24, false)
 
 // The sphere's smoothly changing normals should bend the neon lines continuously.
 // It sits slightly in front of the panes so its silhouette remains easy to inspect.

@@ -475,6 +475,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     for method in ["ior", "thickness", "strength", "edge_fade"] {
                         host_constructor_and_builder(component, canonical, method, floats(1));
                     }
+                    host_constructor_and_builder(
+                        component,
+                        canonical,
+                        "depth_compare",
+                        booleans(1),
+                    );
                     if canonical == "RoughTransmission" {
                         host_constructor_and_builder(component, canonical, "roughness", floats(1));
                     }

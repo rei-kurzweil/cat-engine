@@ -5604,6 +5604,7 @@ fn roundtrip_refraction_preserves_authored_options() {
     original.apply_builder("thickness", 0.08).unwrap();
     original.apply_builder("strength", 0.9).unwrap();
     original.apply_builder("edge_fade", 0.03).unwrap();
+    original.apply_bool_builder("depth_compare", false).unwrap();
 
     let (world, id) = roundtrip_component(original);
     let got = world
@@ -5622,6 +5623,7 @@ fn roundtrip_rough_transmission_preserves_authored_options() {
     original.apply_builder("strength", 0.75).unwrap();
     original.apply_builder("edge_fade", 0.04).unwrap();
     original.apply_builder("roughness", 0.6).unwrap();
+    original.apply_bool_builder("depth_compare", false).unwrap();
 
     let (world, id) = roundtrip_component(original);
     let got = world

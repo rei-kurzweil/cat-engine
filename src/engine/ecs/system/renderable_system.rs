@@ -5,7 +5,7 @@ use crate::engine::ecs::component::morph_target::active_factors;
 use crate::engine::ecs::component::{
     BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
-    RendererSettingsComponent, TransparentCutoutComponent, TransmissiveModel, UVComponent,
+    RendererSettingsComponent, TransmissiveModel, TransparentCutoutComponent, UVComponent,
     resolve_transmissive_model,
 };
 use crate::engine::ecs::component::{GLTFComponent, MorphTargetBindingComponent};
@@ -15,7 +15,7 @@ use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::graphics::bounds::Aabb;
 use crate::engine::graphics::primitives::{CpuMeshHandle, MaterialHandle, Transform};
-use crate::engine::graphics::{GpuRenderable, VisualWorld};
+use crate::engine::graphics::{GpuRenderable, TransmissionFlags, VisualWorld};
 use crate::engine::graphics::{MeshUploader, RenderAssets};
 use crate::engine::user_input::InputState;
 use std::collections::{HashMap, VecDeque};
@@ -1346,6 +1346,7 @@ impl RenderableSystem {
                         options.strength,
                         options.edge_fade,
                     ],
+                    TransmissionFlags::from_depth_compare(options.depth_compare),
                 );
             }
             if let Some(renderable_comp) =
@@ -1588,7 +1589,9 @@ mod tests {
     use crate::engine::graphics::primitives::{
         CpuMeshHandle, MaterialHandle, MeshHandle, Renderable,
     };
-    use crate::engine::graphics::{CpuMesh, MeshUploader, RenderAssets, VisualWorld};
+    use crate::engine::graphics::{
+        CpuMesh, MeshUploader, RenderAssets, TransmissionFlags, VisualWorld,
+    };
 
     #[derive(Default)]
     struct TestUploader {
@@ -1729,6 +1732,9 @@ mod tests {
             refraction.apply_builder("thickness", 0.18).unwrap();
             refraction.apply_builder("strength", 0.8).unwrap();
             refraction.apply_builder("edge_fade", 0.04).unwrap();
+            refraction
+                .apply_bool_builder("depth_compare", false)
+                .unwrap();
             let refraction = world.add_component(refraction);
             world.add_child(transform, renderable).unwrap();
             world.add_child(renderable, refraction).unwrap();
@@ -1753,6 +1759,7 @@ mod tests {
             let instance = visuals.instance(handle).unwrap();
             assert_eq!(instance.renderable.material, expected_material);
             assert_eq!(instance.transmission, [1.33, 0.18, 0.8, 0.04]);
+            assert_eq!(instance.transmission_flags, TransmissionFlags::NONE);
 
             visuals.prepare_draw_cache();
             assert_eq!(visuals.refraction_stream().1.len(), 1);

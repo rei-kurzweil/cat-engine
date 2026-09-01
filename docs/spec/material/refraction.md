@@ -28,6 +28,7 @@ T.position(0.0, 0.0, 0.0) {
 | `thickness` | Effective travel distance controlling displacement | non-negative |
 | `strength` | Artistic multiplier on displacement | non-negative |
 | `edge_fade` | Viewport-edge width over which displacement fades | positive |
+| `depth_compare` | Reject displaced samples owned by nearer opaque/cutout geometry | boolean; defaults to `true` |
 | color/alpha | Mild transmission tint and surface alpha | inherited from normal color authoring |
 
 The current closed-mesh behavior is a two-sided, single-interface approximation. It orients the
@@ -100,6 +101,11 @@ If the candidate is foreground, refraction falls back to `base_uv` before its si
 This prevents the foreground object from being pulled sideways into the surface without adding a
 second color sample.
 
+`Refraction.depth_compare(false)` skips the scene-depth sample and uses the displaced, clamped UV
+directly. This is a per-material comparison control, so enabled and disabled objects can share one
+view. The renderer still creates and binds the depth snapshot in either mode; resource elision for
+an all-disabled view is deferred.
+
 Depth rejection cannot reveal the background hidden behind that foreground object because the
 one-layer snapshot never captured it. Layered captures, depth peeling, or ray tracing would be
 required for that information.
@@ -117,15 +123,15 @@ required for that information.
 
 ## Cost
 
-Depth-aware rejection adds one single-sample depth image per supported view/frame slot, a depth
-resolve or copy at the opaque boundary, and one nearest-filtered depth read per refractive fragment.
-The shader still performs one scene-color read. MSAA and high-resolution stereo views make depth
-preparation the dominant added cost; record GPU timestamps and allocated image bytes before making
-cross-view performance claims.
+The current refraction path adds one single-sample depth image per supported view/frame slot and a
+depth resolve or copy at the opaque boundary, regardless of authored `depth_compare` values.
+Enabled fragments add one nearest-filtered depth read; disabled fragments skip it. Both modes still
+perform one scene-color read. MSAA and high-resolution stereo views make depth preparation the
+dominant added cost; record GPU timestamps and allocated image bytes before making cross-view
+performance claims.
 
 ## Related work
 
 - [Transmissive materials epic](../../task/epic/transmissive-materials.md)
 - [Foreground-depth leakage tracker](../../task/refraction-foreground-depth-leakage.md)
 - [Bloom-before-refraction capture](../../task/refraction-postprocess-composite-capture.md)
-
