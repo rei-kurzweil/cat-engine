@@ -298,6 +298,9 @@ impl mms::Host for MittensHost<'_> {
                     super::runtime_config::MittensBinding::Api(
                         super::runtime_config::MittensApi::JsonStringify,
                     ) => json_stringify(args),
+                    super::runtime_config::MittensBinding::Api(
+                        super::runtime_config::MittensApi::AudioInputDevices,
+                    ) => audio_input_devices(args),
                     binding => Err(mms::HostError {
                         kind: mms::HostErrorKind::InvalidRequest,
                         operation: format!("{operation_id:?}"),
@@ -578,6 +581,28 @@ fn file_read_text(args: Vec<mms::TransportValue>) -> Result<mms::HostResponse, m
         mms::HostError::failure("File.read_text", format!("cannot read '{path}': {error}"))
     })?;
     Ok(mms::HostResponse::Transport(mms::TransportValue::String(text)))
+}
+
+fn audio_input_devices(
+    args: Vec<mms::TransportValue>,
+) -> Result<mms::HostResponse, mms::HostError> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    if !args.is_empty() {
+        return Err(mms::HostError::failure(
+            "Audio.input_devices",
+            "expects no arguments",
+        ));
+    }
+    let host = cpal::default_host();
+    let devices = host.input_devices().map_err(|error| {
+        mms::HostError::failure("Audio.input_devices", format!("cannot enumerate inputs: {error}"))
+    })?;
+    let names = devices
+        .filter_map(|device| device.name().ok())
+        .map(mms::TransportValue::String)
+        .collect();
+    Ok(mms::HostResponse::Transport(mms::TransportValue::Array(names)))
 }
 
 fn json_parse(args: Vec<mms::TransportValue>) -> Result<mms::HostResponse, mms::HostError> {

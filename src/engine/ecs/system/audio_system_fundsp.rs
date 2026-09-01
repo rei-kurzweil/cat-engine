@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use heapless::Vec as HVec;
 use rtrb::Consumer;
@@ -85,7 +85,11 @@ mod fundsp_backend {
     }
 
     fn sanitize_hz(hz: f32) -> f32 {
-        if hz.is_finite() { hz.max(0.0) } else { 0.0 }
+        if hz.is_finite() {
+            hz.max(0.0)
+        } else {
+            0.0
+        }
     }
 
     fn make_unit(ty: OscillatorType) -> Box<dyn AudioUnit> {
@@ -486,6 +490,7 @@ impl Default for ComponentGate {
 pub enum RtAudioGraphNodeKind {
     OscillatorSource,
     ClipSource,
+    InputSource,
     Gain {
         gain: f32,
     },
@@ -719,7 +724,11 @@ fn apply_audio_op(oscs: &mut [AudioOscillator], op: AudioOp) {
 }
 
 fn sanitize_param_f32(v: f32, default: f32) -> f32 {
-    if v.is_finite() { v } else { default }
+    if v.is_finite() {
+        v
+    } else {
+        default
+    }
 }
 
 fn one_pole_lowpass(x: f32, cutoff_hz: f32, sample_rate_hz: f32, z1: &mut f32) -> f32 {
@@ -818,6 +827,9 @@ fn process_graph_node(
         // ClipSource is a pass-through: the per-clip mix already computed
         // `input` for this frame (see render_sample_from_clips).
         RtAudioGraphNodeKind::ClipSource => input,
+        // The capture queue is connected in the input-runtime slice. Until a
+        // frame is available, input sources deliberately render silence.
+        RtAudioGraphNodeKind::InputSource => input,
         RtAudioGraphNodeKind::Gain { gain } => input * sanitize_param_f32(gain, 1.0),
         RtAudioGraphNodeKind::LowPass {
             cutoff_hz,

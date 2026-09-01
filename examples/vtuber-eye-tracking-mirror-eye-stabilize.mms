@@ -111,6 +111,14 @@ ED {
                             MorphTargetMap.new()
                                 .slot("left_eye_blink", "Fcl_EYE_Close_L")
                                 .slot("right_eye_blink", "Fcl_EYE_Close_R")
+                                // The same avatar is the first microphone-viseme
+                                // validation target. These canonical keys are inert
+                                // until a direct Visemes child is added below AVC.
+                                .slot("viseme_aa", "Fcl_MTH_A")
+                                .slot("viseme_ih", "Fcl_MTH_I")
+                                .slot("viseme_ou", "Fcl_MTH_U")
+                                .slot("viseme_e", "Fcl_MTH_E")
+                                .slot("viseme_oh", "Fcl_MTH_O")
                             EM.on()
                             bisket_colliders()
                             bisket_shirt_physics(false)

@@ -7,6 +7,32 @@ use crate::engine::ecs::{ComponentId, SignalEmitter};
 /// This is deliberately private API until real tracker tuning data exists.
 pub(crate) const MORPH_ACTIVE_EPSILON: f32 = 1.0e-4;
 
+/// Engine-owned order for public facial semantic channels. Backends reduce
+/// their phonemes to these names; authored maps never expose backend labels.
+pub const CANONICAL_MORPH_CHANNELS: &[&str] = &[
+    "left_eye_blink",
+    "right_eye_blink",
+    "viseme_sil",
+    "viseme_pp",
+    "viseme_ff",
+    "viseme_th",
+    "viseme_dd",
+    "viseme_kk",
+    "viseme_ch",
+    "viseme_ss",
+    "viseme_nn",
+    "viseme_rr",
+    "viseme_aa",
+    "viseme_e",
+    "viseme_ih",
+    "viseme_oh",
+    "viseme_ou",
+];
+
+pub fn is_canonical_morph_channel(channel: &str) -> bool {
+    CANONICAL_MORPH_CHANNELS.contains(&channel)
+}
+
 /// Stable, instance-scoped identity for an imported glTF morph target.
 /// Human-readable labels are lookup metadata only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -101,7 +127,7 @@ impl MorphTargetMapComponent {
         self
     }
     pub fn slot(self, channel: &str, label: &str) -> Result<Self, String> {
-        if !matches!(channel, "left_eye_blink" | "right_eye_blink") {
+        if !is_canonical_morph_channel(channel) {
             return Err(format!("unknown MorphTargetMap channel '{channel}'"));
         }
         Ok(self.with_slot(channel, label))
@@ -183,5 +209,16 @@ mod tests {
             .effective(),
             0.25
         );
+    }
+
+    #[test]
+    fn canonical_viseme_channels_are_valid_map_slots() {
+        let map = MorphTargetMapComponent::new()
+            .slot("viseme_aa", "Fcl_MTH_A")
+            .unwrap();
+        assert_eq!(map.slots().get("viseme_aa"), Some(&"Fcl_MTH_A".to_owned()));
+        assert!(MorphTargetMapComponent::new()
+            .slot("backend_aa", "A")
+            .is_err());
     }
 }

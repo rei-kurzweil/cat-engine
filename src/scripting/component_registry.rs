@@ -11,7 +11,7 @@ use crate::engine::ecs::component::style::VerticalAlign;
 /// recurses into children.
 use crate::engine::ecs::component::{
     AlignItems, AmbientLightComponent, AnimationComponent, AnimationState,
-    AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioLimiterComponent,
+    AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioInputComponent, AudioLimiterComponent,
     AudioOscillator, AudioOscillatorComponent, AudioOutputComponent, AudioTriggerMode,
     AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent, BackgroundComponent,
     BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing, Camera2DComponent,
@@ -83,6 +83,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "AudioBandPassFilter",
     "AudioClip",
     "AudioGain",
+    "AudioInput",
     "AudioLimiter",
     "AudioOscillator",
     "AudioOutput",
@@ -2323,6 +2324,15 @@ fn create_component(
             Some("off") => add!(AudioOutputComponent::off()),
             _ => add!(AudioOutputComponent::new()),
         },
+        "AudioInput" => match ctor {
+            None | Some("default") => add!(AudioInputComponent::new()),
+            Some("device_number") => {
+                let index = arg_f32(args, 0)?;
+                if !index.is_finite() || index < 0.0 || index.fract() != 0.0 { return Err("AudioInput.device_number(index) requires a non-negative integer".into()); }
+                add!(AudioInputComponent::device_number(index as usize))
+            }
+            Some(other) => Err(format!("unknown AudioInput constructor '.{other}'")),
+        },
         "AudioGain" => {
             add!(AudioGainComponent::new(arg_f32(args, 0)?))
         }
@@ -3558,6 +3568,13 @@ fn apply_call(
         *world
             .get_component_by_id_as_mut::<MorphTargetMapComponent>(id)
             .unwrap() = updated;
+        return Ok(());
+    }
+    if let Some(input) = world.get_component_by_id_as_mut::<AudioInputComponent>(id) {
+        match method {
+            "enabled" => *input = input.clone().with_enabled(arg_bool(args, 0)?),
+            _ => return Err(format!("unknown AudioInput builder '.{method}'")),
+        }
         return Ok(());
     }
 

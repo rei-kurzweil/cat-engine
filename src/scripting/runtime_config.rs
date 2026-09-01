@@ -46,6 +46,7 @@ pub enum MittensApi {
     FileReadText,
     JsonParse,
     JsonStringify,
+    AudioInputDevices,
 }
 
 /// The crate-owned runtime and matching Mittens bindings from one build.
@@ -1051,6 +1052,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 "AudioOutput" => {
                     component.constructor("off", no_args());
                 }
+                "AudioInput" => {
+                    no_arg_constructors(component, &["default"]);
+                    component
+                        .constructor("device_number", unsigned(1))
+                        .builder_call("enabled", booleans(1));
+                }
                 "AudioGain" => {
                     // Legacy construction uses the first argument regardless
                     // of constructor spelling; `new` is the canonical form.
@@ -1229,6 +1236,14 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         );
     });
 
+    builder.namespace("Audio", |namespace| {
+        namespace.api(
+            "input_devices",
+            mms::ValueSignature::new(Vec::new(), mms::ValueType::Array),
+            MittensBinding::Api(MittensApi::AudioInputDevices),
+        );
+    });
+
     builder.build()
 }
 
@@ -1303,24 +1318,18 @@ mod tests {
             Some(&MittensBinding::Api(MittensApi::FileReadText))
         );
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
-        assert!(
-            configured
-                .runtime()
-                .materialize_component("DefinitelyNotAMittensComponent {}")
-                .is_err()
-        );
-        assert!(
-            configured
-                .runtime()
-                .materialize_component("RendererSettings.window_size(960, 720) {}")
-                .is_ok()
-        );
-        assert!(
-            configured
-                .runtime()
-                .materialize_component("RendererSettings.transmission_depth_compare(false) {}")
-                .is_ok()
-        );
+        assert!(configured
+            .runtime()
+            .materialize_component("DefinitelyNotAMittensComponent {}")
+            .is_err());
+        assert!(configured
+            .runtime()
+            .materialize_component("RendererSettings.window_size(960, 720) {}")
+            .is_ok());
+        assert!(configured
+            .runtime()
+            .materialize_component("RendererSettings.transmission_depth_compare(false) {}")
+            .is_ok());
         configured
             .runtime()
             .materialize_component(

@@ -1,7 +1,7 @@
 use crate::engine::ecs::component::{
     AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent,
-    AudioHighPassFilterComponent, AudioLimiterComponent, AudioLowPassFilterComponent,
-    AudioMixComponent, AudioOscillatorComponent,
+    AudioHighPassFilterComponent, AudioInputComponent, AudioLimiterComponent,
+    AudioLowPassFilterComponent, AudioMixComponent, AudioOscillatorComponent,
 };
 use crate::engine::ecs::{ComponentId, World};
 
@@ -32,6 +32,9 @@ pub enum AudioGraphNodeKind {
     /// PCM-backed playable source. The RT thread pulls samples from
     /// `SynthRtState::clip_assets` keyed by the source's component_ffi.
     ClipSource,
+    /// Live capture source. The RT runtime treats an unavailable capture queue
+    /// as silence; capture provisioning is owned by AudioInputSystem.
+    InputSource,
     Gain {
         gain: f32,
     },
@@ -104,6 +107,21 @@ impl AudioGraphCompiler {
                 root: AudioGraphNode {
                     component: source_root,
                     kind,
+                    mix,
+                    children,
+                },
+            });
+        }
+
+        if world
+            .get_component_by_id_as::<AudioInputComponent>(source_root)
+            .is_some()
+        {
+            let (mix, children) = Self::compile_effect_children(world, source_root);
+            return Ok(CompiledAudioGraph {
+                root: AudioGraphNode {
+                    component: source_root,
+                    kind: AudioGraphNodeKind::InputSource,
                     mix,
                     children,
                 },
@@ -216,6 +234,9 @@ impl AudioGraphNode {
                     self.component
                 )
             }
+            AudioGraphNodeKind::InputSource => {
+                format!("{pad}- AudioInputComponent (component={:?})\n", self.component)
+            }
             AudioGraphNodeKind::Gain { gain } => {
                 format!(
                     "{pad}- AudioGainComponent {{ gain: {gain:.3} }} (component={:?})\n",
@@ -291,5 +312,20 @@ impl AudioGraphNode {
             }
             ch.pretty_into(out, indent + 2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::ecs::component::AudioInputComponent;
+
+    #[test]
+    fn audio_input_compiles_directly_to_input_source() {
+        let mut world = World::default();
+        let input = world.add_component(AudioInputComponent::new());
+        let compiled = AudioGraphCompiler::compile(&world, input).unwrap();
+        assert!(matches!(compiled.root.kind, AudioGraphNodeKind::InputSource));
+        assert!(compiled.pretty().contains("AudioInputComponent"));
     }
 }
