@@ -27,6 +27,7 @@ Related current work:
 - [Animated shader-material inputs](../animated-shader-material-inputs-mms-animation-system.md)
 - [Single-layer transparency contract](../single-layer-transparency-depth-write-contract.md)
 - [Dedicated mirror shader precedent](../mirror-dedicated-shader-refactor.md)
+- [Foreground-depth rejection for screen-space refraction](../refraction-foreground-depth-leakage.md)
 - [Base render-pipeline diagram](../../spec/render-graph-pipeline.svg)
 
 ## Decision summary
@@ -123,6 +124,10 @@ This has unavoidable screen-space limitations:
 - geometry hidden from the original camera cannot be recovered by bending a ray toward it;
 - the opaque snapshot does not contain later transparent or transmissive surfaces;
 - two overlapping transmissive objects do not recursively refract one another in the first slice;
+- without depth-aware rejection, a displaced lookup can incorrectly pull the nearest opaque
+  foreground surface into transmission even when that surface is in front of the transmissive
+  interface; this is tracked separately in
+  [Foreground-depth rejection](../refraction-foreground-depth-leakage.md);
 - desktop, each XR eye, and each mirror/capture view need their own correctly oriented snapshot.
 
 An oversized guard-band render could provide real pixels beyond the displayed viewport, but its

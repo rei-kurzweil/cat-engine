@@ -5633,10 +5633,20 @@ fn roundtrip_rough_transmission_preserves_authored_options() {
 #[test]
 fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
     use crate::engine::ecs::component::{
-        Camera3DComponent, CameraXRComponent, RefractionComponent, RoughTransmissionComponent,
+        Camera3DComponent, CameraXRComponent, EditorPanel, EditorUIComponent, GrabbableComponent,
+        RefractionComponent, RoughTransmissionComponent,
     };
 
-    for (path, source, refractions, rough_transmissions, cameras_3d, cameras_xr) in [
+    for (
+        path,
+        source,
+        refractions,
+        rough_transmissions,
+        cameras_3d,
+        cameras_xr,
+        verify_transmissive_grabbables,
+        editor_panels,
+    ) in [
         (
             "examples/refraction.mms",
             include_str!("../../examples/refraction.mms"),
@@ -5644,6 +5654,8 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             0,
             1,
             0,
+            true,
+            &[EditorPanel::Settings, EditorPanel::Grid][..],
         ),
         (
             "examples/rough-transmission.mms",
@@ -5652,6 +5664,8 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             4,
             1,
             0,
+            false,
+            &[][..],
         ),
         (
             "examples/transmissive-xr.mms",
@@ -5660,6 +5674,8 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             2,
             0,
             1,
+            true,
+            &[EditorPanel::Settings, EditorPanel::Grid][..],
         ),
     ] {
         let mut world = World::default();
@@ -5724,6 +5740,48 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             cameras_xr,
             "{path}: CameraXR count",
         );
+        if verify_transmissive_grabbables {
+            for material in world.all_components().filter(|id| {
+                world
+                    .get_component_by_id_as::<RefractionComponent>(*id)
+                    .is_some()
+                    || world
+                        .get_component_by_id_as::<RoughTransmissionComponent>(*id)
+                        .is_some()
+            }) {
+                let mut ancestor = world.parent_of(material);
+                let mut has_grabbable_ancestor = false;
+                while let Some(id) = ancestor {
+                    if world.children_of(id).iter().any(|child| {
+                        world
+                            .get_component_by_id_as::<GrabbableComponent>(*child)
+                            .is_some()
+                    }) {
+                        has_grabbable_ancestor = true;
+                        break;
+                    }
+                    ancestor = world.parent_of(id);
+                }
+                assert!(
+                    has_grabbable_ancestor,
+                    "{path}: transmissive material {material:?} should have a grabbable ancestor",
+                );
+            }
+        }
+        let authored_editor_panels = world.all_components().find_map(|id| {
+            world
+                .get_component_by_id_as::<EditorUIComponent>(id)
+                .map(EditorUIComponent::panels)
+        });
+        if editor_panels.is_empty() {
+            assert_eq!(authored_editor_panels, None, "{path}: unexpected EditorUI");
+        } else {
+            assert_eq!(
+                authored_editor_panels.as_deref(),
+                Some(editor_panels),
+                "{path}: EditorUI panels",
+            );
+        }
     }
 }
 

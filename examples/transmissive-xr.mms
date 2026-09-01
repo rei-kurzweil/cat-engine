@@ -28,9 +28,19 @@ T {
 }
 XR.on()
 
+T.position(-2.75, 2.8, -1.5) {
+    EditorUI {
+        panels([
+            { panel = "settings" },
+            { panel = "grid" },
+        ])
+    }
+}
+
 // Four 4:4:1 thick panels sit about 2.5 metres in front of the XR origin.
 T.position(-0.75, 1.85, -2.5).scale(0.62, 0.62, 0.155) {
     name = "xr_refraction_1_33"
+    Grabbable {}
     R.cube() {
         C.rgba(0.62, 0.88, 1.00, 0.50)
         Refraction.ior(1.33).thickness(0.08).strength(1.0).edge_fade(0.025)
@@ -38,6 +48,7 @@ T.position(-0.75, 1.85, -2.5).scale(0.62, 0.62, 0.155) {
 }
 T.position(0.75, 1.85, -2.5).scale(0.62, 0.62, 0.155) {
     name = "xr_refraction_1_60"
+    Grabbable {}
     R.cube() {
         C.rgba(0.94, 0.72, 1.00, 0.50)
         Refraction.ior(1.60).thickness(0.16).strength(1.0).edge_fade(0.025)
@@ -45,6 +56,7 @@ T.position(0.75, 1.85, -2.5).scale(0.62, 0.62, 0.155) {
 }
 T.position(-0.75, 0.45, -2.5).scale(0.62, 0.62, 0.155) {
     name = "xr_rough_transmission_0_25"
+    Grabbable {}
     R.cube() {
         C.rgba(0.72, 1.00, 0.88, 0.50)
         RoughTransmission.ior(1.45).thickness(0.14).strength(1.0).edge_fade(0.025).roughness(0.25)
@@ -52,6 +64,7 @@ T.position(-0.75, 0.45, -2.5).scale(0.62, 0.62, 0.155) {
 }
 T.position(0.75, 0.45, -2.5).scale(0.62, 0.62, 0.155) {
     name = "xr_rough_transmission_0_70"
+    Grabbable {}
     R.cube() {
         C.rgba(1.00, 0.68, 0.78, 0.50)
         RoughTransmission.ior(1.45).thickness(0.14).strength(1.0).edge_fade(0.025).roughness(0.70)

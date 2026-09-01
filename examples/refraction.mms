@@ -45,6 +45,7 @@ neon_line(-3.0, [0.88, 0.16, 1.00],  0.11)
 fn refraction_panel(panel_name, position, color, ior, thickness) {
     return T.position(position[0], position[1], position[2]).scale(1.6, 1.6, 0.4) {
         name = panel_name
+        Grabbable {}
         R.cube() {
             C.rgba(color[0], color[1], color[2], color[3])
             Refraction.ior(ior).thickness(thickness).strength(1.0).edge_fade(0.025)
@@ -63,12 +64,22 @@ refraction_panel("refraction_ior_1_80", [ 1.9, -1.9, 0.0], [1.00, 0.68, 0.78, 1.
 // It sits slightly in front of the panes so its silhouette remains easy to inspect.
 let refraction_sphere = T.position(0.0, 0.0, 0.75).scale(1.35, 1.35, 1.35) {
     name = "refraction_sphere"
+    Grabbable {}
     R.sphere() {
         C.rgba(0.88, 0.96, 1.00, 1.0)
         Refraction.ior(1.52).thickness(0.22).strength(1.0).edge_fade(0.025)
     }
 }
 refraction_sphere
+
+T.position(-4.8, 4.0, 1.5) {
+    EditorUI {
+        panels([
+            { panel = "settings" },
+            { panel = "grid" },
+        ])
+    }
+}
 
 // Standalone world-space telemetry for the sphere above. It is intentionally a
 // sibling of the scene objects, not a child of the camera or the inspected mesh.
