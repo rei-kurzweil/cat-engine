@@ -683,6 +683,8 @@ Initial latency targets for the backend spike, subject to measurement:
 
 - `docs/spec/audio-input-and-visemes.md` — authoritative v1/v2 component,
   graph, thread, AVC, and live-read API contract.
+- `docs/task/audio-input-and-visemes-first-slice.md` — ordered implementation
+  checklist, automated gates, live acceptance record, and stop condition.
 - `docs/draft/audio_decoding_thread.md` — existing worker/thread ownership
   model.
 - `docs/spec/audio-sources.md` — audio vocabulary and authored-versus-runtime

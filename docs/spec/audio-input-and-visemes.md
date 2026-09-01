@@ -24,7 +24,9 @@ The core decisions are:
   code can inspect its latest retained data.
 
 The related execution plan is
-[the microphone-driven visemes epic](../task/epic/visemes.md).
+[the microphone-driven visemes epic](../task/epic/visemes.md). The implementation
+checklist for v1 is
+[audio input and visemes: first slice](../task/audio-input-and-visemes-first-slice.md).
 
 ## 2. Vocabulary
 
