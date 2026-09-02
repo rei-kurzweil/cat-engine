@@ -5,8 +5,8 @@
 // Optional options:
 //   icon, background_color, toggle_background_color
 //
-// `content` should normally be made with `info_panel_body(...)`. When the
-// panel is restored after minimizing, the caller receives the forwarded
+// The panel wraps `content` in its body internally. When the panel is restored
+// after minimizing, the caller receives the forwarded
 // AccordionRestoreRequested event and may attach a freshly built body to the
 // event payload's accordion_body_mount.
 
@@ -47,11 +47,10 @@ fn info_panel_icon(icon) {
     }
 }
 
-// Wrap caller content in the body shape expected by the accordion primitive.
-// The dark surface and padding are intentionally generic rather than
-// editor-themed, so the panel is usable as ordinary world-space scene UI.
-export fn info_panel_body(content) {
-    return accordion_body(T {
+fn panel_with_title_children(options, title_children, title_bar_background, toggle_background) {
+    // Body structure is an implementation detail of the panel, rather than a
+    // second public helper callers must remember to use.
+    let body = accordion_body(T {
         name = "info_panel_content"
         Style {
             display("flex")
@@ -63,19 +62,16 @@ export fn info_panel_body(content) {
             background_color(INFO_PANEL_BODY_BACKGROUND)
             background_z(-0.01)
         }
-        content
+        options.content
     })
-}
-
-fn panel_with_title_children(options, title_children, background_color, toggle_background_color) {
     return accordion({
         root_name = options.root_name
         width_gu = options.width_gu
         unit_scale = options.unit_scale
-        background_color = background_color
-        toggle_background_color = toggle_background_color
+        background_color = title_bar_background
+        toggle_background_color = toggle_background
         children = title_children
-        body = options.content
+        body = body
     })
 }
 

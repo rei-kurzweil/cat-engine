@@ -428,7 +428,10 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                             "heart",
                             optional_component_signature([mms::ValueType::U32], 0),
                         )
-                        .constructor("polygon", any(1))
+                        // Polygon has a stable mesh key plus its 2D point list.
+                        // Keep the strict runtime signature aligned with
+                        // component_registry::polygon_args.
+                        .constructor("polygon", any(2))
                         .constructor(
                             "partial_annulus_2d",
                             optional_component_signature(
@@ -1358,6 +1361,7 @@ mod tests {
             "Renderable.heart() {}",
             "Renderable.heart(48) {}",
             "Renderable.star() {}",
+            "Renderable.polygon(\"ui/test/triangle/v1\", [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]) {}",
             "Renderable.partial_annulus_2d() {}",
             "Renderable.wireframe_sphere() {}",
         ] {

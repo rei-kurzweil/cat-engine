@@ -52,7 +52,7 @@ layout, drag, raycast, and toggle behavior into each scene.
 Proposed narrow MMS surface:
 
 ```mms
-import { info_panel, info_panel_body } from "../assets/components/ui/info_panel.mms"
+import { info_panel } from "../assets/components/ui/info_panel.mms"
 
 let inputs_panel = info_panel({
     root_name = "microphone_inputs_panel"
@@ -60,7 +60,7 @@ let inputs_panel = info_panel({
     unit_scale = 0.075
     title = "audio input devices"
     icon = optional_icon_component
-    content = info_panel_body(rows)
+    content = rows
 })
 ```
 
@@ -69,7 +69,7 @@ Required options:
 - `root_name`: caller-owned stable name, used for event handling and dragging;
 - `width_gu` and `unit_scale`: normal layout sizing controls;
 - `title`: title-bar text; and
-- `content`: one body component, normally created by `info_panel_body(...)`.
+- `content`: one caller-authored body component.
 
 Optional options:
 
@@ -90,9 +90,9 @@ owns the reload policy:
 
 1. The demo initially calls `Audio.input_devices()` and creates one row per
    returned name.
-2. On `AccordionRestoreRequested`, the demo calls `Audio.input_devices()`
-   again, creates fresh rows, wraps them in `info_panel_body(...)`, and mounts
-   them into the event-provided body mount.
+2. The next data slice will define the panel's content-reload callback, so on
+   `AccordionRestoreRequested` the demo can call `Audio.input_devices()` again
+   and let `info_panel` remount freshly built rows.
 3. The rows are replaced only at restore time; no polling or live hot-plug
    observer is introduced in this slice.
 
@@ -131,8 +131,9 @@ open a capture stream; only the authored microphone that is consumed by
    `examples/vtuber-microphone-speaking-animation-eye-tracking.mms`; set the
    black clear color and preserve its existing amplitude/AVC setup.
 4. Build device rows from `Audio.input_devices()` using the public panel.
-5. Register an `AccordionRestoreRequested` handler in the example to rebuild
-   and mount the panel body from a freshly enumerated device list.
+5. Add the narrow `info_panel` content-reload callback, then register an
+   `AccordionRestoreRequested` handler in the example to rebuild the body from
+   a freshly enumerated device list.
 6. Verify scene materialization and run the normal focused scripting tests.
 7. Perform the intended live HMD/default-mic/device-1 acceptance pass.
 

@@ -9,7 +9,7 @@ import { star_kawaii_background } from "../assets/components/backgrounds/star_ka
 import { tripod_light } from "../assets/components/tripod_light.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
-import { info_panel, info_panel_body } from "../assets/components/ui/info_panel.mms"
+import { info_panel } from "../assets/components/ui/info_panel.mms"
 
 RendererSettings { window_size(960, 720) }
 BGC.rgba(0.0, 0.0, 0.0, 1.0)
@@ -40,7 +40,7 @@ let microphone_info_panel = info_panel({
     width_gu = 30.0
     unit_scale = 0.075
     title = "audio input devices"
-    content = info_panel_body(T {
+    content = T {
         name = "microphone_inputs_placeholder"
         Style {
             display("block")
@@ -51,7 +51,7 @@ let microphone_info_panel = info_panel({
         T.position(0.0, 0.0, 0.02) {
             Text { "device list will appear here in the next slice" }
         }
-    })
+    }
 })
 
 // An explicit list keeps the editor useful without materializing the default
