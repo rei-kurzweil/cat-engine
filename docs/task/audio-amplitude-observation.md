@@ -3,6 +3,8 @@
 Date: 2026-09-01
 Status: ready for implementation planning
 
+Detailed implementation checklist: [audio amplitude to AVC: first slice](audio-amplitude-avc-first-slice.md).
+
 ## Goal
 
 Expose a retained, main-thread-readable amplitude measurement for any live

@@ -1,4 +1,5 @@
 pub mod ambient_light;
+pub mod amplitude;
 pub mod animation;
 pub mod asset_payload;
 pub mod audio_band_pass_filter;
@@ -116,6 +117,7 @@ pub mod uv;
 pub use self::gltf::GLTFComponent;
 pub use crate::engine::ecs::system::model::collision_types::{CollisionMode, CollisionShape};
 pub use ambient_light::AmbientLightComponent;
+pub use amplitude::{AmplitudeComponent, AmplitudeSample, AmplitudeStatus};
 pub use animation::AnimationComponent;
 pub use animation::AnimationState;
 pub use animation::AnimationStepDirection;

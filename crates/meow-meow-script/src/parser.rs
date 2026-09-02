@@ -565,14 +565,14 @@ impl MeowMeowParser {
         let is_component_type = self.is_component_name(&ident.0);
 
         if !is_builtin_table && is_component_type && self.try_consume(&TokenKind::Dot) {
-            let method = self.expect_ident()?;
+            let method = self.expect_component_method_ident()?;
             self.consume(&TokenKind::LParen)?;
             let args = self.parse_call_args()?;
 
             // `Type.method(args)[.chain(args)...] [{body}]` → ComponentExpression
             let mut constructors = vec![ConstructorCall { method, args }];
             while self.try_consume(&TokenKind::Dot) {
-                let chained = self.expect_ident()?;
+                let chained = self.expect_component_method_ident()?;
                 self.consume(&TokenKind::LParen)?;
                 let chained_args = self.parse_call_args()?;
                 constructors.push(ConstructorCall {
@@ -640,6 +640,17 @@ impl MeowMeowParser {
     fn expect_ident(&mut self) -> Result<Ident, ParseError> {
         match self.bump().kind {
             TokenKind::Ident(s) => Ok(Ident(s)),
+            _ => Err(self.err("Expected identifier")),
+        }
+    }
+
+    /// Component method names occupy a namespace after `.`. `from` remains a
+    /// keyword in statement position for imports, but is a valid method name
+    /// here (`Amplitude.rolling_window(...).from(source)`).
+    fn expect_component_method_ident(&mut self) -> Result<Ident, ParseError> {
+        match self.bump().kind {
+            TokenKind::Ident(s) => Ok(Ident(s)),
+            TokenKind::From => Ok(Ident("from".into())),
             _ => Err(self.err("Expected identifier")),
         }
     }

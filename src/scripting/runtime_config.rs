@@ -1058,6 +1058,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         .constructor("device_number", unsigned(1))
                         .builder_call("enabled", booleans(1));
                 }
+                "Amplitude" => {
+                    component
+                        .constructor("rolling_window", floats(1))
+                        .builder_call("from", any(1))
+                        .builder_call("enabled", booleans(1));
+                }
                 "AudioGain" => {
                     // Legacy construction uses the first argument regardless
                     // of constructor spelling; `new` is the canonical form.

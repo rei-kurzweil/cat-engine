@@ -11,7 +11,7 @@ use crate::engine::ecs::component::style::VerticalAlign;
 /// recurses into children.
 use crate::engine::ecs::component::{
     AlignItems, AmbientLightComponent, AnimationComponent, AnimationState,
-    AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioInputComponent, AudioLimiterComponent,
+    AmplitudeComponent, AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioInputComponent, AudioLimiterComponent,
     AudioOscillator, AudioOscillatorComponent, AudioOutputComponent, AudioTriggerMode,
     AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent, BackgroundComponent,
     BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing, Camera2DComponent,
@@ -78,6 +78,7 @@ pub fn with_live_render_assets<R>(render_assets: &mut RenderAssets, f: impl FnOn
 
 pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "AmbientLight",
+    "Amplitude",
     "Animation",
     "AssetPayload",
     "AudioBandPassFilter",
@@ -2333,6 +2334,11 @@ fn create_component(
             }
             Some(other) => Err(format!("unknown AudioInput constructor '.{other}'")),
         },
+        "Amplitude" => match ctor {
+            Some("rolling_window") => add!(AmplitudeComponent::rolling_window(arg_f32(args, 0)?)?),
+            None | Some("default") => add!(AmplitudeComponent::default()),
+            Some(other) => Err(format!("unknown Amplitude constructor '.{other}'")),
+        },
         "AudioGain" => {
             add!(AudioGainComponent::new(arg_f32(args, 0)?))
         }
@@ -3574,6 +3580,30 @@ fn apply_call(
         match method {
             "enabled" => *input = input.clone().with_enabled(arg_bool(args, 0)?),
             _ => return Err(format!("unknown AudioInput builder '.{method}'")),
+        }
+        return Ok(());
+    }
+    if world.get_component_by_id_as::<AmplitudeComponent>(id).is_some() {
+        match method {
+            "from" => {
+                let source = arg_component_ref(world, args, 0)?;
+                let resolved = resolve_component_ref(world, &source);
+                if let Some(source_id) = resolved {
+                    let is_audio_source = world.get_component_by_id_as::<AudioInputComponent>(source_id).is_some()
+                        || world.get_component_by_id_as::<AudioClipComponent>(source_id).is_some()
+                        || world.get_component_by_id_as::<AudioOscillatorComponent>(source_id).is_some();
+                    if !is_audio_source {
+                        return Err("Amplitude.from(source) requires an AudioInput, AudioClip, or AudioOscillator".into());
+                    }
+                }
+                world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap().source = Some(source);
+            }
+            "enabled" => {
+                let enabled = arg_bool(args, 0)?;
+                let amplitude = world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap();
+                *amplitude = amplitude.clone().with_enabled(enabled);
+            }
+            _ => return Err(format!("unknown Amplitude builder '.{method}'")),
         }
         return Ok(());
     }

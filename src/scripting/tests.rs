@@ -7668,6 +7668,23 @@ fn roundtrip_avatar_control() {
 }
 
 #[test]
+fn roundtrip_amplitude_preserves_authored_source_and_window_only() {
+    use crate::engine::ecs::component::{AmplitudeComponent, ComponentRef};
+    let original = AmplitudeComponent::rolling_window(0.25)
+        .unwrap()
+        .with_source(ComponentRef::Query("#microphone".into()))
+        .with_enabled(false);
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<AmplitudeComponent>(id)
+        .expect("amplitude component");
+    assert_eq!(got.window_sec, 0.25);
+    assert!(!got.enabled);
+    assert_eq!(got.source, Some(ComponentRef::Query("#microphone".into())));
+    assert!(!got.retained.is_live(), "runtime sample must not serialize");
+}
+
+#[test]
 fn roundtrip_humanoid_bone_map_preserves_authored_policy() {
     use crate::engine::ecs::component::{
         AuthoredSlot, ComponentRef, HumanoidBoneMapComponent, HumanoidSlot,
