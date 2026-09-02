@@ -1,4 +1,5 @@
 use crate::engine::ecs::component::HumanoidSlot;
+use crate::engine::ecs::component::{resolve_component_ref, AmplitudeComponent, QueryRootMode};
 use crate::engine::ecs::component::{
     AvatarControlComponent, BoneRestPoseComponent, Camera3DComponent, CameraXRComponent,
     CollisionComponent, CollisionResponseComponent, CollisionShape, CollisionShapeComponent,
@@ -155,6 +156,113 @@ fn tick_one(
 
     update_hand_pose_corrections(id, world, emit, log_alignment);
     update_eye_tracking(id, world, humanoid_maps, emit, dt_sec);
+    update_amplitude_mouth_open(id, world, humanoid_maps, dt_sec);
+}
+
+/// Drive AVC's named amplitude fallback without touching the primary morph
+/// driver. A future/live viseme driver therefore has deterministic priority.
+fn update_amplitude_mouth_open(
+    avc_id: ComponentId,
+    world: &mut World,
+    humanoid_maps: &mut HumanoidBoneMapSystem,
+    dt_sec: f32,
+) {
+    let (authored, cached, floor, ceiling, smoothing, previous) = {
+        let Some(avc) = world.get_component_by_id_as::<AvatarControlComponent>(avc_id) else {
+            return;
+        };
+        (
+            avc.mouth_open_amplitude.clone(),
+            avc.resolved_mouth_open_amplitude,
+            avc.mouth_open_rms_floor,
+            avc.mouth_open_rms_ceiling,
+            avc.mouth_open_smoothing,
+            avc.mouth_open_weight,
+        )
+    };
+    let Some(authored) = authored else { return };
+    let source = cached
+        .filter(|&id| {
+            world
+                .get_component_by_id_as::<AmplitudeComponent>(id)
+                .is_some()
+        })
+        .or_else(|| {
+            resolve_component_ref(world, &authored, Some(avc_id), QueryRootMode::WorldRoot)
+        });
+    let source = source.filter(|&id| {
+        world
+            .get_component_by_id_as::<AmplitudeComponent>(id)
+            .is_some()
+    });
+    let target = source
+        .and_then(|id| world.get_component_by_id_as::<AmplitudeComponent>(id))
+        .filter(|amplitude| {
+            amplitude.enabled
+                && amplitude.retained.generation == amplitude.generation
+                && amplitude.retained.is_live()
+        })
+        .map_or(0.0, |amplitude| {
+            ((amplitude.retained.rms - floor) / (ceiling - floor)).clamp(0.0, 1.0)
+        });
+    let alpha = if smoothing <= 0.0 {
+        1.0
+    } else {
+        1.0 - (-smoothing * dt_sec.max(0.0)).exp()
+    };
+    let weight = previous + (target - previous) * alpha;
+    if let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(avc_id) {
+        avc.resolved_mouth_open_amplitude = source;
+        avc.mouth_open_weight = if weight.is_finite() {
+            weight.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+    }
+
+    let Some(gltf_id) = humanoid_maps.request_for_avc(world, avc_id) else {
+        return;
+    };
+    let label = world.children_of(gltf_id).iter().copied().find_map(|id| {
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::MorphTargetMapComponent>(id)
+            .and_then(|map| map.slots().get("viseme_aa").cloned())
+    });
+    let matched_keys: Vec<_> = label.as_deref().map_or_else(Vec::new, |label| {
+        world
+            .get_component_by_id_as::<GLTFComponent>(gltf_id)
+            .map(|gltf| {
+                gltf.morph_targets
+                    .iter()
+                    .filter(|info| info.label.as_deref() == Some(label))
+                    .map(|info| info.key)
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    if let Some(gltf) = world.get_component_by_id_as_mut::<GLTFComponent>(gltf_id) {
+        for state in gltf.morph_factors.values_mut() {
+            state.amplitude_mouth_open = None;
+        }
+        for key in &matched_keys {
+            if let Some(state) = gltf.morph_factors.get_mut(key) {
+                state.amplitude_mouth_open = Some(weight.clamp(0.0, 1.0));
+            }
+        }
+    }
+    if matched_keys.is_empty() {
+        let should_log = world
+            .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+            .is_some_and(|avc| !avc.mouth_open_missing_slot_diagnosed);
+        if should_log {
+            eprintln!(
+                "[AVC][mouth_open_from_amplitude] avc={avc_id:?} missing or unresolved viseme_aa morph slot"
+            );
+            if let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(avc_id) {
+                avc.mouth_open_missing_slot_diagnosed = true;
+            }
+        }
+    }
 }
 
 /// Apply the newest direct-child eye-tracker sample to each independently
@@ -1785,9 +1893,9 @@ mod hand_pose_correction_tests {
     use super::*;
     use crate::engine::ecs::component::xr_eye_tracking::{EyeClosureSample, EyeGazeSample};
     use crate::engine::ecs::component::{
-        ComponentRef, EyeRotationLimits, MorphFactorState, MorphTargetInfo, MorphTargetKey,
-        MorphTargetMapComponent, RestAttachmentComponent, XREyeTrackingComponent,
-        XREyeTrackingHtcComponent,
+        AmplitudeSample, AmplitudeStatus, ComponentRef, EyeRotationLimits, MorphFactorState,
+        MorphTargetInfo, MorphTargetKey, MorphTargetMapComponent, RestAttachmentComponent,
+        XREyeTrackingComponent, XREyeTrackingHtcComponent,
     };
     use crate::engine::ecs::system::{
         HumanoidSlotProvenance, HumanoidSlotReport, HumanoidSlotStatus, ResolvedHumanoidTarget,
@@ -1810,6 +1918,176 @@ mod hand_pose_correction_tests {
                 self.0.push(rotation_quat_xyzw);
             }
         }
+    }
+
+    #[test]
+    fn amplitude_binding_maps_current_rms_and_primary_driver_wins() {
+        let mut world = World::default();
+        let amplitude_id = world.add_component(AmplitudeComponent::rolling_window(0.25).unwrap());
+        let amplitude_guid = world.get_component_record(amplitude_id).unwrap().guid;
+        {
+            let amplitude = world
+                .get_component_by_id_as_mut::<AmplitudeComponent>(amplitude_id)
+                .unwrap();
+            amplitude.retained = AmplitudeSample {
+                generation: amplitude.generation,
+                sequence: 1,
+                timestamp_sec: 1.0,
+                valid_frames: 64,
+                rms: 0.06,
+                peak: 0.1,
+                status: AmplitudeStatus::Live,
+            };
+        }
+        let avc_id = world.add_component(
+            AvatarControlComponent::new()
+                .with_mouth_open_from_amplitude(ComponentRef::Guid(amplitude_guid))
+                .with_mouth_open_rms_floor(0.02)
+                .unwrap()
+                .with_mouth_open_rms_ceiling(0.10)
+                .unwrap()
+                .with_mouth_open_smoothing(0.0)
+                .unwrap(),
+        );
+        let joint = world.add_component(TransformComponent::new());
+        let key = MorphTargetKey {
+            node_index: 0,
+            primitive_index: 0,
+            target_index: 0,
+        };
+        let mut gltf = GLTFComponent::new("synthetic.glb");
+        gltf.armature_joint_transforms.push(joint);
+        gltf.morph_targets.push(MorphTargetInfo {
+            key,
+            label: Some("MouthA".into()),
+            base_factor: 0.1,
+        });
+        gltf.morph_factors.insert(
+            key,
+            MorphFactorState {
+                base: 0.1,
+                driver: None,
+                amplitude_mouth_open: None,
+            },
+        );
+        let gltf_id = world.add_component(gltf);
+        let map_id =
+            world.add_component(MorphTargetMapComponent::new().with_slot("viseme_aa", "MouthA"));
+        world.add_child(avc_id, gltf_id).unwrap();
+        world.add_child(gltf_id, joint).unwrap();
+        world.add_child(gltf_id, map_id).unwrap();
+        let mut maps = HumanoidBoneMapSystem::default();
+
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        let state = world
+            .get_component_by_id_as::<GLTFComponent>(gltf_id)
+            .unwrap()
+            .morph_factors[&key];
+        assert!((state.amplitude_mouth_open.unwrap() - 0.5).abs() < 1e-6);
+        assert!((state.effective() - 0.5).abs() < 1e-6);
+
+        world
+            .get_component_by_id_as_mut::<GLTFComponent>(gltf_id)
+            .unwrap()
+            .morph_factors
+            .get_mut(&key)
+            .unwrap()
+            .driver = Some(0.8);
+        let state = world
+            .get_component_by_id_as::<GLTFComponent>(gltf_id)
+            .unwrap()
+            .morph_factors[&key];
+        assert_eq!(
+            state.effective(),
+            0.8,
+            "primary viseme/animation driver must win"
+        );
+
+        world
+            .get_component_by_id_as_mut::<AmplitudeComponent>(amplitude_id)
+            .unwrap()
+            .bump_generation(AmplitudeStatus::Invalid);
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<GLTFComponent>(gltf_id)
+                .unwrap()
+                .morph_factors[&key]
+                .amplitude_mouth_open,
+            Some(0.0),
+        );
+    }
+
+    #[test]
+    fn amplitude_binding_missing_slot_is_harmless_and_diagnosed_once() {
+        let mut world = World::default();
+        let amplitude_id = world.add_component(AmplitudeComponent::default());
+        let guid = world.get_component_record(amplitude_id).unwrap().guid;
+        let avc_id = world.add_component(
+            AvatarControlComponent::new()
+                .with_mouth_open_from_amplitude(ComponentRef::Guid(guid))
+                .with_mouth_open_smoothing(0.0)
+                .unwrap(),
+        );
+        let joint = world.add_component(TransformComponent::new());
+        let mut gltf = GLTFComponent::new("synthetic.glb");
+        gltf.armature_joint_transforms.push(joint);
+        let gltf_id = world.add_component(gltf);
+        world.add_child(avc_id, gltf_id).unwrap();
+        world.add_child(gltf_id, joint).unwrap();
+        let mut maps = HumanoidBoneMapSystem::default();
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        assert!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+                .unwrap()
+                .mouth_open_missing_slot_diagnosed
+        );
+    }
+
+    #[test]
+    fn amplitude_binding_re_resolves_selector_after_source_replacement() {
+        let mut world = World::default();
+        let first =
+            world.add_component_boxed_named("voice_level", Box::new(AmplitudeComponent::default()));
+        let avc_id = world.add_component(
+            AvatarControlComponent::new()
+                .with_mouth_open_from_amplitude(ComponentRef::Query("#voice_level".into()))
+                .with_mouth_open_smoothing(0.0)
+                .unwrap(),
+        );
+        // No rig is required to verify the durable reference cache lifecycle.
+        let mut maps = HumanoidBoneMapSystem::default();
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+                .unwrap()
+                .resolved_mouth_open_amplitude,
+            Some(first)
+        );
+
+        world.remove_component_leaf(first).unwrap();
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+                .unwrap()
+                .resolved_mouth_open_amplitude,
+            None
+        );
+
+        let replacement =
+            world.add_component_boxed_named("voice_level", Box::new(AmplitudeComponent::default()));
+        update_amplitude_mouth_open(avc_id, &mut world, &mut maps, 1.0 / 60.0);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AvatarControlComponent>(avc_id)
+                .unwrap()
+                .resolved_mouth_open_amplitude,
+            Some(replacement)
+        );
     }
 
     #[test]
@@ -1931,6 +2209,7 @@ mod hand_pose_correction_tests {
             MorphFactorState {
                 base: 0.1,
                 driver: None,
+                amplitude_mouth_open: None,
             },
         );
         gltf.morph_factors.insert(
@@ -1938,6 +2217,7 @@ mod hand_pose_correction_tests {
             MorphFactorState {
                 base: 0.15,
                 driver: None,
+                amplitude_mouth_open: None,
             },
         );
         let gltf_id = world.add_component(gltf);

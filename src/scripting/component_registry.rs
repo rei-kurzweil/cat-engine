@@ -3492,6 +3492,29 @@ fn apply_call(
         }
         return Ok(());
     }
+    if world
+        .get_component_by_id_as::<AvatarControlComponent>(id)
+        .is_some()
+        && method == "mouth_open_from_amplitude"
+    {
+        let source = arg_component_ref(world, args, 0)?;
+        if let Some(source_id) = resolve_component_ref(world, &source) {
+            if world
+                .get_component_by_id_as::<AmplitudeComponent>(source_id)
+                .is_none()
+            {
+                return Err(
+                    "AvatarControl.mouth_open_from_amplitude requires an Amplitude component"
+                        .into(),
+                );
+            }
+        }
+        let avc = world
+            .get_component_by_id_as_mut::<AvatarControlComponent>(id)
+            .unwrap();
+        *avc = avc.clone().with_mouth_open_from_amplitude(source);
+        return Ok(());
+    }
     if let Some(avc) = world.get_component_by_id_as_mut::<AvatarControlComponent>(id) {
         match method {
             "left_arm_pole_direction" => {
@@ -3532,6 +3555,15 @@ fn apply_call(
             }
             "neck_pin_disabled" => *avc = avc.clone().without_neck_pin(),
             "neck_pin_enabled" => *avc = avc.clone().with_neck_pin_enabled(arg_bool(args, 0)?),
+            "mouth_open_rms_floor" => {
+                *avc = avc.clone().with_mouth_open_rms_floor(arg_f32(args, 0)?)?
+            }
+            "mouth_open_rms_ceiling" => {
+                *avc = avc.clone().with_mouth_open_rms_ceiling(arg_f32(args, 0)?)?
+            }
+            "mouth_open_smoothing" => {
+                *avc = avc.clone().with_mouth_open_smoothing(arg_f32(args, 0)?)?
+            }
             _ => {}
         }
         return Ok(());

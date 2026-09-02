@@ -1156,10 +1156,14 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                         "avatar_height",
                         "eye_height_from_head_bone",
                         "head_ik_eye_height",
+                        "mouth_open_rms_floor",
+                        "mouth_open_rms_ceiling",
+                        "mouth_open_smoothing",
                     ] {
                         constructor_and_builder(component, method, floats(1));
                     }
                     constructor_and_builder(component, "head_motion_gaze_policy", strings(1));
+                    constructor_and_builder(component, "mouth_open_from_amplitude", any(1));
                     no_arg_constructors_and_builders(
                         component,
                         &[

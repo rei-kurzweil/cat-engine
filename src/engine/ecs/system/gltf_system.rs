@@ -520,6 +520,7 @@ impl GLTFSystem {
                                 crate::engine::ecs::component::MorphFactorState {
                                     base,
                                     driver: None,
+                                    amplitude_mouth_open: None,
                                 },
                             );
                         }

@@ -7647,13 +7647,20 @@ fn roundtrip_raycast() {
 
 #[test]
 fn roundtrip_avatar_control() {
-    use crate::engine::ecs::component::AvatarControlComponent;
+    use crate::engine::ecs::component::{AvatarControlComponent, ComponentRef};
     let original = AvatarControlComponent::new()
         .with_forward_plus_z()
         .with_hand_rotation_smoothing(220.0)
         .with_avatar_height(1.7)
         .with_capsule_radius(0.31)
         .without_neck_pin()
+        .with_mouth_open_from_amplitude(ComponentRef::Query("#voice_level".into()))
+        .with_mouth_open_rms_floor(0.02)
+        .unwrap()
+        .with_mouth_open_rms_ceiling(0.2)
+        .unwrap()
+        .with_mouth_open_smoothing(12.0)
+        .unwrap()
         .with_collision_disabled();
     let (world, id) = roundtrip_component(original);
     let got = world
@@ -7665,6 +7672,13 @@ fn roundtrip_avatar_control() {
     assert_eq!(got.capsule_radius, 0.31);
     assert!(!got.neck_pin_enabled);
     assert!(!got.collision_enabled);
+    assert_eq!(
+        got.mouth_open_amplitude,
+        Some(ComponentRef::Query("#voice_level".into()))
+    );
+    assert_eq!(got.mouth_open_rms_floor, 0.02);
+    assert_eq!(got.mouth_open_rms_ceiling, 0.2);
+    assert_eq!(got.mouth_open_smoothing, 12.0);
 }
 
 #[test]

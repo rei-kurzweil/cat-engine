@@ -1,5 +1,5 @@
 use crate::engine::ecs::ComponentId;
-use crate::engine::ecs::component::Component;
+use crate::engine::ecs::component::{Component, ComponentRef};
 
 /// How AVC treats retained eye-tracker gaze while the avatar head is moving.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -60,6 +60,18 @@ impl HeadMotionGazePolicy {
 /// ```
 #[derive(Debug, Clone)]
 pub struct AvatarControlComponent {
+    /// Explicit amplitude observer used for the `viseme_aa` mouth-open fallback.
+    pub mouth_open_amplitude: Option<ComponentRef>,
+    /// Linear PCM RMS that maps to a closed mouth.
+    pub mouth_open_rms_floor: f32,
+    /// Linear PCM RMS that maps to a fully open mouth.
+    pub mouth_open_rms_ceiling: f32,
+    /// Exponential response rate in 1/seconds. Zero disables smoothing.
+    pub mouth_open_smoothing: f32,
+    pub(crate) resolved_mouth_open_amplitude: Option<ComponentId>,
+    pub(crate) mouth_open_weight: f32,
+    pub(crate) mouth_open_missing_slot_diagnosed: bool,
+
     /// Whether AVC should generate an upright collision capsule. Enabled by default.
     pub collision_enabled: bool,
 
@@ -226,6 +238,39 @@ impl AvatarControlComponent {
         Self::default()
     }
 
+    pub fn with_mouth_open_from_amplitude(mut self, source: ComponentRef) -> Self {
+        self.mouth_open_amplitude = Some(source);
+        self.resolved_mouth_open_amplitude = None;
+        self.mouth_open_weight = 0.0;
+        self
+    }
+
+    pub fn with_mouth_open_rms_floor(mut self, floor: f32) -> Result<Self, String> {
+        if !floor.is_finite() || floor < 0.0 || floor >= self.mouth_open_rms_ceiling {
+            return Err("AvatarControl.mouth_open_rms_floor requires 0 <= floor < ceiling".into());
+        }
+        self.mouth_open_rms_floor = floor;
+        Ok(self)
+    }
+
+    pub fn with_mouth_open_rms_ceiling(mut self, ceiling: f32) -> Result<Self, String> {
+        if !ceiling.is_finite() || ceiling <= self.mouth_open_rms_floor {
+            return Err("AvatarControl.mouth_open_rms_ceiling requires ceiling > floor".into());
+        }
+        self.mouth_open_rms_ceiling = ceiling;
+        Ok(self)
+    }
+
+    pub fn with_mouth_open_smoothing(mut self, rate: f32) -> Result<Self, String> {
+        if !rate.is_finite() || rate < 0.0 {
+            return Err(
+                "AvatarControl.mouth_open_smoothing requires a finite non-negative rate".into(),
+            );
+        }
+        self.mouth_open_smoothing = rate;
+        Ok(self)
+    }
+
     pub fn with_collision_disabled(mut self) -> Self {
         self.collision_enabled = false;
         self
@@ -336,6 +381,13 @@ impl AvatarControlComponent {
 impl Default for AvatarControlComponent {
     fn default() -> Self {
         Self {
+            mouth_open_amplitude: None,
+            mouth_open_rms_floor: 0.015,
+            mouth_open_rms_ceiling: 0.12,
+            mouth_open_smoothing: 18.0,
+            resolved_mouth_open_amplitude: None,
+            mouth_open_weight: 0.0,
+            mouth_open_missing_slot_diagnosed: false,
             collision_enabled: true,
             capsule_radius: 0.28,
             left_arm_pole_direction: [-1.0, 0.0, -1.0],
@@ -476,6 +528,31 @@ impl Component for AvatarControlComponent {
         }
         if !self.neck_pin_enabled {
             c = c.with_call("neck_pin_disabled", vec![]);
+        }
+        if let Some(source) = &self.mouth_open_amplitude {
+            let source = match source {
+                ComponentRef::Guid(guid) => s(&format!("@uuid:{guid}")),
+                ComponentRef::Query(query) => s(query),
+            };
+            c = c.with_call("mouth_open_from_amplitude", vec![source]);
+        }
+        if (self.mouth_open_rms_floor - 0.015).abs() > f32::EPSILON {
+            c = c.with_call(
+                "mouth_open_rms_floor",
+                vec![num(self.mouth_open_rms_floor as f64)],
+            );
+        }
+        if (self.mouth_open_rms_ceiling - 0.12).abs() > f32::EPSILON {
+            c = c.with_call(
+                "mouth_open_rms_ceiling",
+                vec![num(self.mouth_open_rms_ceiling as f64)],
+            );
+        }
+        if (self.mouth_open_smoothing - 18.0).abs() > f32::EPSILON {
+            c = c.with_call(
+                "mouth_open_smoothing",
+                vec![num(self.mouth_open_smoothing as f64)],
+            );
         }
         c
     }

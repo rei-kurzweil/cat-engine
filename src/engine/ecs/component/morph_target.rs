@@ -89,11 +89,16 @@ impl Component for MorphTargetBindingComponent {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MorphFactorState {
     pub base: f32,
+    /// Primary animation/viseme owner. When present it wins over fallbacks.
     pub driver: Option<f32>,
+    /// AVC-owned, explicitly authored amplitude fallback.
+    pub amplitude_mouth_open: Option<f32>,
 }
 impl MorphFactorState {
     pub fn effective(self) -> f32 {
-        self.driver.unwrap_or(self.base)
+        self.driver
+            .or(self.amplitude_mouth_open)
+            .unwrap_or(self.base)
     }
     pub fn is_active(self) -> bool {
         self.effective().abs() > MORPH_ACTIVE_EPSILON
@@ -178,6 +183,7 @@ mod tests {
             MorphFactorState {
                 base: MORPH_ACTIVE_EPSILON,
                 driver: None,
+                amplitude_mouth_open: None,
             },
         );
         assert!(active_factors(factors.iter()).is_empty());
@@ -186,6 +192,7 @@ mod tests {
             MorphFactorState {
                 base: -MORPH_ACTIVE_EPSILON * 1.01,
                 driver: None,
+                amplitude_mouth_open: None,
             },
         );
         assert_eq!(
@@ -199,11 +206,13 @@ mod tests {
         let state = MorphFactorState {
             base: 0.25,
             driver: Some(0.8),
+            amplitude_mouth_open: Some(0.5),
         };
         assert_eq!(state.effective(), 0.8);
         assert_eq!(
             MorphFactorState {
                 driver: None,
+                amplitude_mouth_open: None,
                 ..state
             }
             .effective(),
