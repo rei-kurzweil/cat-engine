@@ -791,7 +791,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 return self.call_api(None, &name.0, args);
             }
         }
-        Err(EvalError::Runtime("value is not callable".into()))
+        Err(EvalError::Runtime(format!("value is not callable: {callee:?}")))
     }
 
     /// In a session, a component expression assigned to a binding denotes one

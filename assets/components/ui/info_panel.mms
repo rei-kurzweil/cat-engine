@@ -79,13 +79,13 @@ fn panel_with_title_children(options, title_children, title_bar_background, togg
 // AccordionRestoreRequested. The latter carries accordion_body_mount as its
 // payload so the caller can reload dynamic content.
 export fn info_panel(options) {
-    let background_color = INFO_PANEL_TITLE_BACKGROUND
+    let title_bar_background = INFO_PANEL_TITLE_BACKGROUND
     let authored_background_color = options["background_color"]
-    if authored_background_color { background_color = authored_background_color }
+    if authored_background_color { title_bar_background = authored_background_color }
 
-    let toggle_background_color = INFO_PANEL_TOGGLE_BACKGROUND
+    let toggle_background = INFO_PANEL_TOGGLE_BACKGROUND
     let authored_toggle_background_color = options["toggle_background_color"]
-    if authored_toggle_background_color { toggle_background_color = authored_toggle_background_color }
+    if authored_toggle_background_color { toggle_background = authored_toggle_background_color }
 
     let title = info_panel_title(options.title)
     let icon = options["icon"]
@@ -93,14 +93,14 @@ export fn info_panel(options) {
         return panel_with_title_children(
             options,
             [info_panel_icon(icon), title],
-            background_color,
-            toggle_background_color,
+            title_bar_background,
+            toggle_background,
         )
     }
     return panel_with_title_children(
         options,
         [title],
-        background_color,
-        toggle_background_color,
+        title_bar_background,
+        toggle_background,
     )
 }

@@ -18,7 +18,7 @@ use crate::engine::user_input::InputState;
 use crate::scripting::ast::{AssignmentStatement, Expression, ImportItem, Statement};
 use crate::scripting::object::Value;
 use crate::scripting::parser::MeowMeowParser;
-use crate::scripting::runner::MeowMeowRunner;
+use crate::scripting::runner::{MeowMeowRunner, RuntimeSpecSession};
 use crate::scripting::tokenizer::MeowMeowTokenizer;
 use crate::scripting::unparser::unparse_program;
 use crate::scripting::world_evaluator::{EvalRequest, EvalResponse, MeowMeowEvaluator};
@@ -77,14 +77,15 @@ fn implicit_surface_example_is_valid_mms_syntax() {
     let mut rx = RxWorld::default();
     let mut assets = RenderAssets::new();
     let mut queue = CommandQueue::new();
-    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+    let (_session, output) = RuntimeSpecSession::start_at_path(
         &source,
-        path.to_str(),
+        path.to_str().expect("scene path should be UTF-8"),
         &mut world,
         &mut rx,
         Some(&mut assets),
         &mut queue,
-    );
+    )
+    .expect("strict runtime should load microphone-speaking scene");
     assert!(
         output.errors.is_empty(),
         "implicit-surface example failed to materialize: {:?}",
@@ -180,14 +181,15 @@ fn vtuber_microphone_speaking_animation_scene_materializes_info_panel() {
     let mut rx = RxWorld::default();
     let mut assets = RenderAssets::new();
     let mut queue = CommandQueue::new();
-    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+    let (_session, output) = RuntimeSpecSession::start_at_path(
         &source,
-        path.to_str(),
+        path.to_str().expect("scene path should be UTF-8"),
         &mut world,
         &mut rx,
         Some(&mut assets),
         &mut queue,
-    );
+    )
+    .expect("strict runtime should load microphone-speaking scene");
     assert!(
         output.errors.is_empty(),
         "microphone-speaking mirror scene errors: {:?}",
