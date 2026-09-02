@@ -192,7 +192,9 @@ exercise, and disable/re-enable/device-loss exercise.
 ## Explicitly deferred
 
 - MMS `amplitude.value()` live reads;
-- amplitude-to-mouth/morph mapping;
+- amplitude-to-mouth/morph mapping. The approved follow-up direction is an
+  explicit AVC builder such as `mouth_open_from_amplitude(amplitude)`, rather
+  than behavior inferred merely because AVC has no `Visemes` child;
 - phoneme detection and `Visemes` worker;
 - post-effect/output-bus meters;
 - loudness normalization, LUFS, recording, and audio UI widgets.
@@ -200,5 +202,23 @@ exercise, and disable/re-enable/device-loss exercise.
 ## Exit
 
 Stop after the mirror scene proves stable source-bound amplitude observation and
-AVC semantic pickup. The next approved slice may add an explicit
-amplitude-to-mouth adapter or proceed to the selected viseme backend.
+AVC semantic pickup. The next approved slice may add an explicit AVC
+amplitude-to-mouth binding or proceed to the selected viseme backend.
+
+## V2 authoring exploration (not part of this slice)
+
+The proposed richer AVC surface—multiple named amplitude/viseme slots or AVC
+builders that accept component expressions—remains a V2 design task. The
+first approved binding is a single explicit component reference, for example:
+
+```mms
+AVC {
+    mouth_open_from_amplitude(amplitude)
+}
+```
+
+That builder belongs to AVC because it owns avatar-specific policy: morph
+target choice, scaling, smoothing, thresholding, and precedence with
+`Visemes`. `Amplitude` only publishes a retained measurement. V2 must define
+multiple-slot semantics, serialization, replacement/removal lifecycle, and
+additional target policies.
