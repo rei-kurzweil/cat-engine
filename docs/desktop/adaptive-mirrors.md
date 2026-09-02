@@ -2,8 +2,8 @@
 
 Date: 2026-09-02
 
-Status: proposed. Establish the correct viewer-family mirror result first, then
-optimize from measurements.
+Status: architecture decisions accepted; implementation planned after baseline
+viewer-family mirror correctness and observability.
 
 [Back to the desktop workbench](README.md)
 
@@ -25,6 +25,8 @@ equivalent projection mapping whose UV transform is explicit and stable.
 
 - Mirrors already carry an authored `quality`/resolution scale and use
   per-mirror offscreen targets.
+- [Generalized LOD policy and selection](../task/generalized-lod-policy-and-selection.md)
+  is the canonical tracker for reusable selection policy.
 - [Mirror viewer-family captures](../task/mirror-viewer-family-captures.md)
   records the need for independent mono and stereo capture families.
 - [Mirror camera orientation and tracking](../bugs/mirror-camera-orientation-and-tracking.md)
@@ -32,21 +34,41 @@ equivalent projection mapping whose UV transform is explicit and stable.
 - [Mirror render-pass status](../task/mirror-render-pass-status.md) records
   remaining self-exclusion, material, recursion, and observability work.
 
-## Design questions
+## Locked architecture decisions
 
-1. Is the quality signal projected mirror area, distance, grazing angle, visible
-   clipped area, or a weighted combination? Projected pixel coverage should be
-   the baseline because distance alone misprices large and oblique mirrors.
-2. Is adaptation per logical mirror, viewer family, or concrete stereo view?
-   It must not make left/right eyes choose visibly incompatible detail.
-3. Which discrete extent bands are allowed, and what hysteresis/cooldown avoids
-   reallocating targets while the viewer moves near a threshold?
-4. For close-up partial visibility, should the renderer crop to the visible
+- Adaptive mirror quality is mediated by the generalized `LODComponent` policy.
+  `MirrorSystem` consumes its selection and remains the owner of mirror-specific
+  capture behavior.
+- Projected screen coverage, including size and foreshortening, is the primary
+  quality signal. Raw distance is not the default because it misprices large,
+  small, and obliquely viewed mirrors.
+- Selection uses a small number of resolution bands with asymmetric hysteresis
+  and cooldown. Mirror targets are reused within a band rather than resized
+  continuously.
+- `Mirror.quality(N)` remains the authored preferred/native ceiling. LOD may
+  reduce the effective extent and may respect an authored minimum, but does not
+  silently exceed the ceiling.
+- Runtime selection is per viewer family. Mono and stereo may require different
+  tiers in the same frame; the stereo family uses one coordinated selection
+  based on the greater requirement across its eyes.
+- LOD selects detail; it does not move or resize authored mirror geometry.
+- Close-up concentration is a later mirror-owned capture crop/tile or projection
+  feature with explicit UV remapping. It is not a responsibility of the generic
+  LOD selector.
+
+## Remaining design questions
+
+1. Which concrete extent bands and projected-coverage thresholds provide good
+   image quality on the target desktop and XR resolutions?
+2. Should projected coverage be measured as clipped pixel area, longest visible
+   axis, or both for very thin/grazing mirror projections?
+3. For close-up partial visibility, should the renderer crop to the visible
    mirror polygon's screen-space bounds, use fixed tiles, or retain a full
    target with a smaller high-detail inset?
-5. How are crop/projection and UV remapping published so the surface samples
+4. How are crop/projection and UV remapping published so the surface samples
    the right portion of the capture?
-6. What budget caps total mirror pixels and capture count across many mirrors?
+5. What budget caps total mirror pixels and capture count across many mirrors,
+   and what is the deterministic degradation order?
 
 ## Milestones
 
@@ -56,8 +78,10 @@ equivalent projection mapping whose UV transform is explicit and stable.
       grazing angle, and as a partially visible close-up.
 - [ ] Fix/validate viewer-family orientation and parallax before judging image
       quality changes.
-- [ ] Implement discrete resolution bands from projected coverage with
-      hysteresis and a minimum/maximum authored quality clamp.
+- [ ] Implement the first slice of the generalized LOD selector: per-family
+      projected coverage, discrete tiers, hysteresis, and cooldown.
+- [ ] Map LOD tiers to mirror capture extents bounded by the authored
+      quality ceiling and configured minimum extent.
 - [ ] Reuse targets within bands; prove normal camera motion does not allocate
       every frame.
 - [ ] Design and prototype close-up visible-region cropping with explicit UV
@@ -70,7 +94,7 @@ equivalent projection mapping whose UV transform is explicit and stable.
 
 ## First safe slice
 
-Land resolution bands only. Keep the full mirror capture region and select a
-target extent from projected on-screen coverage. Close-up cropping changes the
-capture projection and sampling contract, so it should be a separate second
-slice after banding is stable.
+Land generalized LOD selection plus mirror resolution bands only. Keep the full
+mirror capture region and select a target extent from projected on-screen
+coverage. Close-up cropping changes the capture projection and sampling
+contract, so it remains a separate second slice after banding is stable.

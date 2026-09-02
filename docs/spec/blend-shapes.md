@@ -268,7 +268,7 @@ Hash inputs:
 Cache lookup flow at import:
 
 ```text
-mesh content hash → 
+mesh content hash →
   in-memory hit?  → use it
   else disk hit?  → load + populate in-memory
   else            → run analyzer; write disk; populate in-memory
@@ -480,6 +480,14 @@ need an analogous channel. Two options:
 
 ## 10. LOD and authorable `base_mesh`
 
+Architecture update (2026-09-02): camera/viewer evaluation, projected-coverage
+metrics, hysteresis, cooldown, and per-viewer-family runtime selection belong
+to the shared [Generalized LOD policy and selection](../task/generalized-lod-policy-and-selection.md).
+The mesh structures in this section should be read as a consumer mapping from
+selected tiers to mesh/morph resources, not as an independent mesh-only LOD
+policy. In particular, one serialized `current` tier is superseded by runtime
+per-viewer-family selections.
+
 The existing `RenderableComponent` already carries a `base_mesh:
 CpuMeshHandle` — currently treated as a static, single-LOD asset (see
 `src/engine/ecs/system/renderable_system.rs`). For 10k+ vert face meshes
@@ -494,24 +502,19 @@ ordered list of mesh handles:
 
 ```rust
 struct MeshLOD {
+    // Generic LOD tier that selects this resource mapping.
+    tier: u8,
     mesh: CpuMeshHandle,
-    // World-space distance at which this LOD becomes active.
-    activate_at_distance: f32,
-    // Optional: screen-space coverage threshold (alternative to distance).
-    activate_at_screen_fraction: Option<f32>,
     // Optional: drop morphs at this LOD even if the mesh has them.
     disable_morphs: bool,
 }
 
 struct MeshLODComponent {
-    lods: Vec<MeshLOD>,    // sorted: closest-first (LOD0 → LODn)
-    hysteresis: f32,       // distance / fraction the camera must cross past
-                           // the threshold before switching (avoids popping).
-    current: u32,          // runtime: which LOD is bound right now.
+    lods: Vec<MeshLOD>, // tier-to-resource mappings, highest detail first
 }
 ```
 
-MMS authoring:
+Conceptual MMS authoring (exact shared-LOD syntax remains to be finalized):
 
 ```mms
 let head = Mesh.gltf("avatars/rei/head.glb")
@@ -519,13 +522,14 @@ let head_lod1 = Mesh.gltf("avatars/rei/head_lod1.glb")
 let head_lod2 = Mesh.gltf("avatars/rei/head_lod2.glb")
 
 Renderable {
-    base_mesh: head,
-    lods: [
-        (head,      0.0, disable_morphs: false),
-        (head_lod1, 3.0, disable_morphs: false),
-        (head_lod2, 8.0, disable_morphs: true ),  // drop morphs at LOD2
-    ],
-    hysteresis: 0.25,
+    LOD.projected_coverage() {
+        // Shared thresholds, hysteresis, and cooldown policy.
+    }
+    MeshLOD {
+        level(0, head,      disable_morphs: false)
+        level(1, head_lod1, disable_morphs: false)
+        level(2, head_lod2, disable_morphs: true)
+    }
 }
 ```
 
@@ -562,13 +566,16 @@ leaving plenty of 8 GB headroom for textures and the rest of the scene.
 
 ### 10.3 LOD selection system
 
-Add `LODSelectionSystem`, ticked after camera but before renderable build:
+Use the generalized `LODSelectionSystem`, ticked after camera/viewer state and
+world bounds are available but before renderable build. It selects a tier per
+viewer family, preferring projected coverage and applying the shared
+hysteresis/cooldown policy.
 
-1. For each `MeshLODComponent`, compute distance from camera to renderable's
-   `matrix_world.translation` (or AABB center).
-2. Walk `lods[]` to find the active band, applying `hysteresis` to avoid
-   per-frame thrash.
-3. If the chosen LOD differs from `current`:
+The mesh consumer then maps the selected tier to `MeshLOD`. While
+`RenderableComponent.base_mesh` remains one globally shared binding, use the
+highest detail requested by any active viewer family. If the chosen mesh LOD
+differs from the bound resource:
+
    - Swap `RenderableComponent.base_mesh` to the chosen LOD's handle.
    - If the new LOD has `disable_morphs: true` and a `MorphTargetsComponent`
      is currently attached, detach it (or set an `enabled` flag — TBD which
@@ -586,8 +593,8 @@ LOD0 only. So the VRM importer should:
   decimated meshes + their distance thresholds. This keeps the source `.vrm`
   unmodified and lets `cat-engine` provide LODs as an engine-side asset
   augmentation rather than a VRM-format extension.
-- If no sidecar exists, `LODSelectionSystem` is a no-op and the character
-  always renders at LOD0 (current behavior).
+- If no sidecar or authored `MeshLODComponent` exists, the mesh consumer is a
+  no-op and the character always renders its base mesh (current behavior).
 
 Mid-term: an offline `cargo run --bin morphmesh-decimate <input.vrm>` could
 auto-generate the LOD chain + retargeted morphs and write the sidecar.
@@ -627,7 +634,8 @@ criteria for the second milestone, not the first.
    `assets/.cache/morph/<hash>.<ver>.bin`.
 10. `skinned-morph-sparse-toon-mesh.vert` + matching pipelines.
 11. Pipeline-selection logic in `RenderableSystem` (table in §5.4).
-12. `MeshLODComponent` + `LODSelectionSystem` (§10.1–.3).
+12. `MeshLODComponent` consumer mapping + generalized `LODSelectionSystem`
+    (§10.1–.3 and the shared LOD tracker).
 13. f16 delta variant (§4.6) gated on `VK_KHR_shader_float16_int8`.
 14. VRM LOD sidecar loader (§10.4).
 15. 20-character acceptance benchmark on 8 GB target.

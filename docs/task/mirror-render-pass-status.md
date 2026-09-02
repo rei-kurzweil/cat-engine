@@ -113,16 +113,17 @@ Decide and enforce:
 
 These are performance and correctness concerns for multi-mirror scenes. Single-mirror v1 can skip all of them.
 
-## Open questions
+## Open questions and accepted direction
 
-1. **XR + desktop concurrent policy** — When both window and XR cameras are active, do mirrors derive from one source camera or both? Current `MirrorSystem` picks one (prefers XR). The correct answer may be "derive per viewer family" but this needs a decision before multi-viewer mirror rendering.
-2. **Mirror target extent** — `quality` → `resolution_scale = quality / 1024.0`, but how does that translate to pixel dimensions? Options: square at `quality`×`quality`, viewport-scaled with aspect correction, or mirror-surface-aspect-matched. The aspect calculation in `MirrorSystem` suggests the third. Needs a renderer-side decision when implementing step 1.
+1. **XR + desktop concurrent policy (accepted and substantially implemented)** — Mirrors derive independent captures for active monoscopic and stereoscopic viewer families. Adaptive LOD selection is also per family, with one coordinated tier across both stereo eyes.
+2. **Adaptive mirror target extent** — the current fixed path uses `quality` as one base axis and derives the other from mirror aspect. The accepted adaptive direction keeps `quality` as the authored ceiling, uses generalized per-viewer-family LOD selection from projected coverage, and maps stable tiers to effective extents. Thresholds and exact coverage measurement still require profiling; see the adaptive mirror tracker.
 3. **Texture publication timing** — Mirror passes must complete and publish before the main pass samples the texture. If the GPU timeline uses semaphores/fences, this is natural. If the renderer synchronizes via `wait_idle` or submission order, confirm the mirror texture is available in time for the main pass's fragment shader.
 4. **Material contract** — Should `MirrorSystem` force `MaterialHandle::MIRROR`, or should mirrors work with any material that happens to sample the mirror texture? Forcing simplifies the authoring contract; not forcing allows custom mirror shaders.
 
 ## Related docs
 
 - [Adaptive mirror detail desktop tracker](../desktop/adaptive-mirrors.md) — projected-coverage resolution bands and close-up capture-region work after baseline mirror correctness.
+- [Generalized LOD policy and selection](generalized-lod-policy-and-selection.md) — shared policy, per-viewer-family selection, and consumer boundary.
 
 - [Mirror component spec](../spec/mirror-component.md) — authored component / usage spec.
 - [Mirror system spec](../spec/mirror_system.md) — internal runtime implementation spec.

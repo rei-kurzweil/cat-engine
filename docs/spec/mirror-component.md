@@ -1,10 +1,10 @@
 # Mirror Component
 
 This document describes the authored `MirrorComponent`: what it means, how it is attached, and
-what behavior authors should expect from a mirror surface in `cat-engine`.
+what behavior authors should expect from a mirror surface in Mittens.
 
 For internal runtime details, see
-[mirror-system.md](/home/rei/_/cat-engine/docs/spec/mirror_system.md).
+[Mirror system](mirror_system.md).
 
 ## Purpose
 
@@ -37,7 +37,7 @@ Current behavior:
 
 Source:
 
-- [src/engine/ecs/component/mirror.rs](/home/rei/_/cat-engine/src/engine/ecs/component/mirror.rs)
+- [Mirror component implementation](../../src/engine/ecs/component/mirror.rs)
 
 ## Attachment Rule
 
@@ -84,6 +84,13 @@ What authors can expect:
 
 This is a quality knob, not a guarantee of an exact square target size in all cases.
 
+For adaptive rendering, `quality` remains the preferred/native ceiling rather
+than becoming the distance-selection policy itself. The shared LOD layer
+selects a stable per-viewer-family detail tier from projected screen coverage;
+`MirrorSystem` maps that tier to an effective capture extent no greater than
+the authored quality. See [Adaptive mirror detail](../desktop/adaptive-mirrors.md)
+and [Generalized LOD policy and selection](../task/generalized-lod-policy-and-selection.md).
+
 ## Viewer Behavior
 
 A mirror reflects the active viewer family each frame:
@@ -98,7 +105,7 @@ The reflected image should behave as a planar reflection:
 - off-center viewing should remain connected at the mirror edges
 
 The internal projection math that enforces that behavior is documented in
-[mirror-system.md](/home/rei/_/cat-engine/docs/spec/mirror_system.md).
+[Mirror system](mirror_system.md).
 
 ## Material / Texture Contract
 
@@ -125,8 +132,8 @@ T.position(0.0, 0.55, -4.5).scale(3.0, 3.0, 0.08) {
 
 Related example files:
 
-- [examples/vtuber-mirror-example.mms](/home/rei/_/cat-engine/examples/vtuber-mirror-example.mms)
-- [examples/vtuber-mirror-example.rs](/home/rei/_/cat-engine/examples/vtuber-mirror-example.rs)
+- [VTuber mirror MMS example](../../examples/vtuber-mirror-example.mms)
+- [VTuber mirror Rust example](../../examples/vtuber-mirror-example.rs)
 
 ## Non-Goals
 
