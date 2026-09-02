@@ -1,6 +1,7 @@
 pub(crate) mod animation_keyframe_evaluator;
 pub(crate) mod animation_scheduler;
 pub mod animation_system;
+pub mod amplitude_system;
 pub mod armature_visualization_system;
 pub mod asset_system;
 pub mod audio_decode;
@@ -89,6 +90,7 @@ pub mod vr_types;
 pub mod xr_eye_tracking_system;
 
 pub use animation_system::AnimationSystem;
+pub use amplitude_system::{AmplitudeSnapshot, AmplitudeSystem};
 pub use armature_visualization_system::ArmatureVisualizationSystem;
 pub use asset_system::AssetSystem;
 pub use audio_system::AudioSystem;

@@ -3596,7 +3596,10 @@ fn apply_call(
                         return Err("Amplitude.from(source) requires an AudioInput, AudioClip, or AudioOscillator".into());
                     }
                 }
-                world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap().source = Some(source);
+                let amplitude = world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap();
+                amplitude.source = Some(source);
+                amplitude.resolved_source = None;
+                amplitude.bump_generation(crate::engine::ecs::component::AmplitudeStatus::Pending);
             }
             "enabled" => {
                 let enabled = arg_bool(args, 0)?;

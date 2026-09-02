@@ -48,7 +48,7 @@ use crate::engine::ecs::system::XrSystem;
 use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::{AnimationSystem, AudioSystem};
 use crate::engine::ecs::system::{
-    AssetSystem, AvatarBodyYawSystem, AvatarControlSystem, Cursor3dSystem, EditorContextSystem,
+    AmplitudeSystem, AssetSystem, AvatarBodyYawSystem, AvatarControlSystem, Cursor3dSystem, EditorContextSystem,
     EditorInspectorSystem, EditorPaintSystem, EditorSystem, FitBoundsSystem, GestureSystem,
     GridSystem, HeadPoseBodyXzFollowSystem, IKSystem, LayoutSystem, SecondaryMotionSystem,
     SelectionSystem, TransformGizmoSystem,
@@ -84,6 +84,7 @@ pub struct SystemWorld {
 
     pub clock: ClockSystem,
     pub audio: AudioSystem,
+    pub amplitude: AmplitudeSystem,
     pub music: MusicSystem,
     pub animation: AnimationSystem,
     pub transition: TransitionSystem,
@@ -2890,6 +2891,7 @@ impl SystemWorld {
         // ClockSystem may be using AudioClockDriver, so this keeps both timelines aligned.
         self.audio
             .update_transport_from_clock(self.clock.beat_now(), self.clock.bpm());
+        self.amplitude.tick(world);
 
         let profile_systems = Self::profile_systems_enabled();
         let phase_started = profile_systems.then(Instant::now);

@@ -69,6 +69,9 @@ pub struct AmplitudeComponent {
     pub enabled: bool,
     pub generation: u64,
     pub retained: AmplitudeSample,
+    /// Runtime cache populated by `AmplitudeSystem`. The durable `source`
+    /// reference is resolved only on initial binding or after this target dies.
+    pub(crate) resolved_source: Option<ComponentId>,
     component: Option<ComponentId>,
 }
 
@@ -92,12 +95,14 @@ impl AmplitudeComponent {
             enabled: true,
             generation: 0,
             retained: AmplitudeSample::pending(0),
+            resolved_source: None,
             component: None,
         })
     }
 
     pub fn with_source(mut self, source: ComponentRef) -> Self {
         self.source = Some(source);
+        self.resolved_source = None;
         self
     }
 
@@ -117,7 +122,11 @@ impl AmplitudeComponent {
     /// reconfiguration and lifecycle changes so queued old samples are rejected.
     pub fn bump_generation(&mut self, status: AmplitudeStatus) {
         self.generation = self.generation.wrapping_add(1);
-        self.retained = AmplitudeSample::neutral(self.generation, status);
+        self.retained = if status == AmplitudeStatus::Pending {
+            AmplitudeSample::pending(self.generation)
+        } else {
+            AmplitudeSample::neutral(self.generation, status)
+        };
     }
 }
 
