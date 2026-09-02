@@ -2,7 +2,7 @@
 
 Date: 2026-09-02
 
-Status: planned
+Status: first visual slice implemented; awaiting scene verification
 
 ## Outcome and stop condition
 
@@ -17,9 +17,10 @@ The scene consumes a reusable authored MMS asset,
 optional icon slot, content slot, and the existing accordion minimize/restore
 behavior. It must be ordinary scene UI, not editor-owned UI.
 
-Stop when the new scene materializes, the panel shows one initial row per name
-returned by `Audio.input_devices()`, and minimizing then restoring the panel
-causes the demo to reload those rows through the accordion restore event.
+The first visual slice stops when the new scene materializes, both relevant
+examples have black clear backgrounds, and the reusable panel is visible with
+its static placeholder body. The following data slice adds one row per
+`Audio.input_devices()` name and reloads those rows after accordion restore.
 
 This is an enumeration/setup panel. It does not make every listed device live,
 does not add microphone switching controls, and does not require dynamic

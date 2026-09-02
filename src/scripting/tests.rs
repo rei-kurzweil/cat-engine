@@ -172,6 +172,41 @@ fn vtuber_eye_tracking_mirror_microphone_binding_is_valid_mms_syntax() {
 }
 
 #[test]
+fn vtuber_microphone_speaking_animation_scene_materializes_info_panel() {
+    let path = repo_path("examples/vtuber-microphone-speaking-animation-eye-tracking.mms");
+    let source = fs::read_to_string(&path).expect("read microphone-speaking mirror example");
+    assert!(!parse(&source).is_empty());
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+        &source,
+        path.to_str(),
+        &mut world,
+        &mut rx,
+        Some(&mut assets),
+        &mut queue,
+    );
+    assert!(
+        output.errors.is_empty(),
+        "microphone-speaking mirror scene errors: {:?}",
+        output.errors
+    );
+    assert!(
+        world
+            .all_components()
+            .any(|id| world.component_label(id) == Some("microphone_inputs_panel")),
+        "scene should materialize the reusable microphone info panel"
+    );
+    assert!(world.all_components().any(|id| {
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::TextComponent>(id)
+            .is_some_and(|text| text.text == "device list will appear here in the next slice")
+    }));
+}
+
+#[test]
 fn implicit_surface_refraction_clouds_example_materializes() {
     let path = repo_path("examples/implicit-surface-refraction-clouds.mms");
     let source = fs::read_to_string(&path).expect("read implicit refraction cloud example");

@@ -1,19 +1,15 @@
-// VTuber eye-tracking mirror
+// VTuber microphone-speaking animation + eye-tracking mirror
 //
-// A minimal XR avatar scene for validating AVC automatic eye-bone tracking.
-// `XREyeTracking` must remain a *direct child* of `AVC`: AVC consumes its
-// retained gaze state while the existing XrEyeTrackingUpdated event remains
-// available to scripts. In ALVR, configure the VRChat Eye OSC sink to send to
-// 127.0.0.1:9000 (or use XREyeTracking.listen(host, port) below).
-//
-// The mirror is in front of the XR start pose. The bisket asset's humanoid map
-// supplies the eye slots automatically; an avatar without mapped eye slots is
-// left untouched.
+// A focused XR acceptance scene for automatic eye-bone tracking and the
+// amplitude-driven mouth-open fallback. This first panel slice deliberately
+// uses a static body; the next slice reloads Audio.input_devices() rows when
+// the panel emits AccordionRestoreRequested.
 
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 import { tripod_light } from "../assets/components/tripod_light.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
+import { info_panel, info_panel_body } from "../assets/components/ui/info_panel.mms"
 
 RendererSettings { window_size(960, 720) }
 BGC.rgba(0.0, 0.0, 0.0, 1.0)
@@ -33,13 +29,30 @@ tripod_light("eye_tracking_key", [-4.2, 0.0, 2.8], [0.0, 1.25, -1.5], SL.color(1
 tripod_light("eye_tracking_fill", [4.0, 0.0, 1.4], [0.0, 1.25, -1.5], SL.color(0.48, 0.68, 1.0).intensity(4.5).distance(11.0).angle(0.62).penumbra(0.35))
 tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1.0, 0.42, 0.78).intensity(5.0).distance(11.0).angle(0.62).penumbra(0.35))
 
-// Microphone mouth-open test. Evaluate Audio.input_devices() in the REPL to
-// see the numbered input list. Use AudioInput {} for the OS default, or replace
-// it with AudioInput.device_number(0) / (1) to test enumerated input devices.
-// The console prints the selected device/format and one RMS diagnostic per
-// second; use those values to tune the floor and ceiling below.
-let microphone = AudioInput {}
+// This scene intentionally requests the second currently enumerated input.
+// Use Audio.input_devices() in the REPL to check its session-local ordering;
+// replace with AudioInput {} to use the OS default microphone instead.
+let microphone = AudioInput.device_number(1) {}
 let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
+
+let microphone_info_panel = info_panel({
+    root_name = "microphone_inputs_panel"
+    width_gu = 30.0
+    unit_scale = 0.075
+    title = "audio input devices"
+    content = info_panel_body(T {
+        name = "microphone_inputs_placeholder"
+        Style {
+            display("block")
+            width(100%)
+            padding_xy(0.35, 0.25)
+            color([0.88, 0.95, 1.0, 1.0])
+        }
+        T.position(0.0, 0.0, 0.02) {
+            Text { "device list will appear here in the next slice" }
+        }
+    })
+})
 
 // An explicit list keeps the editor useful without materializing the default
 // world and assets panels in this focused capture scene.
@@ -57,6 +70,12 @@ T.position(-2.75, 2.8, -1.5) {
             }
         }])
     }
+}
+
+// This is ordinary scene UI. The accordion title bar can be dragged and the
+// body can be collapsed while testing the avatar in XR.
+T.position(-3.6, 2.25, -3.8) {
+    microphone_info_panel
 }
 
 ED {
@@ -117,20 +136,12 @@ ED {
                     left_arm_pole_direction([1, -0.35, -1])
                     right_arm_pole_direction([-1, -0.35, -1])
                     hand_rotation_smoothing(220.0)
-                    // head_motion_gaze_policy("freeze")
 
                     T {
                         GLTF.new("assets/models/bisket.glb") {
-                            // Bisket's VRM-style face mesh exposes these exact
-                            // targetNames on each of its eight material
-                            // primitives. Generic OSC closure fans each
-                            // semantic channel out to every matching target.
                             MorphTargetMap.new()
                                 .slot("left_eye_blink", "Fcl_EYE_Close_L")
                                 .slot("right_eye_blink", "Fcl_EYE_Close_R")
-                                // The same avatar is the first microphone-viseme
-                                // validation target. These canonical keys are inert
-                                // until a direct Visemes child is added below AVC.
                                 .slot("viseme_aa", "Fcl_MTH_A")
                                 .slot("viseme_ih", "Fcl_MTH_I")
                                 .slot("viseme_ou", "Fcl_MTH_U")
@@ -148,9 +159,8 @@ ED {
                     }
 
                     // Direct child: enables automatic mapped left/right eye
-                    // bone rotation. AVC freezes retained gaze during rapid
-                    // head motion; the tracker caps head-local gaze first.
-                    // For HTC packets, replace with XREyeTrackingHTC.on().
+                    // bone rotation. For HTC packets, replace with
+                    // XREyeTrackingHTC.on().
                     XREyeTrackingHTC.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
 
                     // Direct children supply the left/right hand targets used
