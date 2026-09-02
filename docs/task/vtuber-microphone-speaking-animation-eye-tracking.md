@@ -1,0 +1,160 @@
+# Task: microphone-speaking VTuber eye-tracking demo and info panel
+
+Date: 2026-09-02
+
+Status: planned
+
+## Outcome and stop condition
+
+Add a focused live-input acceptance scene at
+`examples/vtuber-microphone-speaking-animation-eye-tracking.mms`. It begins as
+a copy of `vtuber-eye-tracking-mirror-eye-stabilize.mms`, keeps eye tracking
+and amplitude-driven `viseme_aa`, uses a black clear background, and displays
+the available microphone inputs in a world-space panel.
+
+The scene consumes a reusable authored MMS asset,
+`assets/components/ui/info_panel.mms`. The asset supplies title chrome, an
+optional icon slot, content slot, and the existing accordion minimize/restore
+behavior. It must be ordinary scene UI, not editor-owned UI.
+
+Stop when the new scene materializes, the panel shows one initial row per name
+returned by `Audio.input_devices()`, and minimizing then restoring the panel
+causes the demo to reload those rows through the accordion restore event.
+
+This is an enumeration/setup panel. It does not make every listed device live,
+does not add microphone switching controls, and does not require dynamic
+hot-plug updates while the panel remains open.
+
+## Existing API and device numbering
+
+Use the session-local enumerated index with:
+
+```mms
+let microphone = AudioInput.device_number(1) {}
+```
+
+`AudioInput {}` selects the host default device. `AudioInput.device_number(0)`
+selects the first name returned by `Audio.input_devices()`, and `1` selects
+the second. Device numbering is intentionally session-local: users should
+check the displayed/enumerated list before choosing an index.
+
+`Audio.input_devices()` is already a no-argument host API returning
+`string[]`. It can provide the initial list during MMS materialization; it is
+not yet a subscription or device-status query.
+
+## Public `info_panel` asset
+
+Build a public wrapper around
+`assets/components/internal/ui/accordion.mms`, rather than copying accordion
+layout, drag, raycast, and toggle behavior into each scene.
+
+Proposed narrow MMS surface:
+
+```mms
+import { info_panel, info_panel_body } from "../assets/components/ui/info_panel.mms"
+
+let inputs_panel = info_panel({
+    root_name = "microphone_inputs_panel"
+    width_gu = 32.0
+    unit_scale = 0.075
+    title = "audio input devices"
+    icon = optional_icon_component
+    content = info_panel_body(rows)
+})
+```
+
+Required options:
+
+- `root_name`: caller-owned stable name, used for event handling and dragging;
+- `width_gu` and `unit_scale`: normal layout sizing controls;
+- `title`: title-bar text; and
+- `content`: one body component, normally created by `info_panel_body(...)`.
+
+Optional options:
+
+- `icon`: one caller-authored title-bar component placed beside the title; and
+- theme values only when necessary to make the generic panel reusable.
+
+The wrapper owns the default accordion appearance and title layout. It should
+not expose editor-specific labels, panel registration, docking, or persistence.
+
+### Restore contract
+
+The underlying accordion removes its body when minimized and emits
+`AccordionRestoreRequested` when opened again. It intentionally does not
+retain or recreate arbitrary caller content itself.
+
+`info_panel` forwards that event from its named root. Its caller therefore
+owns the reload policy:
+
+1. The demo initially calls `Audio.input_devices()` and creates one row per
+   returned name.
+2. On `AccordionRestoreRequested`, the demo calls `Audio.input_devices()`
+   again, creates fresh rows, wraps them in `info_panel_body(...)`, and mounts
+   them into the event-provided body mount.
+3. The rows are replaced only at restore time; no polling or live hot-plug
+   observer is introduced in this slice.
+
+This is deliberate: it gives the caller a clean place to reload data and keeps
+the asset compatible with arbitrary one-shot or dynamic content.
+
+## Demo shape
+
+The new example should retain the source scene's avatar, mirror, lighting,
+eye tracking, hand tracking, colliders, shirt physics, `AudioInput`,
+`Amplitude`, and explicit AVC mouth-open settings.
+
+Changes:
+
+- rename the header/comments for microphone speaking-animation acceptance;
+- change `BGC` to opaque black (`BGC.rgba(0.0, 0.0, 0.0, 1.0)`);
+- choose and document either `AudioInput {}` or
+  `AudioInput.device_number(1) {}` as the active test microphone;
+- import and place the `info_panel` near the mirror without obstructing the
+  avatar; and
+- render an ordinal and device name in each input row, clearly marking the
+  currently authored selected index if the example uses `device_number(1)`.
+
+The visual rows are an inspection/setup aid. Enumerating a device must not
+open a capture stream; only the authored microphone that is consumed by
+`Amplitude` activates capture.
+
+## Implementation order
+
+1. Add `assets/components/ui/info_panel.mms`, delegating shell/toggle behavior
+   to the internal accordion asset and documenting its forwarded event.
+2. Add a focused MMS materialization/event test proving the wrapper initially
+   mounts content, minimizes, emits restore, and accepts caller-reloaded body
+   content.
+3. Copy the mirror example into
+   `examples/vtuber-microphone-speaking-animation-eye-tracking.mms`; set the
+   black clear color and preserve its existing amplitude/AVC setup.
+4. Build device rows from `Audio.input_devices()` using the public panel.
+5. Register an `AccordionRestoreRequested` handler in the example to rebuild
+   and mount the panel body from a freshly enumerated device list.
+6. Verify scene materialization and run the normal focused scripting tests.
+7. Perform the intended live HMD/default-mic/device-1 acceptance pass.
+
+## Acceptance checks
+
+- `AudioInput.device_number(1) {}` selects the second currently enumerated
+  device and invalid indices fail clearly.
+- The new scene has an opaque black clear background and retains eye tracking,
+  mirror rendering, and amplitude-driven mouth opening.
+- `info_panel` works outside editor UI and accepts title, optional icon, and
+  caller content.
+- The title bar is draggable and its accordion toggle minimizes body content.
+- Restoring emits `AccordionRestoreRequested` from the panel root.
+- The example handles that event and recreates its microphone device rows from
+  a new `Audio.input_devices()` result.
+- Every initial enumeration result appears as exactly one readable row.
+- Device listing alone never starts capture for all listed devices.
+
+## Deferred
+
+- stable persisted device identities and name-based `AudioInput.device(...)`;
+- device picker controls that mutate the active `AudioInput` at runtime;
+- capture level/status/error indicators per device;
+- live hot-plug refresh while the panel is expanded;
+- scrolling/virtualization for unusually long device lists; and
+- a general reactive data-binding or arbitrary component cloning API.
