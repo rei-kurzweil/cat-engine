@@ -4,6 +4,8 @@ Date: 2026-08-06
 
 Status: active, untriaged `mittens-engine 0.8.0` release gate
 
+Desktop planning entry: [Editor, grids, rasterized placement, and paint](../desktop/editor-grid-paint.md).
+
 Live reproduction aid:
 [Paint-stroke live diagnostics](../how_to/paint-stroke-live-diagnostics.md).
 Desktop-only counterpart:

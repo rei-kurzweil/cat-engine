@@ -122,9 +122,11 @@ These are performance and correctness concerns for multi-mirror scenes. Single-m
 
 ## Related docs
 
-- [docs/spec/mirror-component.md](/home/rei/_/cat-engine/docs/spec/mirror-component.md) — authored component / usage spec.
-- [docs/spec/mirror_system.md](/home/rei/_/cat-engine/docs/spec/mirror_system.md) — internal runtime implementation spec.
-- [docs/draft/mirror-implementation-plan.md](/home/rei/_/cat-engine/docs/draft/mirror-implementation-plan.md) — early implementation sketch. Partially stale. Superseded by this doc for next-steps ordering.
-- [docs/task/render-view-mirror-inventory.md](/home/rei/_/cat-engine/docs/task/render-view-mirror-inventory.md) — original inventory of code state and gaps. This doc subsumes and updates it.
-- [docs/task/vtuber-mirror-example-checklist.md](/home/rei/_/cat-engine/docs/task/vtuber-mirror-example-checklist.md) — example checklist. Unchecked items (observability, regression surface) depend on steps 2-6 above.
-- [docs/spec/render-to-texture.md](/home/rei/_/cat-engine/docs/spec/render-to-texture.md) — runtime-texture bridge spec. Key reference for step 3.
+- [Adaptive mirror detail desktop tracker](../desktop/adaptive-mirrors.md) — projected-coverage resolution bands and close-up capture-region work after baseline mirror correctness.
+
+- [Mirror component spec](../spec/mirror-component.md) — authored component / usage spec.
+- [Mirror system spec](../spec/mirror_system.md) — internal runtime implementation spec.
+- [Mirror implementation plan](../draft/mirror-implementation-plan.md) — early implementation sketch. Partially stale. Superseded by this doc for next-steps ordering.
+- [Render-view mirror inventory](render-view-mirror-inventory.md) — original inventory of code state and gaps. This doc subsumes and updates it.
+- [VTuber mirror example checklist](vtuber-mirror-example-checklist.md) — example checklist. Unchecked items (observability, regression surface) depend on steps 2-6 above.
+- [Render-to-texture spec](../spec/render-to-texture.md) — runtime-texture bridge spec. Key reference for step 3.

@@ -6,6 +6,8 @@ Planned.  The generic `TransitionComponent` / `TransitionSystem` groundwork
 exists, but avatar poses cannot yet be bound as persistent, independently
 weighted layers.
 
+Desktop planning entry: [Locomotion and whole-armature animation](../desktop/locomotion-and-armature-animation.md).
+
 ## Outcome
 
 An authored pose can be bound to one avatar instance and smoothly blend from
@@ -91,4 +93,3 @@ blend with tracking.
 - [TransitionSystem checklist](../spec/transition-system-checklist.md)
 - [Pose capture and applying poses](../how_to/pose_capture_and_applying_poses.md)
 - [VR avatar embodiment epic](epic/vr-avatar-embodiment.md)
-

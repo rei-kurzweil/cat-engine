@@ -6,6 +6,8 @@ Planned after crouch posture.  Bisket already has captured running-pose
 samples and a discrete demonstration loop; this task turns validated assets
 and pose-layer behavior into a locomotion presentation policy.
 
+Desktop planning entry: [Locomotion and whole-armature animation](../desktop/locomotion-and-armature-animation.md).
+
 ## Outcome
 
 Bisket presents a convincing idle/walk/run animation appropriate to avatar

@@ -7,6 +7,9 @@ component ids (not only mutate existing ones). The motivating use case is:
 that bone."* But the surface area applies generally — any handler that needs to
 react to a hit/selection by adding scene content.
 
+Desktop consumers: [keyboard and regular gamepad events](../desktop/keyboard-and-gamepad-input.md)
+and [laptop rendering-server transport](../desktop/rendering-server.md).
+
 ## Current state (the three gaps)
 
 ### Gap 1 — `SelectionChanged` not in MMS signal-kind parser
