@@ -1,7 +1,7 @@
 # Audio amplitude to AVC: first slice
 
 Date: 2026-09-01
-Status: in progress
+Status: implemented; awaiting live multi-device acceptance
 
 ## Implementation progress — 2026-09-01
 
@@ -15,8 +15,19 @@ The authoring and retained-state seam is implemented:
 - The MMS parser now accepts the reserved import word `from` as a method name
   after a component dot-chain.
 
-Still pending: consumer lifecycle/control messages, bounded RMS production,
-main-thread snapshot draining, AVC direct-child pickup, and live diagnostics.
+The live input slice is now implemented:
+
+- one CPAL capture stream is provisioned per consumed `AudioInput` source;
+- observers sharing a source use preallocated per-window rolling RMS state;
+- F32, I16, and U16 input formats feed a bounded callback-to-main ring buffer;
+- main-thread generation validation rejects stale snapshots;
+- exact silence, disable, source removal, stream failure, and a no-data watchdog
+  close the retained path safely;
+- startup reports the selected device and negotiated format, and main-thread
+  diagnostics report RMS/peak at most once per second.
+
+Still pending: live acceptance on multiple physical microphones/HMD audio and
+recording the observed noise-floor/speech ranges below.
 
 ## Goal
 
@@ -103,13 +114,13 @@ capture / source PCM callback ── bounded snapshot queue ──► main Ampli
 
 ### 1. Component and MMS catalog
 
-- [ ] Add `AmplitudeComponent`, source selector/reference, requested window,
+- [x] Add `AmplitudeComponent`, source selector/reference, requested window,
   enabled flag, generation, retained `AmplitudeSample`, and status.
-- [ ] Register `Amplitude.rolling_window(seconds).from(audio_source)` in the
+- [x] Register `Amplitude.rolling_window(seconds).from(audio_source)` in the
   MMS component registry and runtime catalog.
-- [ ] Reject invalid/non-audio sources and invalid/non-finite/non-positive
+- [x] Reject invalid/non-audio sources and invalid/non-finite/non-positive
   windows with typed authoring errors.
-- [ ] Serialize/round-trip source choice and window; omit retained runtime data.
+- [x] Serialize/round-trip source choice and window; omit retained runtime data.
 
 Gate: an MMS amplitude expression materializes one live component bound to its
 declared `AudioSource`.
@@ -118,13 +129,13 @@ declared `AudioSource`.
 
 - [ ] Add `AmplitudeSystem` control messages: register, update, reset, remove,
   and shutdown.
-- [ ] Add a per-source consumer registry keyed by amplitude identity and
+- [x] Add a per-source consumer registry keyed by amplitude identity and
   generation.
-- [ ] Activate source capture/render production only while at least one graph,
+- [x] Activate source capture/render production only while at least one graph,
   amplitude, or later viseme consumer is enabled.
-- [ ] Preallocate one rolling accumulator/window state per supported amplitude
+- [x] Preallocate one rolling accumulator/window state per supported amplitude
   consumer before capture delivery begins.
-- [ ] Teardown on disable, reconfigure, source removal, component removal, and
+- [x] Teardown on disable, reconfigure, source removal, component removal, and
   final-consumer disappearance without waiting in callback context.
 
 Gate: repeat enable/disable/reconfigure/removal cycles neither leak a consumer
@@ -132,14 +143,14 @@ nor allow an old generation to update a new instance.
 
 ### 3. RMS protocol
 
-- [ ] Define fixed-size measurement snapshots carrying observer identity,
+- [x] Define fixed-size measurement snapshots carrying observer identity,
   generation, sequence, source timestamp, valid-frame count, RMS, peak, and
   discontinuity/status.
-- [ ] Calculate rolling RMS with bounded preallocated state; use safe finite
+- [x] Calculate rolling RMS with bounded preallocated state; use safe finite
   sample handling and reset temporal state after a sequence gap.
-- [ ] Bound the callback-to-main queue and drop rather than block when full.
-- [ ] Retain only the newest valid snapshot once per main-thread tick.
-- [ ] Clear retained state to neutral/invalid on silence policy, overrun reset,
+- [x] Bound the callback-to-main queue and drop rather than block when full.
+- [x] Retain only the newest valid snapshot once per main-thread tick.
+- [x] Clear retained state to neutral/invalid on silence policy, overrun reset,
   source failure, disable, and removal.
 
 Gate: deterministic fake PCM proves RMS/peak math, partial blocks, window
@@ -164,7 +175,7 @@ child; detached, stale, disabled, and indirect instances are ignored.
   RMS window, and calibrated noise-floor RMS from the main thread.
 - [ ] Log only status transitions and configurable/significant crossings above
   the calibrated floor; never log every callback or render tick.
-- [ ] Add `Amplitude` to
+- [x] Add `Amplitude` to
   `examples/vtuber-eye-tracking-mirror-eye-stabilize.mms` as a direct AVC child
   with monitoring absent.
 - [ ] Validate speaking changes retained RMS, silence neutralizes it, and

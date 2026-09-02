@@ -1,7 +1,7 @@
 # AVC mouth-open fallback from Amplitude
 
 Date: 2026-09-01
-Status: AVC binding implemented; live PCM handoff remains in the prerequisite slice
+Status: implemented; awaiting live HMD and multi-microphone acceptance
 
 ## Goal
 
@@ -24,7 +24,7 @@ morph targets, mouth animation, or visemes exist.
 
 ## Preconditions
 
-- [ ] `docs/task/audio-amplitude-avc-first-slice.md` provides current,
+- [x] `docs/task/audio-amplitude-avc-first-slice.md` provides current,
   generation-safe retained RMS snapshots from a live source.
 - [ ] AVC can resolve enabled direct-child amplitude observations for
   diagnostics and later policy consumers.

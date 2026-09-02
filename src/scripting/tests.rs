@@ -144,6 +144,34 @@ fn implicit_surface_example_is_valid_mms_syntax() {
 }
 
 #[test]
+fn vtuber_eye_tracking_mirror_microphone_binding_is_valid_mms_syntax() {
+    let path = repo_path("examples/vtuber-eye-tracking-mirror-eye-stabilize.mms");
+    let source = fs::read_to_string(&path).expect("read microphone mirror example");
+    assert!(!parse(&source).is_empty());
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+        &source,
+        path.to_str(),
+        &mut world,
+        &mut rx,
+        Some(&mut assets),
+        &mut queue,
+    );
+    assert!(output.errors.is_empty(), "mirror microphone scene errors: {:?}", output.errors);
+    let amplitude = world.all_components().find(|&id| {
+        world.get_component_by_id_as::<crate::engine::ecs::component::AmplitudeComponent>(id).is_some()
+    }).expect("mirror scene amplitude");
+    let avc = world.parent_of(amplitude).expect("amplitude should be attached directly to AVC");
+    let avc = world.get_component_by_id_as::<crate::engine::ecs::component::AvatarControlComponent>(avc)
+        .expect("amplitude parent should be AVC");
+    let amplitude_guid = world.get_component_record(amplitude).unwrap().guid;
+    assert_eq!(avc.mouth_open_amplitude, Some(crate::engine::ecs::component::ComponentRef::Guid(amplitude_guid)));
+}
+
+#[test]
 fn implicit_surface_refraction_clouds_example_materializes() {
     let path = repo_path("examples/implicit-surface-refraction-clouds.mms");
     let source = fs::read_to_string(&path).expect("read implicit refraction cloud example");

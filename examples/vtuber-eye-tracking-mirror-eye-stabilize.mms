@@ -33,6 +33,14 @@ tripod_light("eye_tracking_key", [-4.2, 0.0, 2.8], [0.0, 1.25, -1.5], SL.color(1
 tripod_light("eye_tracking_fill", [4.0, 0.0, 1.4], [0.0, 1.25, -1.5], SL.color(0.48, 0.68, 1.0).intensity(4.5).distance(11.0).angle(0.62).penumbra(0.35))
 tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1.0, 0.42, 0.78).intensity(5.0).distance(11.0).angle(0.62).penumbra(0.35))
 
+// Microphone mouth-open test. Evaluate Audio.input_devices() in the REPL to
+// see the numbered input list. Use AudioInput {} for the OS default, or replace
+// it with AudioInput.device_number(0) / (1) to test enumerated input devices.
+// The console prints the selected device/format and one RMS diagnostic per
+// second; use those values to tune the floor and ceiling below.
+let microphone = AudioInput {}
+let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
+
 // An explicit list keeps the editor useful without materializing the default
 // world and assets panels in this focused capture scene.
 T.position(-2.75, 2.8, -1.5) {
@@ -95,6 +103,15 @@ ED {
             InputXRGamepad { locomotion() speed(1.5) }
             T {
                 AVC {
+                    mouth_open_from_amplitude(voice_level)
+                    mouth_open_rms_floor(0.005)
+                    mouth_open_rms_ceiling(0.09)
+                    mouth_open_smoothing(16.0)
+
+                    // Direct placement also makes the retained measurement
+                    // available to AVC diagnostics. Capture is not monitored.
+                    voice_level
+
                     // OpenXR's rest-forward is -Z.
                     initial_yaw(3.14159)
                     left_arm_pole_direction([1, -0.35, -1])
