@@ -3,7 +3,7 @@ use crate::engine::ecs::World;
 use crate::engine::ecs::component::style::{Display, SizeDimension, WordWrapMode};
 use crate::engine::ecs::component::{
     ColorComponent, HtmlElementComponent, LayoutComponent, StyleComponent, TextComponent,
-    TransformComponent,
+    TextInputComponent, TransformComponent,
 };
 use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::ecs::system::text_system::TextSystem;
@@ -448,6 +448,25 @@ pub(crate) fn find_text_id_in_local_content_subtree(
             return Some(node);
         }
 
+        // TextInput's generated TextComponent is behind the input's authored
+        // StyleComponent. It is still local text content, not a nested layout
+        // item, so inspect it before applying the styled-boundary rule below.
+        if world
+            .get_component_by_id_as::<TextInputComponent>(node)
+            .is_some()
+        {
+            let mut stack: Vec<ComponentId> = world.children_of(node).to_vec();
+            while let Some(child) = stack.pop() {
+                if world
+                    .get_component_by_id_as::<TextComponent>(child)
+                    .is_some()
+                {
+                    return Some(child);
+                }
+                stack.extend(world.children_of(child).iter().copied());
+            }
+        }
+
         if node != root {
             if world
                 .get_component_by_id_as::<LayoutComponent>(node)
@@ -476,7 +495,47 @@ pub(crate) fn find_text_id_in_local_content_subtree(
     visit(world, root, root)
 }
 
-/// Walk the subtree of `root` and return the first `TextComponent` found.
+/// Text content that can contribute an intrinsic layout size.
+///
+/// A [`TextInputComponent`] owns a generated `TextComponent` after it is
+/// initialized, but its authored `StyleComponent` lives on the input root.
+/// Treating that style as a nested layout boundary before reaching the generated
+/// text used to make editable text invisible to intrinsic measurement.
+struct IntrinsicTextContent {
+    text: String,
+    authored_wrap_at: usize,
+    word_wrap: bool,
+    word_wrap_tokens: Vec<String>,
+    font_size_wu: f32,
+    /// TextInput styling is local to the input rather than the containing
+    /// layout item. Regular Text keeps the established containing-item style
+    /// behavior, so only inputs use this fallback.
+    input_style_owner: Option<ComponentId>,
+}
+
+/// Find the generated text metadata below an input when it has been initialized.
+/// The input's own value remains authoritative because a text edit can be queued
+/// for rendering while layout is already measuring the new input value.
+fn text_input_generated_text_metadata(
+    world: &World,
+    input: ComponentId,
+) -> Option<(usize, bool, Vec<String>, f32)> {
+    let mut stack: Vec<ComponentId> = world.children_of(input).to_vec();
+    while let Some(node) = stack.pop() {
+        if let Some(text) = world.get_component_by_id_as::<TextComponent>(node) {
+            return Some((
+                text.authored_wrap_at,
+                text.word_wrap,
+                text.word_wrap_tokens.clone(),
+                text.font_size,
+            ));
+        }
+        stack.extend(world.children_of(node).iter().copied());
+    }
+    None
+}
+
+/// Walk the subtree of `root` and return the first local Text or TextInput.
 ///
 /// Descends through plain `TransformComponent` wrappers (common pattern:
 /// `T.position(…){ Text { … } }`) so a box can measure text wrapped in a
@@ -485,24 +544,44 @@ pub(crate) fn find_text_id_in_local_content_subtree(
 fn find_text_in_local_content_subtree(
     world: &World,
     root: ComponentId,
-) -> Option<(String, usize, bool, Vec<String>, f32)> {
-    fn visit(
-        world: &World,
-        node: ComponentId,
-        root: ComponentId,
-    ) -> Option<(String, usize, bool, Vec<String>, f32)> {
+) -> Option<IntrinsicTextContent> {
+    fn visit(world: &World, node: ComponentId, root: ComponentId) -> Option<IntrinsicTextContent> {
         if let Some(t) = world.get_component_by_id_as::<TextComponent>(node) {
             // Return the *authored* wrap_at — callers use this as a hard cap
             // against the current container width. `t.wrap_at` reflects a prior
             // pass's already-narrowed value and would prevent re-widening when
             // the container grows.
-            return Some((
-                t.text.clone(),
-                t.authored_wrap_at,
-                t.word_wrap,
-                t.word_wrap_tokens.clone(),
-                t.font_size,
-            ));
+            return Some(IntrinsicTextContent {
+                text: t.text.clone(),
+                authored_wrap_at: t.authored_wrap_at,
+                word_wrap: t.word_wrap,
+                word_wrap_tokens: t.word_wrap_tokens.clone(),
+                font_size_wu: t.font_size,
+                input_style_owner: None,
+            });
+        }
+
+        if let Some(input) = world.get_component_by_id_as::<TextInputComponent>(node) {
+            let (authored_wrap_at, word_wrap, word_wrap_tokens, font_size_wu) =
+                text_input_generated_text_metadata(world, node).unwrap_or_else(|| {
+                    (
+                        TextComponent::DEFAULT_WRAP_AT,
+                        true,
+                        TextComponent::DEFAULT_WORD_WRAP_TOKENS
+                            .iter()
+                            .map(|token| (*token).to_string())
+                            .collect(),
+                        TextComponent::DEFAULT_FONT_SIZE,
+                    )
+                });
+            return Some(IntrinsicTextContent {
+                text: input.text.clone(),
+                authored_wrap_at,
+                word_wrap,
+                word_wrap_tokens,
+                font_size_wu,
+                input_style_owner: Some(node),
+            });
         }
 
         if node != root {
@@ -533,6 +612,32 @@ fn find_text_in_local_content_subtree(
     }
 
     visit(world, root, root)
+}
+
+fn intrinsic_text_font_size_wu(
+    world: &World,
+    tc_id: ComponentId,
+    content: &IntrinsicTextContent,
+    unit_scale: f32,
+) -> f32 {
+    content
+        .input_style_owner
+        .and_then(|input| resolved_style_font_size_wu(world, input, unit_scale))
+        .or_else(|| resolved_style_font_size_wu(world, tc_id, unit_scale))
+        .unwrap_or(content.font_size_wu)
+}
+
+fn intrinsic_text_wrap_style(
+    world: &World,
+    tc_id: ComponentId,
+    content: &IntrinsicTextContent,
+) -> (Option<WordWrapMode>, Option<Vec<String>>) {
+    let (item_wrap, item_tokens) = read_text_wrap_style(world, tc_id);
+    let (input_wrap, input_tokens) = content
+        .input_style_owner
+        .map(|input| read_text_wrap_style(world, input))
+        .unwrap_or((None, None));
+    (input_wrap.or(item_wrap), input_tokens.or(item_tokens))
 }
 
 /// Convert a length expressed in world units back into glyph units using the
@@ -571,9 +676,10 @@ fn resolved_style_font_size_wu(world: &World, tc_id: ComponentId, unit_scale: f3
 }
 
 /// Measure the intrinsic block-axis height (in glyph units) of a TC subtree
-/// by finding its `TextComponent` and running `TextSystem::measure`.
+/// by finding its `TextComponent` or `TextInputComponent` and running
+/// `TextSystem::measure`.
 ///
-/// Returns `0.0` if no `TextComponent` is found in the subtree.
+/// Returns `0.0` if no text content is found in the subtree.
 ///
 /// `TextSystem::measure` works in world units (it multiplies `rows * font_size_wu`),
 /// since the renderer scales glyph quads by `font_size_wu` in the styled-TC's
@@ -585,18 +691,17 @@ fn text_intrinsic_height(
     content_width_gu: f32,
     unit_scale: f32,
 ) -> f32 {
-    let Some((text, existing_wrap_at, mut word_wrap, mut tokens, text_font_size_wu)) =
-        find_text_in_local_content_subtree(world, tc_id)
-    else {
+    let Some(content) = find_text_in_local_content_subtree(world, tc_id) else {
         return 0.0;
     };
-    let effective_font_size_wu =
-        resolved_style_font_size_wu(world, tc_id, unit_scale).unwrap_or(text_font_size_wu);
+    let effective_font_size_wu = intrinsic_text_font_size_wu(world, tc_id, &content, unit_scale);
+    let mut word_wrap = content.word_wrap;
+    let mut tokens = content.word_wrap_tokens.clone();
 
     // Apply StyleComponent word_wrap override before measuring, the same way
     // apply_text_wrap_for_item does. This ensures the layout measurement
     // matches the renderer's wrapping behavior.
-    let (style_word_wrap, style_tokens) = read_text_wrap_style(world, tc_id);
+    let (style_word_wrap, style_tokens) = intrinsic_text_wrap_style(world, tc_id, &content);
     match style_word_wrap {
         Some(WordWrapMode::Normal) => word_wrap = true,
         Some(WordWrapMode::BreakWord) | Some(WordWrapMode::BreakAll) => word_wrap = false,
@@ -620,20 +725,20 @@ fn text_intrinsic_height(
             effective_font_size_wu,
             unit_scale,
         );
-        if existing_wrap_at == 0 {
+        if content.authored_wrap_at == 0 {
             container_cols
         } else {
-            container_cols.min(existing_wrap_at)
+            container_cols.min(content.authored_wrap_at)
         }
-    } else if existing_wrap_at == 0 {
+    } else if content.authored_wrap_at == 0 {
         // No container width and no author cap — measure unwrapped.
         usize::MAX
     } else {
-        existing_wrap_at
+        content.authored_wrap_at
     };
 
     let (_width_wu, height_wu) = TextSystem::measure(
-        &text,
+        &content.text,
         wrap_at.max(1),
         word_wrap,
         &tokens,
@@ -661,9 +766,15 @@ pub(crate) fn apply_text_wrap_for_item(
     if content_width_gu <= CHAR_WIDTH_GU {
         return;
     }
-    // Style overrides on the styled TC propagate onto the descendant TextComponent.
-    // No cascade today — only this TC's own StyleComponent is consulted.
-    let (style_word_wrap, style_tokens) = read_text_wrap_style(world, tc_id);
+    // A TextInput's direct style belongs to its text content, and therefore
+    // wins over the containing layout item's inherited/default text style.
+    let input_style_owner = find_text_in_local_content_subtree(world, tc_id)
+        .and_then(|content| content.input_style_owner);
+    let (item_wrap, item_tokens) = read_text_wrap_style(world, tc_id);
+    let (input_wrap, input_tokens) = input_style_owner
+        .map(|input| read_text_wrap_style(world, input))
+        .unwrap_or((None, None));
+    let (style_word_wrap, style_tokens) = (input_wrap.or(item_wrap), input_tokens.or(item_tokens));
 
     let (
         cur_wrap_at,
@@ -741,7 +852,11 @@ pub(crate) fn apply_text_font_size_for_item(
     // means "w world units per row" → wu directly; `Auto` defers to the
     // descendant `TextComponent`'s authored value. `Percent` has no defined
     // reference here and is treated as `Auto`.
-    let style_font_size_wu = resolved_style_font_size_wu(world, tc_id, unit_scale);
+    let input_style_font_size_wu = find_text_in_local_content_subtree(world, tc_id)
+        .and_then(|content| content.input_style_owner)
+        .and_then(|input| resolved_style_font_size_wu(world, input, unit_scale));
+    let style_font_size_wu =
+        input_style_font_size_wu.or_else(|| resolved_style_font_size_wu(world, tc_id, unit_scale));
 
     let Some(text_id) = find_text_id_in_local_content_subtree(world, tc_id) else {
         return;
@@ -973,13 +1088,10 @@ fn text_intrinsic_width(
     avail_content_w_gu: f32,
     unit_scale: f32,
 ) -> f32 {
-    let Some((text, tc_wrap_at, word_wrap, tokens, text_font_size_wu)) =
-        find_text_in_local_content_subtree(world, tc_id)
-    else {
+    let Some(content) = find_text_in_local_content_subtree(world, tc_id) else {
         return 0.0;
     };
-    let effective_font_size_wu =
-        resolved_style_font_size_wu(world, tc_id, unit_scale).unwrap_or(text_font_size_wu);
+    let effective_font_size_wu = intrinsic_text_font_size_wu(world, tc_id, &content, unit_scale);
     let avail_cols = if avail_content_w_gu > CHAR_WIDTH_GU {
         container_cols_for_width_and_font_size(
             avail_content_w_gu,
@@ -990,14 +1102,19 @@ fn text_intrinsic_width(
         0
     };
     // Honor the TextComponent's authored wrap_at as a hard cap (0 = unlimited).
-    let wrap_at = match (avail_cols, tc_wrap_at) {
+    let wrap_at = match (avail_cols, content.authored_wrap_at) {
         (0, 0) => usize::MAX,
         (0, w) => w,
         (a, 0) => a,
         (a, w) => a.min(w),
     };
-    let (measured_wu, _height_wu) =
-        TextSystem::measure(&text, wrap_at, word_wrap, &tokens, effective_font_size_wu);
+    let (measured_wu, _height_wu) = TextSystem::measure(
+        &content.text,
+        wrap_at,
+        content.word_wrap,
+        &content.word_wrap_tokens,
+        effective_font_size_wu,
+    );
     let measured_gu = wu_to_gu(measured_wu, unit_scale);
     // CSS shrink-to-fit caps an inline-block's width at the available content
     // width even if the text inside overflows (word-wrap: normal with a long
@@ -1153,7 +1270,7 @@ mod tests {
     use crate::engine::ecs::component::style::{Display, SizeDimension};
     use crate::engine::ecs::component::{
         BoundsComponent, ColorComponent, LayoutComponent, RenderableComponent, StyleComponent,
-        TextComponent, TransformComponent,
+        TextComponent, TextInputComponent, TransformComponent,
     };
     use crate::engine::graphics::bounds::Aabb;
 
@@ -1508,6 +1625,38 @@ mod tests {
 
         let measured = measure_item(&world, tc, 40.0, None, 1.0);
         assert_eq!(measured.content_width_gu, 3.0);
+    }
+
+    #[test]
+    fn inline_block_with_text_input_shrinks_to_its_current_value_and_style() {
+        let mut world = World::default();
+
+        let item = world.add_component_boxed_named("box", Box::new(TransformComponent::new()));
+        let item_style = world.add_component_boxed_named(
+            "box_style",
+            Box::new({
+                let mut s = StyleComponent::new();
+                s.display = Some(Display::InlineBlock);
+                s
+            }),
+        );
+        let input =
+            world.add_component_boxed_named("name_input", Box::new(TextInputComponent::new("abc")));
+        let input_style = world.add_component_boxed_named(
+            "name_input_style",
+            Box::new({
+                let mut s = StyleComponent::new();
+                s.font_size = SizeDimension::GlyphUnits(1.2);
+                s
+            }),
+        );
+        let _ = world.add_child(item, item_style);
+        let _ = world.add_child(item, input);
+        let _ = world.add_child(input, input_style);
+
+        let measured = measure_item(&world, item, 40.0, None, 1.0);
+        assert!((measured.content_width_gu - 3.6).abs() < 1e-5);
+        assert!((measured.content_height_gu - 1.2).abs() < 1e-5);
     }
 
     #[test]

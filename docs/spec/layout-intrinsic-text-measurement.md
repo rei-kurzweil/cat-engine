@@ -1,6 +1,6 @@
 # Intrinsic Text Measurement in Layout Subtrees
 
-How the layout system finds the `TextComponent` to measure when computing a
+How the layout system finds local text content to measure when computing a
 TC's intrinsic content size (width or height).
 
 ## Why this needs a rule
@@ -23,8 +23,8 @@ measurement.
 ## The boundary rule
 
 `find_text_in_local_content_subtree` (`src/engine/ecs/system/layout/measure.rs`)
-walks the subtree rooted at a TC and returns the first `TextComponent` it
-finds, subject to these boundaries (`node != root` only):
+walks the subtree rooted at a TC and returns the first local `TextComponent` or
+`TextInputComponent`, subject to these boundaries (`node != root` only):
 
 1. If the node *is* a `LayoutComponent` → halt. That subtree is its own
    measured tree (e.g. a nested `LayoutRoot` or world panel).
@@ -36,6 +36,18 @@ finds, subject to these boundaries (`node != root` only):
 
 The root is exempt from boundary checks — it's the box we're measuring, so
 its own Style/Html/Layout siblings don't stop the search.
+
+### TextInput bridge
+
+`TextInputComponent` is recognized before applying rule 2. Its direct
+`StyleComponent` belongs to the input's text content, not to a nested layout
+item. The input's current editable value is measured with `TextSystem::measure`;
+the private generated `TextComponent` supplies the effective text defaults and
+remains the target for glyph rebuild/font/wrap synchronization.
+
+The generated Text is not independently measured or flowed as a sibling layout
+item. See [`docs/review/text-and-textinput-layout-ownership.md`](../review/text-and-textinput-layout-ownership.md)
+for the complete ownership map.
 
 ## Consumers
 

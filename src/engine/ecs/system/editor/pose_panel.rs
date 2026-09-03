@@ -246,7 +246,7 @@ fn spawn_library_header(
         Box::new({
             let mut style = StyleComponent::new();
             style.display = Some(Display::InlineBlock);
-            style.width = SizeDimension::GlyphUnits(10.5);
+            style.width = SizeDimension::Auto;
             style.height = SizeDimension::GlyphUnits(3.0);
             style.padding = EdgeInsets::axes(0.25, 0.35);
             style.background_color = Some([0.94, 0.98, 0.92, 1.0]);
@@ -966,7 +966,7 @@ mod tests {
             .find_component(name_wrap, "#pose_library_name_wrap_style")
             .and_then(|id| world.get_component_by_id_as::<StyleComponent>(id))
             .unwrap();
-        assert_eq!(name_wrap_style.width, SizeDimension::GlyphUnits(10.5));
+        assert_eq!(name_wrap_style.width, SizeDimension::Auto);
         assert_eq!(
             world
                 .get_component_by_id_as::<TextInputComponent>(name_input)

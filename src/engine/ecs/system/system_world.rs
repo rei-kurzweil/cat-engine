@@ -1378,6 +1378,36 @@ impl SystemWorld {
                 }
             }
 
+            // Editable values can change an auto-sized input's intrinsic
+            // dimensions. Preserve existing plain-Text SetText behavior, but
+            // re-run enclosing layout roots for generated text owned by a
+            // TextInput so its background and siblings follow the edit.
+            let mut ancestor = world.parent_of(component);
+            let mut text_input_owned = false;
+            while let Some(id) = ancestor {
+                if world
+                    .get_component_by_id_as::<crate::engine::ecs::component::TextInputComponent>(id)
+                    .is_some()
+                {
+                    text_input_owned = true;
+                    break;
+                }
+                ancestor = world.parent_of(id);
+            }
+            if text_input_owned {
+                let mut current = Some(component);
+                while let Some(id) = current {
+                    if let Some(layout) = world
+                        .get_component_by_id_as_mut::<crate::engine::ecs::component::LayoutComponent>(
+                            id,
+                        )
+                    {
+                        layout.mark_dirty();
+                    }
+                    current = world.parent_of(id);
+                }
+            }
+
             this.register_text(world, visuals, component, emit);
         }
 

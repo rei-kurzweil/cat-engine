@@ -2,7 +2,7 @@
 
 ## Status
 
-Open design/implementation tracker. No source changes made.
+Implemented; awaiting desktop visual verification.
 
 ## Symptom
 
@@ -13,8 +13,8 @@ entered name's natural width, not for the panel to impose a larger fixed or
 minimum width.
 
 The immediate example is `pose_library_name_input` in the Bisket desktop Pose
-panel. Its styled wrapper is currently fixed at 10.5 GU, so longer legal
-library names have no matching expansion path.
+panel. Its styled wrapper now uses `width: auto`, so longer legal library names
+use the input's intrinsic measurement rather than a fixed 10.5-GU wrapper.
 
 ## Confirmed cause
 
@@ -64,12 +64,18 @@ the input's intrinsic layout dimensions.
 - TextInput-specific caret, selection, focus, and glyph-hit helpers remain
   interaction metadata and do not become a second text layout algorithm.
 
-## Proposed seam
+## Implemented seam
 
-Extend the existing local-content text measurement query to identify a
-TextInput and obtain its current value plus the effective text style. Reuse the
-same `TextSystem::measure` / wrapping rules already used for `TextComponent`;
-do not copy character advance or wrap calculations into TextInput code.
+The local-content intrinsic-text query now identifies a TextInput before its
+direct Style child is treated as a nested-layout boundary. It reads the input's
+current value and uses the same `TextSystem::measure` / wrapping rules as
+`TextComponent`; no character-advance or wrapping implementation was copied
+into TextInput code.
+
+The input's direct text style is used for both intrinsic measurement and the
+generated TextComponent's layout-time font/wrap updates. `SetText` now marks
+enclosing LayoutRoots dirty so the input background and following layout items
+are recomputed as the editable value changes.
 
 The result should be a shared text-layout input abstraction rather than making
 the Pose panel inspect text itself. That keeps regular Text and TextInput in
@@ -86,9 +92,10 @@ sync when typography or wrapping behavior changes.
 3. Test effective font-size and word-wrap behavior, including a constrained
    parent width.
 4. Verify explicit input-wrapper dimensions still override intrinsic size.
-5. Replace the Pose library name wrapper's fixed 10.5 GU width with auto only
-   after this general contract is working; verify long library names no longer
-   overpaint Capture/Reset/Save.
+5. Visually verify the Bisket and vtuber desktop Pose panels: long library
+   names grow their white input background and do not overpaint
+   Capture/Reset/Save. This remains manual coverage because it exercises the
+   complete editor-panel materialization path.
 
 ## Related
 
