@@ -149,8 +149,8 @@ ED {
 // --- VTuber avatar — desktop single-input topology ---
 //
 // InputComponent (fps_rotation, forward_z) drives body translation and head rotation
-// via AvatarControlSystem. `forward_plus_z()` + `initial_yaw(0.0)` keeps the
-// desktop path aligned with the input rig's +Z-forward convention.
+// via AvatarControlSystem. Desktop W moves along local -Z, which matches AVC's
+// default -Z-facing body convention.
 //
 // Topology (after AvatarControlSystem init):
 //   ED
@@ -170,9 +170,6 @@ ED {
         }
         T {
             AVC {
-                forward_plus_z()
-
-                initial_yaw(0.0)
                 body_yaw_threshold(3.14 / 7.5)
 
                 ik_debug()
