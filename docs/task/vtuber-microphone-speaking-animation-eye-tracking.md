@@ -2,7 +2,8 @@
 
 Date: 2026-09-02
 
-Status: interactive microphone-selection slice implemented; awaiting live verification
+Status: interactive microphone-selection slice implemented; `AudioInput.devices()`
+enumeration verified live; microphone capture/switching acceptance remains open
 
 ## Outcome and stop condition
 
@@ -42,6 +43,11 @@ check the displayed/enumerated list before choosing an index.
 `AudioInput.devices()` is a no-argument static host API returning
 `string[]`. It can provide the initial list during MMS materialization; it is
 not yet a subscription or device-status query.
+
+Live check (2026-09-03): `AudioInput.devices()` successfully returned the
+host's input-device list through the demo panel. This verifies the static API
+binding and basic enumeration path, not capture success for every listed
+device.
 
 An existing source can be switched during a retained MMS session:
 

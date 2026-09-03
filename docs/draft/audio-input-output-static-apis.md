@@ -4,6 +4,11 @@ Status: partially adopted. `AudioInput.devices()` and `AudioOutput.devices()`
 are implemented; session-default selection and further static APIs remain
 proposal only.
 
+Validation: `AudioInput.devices()` has been exercised successfully in the
+microphone demo against a live host device list. `AudioOutput.devices()` is
+covered by a strict runtime smoke test but has not yet had an equivalent
+interactive acceptance pass.
+
 ## Current surface and terminology
 
 `AudioInput.device_number(n) {}` is a component-expression constructor. It
