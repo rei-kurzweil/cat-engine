@@ -30,6 +30,15 @@ direction.
 body as +Z-forward while the input rig's W direction is -Z-forward, yielding a
 180-degree convention disagreement.
 
+Follow-up desktop experiments show that removing those overrides restores
+movement/head agreement but makes PC-Rei face away from the desktop camera.
+Conversely, `initial_yaw(0)` can make the body face the camera while leaving
+the independently spliced head 180 degrees away. This is therefore part of
+the broader desktop AVC body/head topology split, not a scene-only W/S sign
+mistake. See
+[`avatar-control-desktop-vs-vr-divergence.md`](../task/avatar-control-desktop-vs-vr-divergence.md)
+for the recorded configurations and current runtime-tree analysis.
+
 ## Investigation / fix options
 
 - Verify the imported PC-Rei GLTF's authored forward direction at rest.
@@ -45,4 +54,3 @@ body as +Z-forward while the input rig's W direction is -Z-forward, yielding a
 - `src/engine/ecs/system/input_system.rs`
 - `src/engine/ecs/system/avatar_control_system.rs`
 - `src/engine/ecs/component/transform_temporal_filter.rs`
-

@@ -169,10 +169,11 @@ ED {
             roll_axis_y()
         }
         T {
+        //T.rotation(0.0, 3.14159, 0.0) {
             AVC {
                 body_yaw_threshold(3.14 / 7.5)
-
-                ik_debug()
+                //initial_yaw(0)
+                // ik_debug()
 
                 T.position(0.0, -1.6, 0.0) {
                     GLTF.new("assets/models/pc-rei.hoodie.glb") {
@@ -181,6 +182,7 @@ ED {
                     }
                 }
             }
+        //}
         }
     }
 }
