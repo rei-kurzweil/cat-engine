@@ -73,6 +73,74 @@ authored heads. It also means the desktop problem cannot be solved robustly by
 choosing only `initial_yaw`, only `forward_plus_z`, or only an extra wrapper
 rotation: each affects a different layer of the runtime topology.
 
+### Scene-only authoring candidate — not yet the engine default
+
+We are **not blocked from making a focused desktop reference scene coherent**
+without changing engine code. The important rule is that the initial rotation
+must live on the `TransformComponent` that is the **direct child of `Input`**,
+not on an additional transform inserted between that child and `AVC`.
+
+The derived candidate for PC-Rei is:
+
+```mms
+I.speed(1.5) {
+    InputTransformMode.forward_z() {
+        fps_rotation()
+        roll_axis_y()
+    }
+    // This is Input's controlled transform: InputSystem uses its rotation for W/S.
+    T.rotation(0.0, 3.14159, 0.0) {
+        AVC {
+            // Seed the separate body-yaw branch to the body-facing result.
+            initial_yaw(0.0)
+
+            T.position(0.0, -1.6, 0.0) {
+                GLTF.new("assets/models/pc-rei.hoodie.glb") { /* … */ }
+            }
+        }
+    }
+}
+```
+
+Why this candidate differs from the observed wrapper experiment:
+
+```text
+reported:  Input → T (controlled, identity) → T.rotation(pi) → AVC
+candidate: Input → T.rotation(pi) (controlled) → AVC
+```
+
+`InputSystem` finds only the first direct transform child and uses that
+transform's rotation both for FPS yaw state and for W/S translation. Therefore
+the reported inner wrapper can turn the head branch without rotating the input
+movement basis. Putting the rotation on the direct child makes the initial
+head direction and W/S basis agree; `initial_yaw(0)` supplies the matching
+initial value for the otherwise independent body yaw-follow branch.
+
+This is a **testable authoring workaround**, not a claim that it is the desired
+public contract. It should be verified with neutral pose, W/S before any mouse
+input, and after mouse yaw passes the body-follow threshold. If it does not
+remain coherent through that sequence, record the measured transform values
+rather than adding another compensating wrapper.
+
+### API sketch: do not start with `Input.initial_pose`
+
+`InputComponent` currently owns only speed; its direct transform child already
+holds the initial translation, rotation, and scale. An
+`Input.initial_pose(TransformTrs)` builder would duplicate that state and
+leave an ambiguous question: does it replace, compose with, or merely seed the
+authored direct-child transform?
+
+The immediate need is not a new Input API. It is to author the existing direct
+child transform correctly. If a convenience API is later justified, it should
+be a scene-construction shorthand for that direct child, not independent pose
+state on `Input`.
+
+The longer-term engine API belongs at AVC's semantic boundary: an explicit
+initial avatar-facing intent would have to seed both the direct head-mount path
+and the body yaw-follow state atomically. That can remain desktop-specific
+internally while retaining the existing XR behavior and keeping advanced
+per-asset overrides available.
+
 ### Current-code correction
 
 The proposed strategy below still uses `AimConstraint` terminology, but the
