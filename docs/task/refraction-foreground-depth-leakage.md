@@ -69,6 +69,12 @@ scene-query cost and are not required to stop the foreground leak.
 - [ ] Apply the same rule to sharp refraction and, when implemented, rough transmission. A filtered
       rough lookup must not blend foreground samples back across the rejected boundary.
 
+The current rough-transmission slice samples its undisplaced screen coordinate, so it does not need
+the sharp path's displaced-candidate rejection. Its 1/2 through 1/32 color levels still lack
+matching depth-aware filter footprints, however. It is therefore intentionally **not** accepted as
+foreground-safe rough transmission: a foreground edge may still bleed into a frosted sample. Keep
+this checkbox open until the filtered footprint is made conservative or per-tap depth-valid.
+
 ## Reproduction fixture
 
 - [x] Add a high-contrast opaque foreground card, a grabbable refractive pane/sphere behind it, and

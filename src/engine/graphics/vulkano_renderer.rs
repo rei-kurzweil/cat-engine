@@ -513,6 +513,7 @@ mod vulkano_backend {
         pending_runtime_texture_updates: HashMap<TextureHandle, VulkanoGpuTexture>,
         window_runtime_debug_targets: Option<WindowRuntimeDebugTargets>,
         window_refraction_targets: Option<WindowRefractionTargets>,
+        window_rough_transmission_targets: Option<WindowRoughTransmissionTargets>,
 
         // Cached bones palette SSBOs (set=2 binding=1).
         //
@@ -582,6 +583,28 @@ mod vulkano_backend {
         color: Arc<ImageView>,
         depth_attachment: Arc<ImageView>,
         depth_sampled: Arc<ImageView>,
+    }
+
+    /// Full-viewport, filtered scene-color levels used by rough transmission.
+    /// `*_scratch` is only used while producing the matching final level.
+    #[derive(Clone)]
+    struct RoughTransmissionPyramidViews {
+        half: Arc<ImageView>,
+        half_scratch: Arc<ImageView>,
+        quarter: Arc<ImageView>,
+        quarter_scratch: Arc<ImageView>,
+        eighth: Arc<ImageView>,
+        eighth_scratch: Arc<ImageView>,
+        sixteenth: Arc<ImageView>,
+        sixteenth_scratch: Arc<ImageView>,
+        thirtysecond: Arc<ImageView>,
+        thirtysecond_scratch: Arc<ImageView>,
+    }
+
+    struct WindowRoughTransmissionTargets {
+        extent: [u32; 2],
+        color_format: Format,
+        frames: Vec<RoughTransmissionPyramidViews>,
     }
 
     #[derive(Clone)]
@@ -2050,6 +2073,7 @@ mod vulkano_backend {
                 pending_runtime_texture_updates: HashMap::new(),
                 window_runtime_debug_targets: None,
                 window_refraction_targets: None,
+                window_rough_transmission_targets: None,
 
                 cached_bones_buffers: Vec::new(),
                 cached_bones_slot_valid: Vec::new(),
@@ -2482,6 +2506,7 @@ mod vulkano_backend {
                 post_process,
                 None,
                 None,
+                None,
             )?;
 
             let device = self.context.device().clone();
@@ -2626,6 +2651,7 @@ mod vulkano_backend {
                         mirror_extent,
                         None,
                         runtime_texture_publication,
+                        None,
                         None,
                     )?;
 
@@ -2954,6 +2980,65 @@ mod vulkano_backend {
                 });
             }
             self.window_refraction_targets = Some(WindowRefractionTargets {
+                extent,
+                color_format,
+                frames,
+            });
+            Ok(())
+        }
+
+        fn rough_pyramid_extent(full_extent: [u32; 2], divisor: u32) -> [u32; 2] {
+            [
+                (full_extent[0] / divisor).max(1),
+                (full_extent[1] / divisor).max(1),
+            ]
+        }
+
+        fn ensure_window_rough_transmission_targets(
+            &mut self,
+            frame_count: usize,
+            extent: [u32; 2],
+            color_format: Format,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            let needs_recreate =
+                self.window_rough_transmission_targets
+                    .as_ref()
+                    .is_none_or(|targets| {
+                        targets.extent != extent
+                            || targets.color_format != color_format
+                            || targets.frames.len() != frame_count
+                    });
+            if !needs_recreate {
+                return Ok(());
+            }
+
+            let sampled_color_usage = ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED;
+            let mut frames = Vec::with_capacity(frame_count);
+            for _ in 0..frame_count {
+                let make_level = |level_extent| {
+                    Self::create_color_target_view(
+                        self.context.memory_allocator().clone(),
+                        color_format,
+                        level_extent,
+                        SampleCount::Sample1,
+                        sampled_color_usage,
+                    )
+                };
+                frames.push(RoughTransmissionPyramidViews {
+                    half: make_level(Self::rough_pyramid_extent(extent, 2))?,
+                    half_scratch: make_level(Self::rough_pyramid_extent(extent, 2))?,
+                    quarter: make_level(Self::rough_pyramid_extent(extent, 4))?,
+                    quarter_scratch: make_level(Self::rough_pyramid_extent(extent, 4))?,
+                    eighth: make_level(Self::rough_pyramid_extent(extent, 8))?,
+                    eighth_scratch: make_level(Self::rough_pyramid_extent(extent, 8))?,
+                    sixteenth: make_level(Self::rough_pyramid_extent(extent, 16))?,
+                    sixteenth_scratch: make_level(Self::rough_pyramid_extent(extent, 16))?,
+                    thirtysecond: make_level(Self::rough_pyramid_extent(extent, 32))?,
+                    thirtysecond_scratch: make_level(Self::rough_pyramid_extent(extent, 32))?,
+                });
+            }
+
+            self.window_rough_transmission_targets = Some(WindowRoughTransmissionTargets {
                 extent,
                 color_format,
                 frames,
@@ -3362,6 +3447,96 @@ mod vulkano_backend {
             )?;
 
             Ok((bloom_cfg.intensity > 0.0).then_some(bloom_a))
+        }
+
+        fn record_rough_transmission_pyramid(
+            &mut self,
+            cbb: &mut AutoCommandBufferBuilder<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+            color_format: Format,
+            snapshot: &RefractionSnapshotViews,
+            pyramid: &RoughTransmissionPyramidViews,
+            extent: [u32; 2],
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            // Each level is a full-viewport normalized-UV image. This is important:
+            // refraction and filtering can cross a mesh silhouette, so an object-local
+            // capture would need guard pixels, remapping, and overlap management.
+            let half_extent = Self::rough_pyramid_extent(extent, 2);
+            let quarter_extent = Self::rough_pyramid_extent(extent, 4);
+            let eighth_extent = Self::rough_pyramid_extent(extent, 8);
+            let sixteenth_extent = Self::rough_pyramid_extent(extent, 16);
+            let thirtysecond_extent = Self::rough_pyramid_extent(extent, 32);
+
+            let mut filter_level = |renderer: &mut Self,
+                                    source: Arc<ImageView>,
+                                    output: Arc<ImageView>,
+                                    scratch: Arc<ImageView>,
+                                    level_extent: [u32; 2]|
+             -> Result<(), Box<dyn std::error::Error>> {
+                renderer.post_processing_renderer.record_copy_pass(
+                    cbb,
+                    color_format,
+                    output.clone(),
+                    level_extent,
+                    source,
+                    SampleCount::Sample1,
+                )?;
+                renderer.post_processing_renderer.record_blur_pass(
+                    cbb,
+                    color_format,
+                    output.clone(),
+                    scratch.clone(),
+                    level_extent,
+                    [1.0 / level_extent[0] as f32, 0.0],
+                    2,
+                )?;
+                renderer.post_processing_renderer.record_blur_pass(
+                    cbb,
+                    color_format,
+                    scratch,
+                    output,
+                    level_extent,
+                    [0.0, 1.0 / level_extent[1] as f32],
+                    2,
+                )
+            };
+
+            filter_level(
+                self,
+                snapshot.color.clone(),
+                pyramid.half.clone(),
+                pyramid.half_scratch.clone(),
+                half_extent,
+            )?;
+            filter_level(
+                self,
+                pyramid.half.clone(),
+                pyramid.quarter.clone(),
+                pyramid.quarter_scratch.clone(),
+                quarter_extent,
+            )?;
+            filter_level(
+                self,
+                pyramid.quarter.clone(),
+                pyramid.eighth.clone(),
+                pyramid.eighth_scratch.clone(),
+                eighth_extent,
+            )?;
+            filter_level(
+                self,
+                pyramid.eighth.clone(),
+                pyramid.sixteenth.clone(),
+                pyramid.sixteenth_scratch.clone(),
+                sixteenth_extent,
+            )?;
+            filter_level(
+                self,
+                pyramid.sixteenth.clone(),
+                pyramid.thirtysecond.clone(),
+                pyramid.thirtysecond_scratch.clone(),
+                thirtysecond_extent,
+            )?;
+
+            Ok(())
         }
 
         fn recreate_swapchain_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -3981,6 +4156,7 @@ mod vulkano_backend {
             post_process: Option<PostProcessInvocation>,
             runtime_texture_publication: Option<(TextureHandle, Arc<ImageView>)>,
             scene_snapshot: Option<RefractionSnapshotViews>,
+            rough_transmission_pyramid: Option<RoughTransmissionPyramidViews>,
         ) -> Result<
             Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
             Box<dyn std::error::Error>,
@@ -4432,6 +4608,7 @@ mod vulkano_backend {
             )?;
 
             let global_set_refraction = if let Some(snapshot) = scene_snapshot.as_ref() {
+                let rough_pyramid = rough_transmission_pyramid.as_ref();
                 Some(DescriptorSet::new(
                     self.descriptor_set_allocator.clone(),
                     self.set_layouts.global.clone(),
@@ -4447,6 +4624,41 @@ mod vulkano_backend {
                             3,
                             snapshot.depth_sampled.clone(),
                             self.sampler_scene_depth.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            4,
+                            rough_pyramid
+                                .map(|pyramid| pyramid.half.clone())
+                                .unwrap_or_else(|| snapshot.color.clone()),
+                            self.sampler_scene_color.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            5,
+                            rough_pyramid
+                                .map(|pyramid| pyramid.quarter.clone())
+                                .unwrap_or_else(|| snapshot.color.clone()),
+                            self.sampler_scene_color.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            6,
+                            rough_pyramid
+                                .map(|pyramid| pyramid.eighth.clone())
+                                .unwrap_or_else(|| snapshot.color.clone()),
+                            self.sampler_scene_color.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            7,
+                            rough_pyramid
+                                .map(|pyramid| pyramid.sixteenth.clone())
+                                .unwrap_or_else(|| snapshot.color.clone()),
+                            self.sampler_scene_color.clone(),
+                        ),
+                        WriteDescriptorSet::image_view_sampler(
+                            8,
+                            rough_pyramid
+                                .map(|pyramid| pyramid.thirtysecond.clone())
+                                .unwrap_or_else(|| snapshot.color.clone()),
+                            self.sampler_scene_color.clone(),
                         ),
                     ],
                     [],
@@ -4764,7 +4976,7 @@ mod vulkano_backend {
                         post.final_color_format,
                         color_attachment_view.clone(),
                         extent,
-                        snapshot.color,
+                        snapshot.color.clone(),
                         self.msaa_samples,
                     )?;
                 } else {
@@ -4776,6 +4988,16 @@ mod vulkano_backend {
                             .clone(),
                         snapshot.color.image().clone(),
                     ))?;
+                }
+
+                if let Some(pyramid) = rough_transmission_pyramid.as_ref() {
+                    self.record_rough_transmission_pyramid(
+                        &mut cbb,
+                        snapshot.color.image().format(),
+                        &snapshot,
+                        pyramid,
+                        extent,
+                    )?;
                 }
 
                 let mut color_attachment_load = RenderingAttachmentInfo {
@@ -5203,6 +5425,27 @@ mod vulkano_backend {
                     None
                 };
 
+            // Allocate the filtered snapshots lazily. A rough material at zero
+            // roughness still shares the sharp snapshot, so it does not need this
+            // additional memory or per-frame filtering work.
+            let rough_transmission_pyramid = if scene_snapshot.is_some()
+                && visual_world.instances().iter().any(|instance| {
+                    instance.renderable.material.is_rough_transmission()
+                        && instance.transmission_roughness > 0.0
+                }) {
+                self.ensure_window_rough_transmission_targets(
+                    self.swapchain_state.swapchain_views.len(),
+                    extent,
+                    self.swapchain_state.swapchain.image_format(),
+                )?;
+                self.window_rough_transmission_targets
+                    .as_ref()
+                    .and_then(|targets| targets.frames.get(image_i as usize))
+                    .cloned()
+            } else {
+                None
+            };
+
             let device = self.context.device().clone();
             let queue = self.context.graphics_queue().clone();
 
@@ -5266,6 +5509,7 @@ mod vulkano_backend {
                 post_process,
                 None,
                 scene_snapshot,
+                rough_transmission_pyramid,
             )?;
 
             // Ensure we never render into a swapchain image (and its paired depth attachment)

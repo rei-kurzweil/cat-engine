@@ -5864,7 +5864,7 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             "examples/rough-transmission.mms",
             include_str!("../../examples/rough-transmission.mms"),
             0,
-            4,
+            7,
             1,
             0,
             false,

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use crate::engine::ecs::component::{
-    ColorComponent, ImplicitSphereComponent, ImplicitSurfaceComponent, TransmissiveModel,
-    resolve_immediate_transmissive_model,
+    ColorComponent, EmissiveComponent, ImplicitSphereComponent, ImplicitSurfaceComponent,
+    TransmissiveModel, resolve_immediate_transmissive_model,
 };
 use crate::engine::ecs::system::{MeshBoundsSystem, MeshOutputKind, TransformSystem};
 use crate::engine::ecs::{ComponentId, World};
@@ -29,6 +29,7 @@ struct ImplicitOutput {
     root_model: [[f32; 4]; 4],
     color: [f32; 4],
     material: MaterialHandle,
+    emissive: f32,
     transmission: Option<[f32; 4]>,
     sphere_ids: Vec<ComponentId>,
 }
@@ -72,7 +73,7 @@ impl ImplicitSurfaceSystem {
         for root in roots {
             let fingerprint = authored_fingerprint(world, root);
             match self.build_input(world, root) {
-                Ok((spec, spheres, root_model, color, material, transmission)) => {
+                Ok((spec, spheres, root_model, color, material, emissive, transmission)) => {
                     if self
                         .outputs
                         .get(&root)
@@ -98,6 +99,12 @@ impl ImplicitSurfaceSystem {
                             }
                             output.material = material;
                         }
+                        if output.emissive != emissive {
+                            if let Some(handle) = output.handle {
+                                visuals.update_emissive(handle, emissive);
+                            }
+                            output.emissive = emissive;
+                        }
                         if output.transmission != transmission {
                             if let (Some(handle), Some(options)) = (output.handle, transmission) {
                                 visuals.update_transmission(handle, options);
@@ -122,6 +129,7 @@ impl ImplicitSurfaceSystem {
                                     root_model,
                                     color,
                                     material,
+                                    emissive,
                                     transmission,
                                     sphere_ids,
                                 }
@@ -161,7 +169,7 @@ impl ImplicitSurfaceSystem {
                                     false,
                                     false,
                                     false,
-                                    0.0,
+                                    emissive,
                                     None,
                                     3.0,
                                 );
@@ -180,6 +188,7 @@ impl ImplicitSurfaceSystem {
                                     root_model,
                                     color,
                                     material,
+                                    emissive,
                                     transmission,
                                     sphere_ids,
                                 }
@@ -220,6 +229,7 @@ impl ImplicitSurfaceSystem {
             [[f32; 4]; 4],
             [f32; 4],
             MaterialHandle,
+            f32,
             Option<[f32; 4]>,
         ),
         String,
@@ -280,15 +290,7 @@ impl ImplicitSurfaceSystem {
                 cells, surface.bounds_min, surface.bounds_max, surface.voxel_size
             ));
         }
-        let color = world
-            .children_of(root)
-            .iter()
-            .find_map(|&child| {
-                world
-                    .get_component_by_id_as::<ColorComponent>(child)
-                    .map(|c| c.rgba)
-            })
-            .unwrap_or([1.0; 4]);
+        let (color, emissive) = resolve_surface_style(world, root);
         let (material, transmission) = match resolve_immediate_transmissive_model(world, root)? {
             Some(TransmissiveModel::Refraction(options)) => (
                 MaterialHandle::REFRACTION_MESH,
@@ -307,6 +309,11 @@ impl ImplicitSurfaceSystem {
             }
             None => (MaterialHandle::TOON_MESH, None),
         };
+        let material = if emissive > 0.0 && material == MaterialHandle::TOON_MESH {
+            MaterialHandle::EMISSIVE_TOON_MESH
+        } else {
+            material
+        };
         Ok((
             ImplicitGridSpec {
                 bounds_min: surface.bounds_min,
@@ -318,6 +325,7 @@ impl ImplicitSurfaceSystem {
             root_model,
             color,
             material,
+            emissive,
             transmission,
         ))
     }
@@ -383,6 +391,35 @@ fn sphere_descendants(world: &World, root: ComponentId) -> Result<Vec<ComponentI
         stack.extend(world.children_of(id).iter().rev().copied());
     }
     Ok(result)
+}
+
+/// An implicit surface bakes many authoring nodes into one visual instance, so
+/// its visual style may live in a caller-provided wrapper subtree rather than
+/// as an immediate child of the surface root. Resolve the first color and
+/// emissive style nodes in authored tree order for that one output instance.
+fn resolve_surface_style(world: &World, root: ComponentId) -> ([f32; 4], f32) {
+    let mut color = None;
+    let mut emissive = None;
+    let mut stack: Vec<_> = world.children_of(root).iter().rev().copied().collect();
+
+    while let Some(id) = stack.pop() {
+        if color.is_none() {
+            color = world
+                .get_component_by_id_as::<ColorComponent>(id)
+                .map(|component| component.rgba);
+        }
+        if emissive.is_none() {
+            emissive = world
+                .get_component_by_id_as::<EmissiveComponent>(id)
+                .map(|component| component.intensity.max(0.0));
+        }
+        if color.is_some() && emissive.is_some() {
+            break;
+        }
+        stack.extend(world.children_of(id).iter().rev().copied());
+    }
+
+    (color.unwrap_or([1.0; 4]), emissive.unwrap_or(0.0))
 }
 
 fn uniform_scale(model: [[f32; 4]; 4]) -> Result<f32, &'static str> {
@@ -548,7 +585,8 @@ mod tests {
     use crate::engine::ecs::ComponentId;
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
-        ImplicitSphereComponent, ImplicitSurfaceComponent, RefractionComponent,
+        ColorComponent, EmissiveComponent, ImplicitSphereComponent, ImplicitSurfaceComponent,
+        RefractionComponent,
     };
     use crate::engine::ecs::system::MeshBoundsSystem;
     use crate::engine::graphics::mesh::CpuMesh;
@@ -649,6 +687,45 @@ mod tests {
         );
         assert!(visuals.instances().is_empty());
         assert!(bounds.output(root).is_none());
+    }
+
+    #[test]
+    fn inherits_color_and_emissive_from_a_nested_style_payload() {
+        let mut world = World::default();
+        let root = world.add_component(ImplicitSurfaceComponent {
+            bounds_min: [-1.5; 3],
+            bounds_max: [1.5; 3],
+            voxel_size: 0.25,
+            iso_level: 0.0,
+            smooth_min_radius: 0.0,
+        });
+        let sphere = world.add_component(ImplicitSphereComponent::radius(1.0));
+        let color = world.add_component(ColorComponent::rgba(0.7, 0.8, 0.9, 1.0));
+        let emissive = world.add_component(EmissiveComponent::new(1.25));
+        world.add_child(root, sphere).unwrap();
+        world.add_child(root, color).unwrap();
+        world.add_child(color, emissive).unwrap();
+
+        let mut system = ImplicitSurfaceSystem::default();
+        let mut visuals = VisualWorld::new();
+        let mut assets = RenderAssets::new();
+        let mut uploader = TestUploader::default();
+        let mut bounds = MeshBoundsSystem::default();
+        system.reconcile_and_build(
+            &world,
+            &mut visuals,
+            &mut assets,
+            &mut uploader,
+            &mut bounds,
+        );
+
+        let instance = &visuals.instances()[0];
+        assert_eq!(instance.color, [0.7, 0.8, 0.9, 1.0]);
+        assert_eq!(instance.emissive, 1.25);
+        assert_eq!(
+            instance.renderable.material,
+            MaterialHandle::EMISSIVE_TOON_MESH
+        );
     }
 
     #[test]

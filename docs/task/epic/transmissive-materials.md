@@ -9,7 +9,7 @@ Status: proposed planning epic
 Add a shared transmissive-material architecture with two intentionally distinct material models:
 
 - sharp screen-space refraction; and
-- rough transmission, which refracts and filters the scene behind the surface.
+- rough transmission, which filters the scene behind the surface while keeping it screen-aligned.
 
 Both models consume the same per-view scene-color snapshot, but they have separate fragment shaders,
 pipeline identities, options, and validation. They must not become conditionals inside the toon
@@ -234,9 +234,9 @@ Start with the smallest shared set needed by both shaders:
 - normal influence or refraction strength; and
 - edge fade width.
 
-`RoughTransmissionOptions` additionally owns roughness. Roughness `0` should visually converge on
-the sharp refraction result closely enough for a comparison fixture, without requiring both models
-to compile to the same shader.
+`RoughTransmissionOptions` additionally owns roughness. Roughness `0` selects the unfiltered,
+screen-aligned scene snapshot. It is intentionally distinct from sharp refraction, whose displaced
+lookup is a separate material behavior.
 
 Defer absorption distance, dispersion, normal maps, back-face thickness reconstruction, and
 artist-selectable sample counts until the base paths are correct and measured.
@@ -251,17 +251,16 @@ Provide dedicated fragment shader assets, for example:
 They may share a small include/generated interface later if the shader build supports one, but one
 shader must not branch between the two models per fragment.
 
-Both paths:
+Both paths derive screen UV from the current fragment and active viewport, then tint/attenuate the
+sampled result. Sharp refraction computes a displaced lookup from view direction, transformed
+normal, IOR, and effective thickness. Rough transmission deliberately samples at the original
+screen coordinate, so its blurred scene remains registered with the content behind the surface as
+the viewer changes yaw or pitch.
 
-1. derive screen UV from the current fragment and active viewport;
-2. compute a refracted lookup from view direction, transformed normal, IOR, and effective thickness;
-3. apply the same coordinate orientation and edge-validity convention; and
-4. tint/attenuate the sampled result.
-
-Sharp refraction samples the scene-color base level at the refracted coordinate. Rough transmission
-samples a filtered neighborhood around that coordinate. The first rough path should use a
-renderer-built mip/blur pyramid and select LOD from roughness and effective thickness; it should not
-take an unbounded number of per-fragment samples.
+Sharp refraction samples the scene-color base level at its refracted coordinate. Rough transmission
+samples a filtered neighborhood around the undisplaced screen coordinate. The first rough path
+uses a renderer-built mip/blur pyramid and selects a bounded filter level from roughness; it does
+not take an unbounded number of per-fragment samples.
 
 Separate shader paths are still compatible with shared descriptor layouts and shared static or
 cached-deformed vertex shaders. “Separate refraction and rough-transmission shaders” means separate
@@ -392,16 +391,22 @@ Sphere visual diagnosis and a later bevel modifier are tracked separately in
 
 ### Phase 3: rough transmission
 
-- [ ] Add the separate rough-transmission fragment shader and pipeline routing.
-- [ ] Build/reuse a linear-color mip or blur pyramid from the same scene snapshot.
-- [ ] Map roughness and effective thickness to a bounded LOD/filter footprint.
-- [ ] Skip pyramid generation when no visible rough-transmission surface requires it.
+- [x] Add the separate rough-transmission fragment shader and pipeline routing.
+- [x] Build/reuse a linear-color mip or blur pyramid from the same scene snapshot.
+- [ ] Map roughness to a bounded LOD/filter footprint.
+- [x] Skip pyramid generation when no visible rough-transmission surface requires it.
 - [ ] Compare roughness `0`, intermediate roughness, and maximum supported roughness against the
       sharp refraction fixture.
 - [ ] Verify edge filtering never samples uninitialized padding or wraps to the opposite edge.
 
-Exit gate: rough transmission preserves the refracted displacement while progressively blurring
-the background, and its GPU cost is bounded and measured.
+Current desktop slice: the renderer creates reusable 1/2, 1/4, 1/8, 1/16, and 1/32 full-viewport snapshots,
+downsamples and separably blurs each level, and blends between them from authored roughness.
+Roughness `0` selects the unfiltered, screen-aligned snapshot exactly. The fixed levels avoid ordinary texture
+mipmaps and the generalized resource-LOD policy. The first mapping intentionally uses roughness
+only; cost measurement and depth-aware filtered footprints remain open.
+
+Exit gate: rough transmission keeps the background screen-aligned while progressively blurring it,
+and its GPU cost is bounded and measured.
 
 ### Phase 4: view families, integration, and proof
 

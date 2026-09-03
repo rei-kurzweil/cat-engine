@@ -15,6 +15,7 @@ pub struct PipelineDescriptorSetLayouts {
     /// - `binding=1`: lights SSBO
     /// - `binding=2`: immutable scene color for later transmissive phases
     /// - `binding=3`: matching immutable scene depth for transmissive rejection
+    /// - `binding=4..=8`: filtered scene-color levels for rough transmission
     ///
     /// Note: the renderer may build multiple descriptor sets with this same layout
     /// (e.g. a foreground variant and a background variant). They share the same
@@ -64,6 +65,17 @@ impl PipelineDescriptorSetLayouts {
         scene_depth_binding.descriptor_count = 1;
         scene_depth_binding.stages = ShaderStages::FRAGMENT;
         bindings.insert(3, scene_depth_binding);
+
+        // These are renderer-built, low-resolution copies of the scene snapshot.
+        // They deliberately do not depend on authored texture mipmaps or the
+        // generalized resource-LOD policy.
+        for binding in 4..=8 {
+            let mut rough_scene_color_binding =
+                DescriptorSetLayoutBinding::descriptor_type(DescriptorType::CombinedImageSampler);
+            rough_scene_color_binding.descriptor_count = 1;
+            rough_scene_color_binding.stages = ShaderStages::FRAGMENT;
+            bindings.insert(binding, rough_scene_color_binding);
+        }
 
         let global = DescriptorSetLayout::new(
             device.clone(),
