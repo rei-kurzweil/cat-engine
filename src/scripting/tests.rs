@@ -228,6 +228,28 @@ fn vtuber_microphone_speaking_animation_scene_materializes_info_panel() {
 }
 
 #[test]
+fn audio_device_static_apis_are_available_to_strict_mms() {
+    let source = r#"
+        let inputs = AudioInput.devices()
+        let outputs = AudioOutput.devices()
+        T { Text { "audio device static API smoke" } }
+    "#;
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut queue = CommandQueue::new();
+    let (_session, output) = RuntimeSpecSession::start_at_path(
+        source,
+        "examples/_mms_test_audio_device_static_apis.mms",
+        &mut world,
+        &mut rx,
+        None,
+        &mut queue,
+    )
+    .expect("strict runtime should start audio-device static API test");
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+}
+
+#[test]
 fn audio_input_device_row_click_calls_live_selector_method() {
     let source = r#"
         let microphone = AudioInput {}

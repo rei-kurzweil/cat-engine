@@ -898,6 +898,10 @@ fn validate_runtime_spec(
         }
     }
     let mut namespaces = HashMap::<String, String>::new();
+    let component_names: HashSet<_> = components
+        .iter()
+        .map(|component| component.name.to_lowercase())
+        .collect();
     for api in apis {
         let path = api_path(api.namespace.as_deref(), &api.name);
         validate_declaration_name(&api.name, &path)?;
@@ -905,7 +909,9 @@ fn validate_runtime_spec(
         if let Some(namespace) = &api.namespace {
             validate_declaration_name(namespace, namespace)?;
             if !namespaces.contains_key(&namespace.to_lowercase()) {
-                claim_name(&mut global_names, namespace, namespace)?;
+                if !component_names.contains(&namespace.to_lowercase()) {
+                    claim_name(&mut global_names, namespace, namespace)?;
+                }
                 namespaces.insert(namespace.to_lowercase(), namespace.clone());
             }
         } else {
@@ -1186,6 +1192,22 @@ impl Catalog {
             .iter()
             .any(|namespace| namespace.eq_ignore_ascii_case(name))
     }
+
+    pub(crate) fn parser_namespaces(&self) -> impl Iterator<Item = String> + '_ {
+        self.namespaces
+            .iter()
+            .filter(|namespace| !self.components.contains_key(&namespace.to_lowercase()))
+            .cloned()
+    }
+
+    pub(crate) fn static_component_api_paths(&self) -> impl Iterator<Item = String> + '_ {
+        self.apis.keys().filter_map(|path| {
+            let (namespace, _) = path.split_once('.')?;
+            self.components
+                .contains_key(&namespace.to_lowercase())
+                .then(|| path.clone())
+        })
+    }
 }
 
 pub(crate) fn api_key(namespace: Option<&str>, name: &str) -> String {
@@ -1230,17 +1252,19 @@ impl Runtime {
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
         let parser = match self.catalog.component_name_policy {
             ComponentNamePolicy::OpenUppercase => {
-                MeowMeowParser::with_open_component_names_and_namespaces(
+                MeowMeowParser::with_open_component_names_namespaces_and_static_apis(
                     tokens,
                     self.catalog.components.keys().cloned(),
-                    self.catalog.namespaces.iter().cloned(),
+                    self.catalog.parser_namespaces(),
+                    self.catalog.static_component_api_paths(),
                 )
             }
             ComponentNamePolicy::StrictRegistered => {
-                MeowMeowParser::with_component_names_and_namespaces(
+                MeowMeowParser::with_component_names_namespaces_and_static_apis(
                     tokens,
                     self.catalog.components.keys().cloned(),
-                    self.catalog.namespaces.iter().cloned(),
+                    self.catalog.parser_namespaces(),
+                    self.catalog.static_component_api_paths(),
                 )
             }
         };
@@ -1608,6 +1632,9 @@ mod tests {
                 .host_property("title", ValueType::String, ())
                 .method("show", ValueSignature::new(vec![], ValueType::Null), ());
         });
+        builder.namespace("Panel", |namespace| {
+            namespace.api("devices", ValueSignature::new(vec![], ValueType::Array), ());
+        });
         builder.namespace("log", |namespace| {
             namespace.api(
                 "write",
@@ -1835,6 +1862,29 @@ mod tests {
             matches!(&session.host().events[0], crate::HostEvent::ApiById { operation_id, args }
             if *operation_id == api_id && args == &vec![TransportValue::String("hello".into())])
         );
+    }
+
+    #[test]
+    fn component_name_can_also_own_a_static_api_namespace() {
+        let runtime = runtime();
+        let devices_id = runtime
+            .runtime()
+            .spec()
+            .api(Some("Panel"), "devices")
+            .unwrap()
+            .operation_id();
+        let mut session = runtime.runtime().session(EventStreamHost::new());
+
+        session.eval("Panel.devices()").unwrap();
+        assert!(
+            matches!(session.host().events.last(), Some(crate::HostEvent::ApiById { operation_id, args }) if *operation_id == devices_id && args.is_empty())
+        );
+
+        session.eval("Panel.new(2) {}").unwrap();
+        assert!(matches!(
+            session.host().events.last(),
+            Some(crate::HostEvent::Emit { tree, .. }) if tree.component_type == "Panel"
+        ));
     }
 
     #[test]

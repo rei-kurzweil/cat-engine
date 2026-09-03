@@ -388,7 +388,7 @@ canonical host-side component method dispatch rather than evaluator-only logic.
 Device enumeration is a host API rather than a component constructor:
 
 ```mms
-let devices = Audio.input_devices() // string[]
+let devices = AudioInput.devices() // string[]
 ```
 
 The separate `Audio` namespace avoids making `AudioInput` ambiguous between a
@@ -530,7 +530,7 @@ specific names to the component API.
 ### Task 2: audio input component and device lifecycle
 
 - add `AudioInputComponent` and MMS registration/catalog signatures;
-- add `Audio.input_devices()` host API enumeration;
+- add `AudioInput.devices()` static host API enumeration;
 - add `AudioInputSystem` runtime ownership;
 - negotiate the default CPAL input format and expose status/diagnostics;
 - implement generation-safe start, disable, reconfigure, removal, and shutdown;

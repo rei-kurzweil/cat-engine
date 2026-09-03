@@ -42,7 +42,7 @@ design and deferred work are tracked by the
 - `AudioInput {}` selects the default input device.
 - `AudioInput.device_number(index) {}` is a session-local device-selection
   constructor.
-- Device enumeration is `Audio.input_devices() -> string[]`, not a static API
+- Device enumeration is `AudioInput.devices() -> string[]`.
   on the `AudioInput` component name.
 - `Visemes.from(audio_input)` creates a component holding an explicit reference
   to one live `AudioInput`.
@@ -149,7 +149,7 @@ using a backend-specific phoneme string.
   format hints, and observable status.
 - [ ] Register `AudioInput` in the component registry and runtime catalog.
 - [ ] Add bare/default, `default()`, and `device_number(index)` constructors.
-- [ ] Add the `Audio.input_devices() -> string[]` host API.
+- [x] Add the `AudioInput.devices() -> string[]` static host API.
 - [ ] Validate constructor arguments and serialize the authored device choice.
 - [ ] Add focused MMS materialization/round-trip tests.
 

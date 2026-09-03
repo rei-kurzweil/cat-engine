@@ -1,6 +1,8 @@
 # Draft: static APIs on audio component constructor namespaces
 
-Status: proposal only — no implementation or compatibility change
+Status: partially adopted. `AudioInput.devices()` and `AudioOutput.devices()`
+are implemented; session-default selection and further static APIs remain
+proposal only.
 
 ## Current surface and terminology
 
@@ -23,10 +25,9 @@ selector in a retained scene.
 numbered_input.select_device_number(2)
 ```
 
-The present `Audio` namespace is a built-in host-API table. At present it has
-only `Audio.input_devices()`; it is not yet a complete public home for every
-audio capability. It was introduced because device enumeration returns data,
-rather than creating a component.
+Device enumeration is now exposed by built-in static tables on the matching
+component names: `AudioInput.devices()` and `AudioOutput.devices()`. The
+temporary standalone `Audio` host-API table has been removed.
 
 ## Proposed surface
 
@@ -55,9 +56,8 @@ The same name would have two unambiguous roles:
 - `microphone.select_device_number(n)` is an instance call on a live
   component.
 
-`AudioOutput.devices()` would be the matching static query for output
-endpoints. It does not imply that an `AudioOutput` component or graph-routing
-contract is already implemented.
+`AudioOutput.devices()` is the matching static query for output endpoints. It
+does not yet imply output-device selection or graph-routing configuration.
 
 ### Default-selection semantics
 
@@ -89,34 +89,28 @@ That is intentionally not part of this initial proposal.
   metadata or supported formats, without suggesting that every audio graph
   operation belongs in one global table.
 
-## Required runtime-language change
+## Implemented runtime-language support
 
-Today, the strict MMS runtime rejects one global identifier being both a
-component type and a host namespace. Therefore `AudioInput.devices()` cannot
-be added merely as another host binding.
-
-The runtime would need a first-class **component static API** surface:
-
-1. a component spec may register static methods in addition to constructors,
-   builders, and instance methods;
-2. call resolution recognizes `AudioInput.devices()` as a static call without
-   treating `AudioInput` as a runtime component instance; and
-3. type checking keeps the three forms distinct: component construction,
-   static calls, and instance calls.
+The strict MMS runtime now permits a component type to share its global name
+with a static host-API table. It recognizes registered static calls such as
+`AudioInput.devices()` without treating them as constructors, while preserving
+`AudioInput.device_number(1) {}` as a component expression. The generic
+mechanism keeps component construction, static calls, and instance calls
+distinct.
 
 `AudioInput.select_device_number(n)` additionally needs session-owned audio
 input preference state. Capture provisioning must resolve an implicit input
 through that preference, and signal/reconfigure all existing implicit inputs
 when it changes. Explicit per-instance selectors remain untouched.
 
-The design should work generically for other component types, not special-case
-audio.
+The mechanism is generic; audio device enumeration is merely its first use.
 
 ## Compatibility and migration
 
-Do not change the current API in the first implementation. Add
-`AudioInput.devices()` alongside `Audio.input_devices()`, then deprecate the
-latter only after the static-component mechanism is stable.
+The initial implementation has switched device enumeration directly to
+`AudioInput.devices()` and `AudioOutput.devices()`; there is no retained
+`Audio.input_devices()` alias. Keep future static additions deliberately
+narrow until the static-component mechanism has broader use.
 
 Possible future aliases:
 

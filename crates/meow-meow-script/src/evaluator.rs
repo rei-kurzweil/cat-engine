@@ -181,17 +181,19 @@ impl<'a, H: Host> Evaluator<'a, H> {
         let parser = if let Some(catalog) = &self.catalog {
             match catalog.component_name_policy {
                 ComponentNamePolicy::OpenUppercase => {
-                    MeowMeowParser::with_open_component_names_and_namespaces(
+                    MeowMeowParser::with_open_component_names_namespaces_and_static_apis(
                         tokens,
                         catalog.components.keys().cloned(),
-                        catalog.namespaces.iter().cloned(),
+                        catalog.parser_namespaces(),
+                        catalog.static_component_api_paths(),
                     )
                 }
                 ComponentNamePolicy::StrictRegistered => {
-                    MeowMeowParser::with_component_names_and_namespaces(
+                    MeowMeowParser::with_component_names_namespaces_and_static_apis(
                         tokens,
                         catalog.components.keys().cloned(),
-                        catalog.namespaces.iter().cloned(),
+                        catalog.parser_namespaces(),
+                        catalog.static_component_api_paths(),
                     )
                 }
             }

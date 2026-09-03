@@ -18,6 +18,7 @@ pub struct MeowMeowParser {
     pos: usize,
     component_names: Option<HashSet<String>>,
     non_component_names: HashSet<String>,
+    static_component_apis: HashSet<String>,
     open_uppercase_components: bool,
 }
 
@@ -28,6 +29,7 @@ impl MeowMeowParser {
             pos: 0,
             component_names: None,
             non_component_names: HashSet::new(),
+            static_component_apis: HashSet::new(),
             open_uppercase_components: true,
         }
     }
@@ -48,6 +50,7 @@ impl MeowMeowParser {
                     .collect(),
             ),
             non_component_names: HashSet::new(),
+            static_component_apis: HashSet::new(),
             // Strict runtimes still parse uppercase component-shaped syntax;
             // the runtime catalog then reports an unknown component instead
             // of silently interpreting it as unrelated expressions.
@@ -86,6 +89,7 @@ impl MeowMeowParser {
                     .collect(),
             ),
             non_component_names: HashSet::new(),
+            static_component_apis: HashSet::new(),
             open_uppercase_components: true,
         }
     }
@@ -105,6 +109,40 @@ impl MeowMeowParser {
         parser
     }
 
+    /// Like [`Self::with_component_names_and_namespaces`], while allowing a
+    /// component type to expose named static APIs. A registered static call
+    /// such as `AudioInput.devices()` remains a normal call expression, while
+    /// `AudioInput.device_number(1) {}` remains a component constructor.
+    pub fn with_component_names_namespaces_and_static_apis(
+        tokens: Vec<Token>,
+        names: impl IntoIterator<Item = impl Into<String>>,
+        namespaces: impl IntoIterator<Item = impl Into<String>>,
+        static_component_apis: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut parser = Self::with_component_names_and_namespaces(tokens, names, namespaces);
+        parser.static_component_apis = static_component_apis
+            .into_iter()
+            .map(|path| path.into().to_lowercase())
+            .collect();
+        parser
+    }
+
+    /// Open-component variant of
+    /// [`Self::with_component_names_namespaces_and_static_apis`].
+    pub fn with_open_component_names_namespaces_and_static_apis(
+        tokens: Vec<Token>,
+        names: impl IntoIterator<Item = impl Into<String>>,
+        namespaces: impl IntoIterator<Item = impl Into<String>>,
+        static_component_apis: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut parser = Self::with_open_component_names_and_namespaces(tokens, names, namespaces);
+        parser.static_component_apis = static_component_apis
+            .into_iter()
+            .map(|path| path.into().to_lowercase())
+            .collect();
+        parser
+    }
+
     fn is_component_name(&self, name: &str) -> bool {
         !self.non_component_names.contains(&name.to_lowercase())
             && (self
@@ -112,6 +150,25 @@ impl MeowMeowParser {
                 .as_ref()
                 .is_some_and(|names| names.contains(&name.to_lowercase()))
                 || self.open_uppercase_components && is_open_component_name(name))
+    }
+
+    fn is_static_component_api(&self, component: &str) -> bool {
+        matches!(self.peek_kind(), TokenKind::Dot)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|token| &token.kind),
+                Some(TokenKind::Ident(_))
+            )
+            && self.static_component_apis.contains(
+                &format!(
+                    "{}.{}",
+                    component,
+                    match self.tokens.get(self.pos + 1).map(|token| &token.kind) {
+                        Some(TokenKind::Ident(method)) => method,
+                        _ => unreachable!("checked above"),
+                    }
+                )
+                .to_lowercase(),
+            )
     }
 
     pub fn parse_program(mut self) -> Result<Vec<Statement>, ParseError> {
@@ -564,7 +621,11 @@ impl MeowMeowParser {
         let is_builtin_table = matches!(ident.0.as_str(), "Math" | "MusicNote");
         let is_component_type = self.is_component_name(&ident.0);
 
-        if !is_builtin_table && is_component_type && self.try_consume(&TokenKind::Dot) {
+        if !is_builtin_table
+            && is_component_type
+            && !self.is_static_component_api(&ident.0)
+            && self.try_consume(&TokenKind::Dot)
+        {
             let method = self.expect_component_method_ident()?;
             self.consume(&TokenKind::LParen)?;
             let args = self.parse_call_args()?;

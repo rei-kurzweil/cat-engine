@@ -47,6 +47,7 @@ pub enum MittensApi {
     JsonParse,
     JsonStringify,
     AudioInputDevices,
+    AudioOutputDevices,
 }
 
 /// The crate-owned runtime and matching Mittens bindings from one build.
@@ -1255,11 +1256,18 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
         );
     });
 
-    builder.namespace("Audio", |namespace| {
+    builder.namespace("AudioInput", |namespace| {
         namespace.api(
-            "input_devices",
+            "devices",
             mms::ValueSignature::new(Vec::new(), mms::ValueType::Array),
             MittensBinding::Api(MittensApi::AudioInputDevices),
+        );
+    });
+    builder.namespace("AudioOutput", |namespace| {
+        namespace.api(
+            "devices",
+            mms::ValueSignature::new(Vec::new(), mms::ValueType::Array),
+            MittensBinding::Api(MittensApi::AudioOutputDevices),
         );
     });
 
@@ -1336,6 +1344,17 @@ mod tests {
             configured.bindings().get(file_read_text),
             Some(&MittensBinding::Api(MittensApi::FileReadText))
         );
+        for (component, binding) in [
+            ("AudioInput", MittensApi::AudioInputDevices),
+            ("AudioOutput", MittensApi::AudioOutputDevices),
+        ] {
+            let id = spec.api(Some(component), "devices").unwrap().operation_id();
+            assert_eq!(
+                configured.bindings().get(id),
+                Some(&MittensBinding::Api(binding))
+            );
+        }
+        assert!(spec.api(Some("Audio"), "input_devices").is_none());
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
         assert!(
             configured

@@ -33,7 +33,7 @@ tripod_light("eye_tracking_key", [-4.2, 0.0, 2.8], [0.0, 1.25, -1.5], SL.color(1
 tripod_light("eye_tracking_fill", [4.0, 0.0, 1.4], [0.0, 1.25, -1.5], SL.color(0.48, 0.68, 1.0).intensity(4.5).distance(11.0).angle(0.62).penumbra(0.35))
 tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1.0, 0.42, 0.78).intensity(5.0).distance(11.0).angle(0.62).penumbra(0.35))
 
-// Microphone mouth-open test. Evaluate Audio.input_devices() in the REPL to
+// Microphone mouth-open test. Evaluate AudioInput.devices() in the REPL to
 // see the numbered input list. Use AudioInput {} for the OS default, or replace
 // it with AudioInput.device_number(0) / (1) to test enumerated input devices.
 // The console prints the selected device/format and one RMS diagnostic per

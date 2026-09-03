@@ -19,7 +19,7 @@ behavior. It must be ordinary scene UI, not editor-owned UI.
 
 The initial interactive slice stops when the new scene materializes, both
 relevant examples have black clear backgrounds, and the panel displays one
-clickable row per `Audio.input_devices()` name. Clicking a row switches the
+clickable row per `AudioInput.devices()` name. Clicking a row switches the
 scene's existing `AudioInput` to that session-local index.
 
 This is an enumeration/setup panel. It does not make every listed device live
@@ -35,11 +35,11 @@ let microphone = AudioInput.device_number(1) {}
 ```
 
 `AudioInput {}` selects the host default device. `AudioInput.device_number(0)`
-selects the first name returned by `Audio.input_devices()`, and `1` selects
+selects the first name returned by `AudioInput.devices()`, and `1` selects
 the second. Device numbering is intentionally session-local: users should
 check the displayed/enumerated list before choosing an index.
 
-`Audio.input_devices()` is already a no-argument host API returning
+`AudioInput.devices()` is a no-argument static host API returning
 `string[]`. It can provide the initial list during MMS materialization; it is
 not yet a subscription or device-status query.
 
@@ -100,10 +100,10 @@ retain or recreate arbitrary caller content itself.
 `info_panel` forwards that event from its named root. Its caller therefore
 owns the reload policy:
 
-1. The demo initially calls `Audio.input_devices()` and creates one row per
+1. The demo initially calls `AudioInput.devices()` and creates one row per
    returned name.
 2. The next data slice will define the panel's content-reload callback, so on
-   `AccordionRestoreRequested` the demo can call `Audio.input_devices()` again
+   `AccordionRestoreRequested` the demo can call `AudioInput.devices()` again
    and let `info_panel` remount freshly built rows.
 3. The rows are replaced only at restore time; no polling or live hot-plug
    observer is introduced in this slice.
@@ -142,7 +142,7 @@ open a capture stream; only the authored microphone that is consumed by
 3. Copy the mirror example into
    `examples/vtuber-microphone-speaking-animation-eye-tracking.mms`; set the
    black clear color and preserve its existing amplitude/AVC setup.
-4. Build device rows from `Audio.input_devices()` using the public panel.
+4. Build device rows from `AudioInput.devices()` using the public panel.
 5. Add the narrow `info_panel` content-reload callback, then register an
    `AccordionRestoreRequested` handler in the example to rebuild the body from
    a freshly enumerated device list.
@@ -160,7 +160,7 @@ open a capture stream; only the authored microphone that is consumed by
 - The title bar is draggable and its accordion toggle minimizes body content.
 - Restoring emits `AccordionRestoreRequested` from the panel root.
 - The example handles that event and recreates its microphone device rows from
-  a new `Audio.input_devices()` result.
+  a new `AudioInput.devices()` result.
 - Every initial enumeration result appears as exactly one readable row.
 - Device listing alone never starts capture for all listed devices.
 

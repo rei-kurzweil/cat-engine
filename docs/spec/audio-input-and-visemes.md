@@ -102,19 +102,19 @@ experiments. Persisted scenes should prefer a stable device identifier once
 the supported CPAL hosts provide an adequate identity contract. A display name
 alone may be ambiguous.
 
-Device enumeration is a true host API because it returns data instead of a
-component. The initial spelling is namespaced separately from the
-`AudioInput` component type:
+Device enumeration is a host API because it returns data instead of a
+component. Component types can also own static host APIs, so the discovery
+calls live beside their corresponding component types:
 
 ```mms
-let devices = Audio.input_devices()        // string[]
-let default_name = Audio.default_input_device() // string or null
+let devices = AudioInput.devices()         // string[]
+let output_devices = AudioOutput.devices()  // string[]
 ```
 
-The runtime currently rejects using one global name as both a component type
-and a host namespace. Therefore `AudioInput.enumerate_devices()` is not the v1
-surface. The separate `Audio` namespace also leaves room for output-device and
-host-format inspection.
+Component types may expose static host APIs as well as component constructors.
+`AudioInput.devices()` and `AudioOutput.devices()` are the adopted first slice;
+the broader static-API design remains documented in
+`docs/draft/audio-input-output-static-apis.md`.
 
 ### 3.3 Audio graph use
 
@@ -408,7 +408,7 @@ state already handed back to the main thread.
 V1 includes:
 
 - `AudioInput` component constructors and lifecycle;
-- `Audio.input_devices()` enumeration;
+- `AudioInput.devices()` enumeration;
 - `AudioGraphNodeKind::InputSource` and direct audio-graph compilation;
 - detached-but-consumed microphone capture for `Visemes`;
 - `Visemes.from(audio_input)` and its configuration builders;

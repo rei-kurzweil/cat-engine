@@ -2,7 +2,7 @@
 //
 // A focused XR acceptance scene for automatic eye-bone tracking and the
 // amplitude-driven mouth-open fallback. This first panel slice deliberately
-// uses a static body; the next slice reloads Audio.input_devices() rows when
+// uses a static body; the next slice reloads AudioInput.devices() rows when
 // the panel emits AccordionRestoreRequested.
 
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
@@ -30,11 +30,11 @@ tripod_light("eye_tracking_fill", [4.0, 0.0, 1.4], [0.0, 1.25, -1.5], SL.color(0
 tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1.0, 0.42, 0.78).intensity(5.0).distance(11.0).angle(0.62).penumbra(0.35))
 
 // Start on the known-good host default. Clicking a row below switches this
-// live source to that row's session-local Audio.input_devices() index.
+// live source to that row's session-local AudioInput.devices() index.
 let microphone = AudioInput {}
 let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
 
-let audio_input_devices = Audio.input_devices()
+let audio_input_devices = AudioInput.devices()
 let audio_input_status = Text { "default audio input selected — click a device to switch" }
 
 fn audio_input_option(input_source_name, input_source_index, microphone, status_text) {
