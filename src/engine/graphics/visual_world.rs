@@ -217,11 +217,14 @@ pub struct VisualWorld {
     opaque_stream: Vec<RenderOp>,
     opaque_stream_instances: Vec<u32>,
 
-    // Dedicated scene-color refraction phase, drawn after opaque/cutout and before
-    // ordinary transparency.
+    // Dedicated scene-color transmission phase, drawn after opaque/cutout and before
+    // ordinary transparency. Sharp and rough paths share the immutable scene snapshot.
     refraction_order: Vec<u32>,
     refraction_stream: Vec<RenderOp>,
     refraction_stream_instances: Vec<u32>,
+    rough_transmission_order: Vec<u32>,
+    rough_transmission_stream: Vec<RenderOp>,
+    rough_transmission_stream_instances: Vec<u32>,
 
     // Transparent draw data.
     // - Single-layer: cached (order does not depend on view), instanced.
@@ -250,6 +253,8 @@ pub struct VisualInstance {
     pub quant_steps: f32,
     /// IOR, effective thickness, strength, and viewport-edge fade.
     pub transmission: [f32; 4],
+    /// Rough-transmission filtering control. Non-rough material models ignore it.
+    pub transmission_roughness: f32,
 
     /// Base index into `VisualWorld::bones_palette`.
     pub bones_base: u32,
@@ -375,6 +380,9 @@ impl Default for VisualWorld {
             refraction_order: Vec::new(),
             refraction_stream: Vec::new(),
             refraction_stream_instances: Vec::new(),
+            rough_transmission_order: Vec::new(),
+            rough_transmission_stream: Vec::new(),
+            rough_transmission_stream_instances: Vec::new(),
 
             transparent_single_draw_order: Vec::new(),
             transparent_single_stream: Vec::new(),
@@ -2610,10 +2618,38 @@ impl VisualWorld {
         (ops, instances)
     }
 
-    pub fn has_refraction_instances(&self) -> bool {
+    pub fn rough_transmission_stream(&self) -> (&[RenderOp], &[u32]) {
+        (
+            &self.rough_transmission_stream,
+            &self.rough_transmission_stream_instances,
+        )
+    }
+
+    pub fn rough_transmission_stream_excluding(
+        &self,
+        excluded_instance: Option<InstanceHandle>,
+    ) -> (Vec<RenderOp>, Vec<u32>) {
+        let mut ops = Vec::new();
+        let mut instances = Vec::new();
+        self.build_phase_render_stream_excluding(
+            &self.rough_transmission_order,
+            excluded_instance,
+            &mut ops,
+            &mut instances,
+        );
+        (ops, instances)
+    }
+
+    pub fn has_transmissive_instances(&self) -> bool {
         self.instances
             .iter()
-            .any(|instance| instance.renderable.material.is_refraction())
+            .any(|instance| instance.renderable.material.is_transmissive())
+    }
+
+    pub fn has_rough_transmission_instances(&self) -> bool {
+        self.instances
+            .iter()
+            .any(|instance| instance.renderable.material.is_rough_transmission())
     }
 
     /// Indices into `instances()` in the order they should be drawn (emissive cutout batching).
@@ -2786,6 +2822,7 @@ impl VisualWorld {
         self.cutout_order.clear();
         self.emissive_cutout_order.clear();
         self.refraction_order.clear();
+        self.rough_transmission_order.clear();
         self.transparent_single_draw_order.clear();
         self.overlay_order.clear();
         self.stencil_clip_order.clear();
@@ -2805,6 +2842,8 @@ impl VisualWorld {
                 }
             } else if inst.renderable.material.is_refraction() {
                 self.refraction_order.push(i as u32);
+            } else if inst.renderable.material.is_rough_transmission() {
+                self.rough_transmission_order.push(i as u32);
             } else if inst.transparent_cutout {
                 self.cutout_order.push(i as u32);
             } else if !Self::is_transparent(inst) {
@@ -2956,6 +2995,26 @@ impl VisualWorld {
             has_stencil_clips,
             &mut self.refraction_stream,
             &mut self.refraction_stream_instances,
+        );
+
+        self.rough_transmission_order.sort_by_key(|&i| {
+            let inst = self.instances[i as usize];
+            let r = inst.renderable;
+            let tex = inst.texture.map(|t| t.0).unwrap_or(u32::MAX);
+            (
+                inst.stencil_ref,
+                r.material.0,
+                r.mesh.0,
+                tex,
+                inst.texture_filtering as u8,
+            )
+        });
+        Self::build_phase_render_stream(
+            instances,
+            &self.rough_transmission_order,
+            has_stencil_clips,
+            &mut self.rough_transmission_stream,
+            &mut self.rough_transmission_stream_instances,
         );
 
         self.emissive_cutout_order
@@ -3119,6 +3178,7 @@ impl VisualWorld {
             texture_filtering: TextureFiltering::default(),
             quant_steps: sanitize_quant_steps(quant_steps),
             transmission: [1.5, 0.1, 1.0, 0.02],
+            transmission_roughness: 0.0,
 
             bones_base: 0,
             bones_count: 0,
@@ -3321,6 +3381,24 @@ impl VisualWorld {
         }
     }
 
+    pub fn update_transmission_roughness(
+        &mut self,
+        handle: InstanceHandle,
+        roughness: f32,
+    ) -> bool {
+        if let Some(&idx) = self.handle_to_index.get(&handle) {
+            self.instances[idx].transmission_roughness = if roughness.is_finite() {
+                roughness.clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            self.dirty_instance_data = true;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn post_processing(&self) -> &PostProcessingConfig {
         &self.post_processing
     }
@@ -3407,6 +3485,7 @@ impl VisualWorld {
             let texture_filtering = self.instances[idx].texture_filtering;
             let quant_steps = self.instances[idx].quant_steps;
             let transmission = self.instances[idx].transmission;
+            let transmission_roughness = self.instances[idx].transmission_roughness;
             let bones_base = self.instances[idx].bones_base;
             let bones_count = self.instances[idx].bones_count;
             let deformed_base = self.instances[idx].deformed_base;
@@ -3430,6 +3509,7 @@ impl VisualWorld {
                 texture_filtering,
                 quant_steps,
                 transmission,
+                transmission_roughness,
                 bones_base,
                 bones_count,
                 deformed_base,

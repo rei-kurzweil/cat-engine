@@ -20,7 +20,10 @@ impl VulkanoState {
                 pipeline_skinned_emissive
             }
             crate::engine::graphics::MaterialHandle::SKINNED_TOON_MESH
-            | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH => pipeline_skinned,
+            | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH
+            | crate::engine::graphics::MaterialHandle::SKINNED_ROUGH_TRANSMISSION_MESH => {
+                pipeline_skinned
+            }
             _ => pipeline_toon,
         }
     }
@@ -483,6 +486,54 @@ impl VulkanoState {
             (
                 self.pipeline_refraction_mesh.clone(),
                 self.pipeline_skinned_refraction_mesh.clone(),
+            )
+        } else {
+            (
+                self.pipeline_toon_mesh_transparent.clone(),
+                self.pipeline_skinned_toon_mesh_transparent.clone(),
+            )
+        };
+        self.record_phase_stream_draws(
+            cbb,
+            visual_world,
+            global_set,
+            rig_set,
+            instance_buffer,
+            ops,
+            stream_instances,
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            skinned_pipeline.clone(),
+            skinned_pipeline,
+            static_pipeline.clone(),
+            static_pipeline.clone(),
+            static_pipeline,
+        )
+    }
+
+    pub(super) fn record_rough_transmission_draws(
+        &mut self,
+        cbb: &mut AutoCommandBufferBuilder<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+        visual_world: &VisualWorld,
+        global_set: &Arc<DescriptorSet>,
+        rig_set: &Arc<DescriptorSet>,
+        instance_buffer: &Subbuffer<[InstanceData]>,
+        instance_count: usize,
+        stream_override: Option<(&[crate::engine::graphics::visual_world::RenderOp], &[u32])>,
+        sample_scene_color: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if instance_count == 0 {
+            return Ok(());
+        }
+
+        let (ops, stream_instances) =
+            stream_override.unwrap_or_else(|| visual_world.rough_transmission_stream());
+        let (static_pipeline, skinned_pipeline) = if sample_scene_color {
+            (
+                self.pipeline_rough_transmission_mesh.clone(),
+                self.pipeline_skinned_rough_transmission_mesh.clone(),
             )
         } else {
             (

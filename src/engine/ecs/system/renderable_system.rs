@@ -1262,6 +1262,13 @@ impl RenderableSystem {
                     }
                     _ => MaterialHandle::REFRACTION_MESH,
                 },
+                Some(TransmissiveModel::RoughTransmission { .. }) => match p.material {
+                    MaterialHandle::SKINNED_TOON_MESH
+                    | MaterialHandle::SKINNED_EMISSIVE_TOON_MESH => {
+                        MaterialHandle::SKINNED_ROUGH_TRANSMISSION_MESH
+                    }
+                    _ => MaterialHandle::ROUGH_TRANSMISSION_MESH,
+                },
                 _ => p.material,
             };
 
@@ -1338,7 +1345,13 @@ impl RenderableSystem {
                 None,
                 quant_steps,
             );
-            if let Some(TransmissiveModel::Refraction(options)) = transmission {
+            if let Some(transmission) = transmission {
+                let (options, roughness) = match transmission {
+                    TransmissiveModel::Refraction(options) => (options, 0.0),
+                    TransmissiveModel::RoughTransmission { options, roughness } => {
+                        (options, roughness)
+                    }
+                };
                 let _ = visuals.update_transmission(
                     handle,
                     [
@@ -1348,6 +1361,7 @@ impl RenderableSystem {
                         options.edge_fade,
                     ],
                 );
+                let _ = visuals.update_transmission_roughness(handle, roughness);
             }
             if let Some(renderable_comp) =
                 world.get_component_by_id_as_mut::<RenderableComponent>(p.renderable_cid)
@@ -1583,8 +1597,8 @@ mod tests {
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         BackgroundComponent, ColorComponent, EmissiveComponent, OpacityComponent, OverlayComponent,
-        RefractionComponent, RenderableComponent, TextComponent, TransformComponent,
-        TransparentCutoutComponent,
+        RefractionComponent, RenderableComponent, RoughTransmissionComponent, TextComponent,
+        TransformComponent, TransparentCutoutComponent,
     };
     use crate::engine::graphics::primitives::{
         CpuMeshHandle, MaterialHandle, MeshHandle, Renderable,
@@ -1755,6 +1769,68 @@ mod tests {
             assert_eq!(visuals.refraction_stream().1.len(), 1);
             assert!(visuals.opaque_stream().1.is_empty());
             assert!(visuals.transparent_single_stream().1.is_empty());
+        }
+    }
+
+    #[test]
+    fn flush_pending_routes_rough_transmission_and_preserves_roughness() {
+        for (source_material, expected_material) in [
+            (
+                MaterialHandle::TOON_MESH,
+                MaterialHandle::ROUGH_TRANSMISSION_MESH,
+            ),
+            (
+                MaterialHandle::SKINNED_TOON_MESH,
+                MaterialHandle::SKINNED_ROUGH_TRANSMISSION_MESH,
+            ),
+        ] {
+            let mut world = World::default();
+            let mut visuals = VisualWorld::default();
+            let mut renderable_system = RenderableSystem::default();
+            let mut render_assets = RenderAssets::new();
+            let mut uploader = TestUploader::default();
+            let mut queue = CommandQueue::new();
+
+            let transform = world.add_component(TransformComponent::new());
+            let renderable = world.add_component(RenderableComponent::new(Renderable::new(
+                CpuMeshHandle::CUBE,
+                source_material,
+            )));
+            let mut rough = RoughTransmissionComponent::new();
+            rough.apply_builder("ior", 1.33).unwrap();
+            rough.apply_builder("thickness", 0.18).unwrap();
+            rough.apply_builder("strength", 0.8).unwrap();
+            rough.apply_builder("edge_fade", 0.04).unwrap();
+            rough.apply_builder("roughness", 0.65).unwrap();
+            let rough = world.add_component(rough);
+            world.add_child(transform, renderable).unwrap();
+            world.add_child(renderable, rough).unwrap();
+
+            renderable_system.register_renderable_from_world(&mut world, &mut visuals, renderable);
+            assert!(renderable_system.flush_pending(
+                &mut world,
+                &mut visuals,
+                &mut render_assets,
+                &mut uploader,
+                &mut queue,
+            ));
+
+            let handle = world
+                .get_component_by_id_as::<RenderableComponent>(renderable)
+                .and_then(RenderableComponent::get_handle)
+                .unwrap();
+            let instance = visuals.instance(handle).unwrap();
+            assert_eq!(instance.renderable.material, expected_material);
+            assert_eq!(instance.transmission, [1.33, 0.18, 0.8, 0.04]);
+            assert_eq!(instance.transmission_roughness, 0.65);
+
+            visuals.prepare_draw_cache();
+            assert_eq!(visuals.rough_transmission_stream().1.len(), 1);
+            assert!(visuals.refraction_stream().1.is_empty());
+            assert!(visuals.opaque_stream().1.is_empty());
+            assert!(visuals.transparent_single_stream().1.is_empty());
+            assert!(visuals.has_transmissive_instances());
+            assert!(visuals.has_rough_transmission_instances());
         }
     }
 

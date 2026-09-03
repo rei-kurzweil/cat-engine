@@ -216,6 +216,13 @@ mod vulkano_backend {
         }
     }
 
+    mod rough_transmission_mesh_fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            path: "assets/shaders/rough-transmission-mesh.frag",
+        }
+    }
+
     mod skinned_toon_mesh_vs {
         vulkano_shaders::shader! {
             ty: "vertex",
@@ -317,6 +324,8 @@ mod vulkano_backend {
 
         #[format(R32G32B32A32_SFLOAT)]
         pub i_transmission: [f32; 4],
+        #[format(R32_SFLOAT)]
+        pub i_transmission_roughness: f32,
     }
 
     #[derive(BufferContents, Debug, Clone, Copy, Default)]
@@ -454,6 +463,8 @@ mod vulkano_backend {
 
         pub pipeline_refraction_mesh: Arc<GraphicsPipeline>,
         pub pipeline_skinned_refraction_mesh: Arc<GraphicsPipeline>,
+        pub pipeline_rough_transmission_mesh: Arc<GraphicsPipeline>,
+        pub pipeline_skinned_rough_transmission_mesh: Arc<GraphicsPipeline>,
 
         /// Writes stencil INCR (enter clip region). Color write off, depth test off.
         pub pipeline_stencil_incr: Arc<GraphicsPipeline>,
@@ -698,13 +709,17 @@ mod vulkano_backend {
                     _pad1: 0,
                 },
                 crate::engine::graphics::MaterialHandle::REFRACTION_MESH
-                | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH => MaterialUBO {
-                    base_color: [1.0, 1.0, 1.0, 1.0],
-                    quant_steps: 1.0,
-                    emissive: 0,
-                    _pad0: 0,
-                    _pad1: 0,
-                },
+                | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH
+                | crate::engine::graphics::MaterialHandle::ROUGH_TRANSMISSION_MESH
+                | crate::engine::graphics::MaterialHandle::SKINNED_ROUGH_TRANSMISSION_MESH => {
+                    MaterialUBO {
+                        base_color: [1.0, 1.0, 1.0, 1.0],
+                        quant_steps: 1.0,
+                        emissive: 0,
+                        _pad0: 0,
+                        _pad1: 0,
+                    }
+                }
                 _ => MaterialUBO::default(),
             }
         }
@@ -901,6 +916,7 @@ mod vulkano_backend {
             let emissive_fs = emissive_toon_mesh_fs::load(device.clone())?;
             let mirror_fs = mirror_mesh_fs::load(device.clone())?;
             let refraction_fs = refraction_mesh_fs::load(device.clone())?;
+            let rough_transmission_fs = rough_transmission_mesh_fs::load(device.clone())?;
             let grid_vs = grid_mesh_vs::load(device.clone())?;
             let grid_fs = grid_square_mesh_fs::load(device.clone())?;
 
@@ -980,6 +996,31 @@ mod vulkano_backend {
                     refraction_fs
                         .entry_point("main")
                         .ok_or("missing refraction-mesh.frag entry point")?,
+                ),
+            ];
+
+            let rough_transmission_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    vs.entry_point("main")
+                        .ok_or("missing toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    rough_transmission_fs
+                        .entry_point("main")
+                        .ok_or("missing rough-transmission-mesh.frag entry point")?,
+                ),
+            ];
+
+            let skinned_rough_transmission_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    skinned_vs
+                        .entry_point("main")
+                        .ok_or("missing cached-skinned-toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    rough_transmission_fs
+                        .entry_point("main")
+                        .ok_or("missing rough-transmission-mesh.frag entry point")?,
                 ),
             ];
 
@@ -1565,6 +1606,22 @@ mod vulkano_backend {
             let pipeline_skinned_refraction_mesh =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_refraction)?;
 
+            let mut pipeline_ci_rough_transmission = pipeline_ci_transparent.clone();
+            pipeline_ci_rough_transmission.stages = rough_transmission_stages.into();
+            let pipeline_rough_transmission_mesh =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_rough_transmission)?;
+
+            let mut pipeline_ci_skinned_rough_transmission = pipeline_ci_transparent.clone();
+            pipeline_ci_skinned_rough_transmission.stages =
+                skinned_rough_transmission_stages.into();
+            pipeline_ci_skinned_rough_transmission.vertex_input_state =
+                Some(vertex_input_state_skinned.clone());
+            let pipeline_skinned_rough_transmission_mesh = GraphicsPipeline::new(
+                device.clone(),
+                None,
+                pipeline_ci_skinned_rough_transmission,
+            )?;
+
             let mut pipeline_ci_skinned_cutout = pipeline_ci_cutout.clone();
             pipeline_ci_skinned_cutout.stages = skinned_stages.into();
             pipeline_ci_skinned_cutout.vertex_input_state =
@@ -1949,6 +2006,8 @@ mod vulkano_backend {
 
                 pipeline_refraction_mesh,
                 pipeline_skinned_refraction_mesh,
+                pipeline_rough_transmission_mesh,
+                pipeline_skinned_rough_transmission_mesh,
 
                 pipeline_stencil_incr,
                 pipeline_stencil_decr,
@@ -3009,6 +3068,7 @@ mod vulkano_backend {
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
                     i_transmission: inst.transmission,
+                    i_transmission_roughness: inst.transmission_roughness,
                 }
             });
 
@@ -3418,6 +3478,7 @@ mod vulkano_backend {
                         i_deformed_base: inst.deformed_base,
                         i_deformed_count: inst.deformed_count,
                         i_transmission: inst.transmission,
+                        i_transmission_roughness: inst.transmission_roughness,
                     }
                 });
 
@@ -3463,6 +3524,7 @@ mod vulkano_backend {
                     i_deformed_base: inst.deformed_base,
                     i_deformed_count: inst.deformed_count,
                     i_transmission: inst.transmission,
+                    i_transmission_roughness: inst.transmission_roughness,
                 }
             });
 
@@ -3499,7 +3561,9 @@ mod vulkano_backend {
                 | crate::engine::graphics::MaterialHandle::GRID_MESH
                 | crate::engine::graphics::MaterialHandle::MIRROR
                 | crate::engine::graphics::MaterialHandle::REFRACTION_MESH
-                | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH => {}
+                | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH
+                | crate::engine::graphics::MaterialHandle::ROUGH_TRANSMISSION_MESH
+                | crate::engine::graphics::MaterialHandle::SKINNED_ROUGH_TRANSMISSION_MESH => {}
                 _ => return Ok(None),
             }
 
@@ -4005,6 +4069,21 @@ mod vulkano_backend {
             let refraction_instance_count = refraction_instances.len();
             let refraction_instance_buffer =
                 self.build_instance_buffer_for_order_opt(&*visual_world, refraction_instances)?;
+
+            // --- Rough scene-color transmission pass ---
+            let owned_rough_transmission_stream = excluded_instance
+                .map(|excluded| visual_world.rough_transmission_stream_excluding(Some(excluded)));
+            let (rough_transmission_ops, rough_transmission_instances) =
+                if let Some((ops, instances)) = owned_rough_transmission_stream.as_ref() {
+                    (&ops[..], &instances[..])
+                } else {
+                    visual_world.rough_transmission_stream()
+                };
+            let rough_transmission_instance_count = rough_transmission_instances.len();
+            let rough_transmission_instance_buffer = self.build_instance_buffer_for_order_opt(
+                &*visual_world,
+                rough_transmission_instances,
+            )?;
             let scene_color_source = scene_snapshot.as_ref().and_then(|_| {
                 post_process
                     .as_ref()
@@ -4755,6 +4834,21 @@ mod vulkano_backend {
                 )?;
             }
 
+            if let Some(rough_transmission_instance_buffer) =
+                rough_transmission_instance_buffer.as_ref()
+            {
+                self.record_rough_transmission_draws(
+                    &mut cbb,
+                    visual_world,
+                    global_set_refraction.as_ref().unwrap_or(&global_set_fg),
+                    &rig_set,
+                    rough_transmission_instance_buffer,
+                    rough_transmission_instance_count,
+                    Some((rough_transmission_ops, rough_transmission_instances)),
+                    sample_scene_color,
+                )?;
+            }
+
             self.record_transparent_single_draws(
                 &mut cbb,
                 visual_world,
@@ -5086,7 +5180,7 @@ mod vulkano_backend {
             };
 
             let scene_snapshot =
-                if visual_world.has_refraction_instances() && post_process.is_some() {
+                if visual_world.has_transmissive_instances() && post_process.is_some() {
                     self.ensure_window_refraction_targets(
                         self.swapchain_state.swapchain_views.len(),
                         extent,

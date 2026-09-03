@@ -327,6 +327,18 @@ impl Material {
         vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
         fragment_shader: "assets/shaders/refraction-mesh.frag",
     };
+
+    /// Scene-color transmission with a roughness-controlled filtering path.
+    pub const ROUGH_TRANSMISSION_MESH: Material = Material {
+        vertex_shader: "assets/shaders/toon-mesh.vert",
+        fragment_shader: "assets/shaders/rough-transmission-mesh.frag",
+    };
+
+    /// Cached-deformed scene-color transmission with a roughness-controlled filtering path.
+    pub const SKINNED_ROUGH_TRANSMISSION_MESH: Material = Material {
+        vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
+        fragment_shader: "assets/shaders/rough-transmission-mesh.frag",
+    };
 }
 
 impl MaterialHandle {
@@ -357,7 +369,24 @@ impl MaterialHandle {
     /// Cached-deformed mesh with the sharp-refraction fragment stage.
     pub const SKINNED_REFRACTION_MESH: MaterialHandle = MaterialHandle(8);
 
+    /// Static mesh with the rough-transmission fragment stage.
+    pub const ROUGH_TRANSMISSION_MESH: MaterialHandle = MaterialHandle(9);
+
+    /// Cached-deformed mesh with the rough-transmission fragment stage.
+    pub const SKINNED_ROUGH_TRANSMISSION_MESH: MaterialHandle = MaterialHandle(10);
+
     pub const fn is_refraction(self) -> bool {
         matches!(self, Self::REFRACTION_MESH | Self::SKINNED_REFRACTION_MESH)
+    }
+
+    pub const fn is_rough_transmission(self) -> bool {
+        matches!(
+            self,
+            Self::ROUGH_TRANSMISSION_MESH | Self::SKINNED_ROUGH_TRANSMISSION_MESH
+        )
+    }
+
+    pub const fn is_transmissive(self) -> bool {
+        self.is_refraction() || self.is_rough_transmission()
     }
 }
