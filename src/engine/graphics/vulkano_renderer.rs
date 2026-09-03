@@ -1210,6 +1210,15 @@ mod vulkano_backend {
                         offset: 96,
                         ..Default::default()
                     },
+                )
+                .attribute(
+                    13,
+                    VertexInputAttributeDescription {
+                        binding: 1,
+                        format: Format::R32_SFLOAT,
+                        offset: 112,
+                        ..Default::default()
+                    },
                 );
 
             // Skinned pipeline: add a separate per-vertex skinning buffer (binding=1),
