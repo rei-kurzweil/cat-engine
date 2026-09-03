@@ -75,7 +75,6 @@ fn rough_transmission_panel(panel_name, position, color, roughness) {
             C.rgba(color[0], color[1], color[2], color[3])
             RoughTransmission
                 .strength(4.0)
-                .edge_fade(0.05)
                 .roughness(roughness)
         }
         
