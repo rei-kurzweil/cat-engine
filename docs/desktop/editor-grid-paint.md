@@ -21,6 +21,7 @@ losing editor state.
 - [Grid-aware paint stroke interaction model](../task/grid-aware-paint-stroke-interaction-model.md)
 - [Desktop paint/grid deduplication reproduction](../task/paint-grid-stroke-cell-deduplication-and-desktop-repro.md)
 - [Unified grid snap mode](../task/unified-grid-snap-mode-mms-gizmo-and-paint.md)
+- [Editor icon and preview layout observations](editor-icon-and-preview-layout-observations.md)
 
 ## Work groups
 
