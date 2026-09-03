@@ -15,50 +15,32 @@ RenderGraph {
 BG.occlusion_and_lighting() {
     // Rows recede and descend into the distance, mixing three- and five-puff
     // silhouettes. The cloud prefab controls each cluster's base width.
-    T.position(-16.0,  7.0, -30.0) {
-        cloud(5.0, 10.5, C.rgba(0.72, 0.82, 0.98, 1.0) {
-            Emissive.on() { intensity(1.15) }
-        })
+    T.position(-36.0,  7.0, -30.0) {
+        cloud(5.0, 10.5, C.rgba(0.72, 0.82, 0.98, 1.0) {   })
     }
-    T.position(  0.0,  8.2, -31.0) {
-        cloud(3.0, 8.5, C.rgba(0.98, 0.78, 0.86, 1.0) {
-            Emissive.on() { intensity(1.15) }
-        })
+    T.position(  -10.0,  8.2, -31.0) {
+        cloud(3.0, 8.5, C.rgba(0.98, 0.78, 0.86, 1.0) {   })
     }
     T.position( 16.0,  6.5, -29.0) {
-        cloud(5.0, 10.8, C.rgba(0.80, 0.93, 0.82, 1.0) {
-            Emissive.on() { intensity(1.15) }
-        })
+        cloud(5.0, 10.8, C.rgba(0.80, 0.93, 0.82, 1.0) {   })
     }
     T.position(-19.0,  2.4, -54.0) {
-        cloud(3.0, 11.5, C.rgba(0.98, 0.88, 0.68, 1.0) {
-            Emissive.on() { intensity(1.05) }
-        })
+        cloud(3.0, 11.5, C.rgba(0.98, 0.88, 0.68, 1.0) {   })
     }
     T.position( -1.5,  3.4, -55.0) {
-        cloud(5.0, 11.0, C.rgba(0.82, 0.78, 0.96, 1.0) {
-            Emissive.on() { intensity(1.05) }
-        })
+        cloud(5.0, 11.0, C.rgba(0.82, 0.78, 0.96, 1.0) {   })
     }
     T.position( 17.0,  2.0, -53.0) {
-        cloud(3.0, 10.5, C.rgba(0.74, 0.91, 0.92, 1.0) {
-            Emissive.on() { intensity(1.05) }
-        })
+        cloud(3.0, 10.5, C.rgba(0.74, 0.91, 0.92, 1.0) {   })
     }
-    T.position(-24.0, -2.0, -84.0) {
-        cloud(5.0, 13.0, C.rgba(0.95, 0.76, 0.78, 1.0) {
-            Emissive.on() { intensity(0.95) }
-        })
+    T.position(-34.0, -2.0, -84.0) {
+        cloud(5.0, 13.0, C.rgba(0.95, 0.76, 0.78, 1.0) {   })
     }
-    T.position(  0.5, -0.8, -85.0) {
-        cloud(3.0, 12.0, C.rgba(0.78, 0.85, 0.98, 1.0) {
-            Emissive.on() { intensity(0.95) }
-        })
+    T.position(  19.5, -0.8, -85.0) {
+        cloud(3.0, 12.0, C.rgba(0.78, 0.85, 0.98, 1.0) {   })
     }
-    T.position( 24.0, -2.6, -83.0) {
-        cloud(5.0, 13.2, C.rgba(0.84, 0.96, 0.80, 1.0) {
-            Emissive.on() { intensity(0.95) }
-        })
+    T.position( 54.0, -2.6, -83.0) {
+        cloud(5.0, 13.2, C.rgba(0.84, 0.96, 0.80, 1.0) {   })
     }
 
     // Directional lights encode the incoming-light direction in their
@@ -75,6 +57,7 @@ BG.occlusion_and_lighting() {
     T.position(0.0, -7.35, -18.0).rotation(-1.5708, 0.0, 0.0).scale(60.0, 60.0, 0.01) {
         R.square() {
             C.rgba(0.62, 0.63, 0.61, 1.0)
+            Unlit {}
         }
     }
 }
@@ -95,15 +78,7 @@ fn rough_transmission_panel(panel_name, position, color, roughness) {
                 .edge_fade(0.05)
                 .roughness(roughness)
         }
-        // A non-transmissive overlay frame gives every frosted surface a
-        // stable, white screen-space reference while rotating the camera.
-        // T.scale(1.02, 1.02, 1.10) {
-        //     Overlay {
-        //         R.wireframe_box(0.01) {
-        //             C.rgba(1.0, 1.0, 1.0, 0.05)
-        //         }
-        //     }
-        // }
+        
     }
 }
 

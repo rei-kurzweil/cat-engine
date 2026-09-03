@@ -6,7 +6,7 @@ use crate::engine::ecs::component::{
     BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
     LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
     RendererSettingsComponent, TransmissiveModel, TransparentCutoutComponent, UVComponent,
-    resolve_transmissive_model,
+    UnlitComponent, resolve_transmissive_model,
 };
 use crate::engine::ecs::component::{GLTFComponent, MorphTargetBindingComponent};
 
@@ -281,6 +281,14 @@ impl RenderableSystem {
             world
                 .get_component_by_id_as::<EmissiveComponent>(ch)
                 .map(|e| e.intensity.max(0.0))
+        })
+    }
+
+    fn has_immediate_unlit_child(world: &World, node: ComponentId) -> bool {
+        world.children_of(node).iter().any(|&child| {
+            world
+                .get_component_by_id_as::<UnlitComponent>(child)
+                .is_some()
         })
     }
 
@@ -1269,6 +1277,9 @@ impl RenderableSystem {
                     }
                     _ => MaterialHandle::ROUGH_TRANSMISSION_MESH,
                 },
+                _ if Self::has_immediate_unlit_child(world, p.renderable_cid) => {
+                    MaterialHandle::UNLIT_MESH
+                }
                 _ => p.material,
             };
 
@@ -1598,7 +1609,7 @@ mod tests {
     use crate::engine::ecs::component::{
         BackgroundComponent, ColorComponent, EmissiveComponent, OpacityComponent, OverlayComponent,
         RefractionComponent, RenderableComponent, RoughTransmissionComponent, TextComponent,
-        TransformComponent, TransparentCutoutComponent,
+        TransformComponent, TransparentCutoutComponent, UnlitComponent,
     };
     use crate::engine::graphics::primitives::{
         CpuMeshHandle, MaterialHandle, MeshHandle, Renderable,
@@ -1832,6 +1843,42 @@ mod tests {
             assert!(visuals.has_transmissive_instances());
             assert!(visuals.has_rough_transmission_instances());
         }
+    }
+
+    #[test]
+    fn flush_pending_routes_an_unlit_static_renderable_to_the_unlit_material() {
+        let mut world = World::default();
+        let mut visuals = VisualWorld::default();
+        let mut renderable_system = RenderableSystem::default();
+        let mut render_assets = RenderAssets::new();
+        let mut uploader = TestUploader::default();
+        let mut queue = CommandQueue::new();
+
+        let transform = world.add_component(TransformComponent::new());
+        let renderable = world.add_component(RenderableComponent::cube());
+        let unlit = world.add_component(UnlitComponent);
+        world.add_child(transform, renderable).unwrap();
+        world.add_child(renderable, unlit).unwrap();
+
+        renderable_system.register_renderable_from_world(&mut world, &mut visuals, renderable);
+        assert!(renderable_system.flush_pending(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut uploader,
+            &mut queue,
+        ));
+
+        let handle = world
+            .get_component_by_id_as::<RenderableComponent>(renderable)
+            .and_then(RenderableComponent::get_handle)
+            .unwrap();
+        let instance = visuals.instance(handle).unwrap();
+        assert_eq!(instance.renderable.material, MaterialHandle::UNLIT_MESH);
+
+        visuals.prepare_draw_cache();
+        assert_eq!(visuals.opaque_stream().1.len(), 1);
+        assert!(visuals.emissive_draw_batches().is_empty());
     }
 
     #[test]

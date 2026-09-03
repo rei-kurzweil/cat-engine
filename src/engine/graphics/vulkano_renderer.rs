@@ -202,6 +202,13 @@ mod vulkano_backend {
         }
     }
 
+    mod unlit_mesh_fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            path: "assets/shaders/unlit-mesh.frag",
+        }
+    }
+
     mod mirror_mesh_fs {
         vulkano_shaders::shader! {
             ty: "fragment",
@@ -429,6 +436,13 @@ mod vulkano_backend {
         pub pipeline_toon_mesh_cutout: Arc<GraphicsPipeline>,
         pub pipeline_toon_mesh_transparent_clipped: Arc<GraphicsPipeline>,
         pub pipeline_toon_mesh_cutout_clipped: Arc<GraphicsPipeline>,
+
+        pub pipeline_unlit_mesh: Arc<GraphicsPipeline>,
+        pub pipeline_unlit_mesh_transparent: Arc<GraphicsPipeline>,
+        pub pipeline_unlit_mesh_cutout: Arc<GraphicsPipeline>,
+        pub pipeline_unlit_mesh_clipped: Arc<GraphicsPipeline>,
+        pub pipeline_unlit_mesh_transparent_clipped: Arc<GraphicsPipeline>,
+        pub pipeline_unlit_mesh_cutout_clipped: Arc<GraphicsPipeline>,
 
         pub pipeline_mirror_mesh: Arc<GraphicsPipeline>,
         pub pipeline_mirror_mesh_transparent: Arc<GraphicsPipeline>,
@@ -716,11 +730,11 @@ mod vulkano_backend {
                     _pad0: 0,
                     _pad1: 0,
                 },
-                // While migrating, treat UNLIT as a simple toon material too.
                 crate::engine::graphics::MaterialHandle::UNLIT_MESH => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
                     quant_steps,
-                    emissive: 1,
+                    // The unlit shader does not use this UBO, but it is neither lit nor emissive.
+                    emissive: 0,
                     _pad0: 0,
                     _pad1: 0,
                 },
@@ -937,6 +951,7 @@ mod vulkano_backend {
             let mirror_vs = mirror_mesh_vs::load(device.clone())?;
             let fs = toon_mesh_fs::load(device.clone())?;
             let emissive_fs = emissive_toon_mesh_fs::load(device.clone())?;
+            let unlit_fs = unlit_mesh_fs::load(device.clone())?;
             let mirror_fs = mirror_mesh_fs::load(device.clone())?;
             let refraction_fs = refraction_mesh_fs::load(device.clone())?;
             let rough_transmission_fs = rough_transmission_mesh_fs::load(device.clone())?;
@@ -969,6 +984,18 @@ mod vulkano_backend {
                 PipelineShaderStageCreateInfo::new(
                     fs.entry_point("main")
                         .ok_or("missing toon-mesh.frag entry point")?,
+                ),
+            ];
+
+            let unlit_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    vs.entry_point("main")
+                        .ok_or("missing toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    unlit_fs
+                        .entry_point("main")
+                        .ok_or("missing unlit-mesh.frag entry point")?,
                 ),
             ];
 
@@ -1453,6 +1480,10 @@ mod vulkano_backend {
 
             let pipeline_toon_mesh =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci.clone())?;
+            let mut pipeline_ci_unlit = pipeline_ci.clone();
+            pipeline_ci_unlit.stages = unlit_stages.clone().into();
+            let pipeline_unlit_mesh =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_unlit.clone())?;
             let mut pipeline_ci_mirror = pipeline_ci.clone();
             pipeline_ci_mirror.stages = mirror_stages.clone().into();
             let pipeline_mirror_mesh =
@@ -1506,6 +1537,10 @@ mod vulkano_backend {
             });
             let pipeline_toon_mesh_transparent =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_transparent.clone())?;
+            let mut pipeline_ci_unlit_transparent = pipeline_ci_transparent.clone();
+            pipeline_ci_unlit_transparent.stages = unlit_stages.clone().into();
+            let pipeline_unlit_mesh_transparent =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_unlit_transparent.clone())?;
             let mut pipeline_ci_mirror_transparent = pipeline_ci_transparent.clone();
             pipeline_ci_mirror_transparent.stages = mirror_stages.clone().into();
             let pipeline_mirror_mesh_transparent =
@@ -1543,6 +1578,10 @@ mod vulkano_backend {
             ));
             let pipeline_toon_mesh_cutout =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_cutout.clone())?;
+            let mut pipeline_ci_unlit_cutout = pipeline_ci_cutout.clone();
+            pipeline_ci_unlit_cutout.stages = unlit_stages.clone().into();
+            let pipeline_unlit_mesh_cutout =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_unlit_cutout.clone())?;
             let mut pipeline_ci_mirror_cutout = pipeline_ci_cutout.clone();
             pipeline_ci_mirror_cutout.stages = mirror_stages.clone().into();
             let pipeline_mirror_mesh_cutout =
@@ -1781,6 +1820,12 @@ mod vulkano_backend {
             let pipeline_overlay_clipped =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_overlay_clipped)?;
 
+            let mut pipeline_ci_unlit_clipped = pipeline_ci_unlit.clone();
+            pipeline_ci_unlit_clipped.depth_stencil_state = Some(clipped_depth_stencil.clone());
+            pipeline_ci_unlit_clipped.dynamic_state = stencil_dynamic_state.clone();
+            let pipeline_unlit_mesh_clipped =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_unlit_clipped)?;
+
             let mut pipeline_ci_emissive_overlay_clipped = pipeline_ci_emissive.clone();
             pipeline_ci_emissive_overlay_clipped.depth_stencil_state =
                 Some(clipped_depth_stencil.clone());
@@ -1832,6 +1877,12 @@ mod vulkano_backend {
             pipeline_ci_transparent_clipped.dynamic_state = stencil_dynamic_state.clone();
             let pipeline_toon_mesh_transparent_clipped =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_transparent_clipped)?;
+            let mut pipeline_ci_unlit_transparent_clipped = pipeline_ci_unlit_transparent.clone();
+            pipeline_ci_unlit_transparent_clipped.depth_stencil_state =
+                Some(transparent_clipped_depth_stencil.clone());
+            pipeline_ci_unlit_transparent_clipped.dynamic_state = stencil_dynamic_state.clone();
+            let pipeline_unlit_mesh_transparent_clipped =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_unlit_transparent_clipped)?;
             let mut pipeline_ci_mirror_transparent_clipped = pipeline_ci_transparent.clone();
             pipeline_ci_mirror_transparent_clipped.stages = mirror_stages.clone().into();
             pipeline_ci_mirror_transparent_clipped.depth_stencil_state =
@@ -1878,6 +1929,24 @@ mod vulkano_backend {
             pipeline_ci_cutout_clipped.dynamic_state = stencil_dynamic_state.clone();
             let pipeline_toon_mesh_cutout_clipped =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_cutout_clipped)?;
+            let mut pipeline_ci_unlit_cutout_clipped = pipeline_ci_unlit_cutout.clone();
+            pipeline_ci_unlit_cutout_clipped.depth_stencil_state = Some(DepthStencilState {
+                depth: Some(DepthState::simple()),
+                stencil: Some(StencilState {
+                    front: StencilOpState {
+                        ops: stencil_ops_test,
+                        ..Default::default()
+                    },
+                    back: StencilOpState {
+                        ops: stencil_ops_test,
+                        ..Default::default()
+                    },
+                }),
+                ..Default::default()
+            });
+            pipeline_ci_unlit_cutout_clipped.dynamic_state = stencil_dynamic_state.clone();
+            let pipeline_unlit_mesh_cutout_clipped =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_unlit_cutout_clipped)?;
             let mut pipeline_ci_mirror_cutout_clipped = pipeline_ci_cutout.clone();
             pipeline_ci_mirror_cutout_clipped.stages = mirror_stages.into();
             pipeline_ci_mirror_cutout_clipped.depth_stencil_state = Some(DepthStencilState {
@@ -2005,6 +2074,13 @@ mod vulkano_backend {
                 pipeline_toon_mesh_cutout,
                 pipeline_toon_mesh_transparent_clipped,
                 pipeline_toon_mesh_cutout_clipped,
+
+                pipeline_unlit_mesh,
+                pipeline_unlit_mesh_transparent,
+                pipeline_unlit_mesh_cutout,
+                pipeline_unlit_mesh_clipped,
+                pipeline_unlit_mesh_transparent_clipped,
+                pipeline_unlit_mesh_cutout_clipped,
                 pipeline_mirror_mesh,
                 pipeline_mirror_mesh_transparent,
                 pipeline_mirror_mesh_cutout,
@@ -3357,6 +3433,7 @@ mod vulkano_backend {
                         self.pipeline_emissive_prepass_toon_mesh.clone(),
                         self.pipeline_emissive_prepass_toon_mesh.clone(),
                         self.pipeline_emissive_prepass_toon_mesh.clone(),
+                        self.pipeline_emissive_prepass_toon_mesh.clone(),
                         self.pipeline_skinned_emissive_prepass_toon_mesh.clone(),
                         self.pipeline_skinned_emissive_prepass_toon_mesh.clone(),
                     )?;
@@ -3369,6 +3446,7 @@ mod vulkano_backend {
                         instance_buffer,
                         emissive_cutout_instance_count,
                         visual_world.emissive_cutout_batches(),
+                        self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
                         self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
                         self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
                         self.pipeline_emissive_prepass_toon_mesh_cutout.clone(),
@@ -3402,6 +3480,7 @@ mod vulkano_backend {
                         instance_buffer,
                         background_emissive_instance_count,
                         visual_world.background_occluded_lit_emissive_batches(),
+                        self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
                         self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
                         self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
                         self.pipeline_emissive_prepass_depth_write_toon_mesh.clone(),
@@ -5317,6 +5396,7 @@ mod vulkano_backend {
                     stencil_clip_debug_instance_count,
                     &stencil_clip_debug_batches,
                     self.pipeline_toon_mesh.clone(),
+                    self.pipeline_unlit_mesh.clone(),
                     self.pipeline_mirror_mesh.clone(),
                     self.pipeline_grid_mesh.clone(),
                     self.pipeline_emissive_toon_mesh.clone(),

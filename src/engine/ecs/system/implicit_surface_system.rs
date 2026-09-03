@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::engine::ecs::component::{
     ColorComponent, EmissiveComponent, ImplicitSphereComponent, ImplicitSurfaceComponent,
-    TransmissiveModel, resolve_immediate_transmissive_model,
+    TransmissiveModel, UnlitComponent, resolve_immediate_transmissive_model,
 };
 use crate::engine::ecs::system::{MeshBoundsSystem, MeshOutputKind, TransformSystem};
 use crate::engine::ecs::{ComponentId, World};
@@ -290,7 +290,7 @@ impl ImplicitSurfaceSystem {
                 cells, surface.bounds_min, surface.bounds_max, surface.voxel_size
             ));
         }
-        let (color, emissive) = resolve_surface_style(world, root);
+        let (color, emissive, unlit) = resolve_surface_style(world, root);
         let (material, transmission) = match resolve_immediate_transmissive_model(world, root)? {
             Some(TransmissiveModel::Refraction(options)) => (
                 MaterialHandle::REFRACTION_MESH,
@@ -309,7 +309,9 @@ impl ImplicitSurfaceSystem {
             }
             None => (MaterialHandle::TOON_MESH, None),
         };
-        let material = if emissive > 0.0 && material == MaterialHandle::TOON_MESH {
+        let material = if unlit && material == MaterialHandle::TOON_MESH {
+            MaterialHandle::UNLIT_MESH
+        } else if emissive > 0.0 && material == MaterialHandle::TOON_MESH {
             MaterialHandle::EMISSIVE_TOON_MESH
         } else {
             material
@@ -396,10 +398,12 @@ fn sphere_descendants(world: &World, root: ComponentId) -> Result<Vec<ComponentI
 /// An implicit surface bakes many authoring nodes into one visual instance, so
 /// its visual style may live in a caller-provided wrapper subtree rather than
 /// as an immediate child of the surface root. Resolve the first color and
-/// emissive style nodes in authored tree order for that one output instance.
-fn resolve_surface_style(world: &World, root: ComponentId) -> ([f32; 4], f32) {
+/// emissive nodes plus any unlit marker in authored tree order for that one
+/// output instance.
+fn resolve_surface_style(world: &World, root: ComponentId) -> ([f32; 4], f32, bool) {
     let mut color = None;
     let mut emissive = None;
+    let mut unlit = false;
     let mut stack: Vec<_> = world.children_of(root).iter().rev().copied().collect();
 
     while let Some(id) = stack.pop() {
@@ -413,13 +417,13 @@ fn resolve_surface_style(world: &World, root: ComponentId) -> ([f32; 4], f32) {
                 .get_component_by_id_as::<EmissiveComponent>(id)
                 .map(|component| component.intensity.max(0.0));
         }
-        if color.is_some() && emissive.is_some() {
-            break;
+        if world.get_component_by_id_as::<UnlitComponent>(id).is_some() {
+            unlit = true;
         }
         stack.extend(world.children_of(id).iter().rev().copied());
     }
 
-    (color.unwrap_or([1.0; 4]), emissive.unwrap_or(0.0))
+    (color.unwrap_or([1.0; 4]), emissive.unwrap_or(0.0), unlit)
 }
 
 fn uniform_scale(model: [[f32; 4]; 4]) -> Result<f32, &'static str> {
@@ -586,7 +590,7 @@ mod tests {
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
         ColorComponent, EmissiveComponent, ImplicitSphereComponent, ImplicitSurfaceComponent,
-        RefractionComponent,
+        RefractionComponent, UnlitComponent,
     };
     use crate::engine::ecs::system::MeshBoundsSystem;
     use crate::engine::graphics::mesh::CpuMesh;
@@ -726,6 +730,42 @@ mod tests {
             instance.renderable.material,
             MaterialHandle::EMISSIVE_TOON_MESH
         );
+    }
+
+    #[test]
+    fn inherits_unlit_from_a_nested_style_payload() {
+        let mut world = World::default();
+        let root = world.add_component(ImplicitSurfaceComponent {
+            bounds_min: [-1.5; 3],
+            bounds_max: [1.5; 3],
+            voxel_size: 0.25,
+            iso_level: 0.0,
+            smooth_min_radius: 0.0,
+        });
+        let sphere = world.add_component(ImplicitSphereComponent::radius(1.0));
+        let color = world.add_component(ColorComponent::rgba(0.7, 0.8, 0.9, 1.0));
+        let unlit = world.add_component(UnlitComponent);
+        world.add_child(root, sphere).unwrap();
+        world.add_child(root, color).unwrap();
+        world.add_child(color, unlit).unwrap();
+
+        let mut system = ImplicitSurfaceSystem::default();
+        let mut visuals = VisualWorld::new();
+        let mut assets = RenderAssets::new();
+        let mut uploader = TestUploader::default();
+        let mut bounds = MeshBoundsSystem::default();
+        system.reconcile_and_build(
+            &world,
+            &mut visuals,
+            &mut assets,
+            &mut uploader,
+            &mut bounds,
+        );
+
+        let instance = &visuals.instances()[0];
+        assert_eq!(instance.color, [0.7, 0.8, 0.9, 1.0]);
+        assert_eq!(instance.emissive, 0.0);
+        assert_eq!(instance.renderable.material, MaterialHandle::UNLIT_MESH);
     }
 
     #[test]

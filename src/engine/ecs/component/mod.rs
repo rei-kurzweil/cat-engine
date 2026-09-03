@@ -112,6 +112,7 @@ pub mod transform_pipeline;
 pub mod transform_pipeline_map;
 pub mod transform_temporal_filter;
 pub mod transition;
+pub mod unlit;
 pub mod uv;
 
 pub use self::gltf::GLTFComponent;
@@ -268,6 +269,7 @@ pub use transmission::{
     resolve_immediate_transmissive_model, resolve_transmissive_model,
 };
 pub use transparent_cutout::TransparentCutoutComponent;
+pub use unlit::UnlitComponent;
 pub use uv::UVComponent;
 pub use xr::XrComponent;
 pub use xr_eye_tracking::{

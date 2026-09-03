@@ -49,7 +49,7 @@ use crate::engine::ecs::component::{
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
     TransitionEasing, TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
-    Vector3TemporalFilterComponent, WordWrapMode, XREyeTrackingComponent,
+    UnlitComponent, Vector3TemporalFilterComponent, WordWrapMode, XREyeTrackingComponent,
     XREyeTrackingHtcComponent, XRHandComponent, XrComponent, XrHandPreference,
 };
 use crate::engine::ecs::{ComponentId, World};
@@ -184,6 +184,7 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "TextShadow",
     "Texture",
     "TextureFiltering",
+    "Unlit",
     "Transform",
     "TransformCameraSpecific",
     "TransformDrop",
@@ -1488,6 +1489,7 @@ fn create_component(
             }
             Ok(id)
         }
+        "Unlit" => add!(UnlitComponent),
         "Renderable" => match ctor {
             Some("cube") => add!(RenderableComponent::cube()),
             Some("polygon") => with_render_assets_mut(|render_assets| {

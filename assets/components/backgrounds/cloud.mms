@@ -1,7 +1,7 @@
-// A reusable translucent toon cloud. `puff_count` is currently either 3 or 5;
+// A reusable translucent unlit cloud. `puff_count` is currently either 3 or 5;
 // `base_width` is the approximate world-space width of the bottom puff row.
 // `components` is a caller-owned component subtree, usually a Color with an
-// Emissive child, so individual clouds can choose their own visual treatment.
+// optional visual modifiers, so individual clouds can choose their own color.
 export fn cloud(puff_count, base_width, components) {
     let radius = base_width * 0.27
     let upper_radius = base_width * 0.23
@@ -16,6 +16,7 @@ export fn cloud(puff_count, base_width, components) {
         .smooth_min_radius(base_width * 0.10) {
 
         Opacity.opacity(0.58)
+        Unlit {}
         components
 
         if puff_count <= 3.0 {

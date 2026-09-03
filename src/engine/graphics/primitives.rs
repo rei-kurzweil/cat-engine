@@ -276,7 +276,7 @@ pub struct Material {
 impl Material {
     /// Unlit material intended for normal mesh rendering (vertex/index buffers + transforms).
     pub const UNLIT_MESH: Material = Material {
-        vertex_shader: "assets/shaders/unlit-mesh.vert",
+        vertex_shader: "assets/shaders/toon-mesh.vert",
         fragment_shader: "assets/shaders/unlit-mesh.frag",
     };
 

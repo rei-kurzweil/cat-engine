@@ -11,7 +11,7 @@ use crate::engine::ecs::component::{
     Camera3DComponent, ColorComponent, DirectionalLightComponent, EmissiveComponent,
     EmissivePassComponent, PointerComponent, RaycastableComponent, RefractionComponent,
     RenderGraphComponent, RenderableComponent, RendererSettingsComponent,
-    RoughTransmissionComponent, TransformComponent,
+    RoughTransmissionComponent, TransformComponent, UnlitComponent,
 };
 use crate::engine::ecs::{ComponentId, SignalEmitter, World};
 
@@ -35,6 +35,7 @@ const DIRECT_COMPONENTS: &[&str] = &[
     "Renderable",
     "RendererSettings",
     "RoughTransmission",
+    "Unlit",
     "Transform",
 ];
 
@@ -214,6 +215,7 @@ fn create_component(
         "Color" => world.add_component(ColorComponent::new()),
         "Refraction" => world.add_component(RefractionComponent::new()),
         "RoughTransmission" => world.add_component(RoughTransmissionComponent::new()),
+        "Unlit" => world.add_component(UnlitComponent),
         "Emissive" => world.add_component(match constructor {
             Some("off") => EmissiveComponent::off(),
             _ => EmissiveComponent::on(),

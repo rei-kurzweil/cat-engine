@@ -6,6 +6,7 @@ impl VulkanoState {
         &self,
         material: crate::engine::graphics::MaterialHandle,
         pipeline_toon: Arc<GraphicsPipeline>,
+        pipeline_unlit: Arc<GraphicsPipeline>,
         pipeline_mirror: Arc<GraphicsPipeline>,
         pipeline_grid: Arc<GraphicsPipeline>,
         pipeline_emissive: Arc<GraphicsPipeline>,
@@ -13,6 +14,7 @@ impl VulkanoState {
         pipeline_skinned_emissive: Arc<GraphicsPipeline>,
     ) -> Arc<GraphicsPipeline> {
         match material {
+            crate::engine::graphics::MaterialHandle::UNLIT_MESH => pipeline_unlit,
             crate::engine::graphics::MaterialHandle::MIRROR => pipeline_mirror,
             crate::engine::graphics::MaterialHandle::GRID_MESH => pipeline_grid,
             crate::engine::graphics::MaterialHandle::EMISSIVE_TOON_MESH => pipeline_emissive,
@@ -37,6 +39,7 @@ impl VulkanoState {
         instance_count: usize,
         batches: &[crate::engine::graphics::visual_world::DrawBatch],
         pipeline_toon: Arc<GraphicsPipeline>,
+        pipeline_unlit: Arc<GraphicsPipeline>,
         pipeline_mirror: Arc<GraphicsPipeline>,
         pipeline_grid: Arc<GraphicsPipeline>,
         pipeline_emissive: Arc<GraphicsPipeline>,
@@ -53,6 +56,7 @@ impl VulkanoState {
             let pipeline = self.pipeline_for_material(
                 batch.material,
                 pipeline_toon.clone(),
+                pipeline_unlit.clone(),
                 pipeline_mirror.clone(),
                 pipeline_grid.clone(),
                 pipeline_emissive.clone(),
@@ -137,6 +141,7 @@ impl VulkanoState {
             visual_world.background_batches(),
             // Plain background: no depth write.
             self.pipeline_toon_mesh_transparent.clone(),
+            self.pipeline_unlit_mesh_transparent.clone(),
             self.pipeline_mirror_mesh_transparent.clone(),
             self.pipeline_grid_mesh_transparent.clone(),
             self.pipeline_emissive_toon_mesh_transparent.clone(),
@@ -167,6 +172,7 @@ impl VulkanoState {
             visual_world.background_occluded_lit_batches(),
             // Occluded+lit background: depth write ON for self-occlusion.
             self.pipeline_toon_mesh.clone(),
+            self.pipeline_unlit_mesh.clone(),
             self.pipeline_mirror_mesh.clone(),
             self.pipeline_grid_mesh.clone(),
             self.pipeline_emissive_toon_mesh.clone(),
@@ -196,12 +202,14 @@ impl VulkanoState {
         ops: &[crate::engine::graphics::visual_world::RenderOp],
         stream_instances: &[u32],
         pipeline_normal: Arc<GraphicsPipeline>,
+        pipeline_unlit: Arc<GraphicsPipeline>,
         pipeline_mirror: Arc<GraphicsPipeline>,
         pipeline_grid: Arc<GraphicsPipeline>,
         pipeline_emissive: Arc<GraphicsPipeline>,
         pipeline_skinned: Arc<GraphicsPipeline>,
         pipeline_skinned_emissive: Arc<GraphicsPipeline>,
         pipeline_clipped: Arc<GraphicsPipeline>,
+        pipeline_unlit_clipped: Arc<GraphicsPipeline>,
         pipeline_mirror_clipped: Arc<GraphicsPipeline>,
         pipeline_emissive_clipped: Arc<GraphicsPipeline>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -268,6 +276,9 @@ impl VulkanoState {
                     let pipeline = if batch.stencil_ref > 0 {
                         // Clipped draw: non-skinned only (UI quads are never skinned).
                         match batch.material {
+                            crate::engine::graphics::MaterialHandle::UNLIT_MESH => {
+                                pipeline_unlit_clipped.clone()
+                            }
                             crate::engine::graphics::MaterialHandle::MIRROR => {
                                 pipeline_mirror_clipped.clone()
                             }
@@ -280,6 +291,7 @@ impl VulkanoState {
                         self.pipeline_for_material(
                             batch.material,
                             pipeline_normal.clone(),
+                            pipeline_unlit.clone(),
                             pipeline_mirror.clone(),
                             pipeline_grid.clone(),
                             pipeline_emissive.clone(),
@@ -418,12 +430,14 @@ impl VulkanoState {
             ops,
             stream_instances,
             self.pipeline_toon_mesh.clone(),
+            self.pipeline_unlit_mesh.clone(),
             self.pipeline_mirror_mesh.clone(),
             self.pipeline_grid_mesh.clone(),
             self.pipeline_emissive_toon_mesh.clone(),
             self.pipeline_skinned_toon_mesh.clone(),
             self.pipeline_skinned_emissive_toon_mesh.clone(),
             self.pipeline_opaque_clipped.clone(),
+            self.pipeline_unlit_mesh_clipped.clone(),
             self.pipeline_mirror_mesh_clipped.clone(),
             self.pipeline_emissive_opaque_clipped.clone(),
         )
@@ -454,12 +468,14 @@ impl VulkanoState {
             ops,
             stream_instances,
             self.pipeline_toon_mesh_cutout.clone(),
+            self.pipeline_unlit_mesh_cutout.clone(),
             self.pipeline_mirror_mesh_cutout.clone(),
             self.pipeline_grid_mesh.clone(),
             self.pipeline_emissive_toon_mesh_cutout.clone(),
             self.pipeline_skinned_toon_mesh_cutout.clone(),
             self.pipeline_skinned_emissive_toon_mesh_cutout.clone(),
             self.pipeline_toon_mesh_cutout_clipped.clone(),
+            self.pipeline_unlit_mesh_cutout_clipped.clone(),
             self.pipeline_mirror_mesh_cutout_clipped.clone(),
             self.pipeline_emissive_toon_mesh_cutout_clipped.clone(),
         )
@@ -505,8 +521,10 @@ impl VulkanoState {
             static_pipeline.clone(),
             static_pipeline.clone(),
             static_pipeline.clone(),
+            static_pipeline.clone(),
             skinned_pipeline.clone(),
             skinned_pipeline,
+            static_pipeline.clone(),
             static_pipeline.clone(),
             static_pipeline.clone(),
             static_pipeline,
@@ -553,8 +571,10 @@ impl VulkanoState {
             static_pipeline.clone(),
             static_pipeline.clone(),
             static_pipeline.clone(),
+            static_pipeline.clone(),
             skinned_pipeline.clone(),
             skinned_pipeline,
+            static_pipeline.clone(),
             static_pipeline.clone(),
             static_pipeline.clone(),
             static_pipeline,
@@ -588,12 +608,14 @@ impl VulkanoState {
             ops,
             stream_instances,
             self.pipeline_toon_mesh.clone(),
+            self.pipeline_unlit_mesh.clone(),
             self.pipeline_mirror_mesh.clone(),
             self.pipeline_grid_mesh.clone(),
             self.pipeline_emissive_toon_mesh.clone(),
             self.pipeline_skinned_toon_mesh.clone(),
             self.pipeline_skinned_emissive_toon_mesh.clone(),
             self.pipeline_overlay_clipped.clone(),
+            self.pipeline_unlit_mesh_clipped.clone(),
             self.pipeline_mirror_mesh_clipped.clone(),
             self.pipeline_emissive_overlay_clipped.clone(),
         )
@@ -637,12 +659,14 @@ impl VulkanoState {
             ops,
             stream_instances,
             self.pipeline_toon_mesh_transparent.clone(),
+            self.pipeline_unlit_mesh_transparent.clone(),
             self.pipeline_mirror_mesh_transparent.clone(),
             self.pipeline_grid_mesh_transparent.clone(),
             self.pipeline_emissive_toon_mesh_transparent.clone(),
             self.pipeline_skinned_toon_mesh_transparent.clone(),
             self.pipeline_skinned_emissive_toon_mesh_transparent.clone(),
             self.pipeline_toon_mesh_transparent_clipped.clone(),
+            self.pipeline_unlit_mesh_transparent_clipped.clone(),
             self.pipeline_mirror_mesh_transparent_clipped.clone(),
             self.pipeline_emissive_toon_mesh_transparent_clipped.clone(),
         )
@@ -710,6 +734,7 @@ impl VulkanoState {
                 let pipeline = self.pipeline_for_material(
                     batch.material,
                     self.pipeline_toon_mesh_transparent.clone(),
+                    self.pipeline_unlit_mesh_transparent.clone(),
                     self.pipeline_mirror_mesh_transparent.clone(),
                     self.pipeline_grid_mesh_transparent.clone(),
                     self.pipeline_emissive_toon_mesh_transparent.clone(),
