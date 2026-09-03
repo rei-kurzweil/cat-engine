@@ -29,11 +29,58 @@ tripod_light("eye_tracking_key", [-4.2, 0.0, 2.8], [0.0, 1.25, -1.5], SL.color(1
 tripod_light("eye_tracking_fill", [4.0, 0.0, 1.4], [0.0, 1.25, -1.5], SL.color(0.48, 0.68, 1.0).intensity(4.5).distance(11.0).angle(0.62).penumbra(0.35))
 tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1.0, 0.42, 0.78).intensity(5.0).distance(11.0).angle(0.62).penumbra(0.35))
 
-// This scene intentionally requests the second currently enumerated input.
-// Use Audio.input_devices() in the REPL to check its session-local ordering;
-// replace with AudioInput {} to use the OS default microphone instead.
-let microphone = AudioInput.device_number(1) {}
+// Start on the known-good host default. Clicking a row below switches this
+// live source to that row's session-local Audio.input_devices() index.
+let microphone = AudioInput {}
 let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
+
+let audio_input_devices = Audio.input_devices()
+let audio_input_status = Text { "default audio input selected — click a device to switch" }
+
+fn audio_input_option(input_source_name, input_source_index, microphone, status_text) {
+    let label = "[" + input_source_index + "] " + input_source_name
+    let row = T {
+        name = "audio_input_option_" + input_source_index
+        Option {}
+        Raycastable.enabled()
+        Style {
+            display("block")
+            width(100%)
+            margin_xy(0.1, 0.12)
+            padding_xy(0.45, 0.35)
+            background_color([0.12, 0.18, 0.29, 0.96])
+            background_z(-0.01)
+            color([0.88, 0.95, 1.0, 1.0])
+        }
+        T.position(0.0, 0.0, 0.02) { Text { label } }
+    }
+
+    // This first slice uses direct row handlers; a generic MMS
+    // SelectionChanged payload API can be introduced separately.
+    on(row, "Click", fn(event) {
+        microphone.select_device_number(input_source_index)
+        status_text.set_text("selected audio input " + label)
+    })
+    return row
+}
+
+fn audio_input_options(devices, microphone, status_text) {
+    let next_index = 0.0
+    return T {
+        name = "audio_input_selection_content"
+        Selection { name = "audio_input_selection" }
+        Style {
+            display("flex")
+            flex_direction("column")
+            width(100%)
+        }
+        for input_source_name in devices {
+            let input_source_index = next_index
+            next_index = next_index + 1.0
+            audio_input_option(input_source_name, input_source_index, microphone, status_text)
+        }
+    }
+}
 
 let microphone_info_panel = info_panel({
     root_name = "microphone_inputs_panel"
@@ -41,16 +88,22 @@ let microphone_info_panel = info_panel({
     unit_scale = 0.075
     title = "audio input devices"
     content = T {
-        name = "microphone_inputs_placeholder"
+        name = "microphone_inputs_content"
         Style {
-            display("block")
+            display("flex")
+            flex_direction("column")
             width(100%)
-            padding_xy(0.35, 0.25)
-            color([0.88, 0.95, 1.0, 1.0])
         }
         T.position(0.0, 0.0, 0.02) {
-            Text { "device list will appear here in the next slice" }
+            Style {
+                display("block")
+                width(100%)
+                padding_xy(0.35, 0.25)
+                color([0.62, 0.78, 1.0, 1.0])
+            }
+            audio_input_status
         }
+        audio_input_options(audio_input_devices, microphone, audio_input_status)
     }
 })
 

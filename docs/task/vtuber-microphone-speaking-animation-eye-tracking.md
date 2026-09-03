@@ -2,7 +2,7 @@
 
 Date: 2026-09-02
 
-Status: first visual slice implemented; awaiting scene verification
+Status: interactive microphone-selection slice implemented; awaiting live verification
 
 ## Outcome and stop condition
 
@@ -17,14 +17,14 @@ The scene consumes a reusable authored MMS asset,
 optional icon slot, content slot, and the existing accordion minimize/restore
 behavior. It must be ordinary scene UI, not editor-owned UI.
 
-The first visual slice stops when the new scene materializes, both relevant
-examples have black clear backgrounds, and the reusable panel is visible with
-its static placeholder body. The following data slice adds one row per
-`Audio.input_devices()` name and reloads those rows after accordion restore.
+The initial interactive slice stops when the new scene materializes, both
+relevant examples have black clear backgrounds, and the panel displays one
+clickable row per `Audio.input_devices()` name. Clicking a row switches the
+scene's existing `AudioInput` to that session-local index.
 
-This is an enumeration/setup panel. It does not make every listed device live,
-does not add microphone switching controls, and does not require dynamic
-hot-plug updates while the panel remains open.
+This is an enumeration/setup panel. It does not make every listed device live
+until clicked, and it does not require dynamic hot-plug updates while the panel
+remains open.
 
 ## Existing API and device numbering
 
@@ -42,6 +42,18 @@ check the displayed/enumerated list before choosing an index.
 `Audio.input_devices()` is already a no-argument host API returning
 `string[]`. It can provide the initial list during MMS materialization; it is
 not yet a subscription or device-status query.
+
+An existing source can be switched during a retained MMS session:
+
+```mms
+microphone.select_device_number(1)
+```
+
+The capture runtime invalidates its old amplitude measurement, tears down the
+previous stream, and starts the selected device on its next tick. If the device
+cannot start or delivers no samples, that selection stays unavailable rather
+than repeatedly reopening its backend. Clicking a device row again is an
+explicit retry; choosing another row is a fresh request.
 
 ## Public `info_panel` asset
 

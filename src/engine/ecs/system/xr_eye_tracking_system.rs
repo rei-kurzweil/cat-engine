@@ -50,7 +50,8 @@ impl XREyeTrackingSystem {
             // tracker stops sending it, AVC must release its morph override
             // on the next frame instead of leaving an avatar permanently
             // blinking.
-            if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
+            if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
+            {
                 component.closure_sample.left = None;
                 component.closure_sample.right = None;
             }
@@ -121,12 +122,11 @@ impl XREyeTrackingSystem {
                         }
                     }
                     if received_closure {
-                        if let Some(closure_sample) = standard_closure_sample(
-                            sample.combined_openness,
-                            self.next_sequence(),
-                        ) {
-                            if let Some(component) = world
-                                .get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
+                        if let Some(closure_sample) =
+                            standard_closure_sample(sample.combined_openness, self.next_sequence())
+                        {
+                            if let Some(component) =
+                                world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
                             {
                                 component.closure_sample = closure_sample;
                             }
@@ -202,11 +202,10 @@ impl XREyeTrackingSystem {
                         if let Some(gaze_sample) = gaze_sample {
                             component.gaze_sample = gaze_sample;
                         }
-                        component.closure_sample =
-                            closure_sample.unwrap_or(EyeClosureSample {
-                                sequence: closure_sequence,
-                                ..EyeClosureSample::default()
-                            });
+                        component.closure_sample = closure_sample.unwrap_or(EyeClosureSample {
+                            sequence: closure_sequence,
+                            ..EyeClosureSample::default()
+                        });
                     }
                     emit.push_event(id, EventSignal::XrEyeTrackingHtcUpdated { left, right });
                 }
@@ -278,11 +277,7 @@ fn standard_closure_sample(closure: Option<f32>, sequence: u64) -> Option<EyeClo
     })
 }
 
-fn htc_closure_sample(
-    left: &HtcEye,
-    right: &HtcEye,
-    sequence: u64,
-) -> Option<EyeClosureSample> {
+fn htc_closure_sample(left: &HtcEye, right: &HtcEye, sequence: u64) -> Option<EyeClosureSample> {
     let to_closure = |openness: Option<f32>| {
         openness
             .filter(|value| value.is_finite())
@@ -484,9 +479,8 @@ mod tests {
     #[test]
     fn closure_normalization_duplicates_combined_and_preserves_htc_per_eye() {
         assert_eq!(
-            standard_closure_sample(Some(0.7), 4).map(|sample| {
-                (sample.left, sample.right, sample.sequence)
-            }),
+            standard_closure_sample(Some(0.7), 4)
+                .map(|sample| { (sample.left, sample.right, sample.sequence) }),
             Some((Some(0.7), Some(0.7), 4))
         );
 

@@ -179,7 +179,9 @@ impl SkinnedMeshSystem {
     pub fn remove_renderable(&mut self, renderable: ComponentId) {
         for (index, binding) in self.bindings.iter_mut().enumerate() {
             let remove_group = if let Some(binding) = binding {
-                binding.renderables.retain(|&candidate| candidate != renderable);
+                binding
+                    .renderables
+                    .retain(|&candidate| candidate != renderable);
                 binding.renderables.is_empty()
             } else {
                 false
@@ -192,15 +194,12 @@ impl SkinnedMeshSystem {
     }
 
     pub fn skin_id_for_renderable(&self, renderable: ComponentId) -> Option<SkinId> {
-        self.bindings
-            .iter()
-            .flatten()
-            .find_map(|binding| {
-                binding
-                    .renderables
-                    .contains(&renderable)
-                    .then_some(binding.key.skin_id)
-            })
+        self.bindings.iter().flatten().find_map(|binding| {
+            binding
+                .renderables
+                .contains(&renderable)
+                .then_some(binding.key.skin_id)
+        })
     }
 
     fn mat4_identity() -> TransformMatrix {

@@ -3,9 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::engine::ecs::component::{
     ColorComponent, ComponentRef, EditorComponent, GridBindingComponent, GridComponent,
-    GridVisualSpace, LightQuantizationComponent,
-    OpacityComponent, RaycastableComponent, RenderableComponent, SelectableComponent,
-    SerializeComponent, TransformComponent,
+    GridVisualSpace, LightQuantizationComponent, OpacityComponent, RaycastableComponent,
+    RenderableComponent, SelectableComponent, SerializeComponent, TransformComponent,
 };
 use crate::engine::ecs::system::TransformSystem;
 use crate::engine::ecs::{
@@ -874,7 +873,9 @@ impl GridSystem {
         );
         let live_visual_params = world.add_component_boxed_named(
             GRID_LIVE_VISUAL_PARAMS_NAME,
-            Box::new(LightQuantizationComponent::steps(grid_visual_parameter(grid))),
+            Box::new(LightQuantizationComponent::steps(grid_visual_parameter(
+                grid,
+            ))),
         );
 
         let _ = world.add_child(owner_transform, live_root);
@@ -935,12 +936,15 @@ impl GridSystem {
             );
         }
         if let Some(params_id) = world.find_component(owner_transform, "#grid_live_visual_params")
-            && let Some(params) = world.get_component_by_id_as_mut::<LightQuantizationComponent>(params_id)
+            && let Some(params) =
+                world.get_component_by_id_as_mut::<LightQuantizationComponent>(params_id)
         {
             params.quant_steps = grid_visual_parameter(grid);
             emit.push_intent_now(
                 params_id,
-                IntentValue::RegisterLightQuantization { component_id: params_id },
+                IntentValue::RegisterLightQuantization {
+                    component_id: params_id,
+                },
             );
         }
         if let Some(selectable_id) = world.find_component(owner_transform, "#grid_live_selectable")

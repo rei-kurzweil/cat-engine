@@ -194,7 +194,10 @@ impl Host for StandardHost {
                 self.attachments.push(LocalAttachment { parent, child });
                 Ok(HostResponse::Unit)
             }
-            HostRequest::LoadSource { importer, specifier } => {
+            HostRequest::LoadSource {
+                importer,
+                specifier,
+            } => {
                 let path = resolve_source_path(importer.as_ref(), &specifier)?;
                 let source = std::fs::read_to_string(&path).map_err(|error| HostError {
                     kind: HostErrorKind::SourceFailure,

@@ -45,8 +45,14 @@ impl AmplitudeSample {
     }
 
     pub fn neutral(generation: u64, status: AmplitudeStatus) -> Self {
-        debug_assert!(matches!(status, AmplitudeStatus::Neutral | AmplitudeStatus::Invalid));
-        Self { status, ..Self::pending(generation) }
+        debug_assert!(matches!(
+            status,
+            AmplitudeStatus::Neutral | AmplitudeStatus::Invalid
+        ));
+        Self {
+            status,
+            ..Self::pending(generation)
+        }
     }
 
     pub fn is_live(&self) -> bool {
@@ -87,7 +93,9 @@ impl Default for AmplitudeComponent {
 impl AmplitudeComponent {
     pub fn rolling_window(window_sec: f32) -> Result<Self, String> {
         if !window_sec.is_finite() || window_sec <= 0.0 {
-            return Err("Amplitude.rolling_window(seconds) requires a finite positive window".into());
+            return Err(
+                "Amplitude.rolling_window(seconds) requires a finite positive window".into(),
+            );
         }
         Ok(Self {
             source: None,
@@ -131,16 +139,31 @@ impl AmplitudeComponent {
 }
 
 impl Component for AmplitudeComponent {
-    fn name(&self) -> &'static str { "amplitude" }
+    fn name(&self) -> &'static str {
+        "amplitude"
+    }
 
-    fn set_id(&mut self, component: ComponentId) { self.component = Some(component); }
+    fn set_id(&mut self, component: ComponentId) {
+        self.component = Some(component);
+    }
 
-    fn as_any(&self) -> &dyn std::any::Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 
-    fn to_mms_ast(&self, _world: &crate::engine::ecs::World) -> crate::scripting::ast::ComponentExpression {
+    fn to_mms_ast(
+        &self,
+        _world: &crate::engine::ecs::World,
+    ) -> crate::scripting::ast::ComponentExpression {
         use crate::engine::ecs::component::ce_helpers::*;
-        let mut out = ce_call("Amplitude", "rolling_window", vec![num(self.window_sec as f64)]);
+        let mut out = ce_call(
+            "Amplitude",
+            "rolling_window",
+            vec![num(self.window_sec as f64)],
+        );
         if let Some(source) = &self.source {
             let source = match source {
                 ComponentRef::Guid(guid) => s(&format!("@uuid:{guid}")),
@@ -167,7 +190,9 @@ mod tests {
 
     #[test]
     fn enable_change_invalidates_the_previous_generation() {
-        let c = AmplitudeComponent::rolling_window(0.25).unwrap().with_enabled(false);
+        let c = AmplitudeComponent::rolling_window(0.25)
+            .unwrap()
+            .with_enabled(false);
         assert_eq!(c.generation, 1);
         assert_eq!(c.retained.status, AmplitudeStatus::Invalid);
         assert!(!c.retained.is_live());

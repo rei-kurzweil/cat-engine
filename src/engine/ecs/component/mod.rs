@@ -52,11 +52,11 @@ pub mod http_client;
 pub mod http_server;
 pub mod humanoid_bone_map;
 pub mod ik_chain;
+pub mod implicit_surface;
 pub mod input;
 pub mod input_transform_mode;
 pub mod input_xr;
 pub mod input_xr_gamepad;
-pub mod implicit_surface;
 pub mod inspect_layout;
 pub mod joint_retarget_basis;
 pub mod keyframe;
@@ -84,8 +84,8 @@ pub mod signal_observer_router;
 pub mod signal_route_upward;
 pub mod stencil_clip;
 pub mod style;
-pub mod transparent_cutout;
 pub mod transmission;
+pub mod transparent_cutout;
 pub mod xr;
 pub mod xr_eye_tracking;
 
@@ -184,13 +184,13 @@ pub use http_client::HttpClientComponent;
 pub use http_server::HttpServerComponent;
 pub use humanoid_bone_map::{AuthoredSlot, HumanoidBoneMapComponent, HumanoidSlot};
 pub use ik_chain::{IKChainComponent, IKSolver};
+pub use implicit_surface::{ImplicitSphereComponent, ImplicitSurfaceComponent};
 pub use input::InputComponent;
 pub use input_transform_mode::{ForwardAxis, InputTransformModeComponent, RollAxis};
 pub use input_xr::InputXRComponent;
 pub use input_xr_gamepad::{
     InputXRGamepadComponent, XrAxisControl, XrButtonControl, XrHandPreference,
 };
-pub use implicit_surface::{ImplicitSphereComponent, ImplicitSurfaceComponent};
 pub use inspect_layout::InspectLayoutComponent;
 pub use joint_retarget_basis::JointRetargetBasisComponent;
 pub use keyframe::KeyframeComponent;
@@ -263,16 +263,16 @@ pub use transform_temporal_filter::{
     Vector3TemporalFilterComponent,
 };
 pub use transition::{TransitionComponent, TransitionEasing, TransitionReplacePolicy};
-pub use transparent_cutout::TransparentCutoutComponent;
 pub use transmission::{
     RefractionComponent, RoughTransmissionComponent, TransmissionOptions, TransmissiveModel,
     resolve_immediate_transmissive_model, resolve_transmissive_model,
 };
+pub use transparent_cutout::TransparentCutoutComponent;
 pub use uv::UVComponent;
 pub use xr::XrComponent;
 pub use xr_eye_tracking::{
-    combined_eye_rotation_limits, EyeRotationLimits, HeadRotationCompensation,
-    XREyeTrackingComponent, XREyeTrackingHtcComponent,
+    EyeRotationLimits, HeadRotationCompensation, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+    combined_eye_rotation_limits,
 };
 pub type XRHandComponent = ControllerXRComponent;
 

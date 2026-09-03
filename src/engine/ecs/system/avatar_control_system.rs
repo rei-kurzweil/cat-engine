@@ -1,14 +1,13 @@
 use crate::engine::ecs::component::HumanoidSlot;
-use crate::engine::ecs::component::{resolve_component_ref, AmplitudeComponent, QueryRootMode};
+use crate::engine::ecs::component::{AmplitudeComponent, QueryRootMode, resolve_component_ref};
 use crate::engine::ecs::component::{
     AvatarControlComponent, BoneRestPoseComponent, Camera3DComponent, CameraXRComponent,
     CollisionComponent, CollisionResponseComponent, CollisionShape, CollisionShapeComponent,
-    ControllerHand, ControllerPoseSource, ControllerXRComponent, GLTFComponent,
+    ControllerHand, ControllerPoseSource, ControllerXRComponent, EyeRotationLimits, GLTFComponent,
     HeadMotionGazePolicy, HeadRotationCompensation, IKChainComponent, IKSolver, InputXRComponent,
     QuatYawFollowComponent, SerializeComponent, TransformComponent, TransformDropComponent,
     TransformForkTRSComponent, TransformMapRotationComponent, TransformMapScaleComponent,
-    EyeRotationLimits, TransformMapTranslationComponent, XREyeTrackingComponent,
-    XREyeTrackingHtcComponent,
+    TransformMapTranslationComponent, XREyeTrackingComponent, XREyeTrackingHtcComponent,
 };
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
@@ -414,10 +413,7 @@ fn update_eye_blink(
     apply_eye_blink_drivers(world, gltf_id, closure);
 }
 
-fn newest_direct_eye_closure(
-    world: &World,
-    avc_id: ComponentId,
-) -> (Option<f32>, Option<f32>) {
+fn newest_direct_eye_closure(world: &World, avc_id: ComponentId) -> (Option<f32>, Option<f32>) {
     let mut left = None::<(u64, f32)>;
     let mut right = None::<(u64, f32)>;
     for id in world.children_of(avc_id).iter().copied() {
@@ -2256,7 +2252,13 @@ mod hand_pose_correction_tests {
             sequence: 1,
         });
         assert!((gaze.direction[0].atan2(-gaze.direction[2]) - 0.3).abs() < 1e-5);
-        assert!((gaze.direction[1].atan2((gaze.direction[0].powi(2) + gaze.direction[2].powi(2)).sqrt()) - 0.4).abs() < 1e-5);
+        assert!(
+            (gaze.direction[1]
+                .atan2((gaze.direction[0].powi(2) + gaze.direction[2].powi(2)).sqrt())
+                - 0.4)
+                .abs()
+                < 1e-5
+        );
     }
 
     #[test]
@@ -2264,14 +2266,17 @@ mod hand_pose_correction_tests {
         let mut world = World::default();
         let avc = world.add_component(AvatarControlComponent::new());
         let tracker = world.add_component(
-            XREyeTrackingComponent::on().with_rotation_limits_per_eye(
-                [0.1, 0.2, 0.3, 0.4],
-                [0.5, 0.6, 0.7, 0.8],
-            ),
+            XREyeTrackingComponent::on()
+                .with_rotation_limits_per_eye([0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8]),
         );
         world.add_child(avc, tracker).unwrap();
-        world.get_component_by_id_as_mut::<XREyeTrackingComponent>(tracker).unwrap().gaze_sample = EyeGazeSample {
-            left: Some([1.0, 0.0, -1.0]), right: Some([1.0, 0.0, -1.0]), sequence: 1,
+        world
+            .get_component_by_id_as_mut::<XREyeTrackingComponent>(tracker)
+            .unwrap()
+            .gaze_sample = EyeGazeSample {
+            left: Some([1.0, 0.0, -1.0]),
+            right: Some([1.0, 0.0, -1.0]),
+            sequence: 1,
         };
         let (left, right) = newest_direct_eye_gaze(&mut world, avc);
         let left = clamp_eye_gaze_rotation(left.unwrap());
@@ -2418,29 +2423,54 @@ mod hand_pose_correction_tests {
     fn freeze_policy_holds_the_already_limited_gaze() {
         let mut world = World::default();
         let avc = world.add_component(
-            AvatarControlComponent::new().with_head_motion_gaze_policy(HeadMotionGazePolicy::Freeze),
+            AvatarControlComponent::new()
+                .with_head_motion_gaze_policy(HeadMotionGazePolicy::Freeze),
         );
         let parent = world.add_component(TransformComponent::new());
         let eye = world.add_component(TransformComponent::new());
         world.add_child(parent, eye).unwrap();
         let limits = Some(EyeRotationLimits::from_array([0.2; 4]));
         let limited = clamp_eye_gaze_rotation(ResolvedEyeGaze {
-            direction: [1.0, 0.0, -1.0], compensation: HeadRotationCompensation::Off,
-            rotation_limits: limits, sequence: 1,
+            direction: [1.0, 0.0, -1.0],
+            compensation: HeadRotationCompensation::Off,
+            rotation_limits: limits,
+            sequence: 1,
         });
-        apply_head_motion_gaze_policy(avc, &mut world, Some(eye), None, Some(limited), None, 1.0 / 60.0);
+        apply_head_motion_gaze_policy(
+            avc,
+            &mut world,
+            Some(eye),
+            None,
+            Some(limited),
+            None,
+            1.0 / 60.0,
+        );
         let rotated = TransformComponent::new()
             .with_rotation_quat([0.0, 0.707_106_77, 0.0, 0.707_106_77])
             .transform
             .model;
-        world.get_component_by_id_as_mut::<TransformComponent>(parent).unwrap().transform.matrix_world = rotated;
+        world
+            .get_component_by_id_as_mut::<TransformComponent>(parent)
+            .unwrap()
+            .transform
+            .matrix_world = rotated;
         let incoming = clamp_eye_gaze_rotation(ResolvedEyeGaze {
-            direction: [-1.0, 0.0, -1.0], compensation: HeadRotationCompensation::Off,
-            rotation_limits: limits, sequence: 2,
+            direction: [-1.0, 0.0, -1.0],
+            compensation: HeadRotationCompensation::Off,
+            rotation_limits: limits,
+            sequence: 2,
         });
         let frozen = apply_head_motion_gaze_policy(
-            avc, &mut world, Some(eye), None, Some(incoming), None, 1.0 / 60.0,
-        ).0.unwrap();
+            avc,
+            &mut world,
+            Some(eye),
+            None,
+            Some(incoming),
+            None,
+            1.0 / 60.0,
+        )
+        .0
+        .unwrap();
         assert_eq!(frozen.direction, limited.direction);
         assert!((frozen.direction[0].atan2(-frozen.direction[2]) - 0.2).abs() < 1e-5);
     }

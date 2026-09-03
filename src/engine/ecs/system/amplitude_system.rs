@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::engine::ecs::component::{
-    resolve_component_ref, AmplitudeComponent, AmplitudeSample, AmplitudeStatus, AudioClipComponent,
-    AudioInputComponent, AudioOscillatorComponent, QueryRootMode,
+    AmplitudeComponent, AmplitudeSample, AmplitudeStatus, AudioClipComponent, AudioInputComponent,
+    AudioOscillatorComponent, QueryRootMode, resolve_component_ref,
 };
 use crate::engine::ecs::{ComponentId, World};
 
@@ -43,14 +43,20 @@ pub struct AmplitudeSystem {
 
 impl Default for AmplitudeSystem {
     fn default() -> Self {
-        Self { consumers: HashMap::new(), pending: VecDeque::new(), dropped_snapshots: 0 }
+        Self {
+            consumers: HashMap::new(),
+            pending: VecDeque::new(),
+            dropped_snapshots: 0,
+        }
     }
 }
 
 impl AmplitudeSystem {
     pub const MAX_PENDING_SNAPSHOTS: usize = 256;
 
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Bounded source-runtime handoff. This is public for deterministic source
     /// fixtures; production PCM integration will call it via its RT-safe queue
@@ -63,7 +69,9 @@ impl AmplitudeSystem {
         self.pending.push_back(snapshot);
     }
 
-    pub fn dropped_snapshots(&self) -> u64 { self.dropped_snapshots }
+    pub fn dropped_snapshots(&self) -> u64 {
+        self.dropped_snapshots
+    }
 
     pub(crate) fn record_dropped_snapshots(&mut self, count: u64) {
         self.dropped_snapshots = self.dropped_snapshots.wrapping_add(count);
@@ -76,18 +84,22 @@ impl AmplitudeSystem {
     }
 
     pub(crate) fn drain_pending(&mut self, world: &mut World) {
-
         // Keep only the newest queued result per observer for this tick.
         let mut newest = HashMap::new();
         while let Some(snapshot) = self.pending.pop_front() {
             newest.insert(snapshot.observer, snapshot);
         }
         for (observer, snapshot) in newest {
-            let Some(state) = self.consumers.get(&observer).copied() else { continue };
+            let Some(state) = self.consumers.get(&observer).copied() else {
+                continue;
+            };
             if state.source != snapshot.source || state.generation != snapshot.sample.generation {
                 continue;
             }
-            let Some(component) = world.get_component_by_id_as_mut::<AmplitudeComponent>(observer) else { continue };
+            let Some(component) = world.get_component_by_id_as_mut::<AmplitudeComponent>(observer)
+            else {
+                continue;
+            };
             let valid = match snapshot.sample.status {
                 AmplitudeStatus::Live => snapshot.sample.is_live(),
                 AmplitudeStatus::Neutral | AmplitudeStatus::Invalid => {
@@ -106,59 +118,86 @@ impl AmplitudeSystem {
         let ids: Vec<_> = world.all_components().collect();
         let mut live = HashMap::new();
         for id in ids {
-            let Some(amplitude) = world.get_component_by_id_as::<AmplitudeComponent>(id) else { continue };
+            let Some(amplitude) = world.get_component_by_id_as::<AmplitudeComponent>(id) else {
+                continue;
+            };
             // A live ComponentId is stable across frames. Resolve its durable
             // selector only before first bind, or after deletion invalidated
             // the cached slot-map key.
-            let source = amplitude.resolved_source.filter(|&source| is_audio_source(world, source))
-                .or_else(|| amplitude.source.as_ref().and_then(|reference| {
-                    resolve_component_ref(world, reference, Some(id), QueryRootMode::WorldRoot)
-                }));
-            let source_is_valid = source.is_some_and(|source| is_audio_source_enabled(world, source));
+            let source = amplitude
+                .resolved_source
+                .filter(|&source| is_audio_source(world, source))
+                .or_else(|| {
+                    amplitude.source.as_ref().and_then(|reference| {
+                        resolve_component_ref(world, reference, Some(id), QueryRootMode::WorldRoot)
+                    })
+                });
+            let source_is_valid =
+                source.is_some_and(|source| is_audio_source_enabled(world, source));
             if !amplitude.enabled || !source_is_valid {
                 if amplitude.retained.status != AmplitudeStatus::Invalid {
-                    world.get_component_by_id_as_mut::<AmplitudeComponent>(id)
-                        .unwrap().bump_generation(AmplitudeStatus::Invalid);
+                    world
+                        .get_component_by_id_as_mut::<AmplitudeComponent>(id)
+                        .unwrap()
+                        .bump_generation(AmplitudeStatus::Invalid);
                 }
                 continue;
             }
             let source = source.expect("validated above");
             let generation = amplitude.generation;
             if amplitude.resolved_source != Some(source) {
-                world.get_component_by_id_as_mut::<AmplitudeComponent>(id)
-                    .unwrap().resolved_source = Some(source);
+                world
+                    .get_component_by_id_as_mut::<AmplitudeComponent>(id)
+                    .unwrap()
+                    .resolved_source = Some(source);
             }
             live.insert(id, ConsumerState { source, generation });
             if self.consumers.get(&id).copied() != Some(ConsumerState { source, generation }) {
-                let component = world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap();
+                let component = world
+                    .get_component_by_id_as_mut::<AmplitudeComponent>(id)
+                    .unwrap();
                 component.bump_generation(AmplitudeStatus::Pending);
-                live.insert(id, ConsumerState { source, generation: component.generation });
+                live.insert(
+                    id,
+                    ConsumerState {
+                        source,
+                        generation: component.generation,
+                    },
+                );
             }
         }
         self.consumers = live;
     }
 
     pub(crate) fn input_consumers(&self, world: &World) -> Vec<InputAmplitudeConsumer> {
-        let mut out: Vec<_> = self.consumers.iter().filter_map(|(&observer, state)| {
-            world.get_component_by_id_as::<AudioInputComponent>(state.source)?;
-            let amplitude = world.get_component_by_id_as::<AmplitudeComponent>(observer)?;
-            Some(InputAmplitudeConsumer {
-                observer,
-                source: state.source,
-                generation: state.generation,
-                window_sec: amplitude.window_sec,
+        let mut out: Vec<_> = self
+            .consumers
+            .iter()
+            .filter_map(|(&observer, state)| {
+                world.get_component_by_id_as::<AudioInputComponent>(state.source)?;
+                let amplitude = world.get_component_by_id_as::<AmplitudeComponent>(observer)?;
+                Some(InputAmplitudeConsumer {
+                    observer,
+                    source: state.source,
+                    generation: state.generation,
+                    window_sec: amplitude.window_sec,
+                })
             })
-        }).collect();
+            .collect();
         out.sort_by_key(|consumer| consumer.observer);
         out
     }
 
     pub(crate) fn invalidate_source(&mut self, world: &mut World, source: ComponentId) {
-        let observers: Vec<_> = self.consumers.iter()
+        let observers: Vec<_> = self
+            .consumers
+            .iter()
             .filter_map(|(&observer, state)| (state.source == source).then_some(observer))
             .collect();
         for observer in observers {
-            if let Some(amplitude) = world.get_component_by_id_as_mut::<AmplitudeComponent>(observer) {
+            if let Some(amplitude) =
+                world.get_component_by_id_as_mut::<AmplitudeComponent>(observer)
+            {
                 amplitude.bump_generation(AmplitudeStatus::Invalid);
             }
             self.consumers.remove(&observer);
@@ -167,13 +206,20 @@ impl AmplitudeSystem {
 }
 
 fn is_audio_source(world: &World, id: ComponentId) -> bool {
-    world.get_component_by_id_as::<AudioInputComponent>(id).is_some()
-        || world.get_component_by_id_as::<AudioClipComponent>(id).is_some()
-        || world.get_component_by_id_as::<AudioOscillatorComponent>(id).is_some()
+    world
+        .get_component_by_id_as::<AudioInputComponent>(id)
+        .is_some()
+        || world
+            .get_component_by_id_as::<AudioClipComponent>(id)
+            .is_some()
+        || world
+            .get_component_by_id_as::<AudioOscillatorComponent>(id)
+            .is_some()
 }
 
 fn is_audio_source_enabled(world: &World, id: ComponentId) -> bool {
-    world.get_component_by_id_as::<AudioInputComponent>(id)
+    world
+        .get_component_by_id_as::<AudioInputComponent>(id)
         .map_or_else(|| is_audio_source(world, id), |input| input.enabled)
 }
 
@@ -188,18 +234,38 @@ mod tests {
         let source = world.add_component(AudioInputComponent::new());
         let source_guid = world.get_component_record(source).unwrap().guid;
         let observer = world.add_component(
-            AmplitudeComponent::rolling_window(0.25).unwrap()
+            AmplitudeComponent::rolling_window(0.25)
+                .unwrap()
                 .with_source(ComponentRef::Guid(source_guid)),
         );
         let mut system = AmplitudeSystem::new();
         system.tick(&mut world);
-        let generation = world.get_component_by_id_as::<AmplitudeComponent>(observer).unwrap().generation;
+        let generation = world
+            .get_component_by_id_as::<AmplitudeComponent>(observer)
+            .unwrap()
+            .generation;
         system.submit_snapshot(AmplitudeSnapshot {
-            observer, source,
-            sample: AmplitudeSample { generation, sequence: 1, timestamp_sec: 1.0, valid_frames: 32, rms: 0.5, peak: 0.75, status: AmplitudeStatus::Live },
+            observer,
+            source,
+            sample: AmplitudeSample {
+                generation,
+                sequence: 1,
+                timestamp_sec: 1.0,
+                valid_frames: 32,
+                rms: 0.5,
+                peak: 0.75,
+                status: AmplitudeStatus::Live,
+            },
         });
         system.tick(&mut world);
-        assert_eq!(world.get_component_by_id_as::<AmplitudeComponent>(observer).unwrap().retained.rms, 0.5);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<AmplitudeComponent>(observer)
+                .unwrap()
+                .retained
+                .rms,
+            0.5
+        );
     }
 
     #[test]
@@ -208,12 +274,16 @@ mod tests {
         let source = world.add_component(AudioInputComponent::new());
         let source_guid = world.get_component_record(source).unwrap().guid;
         let observer = world.add_component(
-            AmplitudeComponent::rolling_window(0.1).unwrap()
+            AmplitudeComponent::rolling_window(0.1)
+                .unwrap()
                 .with_source(ComponentRef::Guid(source_guid)),
         );
         let mut system = AmplitudeSystem::new();
         system.tick(&mut world);
-        let generation = world.get_component_by_id_as::<AmplitudeComponent>(observer).unwrap().generation;
+        let generation = world
+            .get_component_by_id_as::<AmplitudeComponent>(observer)
+            .unwrap()
+            .generation;
         system.submit_snapshot(AmplitudeSnapshot {
             observer,
             source,
@@ -229,14 +299,25 @@ mod tests {
         });
         system.tick(&mut world);
         assert_eq!(
-            world.get_component_by_id_as::<AmplitudeComponent>(observer).unwrap().retained.status,
+            world
+                .get_component_by_id_as::<AmplitudeComponent>(observer)
+                .unwrap()
+                .retained
+                .status,
             AmplitudeStatus::Neutral,
         );
 
-        world.get_component_by_id_as_mut::<AudioInputComponent>(source).unwrap().enabled = false;
+        world
+            .get_component_by_id_as_mut::<AudioInputComponent>(source)
+            .unwrap()
+            .enabled = false;
         system.tick(&mut world);
         assert_eq!(
-            world.get_component_by_id_as::<AmplitudeComponent>(observer).unwrap().retained.status,
+            world
+                .get_component_by_id_as::<AmplitudeComponent>(observer)
+                .unwrap()
+                .retained
+                .status,
             AmplitudeStatus::Invalid,
         );
     }

@@ -77,7 +77,10 @@ impl AssetSystem {
             let entry = entry.map_err(|e| format!("cannot read assets dir entry: {e}"))?;
             let candidate = entry.path();
             if Self::is_catalog_candidate(path, &candidate) {
-                println!("[AssetSystem][debug] scanning asset module: {:?}", candidate);
+                println!(
+                    "[AssetSystem][debug] scanning asset module: {:?}",
+                    candidate
+                );
                 self.load_module(candidate)?;
             }
         }
@@ -93,7 +96,10 @@ impl AssetSystem {
     fn is_catalog_candidate(asset_root: &Path, candidate: &Path) -> bool {
         candidate.parent() == Some(asset_root)
             && candidate.is_file()
-            && candidate.extension().and_then(|extension| extension.to_str()) == Some("mms")
+            && candidate
+                .extension()
+                .and_then(|extension| extension.to_str())
+                == Some("mms")
     }
 
     pub fn load_module(&mut self, path: PathBuf) -> Result<(), String> {
@@ -258,7 +264,10 @@ impl AssetSystem {
     }
 
     fn assets_panel_asset_path() -> &'static str {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/components/internal/panels.mms"
+        )
     }
 
     pub fn spawn_assets_panel(

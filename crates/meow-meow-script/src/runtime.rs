@@ -2,11 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{CallbackHandle, EvalError, Evaluation, Evaluator, Expression, HeapHandle, Host,
-    HostContext, Hostless, MaterializedCE, MeowMeowParser, MeowMeowTokenizer, Statement, Value};
+use crate::{
+    CallbackHandle, EvalError, Evaluation, Evaluator, Expression, HeapHandle, Host, HostContext,
+    Hostless, MaterializedCE, MeowMeowParser, MeowMeowTokenizer, Statement, Value,
+};
 
 static NEXT_SESSION_TAG: AtomicU32 = AtomicU32::new(1);
 
@@ -44,12 +46,17 @@ pub enum ValueType {
 impl ValueType {
     pub fn accepts(&self, value: &Value) -> bool {
         matches!(self, Self::Any)
-            || matches!((self, value),
-                (Self::Null, Value::Null) | (Self::Bool, Value::Bool(_))
-                | (Self::Number, Value::Number(_)) | (Self::String, Value::String(_))
-                | (Self::Array, Value::Array(_)) | (Self::Table, Value::Map(_) | Value::Object(_))
-                | (Self::Component, Value::ComponentObject { .. })
-                | (Self::Callback, Value::Function { .. }))
+            || matches!(
+                (self, value),
+                (Self::Null, Value::Null)
+                    | (Self::Bool, Value::Bool(_))
+                    | (Self::Number, Value::Number(_))
+                    | (Self::String, Value::String(_))
+                    | (Self::Array, Value::Array(_))
+                    | (Self::Table, Value::Map(_) | Value::Object(_))
+                    | (Self::Component, Value::ComponentObject { .. })
+                    | (Self::Callback, Value::Function { .. })
+            )
             || match (self, value) {
                 (Self::I8, Value::Number(value)) => integer_in_range(*value, i8::MIN, i8::MAX),
                 (Self::I16, Value::Number(value)) => integer_in_range(*value, i16::MIN, i16::MAX),
@@ -118,10 +125,7 @@ fn unsigned_integer_in_range<T>(value: f64, max: T) -> bool
 where
     T: Copy + Into<u64>,
 {
-    value.is_finite()
-        && value.fract() == 0.0
-        && value >= 0.0
-        && value <= max.into() as f64
+    value.is_finite() && value.fract() == 0.0 && value >= 0.0 && value <= max.into() as f64
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,10 +176,17 @@ pub struct CallableDeclaration {
 }
 
 impl CallableDeclaration {
-    pub fn name(&self) -> &str { &self.name }
-    pub fn signature(&self) -> &ValueSignature { &self.signature }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn signature(&self) -> &ValueSignature {
+        &self.signature
+    }
     pub fn operation_id(&self) -> Option<OperationId> {
-        match self.target { ImplementationTarget::Pure => None, ImplementationTarget::Host(id) => Some(id) }
+        match self.target {
+            ImplementationTarget::Pure => None,
+            ImplementationTarget::Host(id) => Some(id),
+        }
     }
 }
 
@@ -187,10 +198,17 @@ pub struct PropertyDeclaration {
 }
 
 impl PropertyDeclaration {
-    pub fn name(&self) -> &str { &self.name }
-    pub fn value_type(&self) -> &ValueType { &self.value_type }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn value_type(&self) -> &ValueType {
+        &self.value_type
+    }
     pub fn operation_id(&self) -> Option<OperationId> {
-        match self.target { ImplementationTarget::Pure => None, ImplementationTarget::Host(id) => Some(id) }
+        match self.target {
+            ImplementationTarget::Pure => None,
+            ImplementationTarget::Host(id) => Some(id),
+        }
     }
 }
 
@@ -202,11 +220,15 @@ pub struct SignalDeclaration {
 }
 
 impl SignalDeclaration {
-    pub fn name(&self) -> &str { &self.name }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     pub fn fields(&self) -> impl ExactSizeIterator<Item = (&str, &ValueType)> {
         self.fields.iter().map(|(name, ty)| (name.as_str(), ty))
     }
-    pub fn operation_id(&self) -> OperationId { self.operation_id }
+    pub fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,7 +245,9 @@ pub struct ComponentDeclaration {
 }
 
 impl ComponentDeclaration {
-    pub fn name(&self) -> &str { &self.name }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     pub fn default_constructor_operation_id(&self) -> Option<OperationId> {
         match self.default_constructor {
             ImplementationTarget::Pure => None,
@@ -252,7 +276,9 @@ impl ComponentDeclaration {
         self.methods.iter()
     }
     pub fn method(&self, name: &str) -> Option<&CallableDeclaration> {
-        self.methods.iter().find(|method| method.name.eq_ignore_ascii_case(name))
+        self.methods
+            .iter()
+            .find(|method| method.name.eq_ignore_ascii_case(name))
     }
 }
 
@@ -264,10 +290,17 @@ pub struct BuiltinDeclaration {
 }
 
 impl BuiltinDeclaration {
-    pub fn name(&self) -> &str { &self.name }
-    pub fn signature(&self) -> &ValueSignature { &self.signature }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn signature(&self) -> &ValueSignature {
+        &self.signature
+    }
     pub fn operation_id(&self) -> Option<OperationId> {
-        match self.target { ImplementationTarget::Pure => None, ImplementationTarget::Host(id) => Some(id) }
+        match self.target {
+            ImplementationTarget::Pure => None,
+            ImplementationTarget::Host(id) => Some(id),
+        }
     }
 }
 
@@ -280,10 +313,18 @@ pub struct ApiDeclaration {
 }
 
 impl ApiDeclaration {
-    pub fn namespace(&self) -> Option<&str> { self.namespace.as_deref() }
-    pub fn name(&self) -> &str { &self.name }
-    pub fn signature(&self) -> &ValueSignature { &self.signature }
-    pub fn operation_id(&self) -> OperationId { self.operation_id }
+    pub fn namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn signature(&self) -> &ValueSignature {
+        &self.signature
+    }
+    pub fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
 }
 
 /// Immutable, crate-owned description of one MMS vocabulary.
@@ -321,16 +362,23 @@ impl RuntimeSpec {
             .find(|signal| signal.name.eq_ignore_ascii_case(name))
     }
     pub fn component(&self, name: &str) -> Option<&ComponentDeclaration> {
-        self.components.iter().find(|component| component.name.eq_ignore_ascii_case(name)
-            || component.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(name)))
+        self.components.iter().find(|component| {
+            component.name.eq_ignore_ascii_case(name)
+                || component
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(name))
+        })
     }
     pub fn api(&self, namespace: Option<&str>, name: &str) -> Option<&ApiDeclaration> {
-        self.apis.iter().find(|api| api.name.eq_ignore_ascii_case(name)
-            && match (api.namespace.as_deref(), namespace) {
-                (None, None) => true,
-                (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
-                _ => false,
-            })
+        self.apis.iter().find(|api| {
+            api.name.eq_ignore_ascii_case(name)
+                && match (api.namespace.as_deref(), namespace) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => left.eq_ignore_ascii_case(right),
+                    _ => false,
+                }
+        })
     }
 }
 
@@ -341,13 +389,21 @@ pub struct ImplementationBindings<I> {
 }
 
 impl<I> ImplementationBindings<I> {
-    pub fn len(&self) -> usize { self.entries.len() }
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
     pub fn get(&self, id: OperationId) -> Option<&I> {
-        self.entries.iter().find_map(|(candidate, implementation)| (*candidate == id).then_some(implementation))
+        self.entries
+            .iter()
+            .find_map(|(candidate, implementation)| (*candidate == id).then_some(implementation))
     }
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (OperationId, &I)> {
-        self.entries.iter().map(|(id, implementation)| (*id, implementation))
+        self.entries
+            .iter()
+            .map(|(id, implementation)| (*id, implementation))
     }
 }
 
@@ -364,9 +420,15 @@ pub struct ConfiguredRuntime<I> {
 }
 
 impl<I> ConfiguredRuntime<I> {
-    pub fn runtime(&self) -> &Runtime { &self.runtime }
-    pub fn spec(&self) -> &RuntimeSpec { self.runtime.spec() }
-    pub fn bindings(&self) -> &ImplementationBindings<I> { &self.bindings }
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+    pub fn spec(&self) -> &RuntimeSpec {
+        self.runtime.spec()
+    }
+    pub fn bindings(&self) -> &ImplementationBindings<I> {
+        &self.bindings
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -389,7 +451,9 @@ pub struct RuntimeSpecError {
 }
 
 impl fmt::Display for RuntimeSpecError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.message) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
 }
 impl std::error::Error for RuntimeSpecError {}
 
@@ -418,9 +482,12 @@ impl<I> Default for RuntimeSpecBuilder<I> {
 }
 
 impl<I> RuntimeSpecBuilder<I> {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn component_name_policy(&mut self, policy: ComponentNamePolicy) -> &mut Self {
-        self.component_name_policy = policy; self
+        self.component_name_policy = policy;
+        self
     }
     pub fn with_standard_builtins(&mut self) -> &mut Self {
         for name in [
@@ -438,12 +505,31 @@ impl<I> RuntimeSpecBuilder<I> {
         }
         self
     }
-    pub fn pure_builtin(&mut self, name: impl Into<String>, signature: ValueSignature) -> &mut Self {
-        self.builtins.push(BuiltinDeclaration { name: name.into(), signature, target: ImplementationTarget::Pure }); self
+    pub fn pure_builtin(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+    ) -> &mut Self {
+        self.builtins.push(BuiltinDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Pure,
+        });
+        self
     }
-    pub fn host_builtin(&mut self, name: impl Into<String>, signature: ValueSignature, implementation: I) -> &mut Self {
+    pub fn host_builtin(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+        implementation: I,
+    ) -> &mut Self {
         let id = self.bind(implementation);
-        self.builtins.push(BuiltinDeclaration { name: name.into(), signature, target: ImplementationTarget::Host(id) }); self
+        self.builtins.push(BuiltinDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Host(id),
+        });
+        self
     }
     pub fn component(
         &mut self,
@@ -467,7 +553,8 @@ impl<I> RuntimeSpecBuilder<I> {
             next_operation_id: &mut self.next_operation_id,
         };
         configure(&mut builder);
-        self.components.push(builder.declaration); self
+        self.components.push(builder.declaration);
+        self
     }
     /// Declares a component whose default constructor is implemented by the host.
     pub fn host_component(
@@ -494,11 +581,23 @@ impl<I> RuntimeSpecBuilder<I> {
             next_operation_id: &mut self.next_operation_id,
         };
         configure(&mut builder);
-        self.components.push(builder.declaration); self
+        self.components.push(builder.declaration);
+        self
     }
-    pub fn host_api(&mut self, name: impl Into<String>, signature: ValueSignature, implementation: I) -> &mut Self {
+    pub fn host_api(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+        implementation: I,
+    ) -> &mut Self {
         let id = self.bind(implementation);
-        self.apis.push(ApiDeclaration { namespace: None, name: name.into(), signature, operation_id: id }); self
+        self.apis.push(ApiDeclaration {
+            namespace: None,
+            name: name.into(),
+            signature,
+            operation_id: id,
+        });
+        self
     }
     /// Declare a host event kind. Signal declarations are global vocabulary;
     /// registration may optionally supply a component scope.
@@ -555,8 +654,12 @@ impl<I> RuntimeSpecBuilder<I> {
     }
     fn bind(&mut self, implementation: I) -> OperationId {
         let id = OperationId(self.next_operation_id);
-        self.next_operation_id = self.next_operation_id.checked_add(1).expect("runtime operation ID space exhausted");
-        self.bindings.push((id, implementation)); id
+        self.next_operation_id = self
+            .next_operation_id
+            .checked_add(1)
+            .expect("runtime operation ID space exhausted");
+        self.bindings.push((id, implementation));
+        id
     }
 }
 
@@ -567,44 +670,116 @@ pub struct ComponentBuilder<'a, I> {
 }
 
 impl<I> ComponentBuilder<'_, I> {
-    pub fn alias(&mut self, alias: impl Into<String>) -> &mut Self { self.declaration.aliases.push(alias.into()); self }
+    pub fn alias(&mut self, alias: impl Into<String>) -> &mut Self {
+        self.declaration.aliases.push(alias.into());
+        self
+    }
     /// Marks this component's default constructor as host-implemented.
     pub fn host_default_constructor(&mut self, implementation: I) -> &mut Self {
         let id = self.bind(implementation);
         self.declaration.default_constructor = ImplementationTarget::Host(id);
         self
     }
-    pub fn body_mode(&mut self, mode: ComponentBodyMode) -> &mut Self { self.declaration.body_mode = mode; self }
-    pub fn positional(&mut self, ty: ValueType) -> &mut Self { self.declaration.positionals.push(ty); self }
+    pub fn body_mode(&mut self, mode: ComponentBodyMode) -> &mut Self {
+        self.declaration.body_mode = mode;
+        self
+    }
+    pub fn positional(&mut self, ty: ValueType) -> &mut Self {
+        self.declaration.positionals.push(ty);
+        self
+    }
     pub fn constructor(&mut self, name: impl Into<String>, signature: ValueSignature) -> &mut Self {
-        self.declaration.constructors.push(CallableDeclaration { name: name.into(), signature, target: ImplementationTarget::Pure }); self
+        self.declaration.constructors.push(CallableDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Pure,
+        });
+        self
     }
-    pub fn host_constructor(&mut self, name: impl Into<String>, signature: ValueSignature, implementation: I) -> &mut Self {
+    pub fn host_constructor(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+        implementation: I,
+    ) -> &mut Self {
         let id = self.bind(implementation);
-        self.declaration.constructors.push(CallableDeclaration { name: name.into(), signature, target: ImplementationTarget::Host(id) }); self
+        self.declaration.constructors.push(CallableDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Host(id),
+        });
+        self
     }
-    pub fn builder_call(&mut self, name: impl Into<String>, signature: ValueSignature) -> &mut Self {
-        self.declaration.builder_calls.push(CallableDeclaration { name: name.into(), signature, target: ImplementationTarget::Pure }); self
+    pub fn builder_call(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+    ) -> &mut Self {
+        self.declaration.builder_calls.push(CallableDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Pure,
+        });
+        self
     }
-    pub fn host_builder_call(&mut self, name: impl Into<String>, signature: ValueSignature, implementation: I) -> &mut Self {
+    pub fn host_builder_call(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+        implementation: I,
+    ) -> &mut Self {
         let id = self.bind(implementation);
-        self.declaration.builder_calls.push(CallableDeclaration { name: name.into(), signature, target: ImplementationTarget::Host(id) }); self
+        self.declaration.builder_calls.push(CallableDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Host(id),
+        });
+        self
     }
     pub fn property(&mut self, name: impl Into<String>, ty: ValueType) -> &mut Self {
-        self.declaration.properties.push(PropertyDeclaration { name: name.into(), value_type: ty, target: ImplementationTarget::Pure }); self
+        self.declaration.properties.push(PropertyDeclaration {
+            name: name.into(),
+            value_type: ty,
+            target: ImplementationTarget::Pure,
+        });
+        self
     }
-    pub fn host_property(&mut self, name: impl Into<String>, ty: ValueType, implementation: I) -> &mut Self {
+    pub fn host_property(
+        &mut self,
+        name: impl Into<String>,
+        ty: ValueType,
+        implementation: I,
+    ) -> &mut Self {
         let id = self.bind(implementation);
-        self.declaration.properties.push(PropertyDeclaration { name: name.into(), value_type: ty, target: ImplementationTarget::Host(id) }); self
+        self.declaration.properties.push(PropertyDeclaration {
+            name: name.into(),
+            value_type: ty,
+            target: ImplementationTarget::Host(id),
+        });
+        self
     }
-    pub fn method(&mut self, name: impl Into<String>, signature: ValueSignature, implementation: I) -> &mut Self {
+    pub fn method(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+        implementation: I,
+    ) -> &mut Self {
         let id = self.bind(implementation);
-        self.declaration.methods.push(CallableDeclaration { name: name.into(), signature, target: ImplementationTarget::Host(id) }); self
+        self.declaration.methods.push(CallableDeclaration {
+            name: name.into(),
+            signature,
+            target: ImplementationTarget::Host(id),
+        });
+        self
     }
     fn bind(&mut self, implementation: I) -> OperationId {
         let id = OperationId(*self.next_operation_id);
-        *self.next_operation_id = self.next_operation_id.checked_add(1).expect("runtime operation ID space exhausted");
-        self.bindings.push((id, implementation)); id
+        *self.next_operation_id = self
+            .next_operation_id
+            .checked_add(1)
+            .expect("runtime operation ID space exhausted");
+        self.bindings.push((id, implementation));
+        id
     }
 }
 
@@ -616,11 +791,25 @@ pub struct NamespaceBuilder<'a, I> {
 }
 
 impl<I> NamespaceBuilder<'_, I> {
-    pub fn api(&mut self, name: impl Into<String>, signature: ValueSignature, implementation: I) -> &mut Self {
+    pub fn api(
+        &mut self,
+        name: impl Into<String>,
+        signature: ValueSignature,
+        implementation: I,
+    ) -> &mut Self {
         let id = OperationId(*self.next_operation_id);
-        *self.next_operation_id = self.next_operation_id.checked_add(1).expect("runtime operation ID space exhausted");
+        *self.next_operation_id = self
+            .next_operation_id
+            .checked_add(1)
+            .expect("runtime operation ID space exhausted");
         self.bindings.push((id, implementation));
-        self.apis.push(ApiDeclaration { namespace: Some(self.name.clone()), name: name.into(), signature, operation_id: id }); self
+        self.apis.push(ApiDeclaration {
+            namespace: Some(self.name.clone()),
+            name: name.into(),
+            signature,
+            operation_id: id,
+        });
+        self
     }
 }
 
@@ -698,10 +887,7 @@ fn validate_runtime_spec(
     for signal in signals {
         let mut fields = HashSet::new();
         for (field, _) in &signal.fields {
-            validate_declaration_name(
-                field,
-                &format!("signal({}).field({field})", signal.name),
-            )?;
+            validate_declaration_name(field, &format!("signal({}).field({field})", signal.name))?;
             if !fields.insert(field.to_lowercase()) {
                 return Err(spec_error(
                     RuntimeSpecErrorKind::DuplicateName,
@@ -722,26 +908,40 @@ fn validate_runtime_spec(
                 claim_name(&mut global_names, namespace, namespace)?;
                 namespaces.insert(namespace.to_lowercase(), namespace.clone());
             }
-        } else { claim_name(&mut global_names, &api.name, &api.name)?; }
+        } else {
+            claim_name(&mut global_names, &api.name, &api.name)?;
+        }
     }
     let mut api_names = HashSet::new();
     for api in apis {
         let key = api_key(api.namespace.as_deref(), &api.name);
-        if !api_names.insert(key) { return Err(spec_error(RuntimeSpecErrorKind::DuplicateName,
-            api_path(api.namespace.as_deref(), &api.name), "duplicate API declaration".into())); }
+        if !api_names.insert(key) {
+            return Err(spec_error(
+                RuntimeSpecErrorKind::DuplicateName,
+                api_path(api.namespace.as_deref(), &api.name),
+                "duplicate API declaration".into(),
+            ));
+        }
     }
     Ok(())
 }
 
 fn validate_declaration_name(name: &str, path: &str) -> Result<(), RuntimeSpecError> {
     if name.trim().is_empty() || name.contains('.') {
-        return Err(spec_error(RuntimeSpecErrorKind::InvalidNesting, path.into(),
-            format!("'{name}' is not a valid declaration name")));
+        return Err(spec_error(
+            RuntimeSpecErrorKind::InvalidNesting,
+            path.into(),
+            format!("'{name}' is not a valid declaration name"),
+        ));
     }
     Ok(())
 }
 
-fn validate_named(component: &str, kind: &str, items: impl Iterator<Item = (String, ValueSignature)>) -> Result<(), RuntimeSpecError> {
+fn validate_named(
+    component: &str,
+    kind: &str,
+    items: impl Iterator<Item = (String, ValueSignature)>,
+) -> Result<(), RuntimeSpecError> {
     let mut seen = HashMap::<String, ValueSignature>::new();
     for (name, signature) in items {
         let path = format!("{component}.{kind}({name})");
@@ -749,8 +949,16 @@ fn validate_named(component: &str, kind: &str, items: impl Iterator<Item = (Stri
         validate_signature(&path, &signature)?;
         let key = name.to_lowercase();
         if let Some(previous) = seen.get(&key) {
-            let error_kind = if previous == &signature { RuntimeSpecErrorKind::DuplicateName } else { RuntimeSpecErrorKind::ConflictingSignature };
-            return Err(spec_error(error_kind, format!("{component}.{kind}({name})"), format!("duplicate {kind} '{name}'")));
+            let error_kind = if previous == &signature {
+                RuntimeSpecErrorKind::DuplicateName
+            } else {
+                RuntimeSpecErrorKind::ConflictingSignature
+            };
+            return Err(spec_error(
+                error_kind,
+                format!("{component}.{kind}({name})"),
+                format!("duplicate {kind} '{name}'"),
+            ));
         }
         seen.insert(key, signature);
     }
@@ -782,24 +990,41 @@ fn validate_bindings<I>(
     let mut declarations = HashMap::<OperationId, String>::new();
     let mut declare = |id: OperationId, path: String| {
         if declarations.insert(id, path.clone()).is_some() {
-            Err(spec_error(RuntimeSpecErrorKind::DuplicateOperationId, path, "operation ID is assigned to more than one declaration".into()))
-        } else { Ok(()) }
+            Err(spec_error(
+                RuntimeSpecErrorKind::DuplicateOperationId,
+                path,
+                "operation ID is assigned to more than one declaration".into(),
+            ))
+        } else {
+            Ok(())
+        }
     };
     for builtin in builtins {
-        if let Some(id) = builtin.operation_id() { declare(id, builtin.name.clone())?; }
+        if let Some(id) = builtin.operation_id() {
+            declare(id, builtin.name.clone())?;
+        }
     }
     for component in components {
         if let Some(id) = component.default_constructor_operation_id() {
             declare(id, format!("{}.constructor(default)", component.name))?;
         }
         for item in &component.constructors {
-            if let Some(id) = item.operation_id() { declare(id, format!("{}.constructor({})", component.name, item.name))?; }
+            if let Some(id) = item.operation_id() {
+                declare(id, format!("{}.constructor({})", component.name, item.name))?;
+            }
         }
         for item in &component.builder_calls {
-            if let Some(id) = item.operation_id() { declare(id, format!("{}.builder_call({})", component.name, item.name))?; }
+            if let Some(id) = item.operation_id() {
+                declare(
+                    id,
+                    format!("{}.builder_call({})", component.name, item.name),
+                )?;
+            }
         }
         for item in &component.properties {
-            if let Some(id) = item.operation_id() { declare(id, format!("{}.property({})", component.name, item.name))?; }
+            if let Some(id) = item.operation_id() {
+                declare(id, format!("{}.property({})", component.name, item.name))?;
+            }
         }
         for item in &component.methods {
             if let Some(id) = item.operation_id() {
@@ -810,44 +1035,87 @@ fn validate_bindings<I>(
     for item in signals {
         declare(item.operation_id, format!("signal({})", item.name))?;
     }
-    for api in apis { declare(api.operation_id, api_path(api.namespace.as_deref(), &api.name))?; }
+    for api in apis {
+        declare(
+            api.operation_id,
+            api_path(api.namespace.as_deref(), &api.name),
+        )?;
+    }
 
     let mut bound = HashSet::new();
     for (id, _) in bindings {
-        if !bound.insert(*id) { return Err(spec_error(RuntimeSpecErrorKind::DuplicateOperationId,
-            format!("{id:?}"), "operation ID has more than one implementation".into())); }
-        if !declarations.contains_key(id) { return Err(spec_error(RuntimeSpecErrorKind::OrphanImplementation,
-            format!("{id:?}"), "implementation is not reachable from a declaration".into())); }
+        if !bound.insert(*id) {
+            return Err(spec_error(
+                RuntimeSpecErrorKind::DuplicateOperationId,
+                format!("{id:?}"),
+                "operation ID has more than one implementation".into(),
+            ));
+        }
+        if !declarations.contains_key(id) {
+            return Err(spec_error(
+                RuntimeSpecErrorKind::OrphanImplementation,
+                format!("{id:?}"),
+                "implementation is not reachable from a declaration".into(),
+            ));
+        }
     }
     if let Some((_, path)) = declarations.iter().find(|(id, _)| !bound.contains(id)) {
-        return Err(spec_error(RuntimeSpecErrorKind::MissingImplementation, path.clone(),
-            "host-effectful declaration has no implementation".into()));
+        return Err(spec_error(
+            RuntimeSpecErrorKind::MissingImplementation,
+            path.clone(),
+            "host-effectful declaration has no implementation".into(),
+        ));
     }
     Ok(())
 }
 
-fn claim_name(names: &mut HashMap<String, String>, name: &str, path: &str) -> Result<(), RuntimeSpecError> {
+fn claim_name(
+    names: &mut HashMap<String, String>,
+    name: &str,
+    path: &str,
+) -> Result<(), RuntimeSpecError> {
     let key = name.to_lowercase();
     if let Some(previous) = names.get(&key) {
-        let kind = if previous == name { RuntimeSpecErrorKind::DuplicateName } else { RuntimeSpecErrorKind::NameConflict };
-        return Err(spec_error(kind, path.into(), format!("name '{name}' conflicts with '{previous}'")));
+        let kind = if previous == name {
+            RuntimeSpecErrorKind::DuplicateName
+        } else {
+            RuntimeSpecErrorKind::NameConflict
+        };
+        return Err(spec_error(
+            kind,
+            path.into(),
+            format!("name '{name}' conflicts with '{previous}'"),
+        ));
     }
-    names.insert(key, name.into()); Ok(())
+    names.insert(key, name.into());
+    Ok(())
 }
 
 fn spec_error(kind: RuntimeSpecErrorKind, path: String, message: String) -> RuntimeSpecError {
-    RuntimeSpecError { kind, message: format!("{path}: {message}"), path }
+    RuntimeSpecError {
+        kind,
+        message: format!("{path}: {message}"),
+        path,
+    }
 }
 
 fn api_path(namespace: Option<&str>, name: &str) -> String {
-    namespace.map_or_else(|| name.into(), |namespace| format!("{namespace}.api({name})"))
+    namespace.map_or_else(
+        || name.into(),
+        |namespace| format!("{namespace}.api({name})"),
+    )
 }
 
 impl ValueSignature {
     pub fn new(arguments: impl Into<Vec<ValueType>>, result: ValueType) -> Self {
         let arguments = arguments.into();
         let minimum_arguments = arguments.len();
-        Self { arguments, minimum_arguments, result, variadic: false }
+        Self {
+            arguments,
+            minimum_arguments,
+            result,
+            variadic: false,
+        }
     }
     /// Declares a bounded signature whose trailing arguments may be omitted.
     pub fn with_optional(
@@ -856,7 +1124,12 @@ impl ValueSignature {
         result: ValueType,
     ) -> Self {
         let arguments = arguments.into();
-        Self { arguments, minimum_arguments, result, variadic: false }
+        Self {
+            arguments,
+            minimum_arguments,
+            result,
+            variadic: false,
+        }
     }
     pub fn any() -> Self {
         Self {
@@ -909,11 +1182,18 @@ pub(crate) struct Catalog {
 
 impl Catalog {
     pub(crate) fn has_namespace(&self, name: &str) -> bool {
-        self.namespaces.iter().any(|namespace| namespace.eq_ignore_ascii_case(name))
+        self.namespaces
+            .iter()
+            .any(|namespace| namespace.eq_ignore_ascii_case(name))
     }
 }
 
-pub(crate) fn api_key(namespace: Option<&str>, name: &str) -> String { namespace.map_or_else(|| name.to_lowercase(), |ns| format!("{}.{}", ns.to_lowercase(), name.to_lowercase())) }
+pub(crate) fn api_key(namespace: Option<&str>, name: &str) -> String {
+    namespace.map_or_else(
+        || name.to_lowercase(),
+        |ns| format!("{}.{}", ns.to_lowercase(), name.to_lowercase()),
+    )
+}
 
 #[derive(Debug, Clone)]
 pub struct Runtime {
@@ -923,37 +1203,55 @@ pub struct Runtime {
 impl Runtime {
     pub fn from_spec(spec: RuntimeSpec) -> Self {
         let catalog = compile_catalog(&spec);
-        Self { spec: Arc::new(spec), catalog: Arc::new(catalog) }
+        Self {
+            spec: Arc::new(spec),
+            catalog: Arc::new(catalog),
+        }
     }
     pub fn standard() -> Self {
         let mut builder = RuntimeSpec::builder::<()>();
-        builder.component_name_policy(ComponentNamePolicy::OpenUppercase).with_standard_builtins();
-        let build = builder.build().expect("the standard runtime specification is valid");
+        builder
+            .component_name_policy(ComponentNamePolicy::OpenUppercase)
+            .with_standard_builtins();
+        let build = builder
+            .build()
+            .expect("the standard runtime specification is valid");
         build.runtime
     }
-    pub fn spec(&self) -> &RuntimeSpec { &self.spec }
-    pub fn component_names(&self) -> impl Iterator<Item = &str> { self.catalog.components.keys().map(String::as_str) }
+    pub fn spec(&self) -> &RuntimeSpec {
+        &self.spec
+    }
+    pub fn component_names(&self) -> impl Iterator<Item = &str> {
+        self.catalog.components.keys().map(String::as_str)
+    }
     pub fn materialize_component(&self, source: &str) -> Result<MaterializedCE, EvalError> {
         let tokens = MeowMeowTokenizer::new(source)
             .tokenize()
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
         let parser = match self.catalog.component_name_policy {
-            ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names_and_namespaces(
-                tokens,
-                self.catalog.components.keys().cloned(),
-                self.catalog.namespaces.iter().cloned(),
-            ),
-            ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names_and_namespaces(
-                tokens,
-                self.catalog.components.keys().cloned(),
-                self.catalog.namespaces.iter().cloned(),
-            ),
+            ComponentNamePolicy::OpenUppercase => {
+                MeowMeowParser::with_open_component_names_and_namespaces(
+                    tokens,
+                    self.catalog.components.keys().cloned(),
+                    self.catalog.namespaces.iter().cloned(),
+                )
+            }
+            ComponentNamePolicy::StrictRegistered => {
+                MeowMeowParser::with_component_names_and_namespaces(
+                    tokens,
+                    self.catalog.components.keys().cloned(),
+                    self.catalog.namespaces.iter().cloned(),
+                )
+            }
         };
         let statements = parser
             .parse_program()
             .map_err(|e| EvalError::Parse(e.message))?;
-        let [Statement::Expression(Expression::Component(component))] = statements.as_slice() else {
-            return Err(EvalError::Runtime("expected exactly one component expression".into()));
+        let [Statement::Expression(Expression::Component(component))] = statements.as_slice()
+        else {
+            return Err(EvalError::Runtime(
+                "expected exactly one component expression".into(),
+            ));
         };
         let mut host = Hostless;
         let mut evaluator = Evaluator::for_materialization(&mut host, self.catalog.clone());
@@ -961,9 +1259,15 @@ impl Runtime {
     }
     pub fn session<H: Host>(&self, host: H) -> Session<H> {
         let tag = NEXT_SESSION_TAG.fetch_add(1, Ordering::Relaxed);
-        Session { runtime: self.clone(), host, scopes: vec![HashMap::from([("null".into(), Value::Null)])],
-            heap: HeapHandle::new(), callbacks: HashMap::new(), module_cache: HashMap::new(),
-            context: HostContext::new(tag) }
+        Session {
+            runtime: self.clone(),
+            host,
+            scopes: vec![HashMap::from([("null".into(), Value::Null)])],
+            heap: HeapHandle::new(),
+            callbacks: HashMap::new(),
+            module_cache: HashMap::new(),
+            context: HostContext::new(tag),
+        }
     }
 }
 
@@ -1011,27 +1315,55 @@ fn compile_catalog(spec: &RuntimeSpec) -> Catalog {
                 .collect(),
         });
         let component = Arc::new(ComponentSpec {
-            name: declaration.name.clone(), aliases: declaration.aliases.clone(),
+            name: declaration.name.clone(),
+            aliases: declaration.aliases.clone(),
             body_mode: declaration.body_mode,
-            constructors: declaration.constructors.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
-            builder_calls: declaration.builder_calls.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
-            properties: declaration.properties.iter().map(|item| (item.name.clone(), item.value_type.clone())).collect(),
+            constructors: declaration
+                .constructors
+                .iter()
+                .map(|item| (item.name.clone(), item.signature.clone()))
+                .collect(),
+            builder_calls: declaration
+                .builder_calls
+                .iter()
+                .map(|item| (item.name.clone(), item.signature.clone()))
+                .collect(),
+            properties: declaration
+                .properties
+                .iter()
+                .map(|item| (item.name.clone(), item.value_type.clone()))
+                .collect(),
             positional: declaration.positionals.clone(),
-            methods: declaration.methods.iter().map(|item| (item.name.clone(), item.signature.clone())).collect(),
+            methods: declaration
+                .methods
+                .iter()
+                .map(|item| (item.name.clone(), item.signature.clone()))
+                .collect(),
         });
         for name in std::iter::once(&component.name).chain(&component.aliases) {
-            catalog.components.insert(name.to_lowercase(), component.clone());
-            catalog.component_operations.insert(name.to_lowercase(), operations.clone());
+            catalog
+                .components
+                .insert(name.to_lowercase(), component.clone());
+            catalog
+                .component_operations
+                .insert(name.to_lowercase(), operations.clone());
         }
     }
     for declaration in &spec.apis {
-        if let Some(namespace) = &declaration.namespace { catalog.namespaces.insert(namespace.clone()); }
+        if let Some(namespace) = &declaration.namespace {
+            catalog.namespaces.insert(namespace.clone());
+        }
         let id = api_key(declaration.namespace.as_deref(), &declaration.name);
-        catalog.api_operation_ids.insert(id.clone(), declaration.operation_id);
-        catalog.apis.insert(id.clone(), Arc::new(HostApiSpec {
-            id,
-            signature: declaration.signature.clone(),
-        }));
+        catalog
+            .api_operation_ids
+            .insert(id.clone(), declaration.operation_id);
+        catalog.apis.insert(
+            id.clone(),
+            Arc::new(HostApiSpec {
+                id,
+                signature: declaration.signature.clone(),
+            }),
+        );
     }
     catalog
 }
@@ -1112,29 +1444,60 @@ impl<H: Host> Session<H> {
         let scopes = std::mem::take(&mut self.scopes);
         let callbacks = std::mem::take(&mut self.callbacks);
         let module_cache = std::mem::take(&mut self.module_cache);
-        let mut evaluator = Evaluator::for_session(&mut self.host, scopes, self.heap.clone(), callbacks,
-            self.runtime.catalog.clone(), &mut self.context, source_id, module_cache);
+        let mut evaluator = Evaluator::for_session(
+            &mut self.host,
+            scopes,
+            self.heap.clone(),
+            callbacks,
+            self.runtime.catalog.clone(),
+            &mut self.context,
+            source_id,
+            module_cache,
+        );
         let result = evaluator.evaluate(source);
         let (scopes, callbacks, module_cache) = evaluator.into_session_state();
-        self.scopes = scopes; self.callbacks = callbacks; self.module_cache = module_cache; result
+        self.scopes = scopes;
+        self.callbacks = callbacks;
+        self.module_cache = module_cache;
+        result
     }
-    pub fn invoke_callback(&mut self, handle: CallbackHandle, args: Vec<Value>) -> Result<Value, EvalError> {
+    pub fn invoke_callback(
+        &mut self,
+        handle: CallbackHandle,
+        args: Vec<Value>,
+    ) -> Result<Value, EvalError> {
         if !self.context.owns_callback(handle) {
             return Err(crate::HostError {
                 kind: crate::HostErrorKind::ForeignHandle,
                 operation: "invoke_callback".into(),
                 message: format!("callback handle {handle:?} belongs to another session"),
-            }.into());
+            }
+            .into());
         }
-        let callback = self.callbacks.get(&handle).cloned().ok_or_else(|| crate::HostError {
-            kind: crate::HostErrorKind::StaleHandle,
-            operation: "invoke_callback".into(),
-            message: format!("callback handle {handle:?} is no longer retained by this session"),
-        })?;
-        let scopes = std::mem::take(&mut self.scopes); let callbacks = std::mem::take(&mut self.callbacks);
+        let callback = self
+            .callbacks
+            .get(&handle)
+            .cloned()
+            .ok_or_else(|| crate::HostError {
+                kind: crate::HostErrorKind::StaleHandle,
+                operation: "invoke_callback".into(),
+                message: format!(
+                    "callback handle {handle:?} is no longer retained by this session"
+                ),
+            })?;
+        let scopes = std::mem::take(&mut self.scopes);
+        let callbacks = std::mem::take(&mut self.callbacks);
         let module_cache = std::mem::take(&mut self.module_cache);
-        let mut evaluator = Evaluator::for_session(&mut self.host, scopes, self.heap.clone(), callbacks,
-            self.runtime.catalog.clone(), &mut self.context, None, module_cache);
+        let mut evaluator = Evaluator::for_session(
+            &mut self.host,
+            scopes,
+            self.heap.clone(),
+            callbacks,
+            self.runtime.catalog.clone(),
+            &mut self.context,
+            None,
+            module_cache,
+        );
         let result = evaluator.invoke_value(callback, args);
         let (scopes, callbacks, module_cache) = evaluator.into_session_state();
         self.scopes = scopes;
@@ -1154,7 +1517,8 @@ impl<H: Host> Session<H> {
                     "callback handle {:?} belongs to another session",
                     invocation.callback
                 ),
-            }.into());
+            }
+            .into());
         }
         for argument in &invocation.args {
             adopt_transport_components(&mut self.context, argument);
@@ -1205,7 +1569,11 @@ mod tests {
     }
 
     impl crate::Host for FixedHandleHost {
-        fn dispatch_with_context(&mut self, _context: &mut HostContext, request: HostRequest) -> Result<HostResponse, HostError> {
+        fn dispatch_with_context(
+            &mut self,
+            _context: &mut HostContext,
+            request: HostRequest,
+        ) -> Result<HostResponse, HostError> {
             self.requests.push(request.clone());
             match request {
                 HostRequest::Query { .. } => Ok(HostResponse::Component {
@@ -1213,7 +1581,10 @@ mod tests {
                     component_type: "Panel".into(),
                 }),
                 HostRequest::Emit { tree } | HostRequest::RegisterComponent { tree } => {
-                    Ok(HostResponse::Component { handle: self.handle, component_type: tree.component_type })
+                    Ok(HostResponse::Component {
+                        handle: self.handle,
+                        component_type: tree.component_type,
+                    })
                 }
                 HostRequest::InvokeComponentMethod { .. }
                 | HostRequest::InvokeComponentMethodByName { .. }
@@ -1260,7 +1631,9 @@ mod tests {
         let runtime = runtime();
         let mut session = runtime.runtime().session(EventStreamHost::new());
         session.eval("panel.new(2) { title = \"hello\" }").unwrap();
-        let crate::HostEvent::Emit { handle, tree } = &session.host().events[0] else { panic!() };
+        let crate::HostEvent::Emit { handle, tree } = &session.host().events[0] else {
+            panic!()
+        };
         assert!(session.context().owns_component(*handle));
         assert_eq!(tree.component_type, "Panel");
     }
@@ -1268,19 +1641,34 @@ mod tests {
     #[test]
     fn emitted_component_identity_comes_from_host_response() {
         let handle = crate::ComponentHandle::from_raw(0xfeed_face);
-        let host = FixedHandleHost { handle, requests: vec![] };
+        let host = FixedHandleHost {
+            handle,
+            requests: vec![],
+        };
         let runtime = runtime();
         let mut session = runtime.runtime().session(host);
         let result = session.eval("panel.new(2) { title = \"hello\" }").unwrap();
-        assert_eq!(result.value, Some(Value::ComponentObject { id: handle, component_type: "Panel".into() }));
+        assert_eq!(
+            result.value,
+            Some(Value::ComponentObject {
+                id: handle,
+                component_type: "Panel".into()
+            })
+        );
         assert!(session.context().owns_component(handle));
-        assert!(matches!(session.host().requests[0], HostRequest::Emit { .. }));
+        assert!(matches!(
+            session.host().requests[0],
+            HostRequest::Emit { .. }
+        ));
     }
 
     #[test]
     fn materializes_component_without_host_session() {
         let runtime = runtime();
-        let tree = runtime.runtime().materialize_component("panel.new(2) { title = \"hello\" }").unwrap();
+        let tree = runtime
+            .runtime()
+            .materialize_component("panel.new(2) { title = \"hello\" }")
+            .unwrap();
         assert_eq!(tree.component_type, "Panel");
         let constructor = &tree.constructor;
         assert_eq!(constructor.name.as_deref(), Some("new"));
@@ -1368,7 +1756,11 @@ mod tests {
                 .map(Value::Number)
                 .collect::<Vec<_>>()
         );
-        assert!(tree.properties.iter().all(|property| property.name != "index"));
+        assert!(
+            tree.properties
+                .iter()
+                .all(|property| property.name != "index")
+        );
     }
 
     #[test]
@@ -1395,14 +1787,16 @@ mod tests {
     #[test]
     fn deferred_component_body_mode_preserves_the_body_without_executing_it() {
         let mut builder = RuntimeSpec::builder::<()>();
-        builder.with_standard_builtins().component("Keyframe", |component| {
-            component
-                .body_mode(ComponentBodyMode::Deferred)
-                .constructor(
-                    "at",
-                    ValueSignature::new(vec![ValueType::Number], ValueType::Component),
-                );
-        });
+        builder
+            .with_standard_builtins()
+            .component("Keyframe", |component| {
+                component
+                    .body_mode(ComponentBodyMode::Deferred)
+                    .constructor(
+                        "at",
+                        ValueSignature::new(vec![ValueType::Number], ValueType::Component),
+                    );
+            });
         let runtime = builder.build().unwrap();
         let tree = runtime
             .runtime()
@@ -1419,7 +1813,9 @@ mod tests {
     fn bindings_and_table_identity_persist_between_evaluations() {
         let runtime = runtime();
         let mut session = runtime.runtime().session(EventStreamHost::new());
-        session.eval("let table = { value = 1 }; let alias = table").unwrap();
+        session
+            .eval("let table = { value = 1 }; let alias = table")
+            .unwrap();
         session.eval("alias[\"value\"] = 9").unwrap();
         let result = session.eval("table[\"value\"]").unwrap();
         assert_eq!(result.value, Some(Value::Number(9.0)));
@@ -1435,15 +1831,22 @@ mod tests {
             .operation_id();
         let mut session = runtime.runtime().session(EventStreamHost::new());
         session.eval("log.write(\"hello\")").unwrap();
-        assert!(matches!(&session.host().events[0], crate::HostEvent::ApiById { operation_id, args }
-            if *operation_id == api_id && args == &vec![TransportValue::String("hello".into())]));
+        assert!(
+            matches!(&session.host().events[0], crate::HostEvent::ApiById { operation_id, args }
+            if *operation_id == api_id && args == &vec![TransportValue::String("hello".into())])
+        );
     }
 
     #[test]
     fn duplicate_runtime_spec_names_are_typed() {
         let mut builder = RuntimeSpec::builder::<()>();
-        builder.component("Panel", |_| {}).component("panel", |_| {});
-        assert_eq!(builder.build().unwrap_err().kind, RuntimeSpecErrorKind::NameConflict);
+        builder
+            .component("Panel", |_| {})
+            .component("panel", |_| {});
+        assert_eq!(
+            builder.build().unwrap_err().kind,
+            RuntimeSpecErrorKind::NameConflict
+        );
     }
 
     #[test]
@@ -1460,7 +1863,9 @@ mod tests {
     fn host_boundary_rejects_cyclic_tables() {
         let runtime = runtime();
         let mut session = runtime.runtime().session(EventStreamHost::new());
-        session.eval("let table = { label = \"root\" }; table[\"self\"] = table").unwrap();
+        session
+            .eval("let table = { label = \"root\" }; table[\"self\"] = table")
+            .unwrap();
         let error = session.eval("sink.write(table)").unwrap_err().to_string();
         assert!(error.contains("cyclic table"), "{error}");
     }
@@ -1491,13 +1896,25 @@ mod tests {
         builder
             .component_name_policy(ComponentNamePolicy::StrictRegistered)
             .with_standard_builtins()
-            .host_builtin("clock", ValueSignature::new(vec![], ValueType::Number), TestBinding::Clock)
+            .host_builtin(
+                "clock",
+                ValueSignature::new(vec![], ValueType::Number),
+                TestBinding::Clock,
+            )
             .host_component("Panel", TestBinding::DefaultConstruct, |component| {
                 component
                     .alias("Pane")
                     .body_mode(ComponentBodyMode::PropsOnly)
-                    .host_constructor("new", ValueSignature::new(vec![ValueType::Number], ValueType::Component), TestBinding::Construct)
-                    .host_builder_call("rounded", ValueSignature::new(vec![ValueType::Number], ValueType::Component), TestBinding::Rounded)
+                    .host_constructor(
+                        "new",
+                        ValueSignature::new(vec![ValueType::Number], ValueType::Component),
+                        TestBinding::Construct,
+                    )
+                    .host_builder_call(
+                        "rounded",
+                        ValueSignature::new(vec![ValueType::Number], ValueType::Component),
+                        TestBinding::Rounded,
+                    )
                     .positional(ValueType::String)
                     .host_property("title", ValueType::String, TestBinding::SetTitle)
                     .property("debug", ValueType::Bool)
@@ -1513,7 +1930,11 @@ mod tests {
                 TestBinding::Click,
             )
             .namespace("log", |namespace| {
-                namespace.api("write", ValueSignature::new(vec![ValueType::String], ValueType::Null), TestBinding::Log);
+                namespace.api(
+                    "write",
+                    ValueSignature::new(vec![ValueType::String], ValueType::Null),
+                    TestBinding::Log,
+                );
             });
 
         let build = builder.build().unwrap();
@@ -1539,10 +1960,21 @@ mod tests {
         );
 
         let ids = [
-            build.spec().builtins().find(|builtin| builtin.name() == "clock").unwrap().operation_id().unwrap(),
+            build
+                .spec()
+                .builtins()
+                .find(|builtin| builtin.name() == "clock")
+                .unwrap()
+                .operation_id()
+                .unwrap(),
             panel.default_constructor_operation_id().unwrap(),
             panel.constructors().next().unwrap().operation_id().unwrap(),
-            panel.builder_calls().next().unwrap().operation_id().unwrap(),
+            panel
+                .builder_calls()
+                .next()
+                .unwrap()
+                .operation_id()
+                .unwrap(),
             panel.properties().next().unwrap().operation_id().unwrap(),
             panel.method("show").unwrap().operation_id().unwrap(),
             build.spec().signal("click").unwrap().operation_id(),
@@ -1553,10 +1985,24 @@ mod tests {
                 .operation_id(),
         ];
         assert_eq!(build.bindings().len(), ids.len());
-        assert_eq!(ids.map(|id| *build.bindings().get(id).unwrap()), [TestBinding::Clock, TestBinding::DefaultConstruct, TestBinding::Construct, TestBinding::Rounded,
-            TestBinding::SetTitle, TestBinding::Show, TestBinding::Click, TestBinding::Log]);
+        assert_eq!(
+            ids.map(|id| *build.bindings().get(id).unwrap()),
+            [
+                TestBinding::Clock,
+                TestBinding::DefaultConstruct,
+                TestBinding::Construct,
+                TestBinding::Rounded,
+                TestBinding::SetTitle,
+                TestBinding::Show,
+                TestBinding::Click,
+                TestBinding::Log
+            ]
+        );
 
-        let tree = build.runtime().materialize_component("Pane.new(2) { title = \"hello\" }").unwrap();
+        let tree = build
+            .runtime()
+            .materialize_component("Pane.new(2) { title = \"hello\" }")
+            .unwrap();
         assert_eq!(tree.component_type, "Panel");
         assert_eq!(
             tree.constructor.operation_id,
@@ -1570,15 +2016,27 @@ mod tests {
         let tree = build.runtime().materialize_component("Pane {}").unwrap();
         assert_eq!(tree.constructor.name, None);
         assert_eq!(tree.constructor.arguments, Vec::<Value>::new());
-        assert_eq!(tree.constructor.operation_id, panel.default_constructor_operation_id());
-        let tree = build.runtime().materialize_component("Pane { rounded(3) }").unwrap();
+        assert_eq!(
+            tree.constructor.operation_id,
+            panel.default_constructor_operation_id()
+        );
+        let tree = build
+            .runtime()
+            .materialize_component("Pane { rounded(3) }")
+            .unwrap();
         assert_eq!(tree.initializer_calls[0].name, "rounded");
         assert_eq!(
             tree.initializer_calls[0].operation_id,
             panel.builder_calls().next().unwrap().operation_id()
         );
-        assert_eq!(tree.initializer_calls[0].arguments, vec![Value::Number(3.0)]);
-        let error = build.runtime().materialize_component("Pane { missing(3) }").unwrap_err();
+        assert_eq!(
+            tree.initializer_calls[0].arguments,
+            vec![Value::Number(3.0)]
+        );
+        let error = build
+            .runtime()
+            .materialize_component("Pane { missing(3) }")
+            .unwrap_err();
         assert!(error.to_string().contains("unknown builder call 'missing'"));
 
         let show_id = panel.method("show").unwrap().operation_id().unwrap();
@@ -1600,15 +2058,25 @@ mod tests {
         let mut builder = RuntimeSpec::builder::<()>();
         builder.component("Transform", |component| {
             component
-                .method("set_position", ValueSignature::new(vec![ValueType::Number], ValueType::Null), ())
-                .method("SET_POSITION", ValueSignature::new(vec![ValueType::String], ValueType::Null), ());
+                .method(
+                    "set_position",
+                    ValueSignature::new(vec![ValueType::Number], ValueType::Null),
+                    (),
+                )
+                .method(
+                    "SET_POSITION",
+                    ValueSignature::new(vec![ValueType::String], ValueType::Null),
+                    (),
+                );
         });
         let error = builder.build().unwrap_err();
         assert_eq!(error.kind, RuntimeSpecErrorKind::ConflictingSignature);
         assert_eq!(error.path, "Transform.method(SET_POSITION)");
 
         let mut builder = RuntimeSpec::builder::<()>();
-        builder.component("Panel", |component| { component.alias("panel"); });
+        builder.component("Panel", |component| {
+            component.alias("panel");
+        });
         let error = builder.build().unwrap_err();
         assert_eq!(error.kind, RuntimeSpecErrorKind::NameConflict);
         assert_eq!(error.path, "Panel.alias(panel)");
@@ -1636,9 +2104,21 @@ mod tests {
     #[test]
     fn standard_runtime_is_backed_by_an_open_runtime_spec() {
         let runtime = Runtime::standard();
-        assert_eq!(runtime.spec().component_name_policy(), ComponentNamePolicy::OpenUppercase);
-        assert!(runtime.spec().builtins().any(|builtin| builtin.name() == "range"));
-        assert!(runtime.materialize_component("Unregistered { title = \"ok\" }").is_ok());
+        assert_eq!(
+            runtime.spec().component_name_policy(),
+            ComponentNamePolicy::OpenUppercase
+        );
+        assert!(
+            runtime
+                .spec()
+                .builtins()
+                .any(|builtin| builtin.name() == "range")
+        );
+        assert!(
+            runtime
+                .materialize_component("Unregistered { title = \"ok\" }")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1670,12 +2150,42 @@ mod tests {
         });
         let runtime = builder.build().unwrap();
 
-        assert!(runtime.runtime().materialize_component("Mesh.star() {}").is_ok());
-        assert!(runtime.runtime().materialize_component("Mesh.star(5) {}").is_ok());
-        assert!(runtime.runtime().materialize_component("Mesh.star(5, 0.4) {}").is_ok());
-        assert!(runtime.runtime().materialize_component("Mesh.star(-1) {}").is_err());
-        assert!(runtime.runtime().materialize_component("Mesh.star(5, \"wide\") {}").is_err());
-        assert!(runtime.runtime().materialize_component("Mesh.star(5, 0.4, 2) {}").is_err());
+        assert!(
+            runtime
+                .runtime()
+                .materialize_component("Mesh.star() {}")
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .runtime()
+                .materialize_component("Mesh.star(5) {}")
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .runtime()
+                .materialize_component("Mesh.star(5, 0.4) {}")
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .runtime()
+                .materialize_component("Mesh.star(-1) {}")
+                .is_err()
+        );
+        assert!(
+            runtime
+                .runtime()
+                .materialize_component("Mesh.star(5, \"wide\") {}")
+                .is_err()
+        );
+        assert!(
+            runtime
+                .runtime()
+                .materialize_component("Mesh.star(5, 0.4, 2) {}")
+                .is_err()
+        );
     }
 
     #[test]
@@ -1752,8 +2262,12 @@ mod tests {
 
         let (session, values) = session.with_host(crate::Hostless, |session| {
             [
-                session.invoke_callback(callback, vec![Value::Null]).unwrap(),
-                session.invoke_callback(callback, vec![Value::Null]).unwrap(),
+                session
+                    .invoke_callback(callback, vec![Value::Null])
+                    .unwrap(),
+                session
+                    .invoke_callback(callback, vec![Value::Null])
+                    .unwrap(),
             ]
         });
         assert_eq!(values, [Value::Number(1.0), Value::Number(2.0)]);
@@ -1763,11 +2277,10 @@ mod tests {
     #[test]
     fn callback_invocation_distinguishes_foreign_and_stale_handles() {
         let make_session = || {
-            runtime().runtime()
-                .session(FixedHandleHost {
-                    handle: crate::ComponentHandle::from_raw(42),
-                    requests: vec![],
-                })
+            runtime().runtime().session(FixedHandleHost {
+                handle: crate::ComponentHandle::from_raw(42),
+                requests: vec![],
+            })
         };
         let mut owner = make_session();
         owner
@@ -1796,11 +2309,12 @@ mod tests {
         }
 
         impl crate::Host for SourceHost {
-            fn dispatch(
-                &mut self,
-                request: HostRequest,
-            ) -> Result<HostResponse, HostError> {
-                let HostRequest::LoadSource { importer, specifier } = request else {
+            fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, HostError> {
+                let HostRequest::LoadSource {
+                    importer,
+                    specifier,
+                } = request
+                else {
                     return Err(HostError::unsupported(request.operation_name()));
                 };
                 self.requests.push((importer.clone(), specifier.clone()));
@@ -1854,14 +2368,17 @@ mod tests {
         impl crate::Host for SourceHost {
             fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, HostError> {
                 match request {
-                    HostRequest::LoadSource { .. } => Ok(HostResponse::Source(crate::LoadedSource {
-                        identity: crate::SourceId::new("/virtual/components.mms"),
-                        source: r#"
+                    HostRequest::LoadSource { .. } => {
+                        Ok(HostResponse::Source(crate::LoadedSource {
+                            identity: crate::SourceId::new("/virtual/components.mms"),
+                            source: r#"
                             export let marker = Panel {}
                             export fn factory() { return Panel {} }
                             export fn update_marker() { marker.show() }
-                        "#.into(),
-                    })),
+                        "#
+                            .into(),
+                        }))
+                    }
                     HostRequest::RegisterComponent { tree } => {
                         self.next_handle += 1;
                         self.registers += 1;
@@ -1882,29 +2399,54 @@ mod tests {
         }
 
         let mut session = runtime().runtime().session(SourceHost::default());
-        session.eval(
-            r#"
+        session
+            .eval(
+                r#"
                 import { marker as first, factory, update_marker } from "components.mms"
                 import { marker as second } from "components.mms"
                 import ast { marker as template } from "components.mms"
                 update_marker()
             "#,
-        ).unwrap();
+            )
+            .unwrap();
         let first = session.scopes[0].get("first").cloned().unwrap();
         let second = session.scopes[0].get("second").cloned().unwrap();
         let template = session.scopes[0].get("template").cloned().unwrap();
-        let Value::ComponentObject { id: first, .. } = first else { panic!("ordinary import was not live") };
-        let Value::ComponentObject { id: second, .. } = second else { panic!("ordinary import was not live") };
-        assert!(matches!(template, Value::ComponentExpr(_)), "import ast was not deferred");
-        let Some(Value::ComponentObject { id: factory_one, .. }) = session.eval("factory()").unwrap().value else {
+        let Value::ComponentObject { id: first, .. } = first else {
+            panic!("ordinary import was not live")
+        };
+        let Value::ComponentObject { id: second, .. } = second else {
+            panic!("ordinary import was not live")
+        };
+        assert!(
+            matches!(template, Value::ComponentExpr(_)),
+            "import ast was not deferred"
+        );
+        let Some(Value::ComponentObject {
+            id: factory_one, ..
+        }) = session.eval("factory()").unwrap().value
+        else {
             panic!("factory did not return a live component");
         };
-        let Some(Value::ComponentObject { id: factory_two, .. }) = session.eval("factory()").unwrap().value else {
+        let Some(Value::ComponentObject {
+            id: factory_two, ..
+        }) = session.eval("factory()").unwrap().value
+        else {
             panic!("factory did not return a live component");
         };
-        assert_eq!(first, second, "ordinary imports must reuse the direct export identity");
-        assert_ne!(factory_one, factory_two, "factory calls must create fresh live components");
+        assert_eq!(
+            first, second,
+            "ordinary imports must reuse the direct export identity"
+        );
+        assert_ne!(
+            factory_one, factory_two,
+            "factory calls must create fresh live components"
+        );
         assert_eq!(session.host().registers, 3);
-        assert_eq!(session.host().method_calls, 1, "module closure captured the live marker");
+        assert_eq!(
+            session.host().method_calls,
+            1,
+            "module closure captured the live marker"
+        );
     }
 }

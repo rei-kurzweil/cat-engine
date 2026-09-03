@@ -1060,6 +1060,12 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     component
                         .constructor("device_number", unsigned(1))
                         .builder_call("enabled", booleans(1));
+                    host_method(
+                        component,
+                        canonical,
+                        "select_device_number",
+                        method(vec![mms::ValueType::U32], mms::ValueType::Null),
+                    );
                 }
                 "Amplitude" => {
                     component
@@ -1331,18 +1337,24 @@ mod tests {
             Some(&MittensBinding::Api(MittensApi::FileReadText))
         );
         assert!(spec.component("DefinitelyNotAMittensComponent").is_none());
-        assert!(configured
-            .runtime()
-            .materialize_component("DefinitelyNotAMittensComponent {}")
-            .is_err());
-        assert!(configured
-            .runtime()
-            .materialize_component("RendererSettings.window_size(960, 720) {}")
-            .is_ok());
-        assert!(configured
-            .runtime()
-            .materialize_component("RendererSettings.transmission_depth_compare(false) {}")
-            .is_ok());
+        assert!(
+            configured
+                .runtime()
+                .materialize_component("DefinitelyNotAMittensComponent {}")
+                .is_err()
+        );
+        assert!(
+            configured
+                .runtime()
+                .materialize_component("RendererSettings.window_size(960, 720) {}")
+                .is_ok()
+        );
+        assert!(
+            configured
+                .runtime()
+                .materialize_component("RendererSettings.transmission_depth_compare(false) {}")
+                .is_ok()
+        );
         configured
             .runtime()
             .materialize_component(

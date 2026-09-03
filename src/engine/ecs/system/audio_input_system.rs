@@ -15,14 +15,34 @@ use crate::engine::ecs::{ComponentId, World};
 use super::AmplitudeSystem;
 
 const SNAPSHOT_QUEUE_CAPACITY: usize = 512;
-const RETRY_DELAY: Duration = Duration::from_secs(2);
 const NO_DATA_TIMEOUT: Duration = Duration::from_secs(3);
 const DIAGNOSTIC_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, PartialEq)]
 struct CaptureSignature {
     device: AudioInputDeviceSelector,
+    selection_generation: u64,
     consumers: Vec<InputAmplitudeConsumer>,
+}
+
+/// A capture backend can report a stream as successfully created but never
+/// supply audio. Do not repeatedly reopen such a backend: CPAL/ALSA probing is
+/// expensive and some backends are not robust to rapid stream churn. A new
+/// device selection (including selecting the same row again) is the explicit
+/// request to try it again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UnavailableCapture {
+    device: AudioInputDeviceSelector,
+    selection_generation: u64,
+}
+
+impl From<&CaptureSignature> for UnavailableCapture {
+    fn from(signature: &CaptureSignature) -> Self {
+        Self {
+            device: signature.device.clone(),
+            selection_generation: signature.selection_generation,
+        }
+    }
 }
 
 struct CaptureRuntime {
@@ -37,7 +57,7 @@ struct CaptureRuntime {
 
 pub struct AudioInputSystem {
     runtimes: HashMap<ComponentId, CaptureRuntime>,
-    retry_after: HashMap<ComponentId, Instant>,
+    unavailable: HashMap<ComponentId, UnavailableCapture>,
     last_diagnostic: HashMap<ComponentId, (Instant, AmplitudeStatus)>,
 }
 
@@ -45,7 +65,7 @@ impl std::fmt::Debug for AudioInputSystem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AudioInputSystem")
             .field("active_sources", &self.runtimes.len())
-            .field("failed_sources", &self.retry_after.len())
+            .field("unavailable_sources", &self.unavailable.len())
             .finish()
     }
 }
@@ -54,13 +74,19 @@ impl Default for AudioInputSystem {
     fn default() -> Self {
         Self {
             runtimes: HashMap::new(),
-            retry_after: HashMap::new(),
+            unavailable: HashMap::new(),
             last_diagnostic: HashMap::new(),
         }
     }
 }
 
 impl AudioInputSystem {
+    fn is_unavailable(&self, source: ComponentId, signature: &CaptureSignature) -> bool {
+        self.unavailable
+            .get(&source)
+            .is_some_and(|blocked| *blocked == UnavailableCapture::from(signature))
+    }
+
     pub fn tick(&mut self, world: &mut World, amplitude: &mut AmplitudeSystem) {
         amplitude.refresh_consumers(world);
         let mut desired: HashMap<ComponentId, Vec<InputAmplitudeConsumer>> = HashMap::new();
@@ -68,63 +94,96 @@ impl AudioInputSystem {
             desired.entry(consumer.source).or_default().push(consumer);
         }
 
-        self.runtimes.retain(|source, _| desired.contains_key(source));
-        self.retry_after.retain(|source, _| desired.contains_key(source));
+        self.runtimes
+            .retain(|source, _| desired.contains_key(source));
+        self.unavailable
+            .retain(|source, _| desired.contains_key(source));
         self.last_diagnostic.retain(|observer, _| {
-            desired.values().flatten().any(|consumer| consumer.observer == *observer)
+            desired
+                .values()
+                .flatten()
+                .any(|consumer| consumer.observer == *observer)
         });
 
         for (&source, consumers) in &desired {
             let Some(input) = world.get_component_by_id_as::<AudioInputComponent>(source) else {
                 continue;
             };
-            let signature = CaptureSignature {
+            let mut signature = CaptureSignature {
                 device: input.device.clone(),
+                selection_generation: input.selection_generation,
                 consumers: consumers.clone(),
             };
-            let needs_rebuild = self.runtimes.get(&source)
+            if self.is_unavailable(source, &signature) {
+                continue;
+            }
+            // The input selection changed, so this is an explicit new attempt.
+            self.unavailable.remove(&source);
+            let needs_rebuild = self
+                .runtimes
+                .get(&source)
                 .is_none_or(|runtime| runtime.signature != signature);
             if !needs_rebuild {
                 continue;
             }
-            self.runtimes.remove(&source);
-            if self.retry_after.get(&source).is_some_and(|until| *until > Instant::now()) {
-                continue;
+            if self.runtimes.remove(&source).is_some() {
+                // A selector/consumer configuration change replaces the
+                // capture stream. Never retain a measurement from the old
+                // device while the new stream negotiates and starts. This
+                // also changes the amplitude generation, so rebuild the
+                // signature *after* rebinding consumers; otherwise the new
+                // callback immediately looks stale and is reopened forever.
+                amplitude.invalidate_source(world, source);
+                amplitude.refresh_consumers(world);
+                signature.consumers = amplitude
+                    .input_consumers(world)
+                    .into_iter()
+                    .filter(|consumer| consumer.source == source)
+                    .collect();
             }
+            let unavailable = UnavailableCapture::from(&signature);
             match start_capture(source, signature) {
                 Ok(runtime) => {
-                    self.retry_after.remove(&source);
                     self.runtimes.insert(source, runtime);
                 }
                 Err(error) => {
-                    eprintln!("[AudioInput] source={source:?} capture start failed: {error}");
-                    self.retry_after.insert(source, Instant::now() + RETRY_DELAY);
+                    eprintln!(
+                        "[AudioInput] source={source:?} capture start failed: {error}; waiting for a new device selection"
+                    );
+                    self.unavailable.insert(source, unavailable);
                     amplitude.invalidate_source(world, source);
                 }
             }
         }
 
         let now = Instant::now();
-        let failed: Vec<_> = self.runtimes.iter()
+        let failed: Vec<_> = self
+            .runtimes
+            .iter()
             .filter_map(|(&source, runtime)| {
                 (runtime.failed.load(Ordering::Acquire)
                     || (now.duration_since(runtime.last_snapshot) >= NO_DATA_TIMEOUT
                         && runtime.snapshots.is_empty()))
-                    .then_some(source)
+                .then(|| (source, runtime.signature.clone()))
             })
             .collect();
-        for source in failed {
-            eprintln!("[AudioInput] source={source:?} capture stream failed; retrying");
+        for (source, signature) in failed {
+            eprintln!(
+                "[AudioInput] source={source:?} capture stream failed or supplied no samples; waiting for a new device selection"
+            );
             self.runtimes.remove(&source);
-            self.retry_after.insert(source, Instant::now() + RETRY_DELAY);
+            self.unavailable
+                .insert(source, UnavailableCapture::from(&signature));
             amplitude.invalidate_source(world, source);
         }
 
         for runtime in self.runtimes.values_mut() {
             while let Ok(snapshot) = runtime.snapshots.pop() {
                 runtime.last_snapshot = Instant::now();
-                let diagnostic = self.last_diagnostic.entry(snapshot.observer)
-                    .or_insert((Instant::now() - DIAGNOSTIC_INTERVAL, AmplitudeStatus::Pending));
+                let diagnostic = self.last_diagnostic.entry(snapshot.observer).or_insert((
+                    Instant::now() - DIAGNOSTIC_INTERVAL,
+                    AmplitudeStatus::Pending,
+                ));
                 if diagnostic.1 != snapshot.sample.status
                     || diagnostic.0.elapsed() >= DIAGNOSTIC_INTERVAL
                 {
@@ -153,14 +212,14 @@ impl AudioInputSystem {
     }
 }
 
-fn selected_device(
-    selector: &AudioInputDeviceSelector,
-) -> Result<(cpal::Device, String), String> {
+fn selected_device(selector: &AudioInputDeviceSelector) -> Result<(cpal::Device, String), String> {
     let host = cpal::default_host();
     let device = match selector {
-        AudioInputDeviceSelector::Default => host.default_input_device()
+        AudioInputDeviceSelector::Default => host
+            .default_input_device()
             .ok_or_else(|| "no default input device is available".to_string())?,
-        AudioInputDeviceSelector::DeviceNumber(index) => host.input_devices()
+        AudioInputDeviceSelector::DeviceNumber(index) => host
+            .input_devices()
             .map_err(|error| format!("cannot enumerate input devices: {error}"))?
             .nth(*index)
             .ok_or_else(|| format!("input device number {index} is not available"))?,
@@ -169,20 +228,29 @@ fn selected_device(
     Ok((device, name))
 }
 
-fn start_capture(source: ComponentId, signature: CaptureSignature) -> Result<CaptureRuntime, String> {
+fn start_capture(
+    source: ComponentId,
+    signature: CaptureSignature,
+) -> Result<CaptureRuntime, String> {
     let (device, device_name) = selected_device(&signature.device)?;
-    let supported = device.default_input_config()
+    let supported = device
+        .default_input_config()
         .map_err(|error| format!("cannot query default input format: {error}"))?;
     let sample_rate = supported.sample_rate().0;
     let channels = supported.channels() as usize;
     let sample_format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
-    let accumulators = signature.consumers.iter().map(|consumer| {
-        RollingRms::new(*consumer, sample_rate)
-    }).collect::<Vec<_>>();
-    let windows = signature.consumers.iter()
+    let accumulators = signature
+        .consumers
+        .iter()
+        .map(|consumer| RollingRms::new(*consumer, sample_rate))
+        .collect::<Vec<_>>();
+    let windows = signature
+        .consumers
+        .iter()
         .map(|consumer| format!("{:.3}s", consumer.window_sec))
-        .collect::<Vec<_>>().join(",");
+        .collect::<Vec<_>>()
+        .join(",");
     let (producer, snapshots) = rtrb::RingBuffer::new(SNAPSHOT_QUEUE_CAPACITY);
     let failed = Arc::new(AtomicBool::new(false));
     let dropped = Arc::new(AtomicU64::new(0));
@@ -193,20 +261,61 @@ fn start_capture(source: ComponentId, signature: CaptureSignature) -> Result<Cap
 
     let stream = match sample_format {
         cpal::SampleFormat::F32 => {
-            let mut callback = CaptureCallback::new(source, channels, sample_rate, accumulators, producer, dropped.clone());
-            device.build_input_stream(&config, move |data: &[f32], _| callback.process(data, |v| v), error_callback, None)
+            let mut callback = CaptureCallback::new(
+                source,
+                channels,
+                sample_rate,
+                accumulators,
+                producer,
+                dropped.clone(),
+            );
+            device.build_input_stream(
+                &config,
+                move |data: &[f32], _| callback.process(data, |v| v),
+                error_callback,
+                None,
+            )
         }
         cpal::SampleFormat::I16 => {
-            let mut callback = CaptureCallback::new(source, channels, sample_rate, accumulators, producer, dropped.clone());
-            device.build_input_stream(&config, move |data: &[i16], _| callback.process(data, |v| v as f32 / i16::MAX as f32), error_callback, None)
+            let mut callback = CaptureCallback::new(
+                source,
+                channels,
+                sample_rate,
+                accumulators,
+                producer,
+                dropped.clone(),
+            );
+            device.build_input_stream(
+                &config,
+                move |data: &[i16], _| callback.process(data, |v| v as f32 / i16::MAX as f32),
+                error_callback,
+                None,
+            )
         }
         cpal::SampleFormat::U16 => {
-            let mut callback = CaptureCallback::new(source, channels, sample_rate, accumulators, producer, dropped.clone());
-            device.build_input_stream(&config, move |data: &[u16], _| callback.process(data, |v| v as f32 / u16::MAX as f32 * 2.0 - 1.0), error_callback, None)
+            let mut callback = CaptureCallback::new(
+                source,
+                channels,
+                sample_rate,
+                accumulators,
+                producer,
+                dropped.clone(),
+            );
+            device.build_input_stream(
+                &config,
+                move |data: &[u16], _| {
+                    callback.process(data, |v| v as f32 / u16::MAX as f32 * 2.0 - 1.0)
+                },
+                error_callback,
+                None,
+            )
         }
         other => return Err(format!("unsupported input sample format {other:?}")),
-    }.map_err(|error| format!("cannot build input stream: {error}"))?;
-    stream.play().map_err(|error| format!("cannot start input stream: {error}"))?;
+    }
+    .map_err(|error| format!("cannot build input stream: {error}"))?;
+    stream
+        .play()
+        .map_err(|error| format!("cannot start input stream: {error}"))?;
     eprintln!(
         "[AudioInput] source={source:?} device={device_name:?} format={sample_format:?} sample_rate={sample_rate} channels={channels} windows=[{windows}]"
     );
@@ -240,7 +349,15 @@ impl CaptureCallback {
         snapshots: Producer<AmplitudeSnapshot>,
         dropped: Arc<AtomicU64>,
     ) -> Self {
-        Self { source, channels: channels.max(1), sample_rate, frame_count: 0, accumulators, snapshots, dropped }
+        Self {
+            source,
+            channels: channels.max(1),
+            sample_rate,
+            frame_count: 0,
+            accumulators,
+            snapshots,
+            dropped,
+        }
     }
 
     fn process<T: Copy>(&mut self, data: &[T], convert: impl Fn(T) -> f32) {
@@ -250,7 +367,11 @@ impl CaptureCallback {
             let mut peak = 0.0_f32;
             for &sample in frame {
                 let value = convert(sample);
-                let value = if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 };
+                let value = if value.is_finite() {
+                    value.clamp(-1.0, 1.0)
+                } else {
+                    0.0
+                };
                 sum_squares += value * value;
                 peak = peak.max(value.abs());
             }
@@ -287,7 +408,8 @@ struct RollingRms {
 impl RollingRms {
     fn new(consumer: InputAmplitudeConsumer, sample_rate: u32) -> Self {
         let frames = (consumer.window_sec as f64 * sample_rate as f64)
-            .round().clamp(1.0, usize::MAX as f64) as usize;
+            .round()
+            .clamp(1.0, usize::MAX as f64) as usize;
         Self {
             consumer,
             squares: vec![0.0; frames],
@@ -311,11 +433,23 @@ impl RollingRms {
         self.cursor = (self.cursor + 1) % self.squares.len();
     }
 
-    fn snapshot(&mut self, source: ComponentId, timestamp_sec: f64, valid_frames: u32) -> AmplitudeSnapshot {
+    fn snapshot(
+        &mut self,
+        source: ComponentId,
+        timestamp_sec: f64,
+        valid_frames: u32,
+    ) -> AmplitudeSnapshot {
         self.sequence = self.sequence.wrapping_add(1);
         let rms = (self.sum_squares.max(0.0) / self.filled.max(1) as f64).sqrt() as f32;
-        let peak = self.peaks[..self.filled].iter().copied().fold(0.0_f32, f32::max);
-        let status = if rms <= f32::EPSILON { AmplitudeStatus::Neutral } else { AmplitudeStatus::Live };
+        let peak = self.peaks[..self.filled]
+            .iter()
+            .copied()
+            .fold(0.0_f32, f32::max);
+        let status = if rms <= f32::EPSILON {
+            AmplitudeStatus::Neutral
+        } else {
+            AmplitudeStatus::Live
+        };
         AmplitudeSnapshot {
             observer: self.consumer.observer,
             source,
@@ -335,6 +469,7 @@ impl RollingRms {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::ecs::component::{AmplitudeComponent, AudioInputComponent, ComponentRef};
 
     fn consumer(window_sec: f32) -> InputAmplitudeConsumer {
         InputAmplitudeConsumer {
@@ -375,14 +510,8 @@ mod tests {
         let accumulator = RollingRms::new(consumer(1.0), 2);
         let (producer, mut snapshots) = rtrb::RingBuffer::new(1);
         let dropped = Arc::new(AtomicU64::new(0));
-        let mut callback = CaptureCallback::new(
-            source,
-            2,
-            2,
-            vec![accumulator],
-            producer,
-            dropped.clone(),
-        );
+        let mut callback =
+            CaptureCallback::new(source, 2, 2, vec![accumulator], producer, dropped.clone());
         callback.process(&[1.0_f32, -1.0, 0.5, 0.5], |value| value);
         let sample = snapshots.pop().unwrap().sample;
         assert!((sample.rms - 0.625_f32.sqrt()).abs() < 1e-6);
@@ -391,5 +520,49 @@ mod tests {
         callback.process(&[0.25_f32, 0.25], |value| value);
         callback.process(&[0.25_f32, 0.25], |value| value);
         assert_eq!(dropped.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn unavailable_capture_waits_for_an_explicit_new_selection() {
+        let source = ComponentId::default();
+        let initial = CaptureSignature {
+            device: AudioInputDeviceSelector::DeviceNumber(2),
+            selection_generation: 4,
+            consumers: vec![consumer(0.08)],
+        };
+        let mut system = AudioInputSystem::default();
+        system
+            .unavailable
+            .insert(source, UnavailableCapture::from(&initial));
+        assert!(system.is_unavailable(source, &initial));
+
+        let retry = CaptureSignature {
+            selection_generation: 5,
+            ..initial
+        };
+        assert!(!system.is_unavailable(source, &retry));
+    }
+
+    #[test]
+    fn invalidated_source_rebinds_consumers_before_replacement_capture() {
+        let mut world = World::default();
+        let source = world.add_component(AudioInputComponent::new());
+        let source_guid = world.get_component_record(source).unwrap().guid;
+        world.add_component(
+            AmplitudeComponent::rolling_window(0.08)
+                .unwrap()
+                .with_source(ComponentRef::Guid(source_guid)),
+        );
+        let mut amplitude = AmplitudeSystem::new();
+        amplitude.refresh_consumers(&mut world);
+        let initial = amplitude.input_consumers(&world);
+
+        amplitude.invalidate_source(&mut world, source);
+        amplitude.refresh_consumers(&mut world);
+        let rebound = amplitude.input_consumers(&world);
+
+        assert_eq!(initial.len(), 1);
+        assert_eq!(rebound.len(), 1);
+        assert_ne!(initial[0].generation, rebound[0].generation);
     }
 }

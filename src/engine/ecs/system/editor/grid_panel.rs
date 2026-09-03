@@ -1,10 +1,10 @@
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::engine::ecs::component::{
-    style::VerticalAlign, ColorComponent, DataComponent, DataValue, Display, EdgeInsets,
-    EditorComponent, GridVisualSpace, OptionComponent, RaycastableComponent, SelectionEntry,
-    SizeDimension, StyleComponent, TextAlign, TextComponent, TransformComponent,
-    TransformGizmoComponent,
+    ColorComponent, DataComponent, DataValue, Display, EdgeInsets, EditorComponent,
+    GridVisualSpace, OptionComponent, RaycastableComponent, SelectionEntry, SizeDimension,
+    StyleComponent, TextAlign, TextComponent, TransformComponent, TransformGizmoComponent,
+    style::VerticalAlign,
 };
 use crate::engine::ecs::system::GridSystem;
 use crate::engine::ecs::system::data_renderer_system::{

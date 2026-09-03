@@ -18,8 +18,8 @@ use crate::engine::ecs::system::GLTFSystem;
 use crate::engine::ecs::system::GltfBoundsVisualizationSystem;
 use crate::engine::ecs::system::HttpClientSystem;
 use crate::engine::ecs::system::HttpServerSystem;
-use crate::engine::ecs::system::InputSystem;
 use crate::engine::ecs::system::ImplicitSurfaceSystem;
+use crate::engine::ecs::system::InputSystem;
 use crate::engine::ecs::system::InputXRGamepadSystem;
 use crate::engine::ecs::system::LightSystem;
 use crate::engine::ecs::system::MeshBoundsSystem;
@@ -46,13 +46,13 @@ use crate::engine::ecs::system::TransitionSystem;
 use crate::engine::ecs::system::XREyeTrackingSystem;
 use crate::engine::ecs::system::XrSystem;
 use crate::engine::ecs::system::bounds_system::BoundsSystem;
-use crate::engine::ecs::system::{AnimationSystem, AudioInputSystem, AudioSystem};
 use crate::engine::ecs::system::{
-    AmplitudeSystem, AssetSystem, AvatarBodyYawSystem, AvatarControlSystem, Cursor3dSystem, EditorContextSystem,
-    EditorInspectorSystem, EditorPaintSystem, EditorSystem, FitBoundsSystem, GestureSystem,
-    GridSystem, HeadPoseBodyXzFollowSystem, IKSystem, LayoutSystem, SecondaryMotionSystem,
-    SelectionSystem, TransformGizmoSystem,
+    AmplitudeSystem, AssetSystem, AvatarBodyYawSystem, AvatarControlSystem, Cursor3dSystem,
+    EditorContextSystem, EditorInspectorSystem, EditorPaintSystem, EditorSystem, FitBoundsSystem,
+    GestureSystem, GridSystem, HeadPoseBodyXzFollowSystem, IKSystem, LayoutSystem,
+    SecondaryMotionSystem, SelectionSystem, TransformGizmoSystem,
 };
+use crate::engine::ecs::system::{AnimationSystem, AudioInputSystem, AudioSystem};
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter};
 use crate::engine::graphics::{RenderAssets, RenderUploader, VisualWorld};
 use crate::engine::user_input::InputState;

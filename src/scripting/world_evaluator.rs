@@ -874,7 +874,12 @@ fn eval_stmt(stmt: &Statement, ctx: &mut EvalContext<'_>) -> Result<StmtEffect, 
                         let val = if *ast {
                             match val {
                                 Value::ComponentExpr(_) => val,
-                                other => return Err(format!("import ast: '{}' from '{}' is not a component template (got {:?})", id.0, path, other)),
+                                other => {
+                                    return Err(format!(
+                                        "import ast: '{}' from '{}' is not a component template (got {:?})",
+                                        id.0, path, other
+                                    ));
+                                }
                             }
                         } else {
                             maybe_register_live_component_value(val, ctx)
@@ -888,7 +893,12 @@ fn eval_stmt(stmt: &Statement, ctx: &mut EvalContext<'_>) -> Result<StmtEffect, 
                         let val = if *ast {
                             match val {
                                 Value::ComponentExpr(_) => val,
-                                other => return Err(format!("import ast: '{}' from '{}' is not a component template (got {:?})", name.0, path, other)),
+                                other => {
+                                    return Err(format!(
+                                        "import ast: '{}' from '{}' is not a component template (got {:?})",
+                                        name.0, path, other
+                                    ));
+                                }
                             }
                         } else {
                             maybe_register_live_component_value(val, ctx)
@@ -900,7 +910,11 @@ fn eval_stmt(stmt: &Statement, ctx: &mut EvalContext<'_>) -> Result<StmtEffect, 
                             format!("import: index {} out of range in '{}'", index, path)
                         })?;
                         let val = Value::ComponentExpr(Box::new(ce.clone()));
-                        let val = if *ast { val } else { maybe_register_live_component_value(val, ctx) };
+                        let val = if *ast {
+                            val
+                        } else {
+                            maybe_register_live_component_value(val, ctx)
+                        };
                         ctx.object_world.bind(alias.0.clone(), val);
                     }
                 }

@@ -997,7 +997,8 @@ fn apply_paint_side_effects(
                         // through PaintEvent, the captured renderable is the
                         // stable compatibility key used by this editor-local
                         // runtime.
-                        let mut session = GridGestureSession::new(*renderable, grid, tool, 1, address);
+                        let mut session =
+                            GridGestureSession::new(*renderable, grid, tool, 1, address);
                         let _ = session.update(address);
                         Some(session)
                     });
@@ -1868,7 +1869,11 @@ fn handle_grid_aware_stroke_move(
     };
 
     if tool == GridGestureTool::Line {
-        let wanted: HashSet<_> = targets.iter().copied().filter(|cell| *cell != start).collect();
+        let wanted: HashSet<_> = targets
+            .iter()
+            .copied()
+            .filter(|cell| *cell != start)
+            .collect();
         let stale: Vec<_> = runtime
             .grid_previews
             .keys()
@@ -1905,7 +1910,10 @@ fn handle_grid_aware_stroke_move(
             runtime.grid_previews.insert(cell, preview);
         }
     }
-    Some(format!("grid paint preview: {} cells", runtime.grid_previews.len() + 1))
+    Some(format!(
+        "grid paint preview: {} cells",
+        runtime.grid_previews.len() + 1
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -2256,7 +2264,9 @@ fn paint_activity_status(
             .active_grid_owner_transform
             .and_then(|owner| grid_system.active_grid_for_owner_transform(world, owner))
             .is_none()
-        && active_editor.and_then(|editor| grid_system.active_grid_for_editor(world, editor)).is_none()
+        && active_editor
+            .and_then(|editor| grid_system.active_grid_for_editor(world, editor))
+            .is_none()
     {
         return PaintActivityStatus {
             active: false,

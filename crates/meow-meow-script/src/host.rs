@@ -26,8 +26,12 @@ impl ComponentHandle {
 pub struct CallbackHandle(u64);
 
 impl CallbackHandle {
-    pub fn from_raw(raw: u64) -> Self { Self(raw) }
-    pub fn into_raw(self) -> u64 { self.0 }
+    pub fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+    pub fn into_raw(self) -> u64 {
+        self.0
+    }
 }
 
 /// Values that are safe to own outside the MMS heap. In particular, tables
@@ -57,8 +61,12 @@ pub struct CallbackInvocation {
 pub struct SourceId(String);
 
 impl SourceId {
-    pub fn new(identity: impl Into<String>) -> Self { Self(identity.into()) }
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn new(identity: impl Into<String>) -> Self {
+        Self(identity.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,26 +92,44 @@ pub struct HostContext {
 
 impl HostContext {
     pub(crate) fn new(session_tag: u32) -> Self {
-        Self { session_tag, next_component: 1, next_callback: 1,
-            components: HashSet::new(), callbacks: HashSet::new() }
+        Self {
+            session_tag,
+            next_component: 1,
+            next_callback: 1,
+            components: HashSet::new(),
+            callbacks: HashSet::new(),
+        }
     }
     pub fn allocate_component(&mut self) -> ComponentHandle {
         let handle = ComponentHandle::from_raw(
-            ((self.session_tag as u64) << 32) | self.next_component as u64);
-        self.next_component = self.next_component.checked_add(1).expect("component handle space exhausted");
-        self.components.insert(handle); handle
+            ((self.session_tag as u64) << 32) | self.next_component as u64,
+        );
+        self.next_component = self
+            .next_component
+            .checked_add(1)
+            .expect("component handle space exhausted");
+        self.components.insert(handle);
+        handle
     }
     pub fn adopt_component(&mut self, handle: ComponentHandle) {
         self.components.insert(handle);
     }
     pub fn allocate_callback(&mut self) -> CallbackHandle {
-        let handle = CallbackHandle::from_raw(
-            ((self.session_tag as u64) << 32) | self.next_callback as u64);
-        self.next_callback = self.next_callback.checked_add(1).expect("callback handle space exhausted");
-        self.callbacks.insert(handle); handle
+        let handle =
+            CallbackHandle::from_raw(((self.session_tag as u64) << 32) | self.next_callback as u64);
+        self.next_callback = self
+            .next_callback
+            .checked_add(1)
+            .expect("callback handle space exhausted");
+        self.callbacks.insert(handle);
+        handle
     }
-    pub fn owns_component(&self, handle: ComponentHandle) -> bool { self.components.contains(&handle) }
-    pub fn owns_callback(&self, handle: CallbackHandle) -> bool { self.callbacks.contains(&handle) }
+    pub fn owns_component(&self, handle: ComponentHandle) -> bool {
+        self.components.contains(&handle)
+    }
+    pub fn owns_callback(&self, handle: CallbackHandle) -> bool {
+        self.callbacks.contains(&handle)
+    }
 }
 
 impl fmt::Debug for ComponentHandle {
@@ -116,10 +142,14 @@ impl fmt::Debug for ComponentHandle {
 pub enum HostRequest {
     /// Register an uninitialized component. The host returns its component
     /// identity in `HostResponse::Component`.
-    RegisterComponent { tree: MaterializedCE },
+    RegisterComponent {
+        tree: MaterializedCE,
+    },
     /// Emit a component tree. The host returns its component identity in
     /// `HostResponse::Component`.
-    Emit { tree: MaterializedCE },
+    Emit {
+        tree: MaterializedCE,
+    },
     Spawn {
         tree: MaterializedCE,
     },

@@ -226,8 +226,10 @@ mod tests {
             .slot("viseme_aa", "Fcl_MTH_A")
             .unwrap();
         assert_eq!(map.slots().get("viseme_aa"), Some(&"Fcl_MTH_A".to_owned()));
-        assert!(MorphTargetMapComponent::new()
-            .slot("backend_aa", "A")
-            .is_err());
+        assert!(
+            MorphTargetMapComponent::new()
+                .slot("backend_aa", "A")
+                .is_err()
+        );
     }
 }

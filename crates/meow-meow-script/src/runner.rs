@@ -18,9 +18,13 @@ impl Runner {
         self.session.eval(source)
     }
 
-    pub fn host(&self) -> &StandardHost { self.session.host() }
+    pub fn host(&self) -> &StandardHost {
+        self.session.host()
+    }
 
-    pub fn host_mut(&mut self) -> &mut StandardHost { self.session.host_mut() }
+    pub fn host_mut(&mut self) -> &mut StandardHost {
+        self.session.host_mut()
+    }
 }
 
 /// Convenience entry point for ordinary scripts that require no host powers.
@@ -126,10 +130,13 @@ mod tests {
     fn component_scoped_dot_query_dispatches_as_a_query_not_a_component_method() {
         let mut host = FakeHost::default();
         let result = eval_with_host("query(\"#root\").query(\"#target\")", &mut host).unwrap();
-        assert_eq!(result.value, Some(Value::ComponentObject {
-            id: ComponentHandle::from_raw(7),
-            component_type: "Fake".into(),
-        }));
+        assert_eq!(
+            result.value,
+            Some(Value::ComponentObject {
+                id: ComponentHandle::from_raw(7),
+                component_type: "Fake".into(),
+            })
+        );
         assert_eq!(host.operations, ["query", "query", "attach"]);
         assert_eq!(
             host.query_scopes,

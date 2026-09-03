@@ -6,12 +6,15 @@ use crate::ast::{
     BinOpKind, BlockStatement, ComponentExpression, ElseBranch, Expression, ImportItem, Statement,
     UnaryOpKind,
 };
-use crate::host::{CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest, HostResponse, TransportValue};
+use crate::block_effect_analyzer::BlockEffectAnalyzer;
+use crate::host::{
+    CallbackHandle, ComponentHandle, Host, HostContext, HostError, HostErrorKind, HostRequest,
+    HostResponse, TransportValue,
+};
 use crate::object::{
     CeChild, HeapHandle, MaterializedCE, MaterializedConstructor, MaterializedOperation,
     MaterializedProperty, Object, ObjectId, RuntimeClosure, Value,
 };
-use crate::block_effect_analyzer::BlockEffectAnalyzer;
 use crate::runtime::{
     Catalog, ComponentBodyMode, ComponentNamePolicy, ComponentOperationIds, ComponentSpec,
     SignalDeclaration, ValueSignature, api_key,
@@ -101,8 +104,18 @@ impl<'a, H: Host> Evaluator<'a, H> {
         source_id: Option<SourceId>,
         module_cache: HashMap<SourceId, Value>,
     ) -> Self {
-        Self { host, scopes, emitted: vec![], heap, callbacks, catalog: Some(catalog), context: Some(context),
-            source_id, module_cache, module_depth: 0 }
+        Self {
+            host,
+            scopes,
+            emitted: vec![],
+            heap,
+            callbacks,
+            catalog: Some(catalog),
+            context: Some(context),
+            source_id,
+            module_cache,
+            module_depth: 0,
+        }
     }
 
     pub(crate) fn for_materialization(host: &'a mut H, catalog: Arc<Catalog>) -> Self {
@@ -120,7 +133,9 @@ impl<'a, H: Host> Evaluator<'a, H> {
         }
     }
 
-    pub(crate) fn into_session_state(self) -> (
+    pub(crate) fn into_session_state(
+        self,
+    ) -> (
         Vec<HashMap<String, Value>>,
         HashMap<CallbackHandle, Value>,
         HashMap<SourceId, Value>,
@@ -165,18 +180,24 @@ impl<'a, H: Host> Evaluator<'a, H> {
             .map_err(|e| EvalError::Tokenize(format!("{e:?}")))?;
         let parser = if let Some(catalog) = &self.catalog {
             match catalog.component_name_policy {
-                ComponentNamePolicy::OpenUppercase => MeowMeowParser::with_open_component_names_and_namespaces(
-                    tokens,
-                    catalog.components.keys().cloned(),
-                    catalog.namespaces.iter().cloned(),
-                ),
-                ComponentNamePolicy::StrictRegistered => MeowMeowParser::with_component_names_and_namespaces(
-                    tokens,
-                    catalog.components.keys().cloned(),
-                    catalog.namespaces.iter().cloned(),
-                ),
+                ComponentNamePolicy::OpenUppercase => {
+                    MeowMeowParser::with_open_component_names_and_namespaces(
+                        tokens,
+                        catalog.components.keys().cloned(),
+                        catalog.namespaces.iter().cloned(),
+                    )
+                }
+                ComponentNamePolicy::StrictRegistered => {
+                    MeowMeowParser::with_component_names_and_namespaces(
+                        tokens,
+                        catalog.components.keys().cloned(),
+                        catalog.namespaces.iter().cloned(),
+                    )
+                }
             }
-        } else { MeowMeowParser::new(tokens) };
+        } else {
+            MeowMeowParser::new(tokens)
+        };
         parser
             .parse_program()
             .map_err(|e| EvalError::Parse(e.message))
@@ -236,36 +257,47 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 };
                 let value = self.eval_expr(value)?;
                 match base {
-                    Value::Object(id) => id.with_map_mut(|map| map.insert(key, value))
+                    Value::Object(id) => id
+                        .with_map_mut(|map| map.insert(key, value))
                         .ok_or_else(|| EvalError::Runtime("stale table reference".into()))
                         .map(|_| Flow::Continue),
-                    _ => Err(EvalError::Runtime("index reassignment requires a table".into())),
+                    _ => Err(EvalError::Runtime(
+                        "index reassignment requires a table".into(),
+                    )),
                 }
             }
             Statement::Reassign {
-                target: Expression::BinaryOp {
-                    op: BinOpKind::Dot,
-                    lhs,
-                    rhs,
-                },
+                target:
+                    Expression::BinaryOp {
+                        op: BinOpKind::Dot,
+                        lhs,
+                        rhs,
+                    },
                 value,
             } => {
                 let base = self.eval_expr(lhs)?;
                 let key = match rhs.as_ref() {
                     Expression::Identifier(key) => key.0.clone(),
-                    _ => return Err(EvalError::Runtime("table field must be an identifier".into())),
+                    _ => {
+                        return Err(EvalError::Runtime(
+                            "table field must be an identifier".into(),
+                        ));
+                    }
                 };
                 let value = self.eval_expr(value)?;
                 match base {
-                    Value::Object(id) => id.with_map_mut(|map| map.insert(key, value))
+                    Value::Object(id) => id
+                        .with_map_mut(|map| map.insert(key, value))
                         .ok_or_else(|| EvalError::Runtime("stale table reference".into()))
                         .map(|_| Flow::Continue),
-                    _ => Err(EvalError::Runtime("field reassignment requires a table".into())),
+                    _ => Err(EvalError::Runtime(
+                        "field reassignment requires a table".into(),
+                    )),
                 }
             }
-            Statement::Reassign { .. } => Err(EvalError::Runtime(
-                "unsupported reassignment target".into(),
-            )),
+            Statement::Reassign { .. } => {
+                Err(EvalError::Runtime("unsupported reassignment target".into()))
+            }
             Statement::Return(value) => Ok(Flow::Return(match &value.value {
                 Some(expression) => self.eval_expr(expression)?,
                 None => Value::Null,
@@ -343,7 +375,12 @@ impl<'a, H: Host> Evaluator<'a, H> {
         }
     }
 
-    fn eval_import(&mut self, ast: bool, items: &[ImportItem], specifier: &str) -> Result<Flow, EvalError> {
+    fn eval_import(
+        &mut self,
+        ast: bool,
+        items: &[ImportItem],
+        specifier: &str,
+    ) -> Result<Flow, EvalError> {
         let response = self.dispatch(HostRequest::LoadSource {
             importer: self.source_id.clone(),
             specifier: specifier.into(),
@@ -363,7 +400,14 @@ impl<'a, H: Host> Evaluator<'a, H> {
             self.module_cache.insert(identity, module.clone());
             module
         };
-        let Value::Module { named, ast_named, sequence, live_sequence, .. } = &module else {
+        let Value::Module {
+            named,
+            ast_named,
+            sequence,
+            live_sequence,
+            ..
+        } = &module
+        else {
             unreachable!("module cache contains only module values")
         };
         let mut live_sequence_updates = Vec::new();
@@ -372,28 +416,38 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 ImportItem::Named(name) => (
                     name.0.clone(),
                     if ast {
-                        ast_named.get(&name.0).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                        ast_named
+                            .get(&name.0)
+                            .cloned()
+                            .map(|tree| Value::ComponentExpr(Box::new(tree)))
                     } else {
                         named.get(&name.0).cloned()
                     },
                 ),
-                ImportItem::NamedAlias { name, alias } => {
-                    (
-                        alias.0.clone(),
-                        if ast {
-                            ast_named.get(&name.0).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
-                        } else {
-                            named.get(&name.0).cloned()
-                        },
-                    )
-                }
+                ImportItem::NamedAlias { name, alias } => (
+                    alias.0.clone(),
+                    if ast {
+                        ast_named
+                            .get(&name.0)
+                            .cloned()
+                            .map(|tree| Value::ComponentExpr(Box::new(tree)))
+                    } else {
+                        named.get(&name.0).cloned()
+                    },
+                ),
                 ImportItem::PositionalAlias { index, alias } => (
                     alias.0.clone(),
                     if ast {
-                        sequence.get(*index).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                        sequence
+                            .get(*index)
+                            .cloned()
+                            .map(|tree| Value::ComponentExpr(Box::new(tree)))
                     } else {
                         live_sequence.get(index).cloned().or_else(|| {
-                            sequence.get(*index).cloned().map(|tree| Value::ComponentExpr(Box::new(tree)))
+                            sequence
+                                .get(*index)
+                                .cloned()
+                                .map(|tree| Value::ComponentExpr(Box::new(tree)))
                         })
                     },
                 ),
@@ -412,9 +466,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
             let value = if ast {
                 match value {
                     Value::ComponentExpr(_) => value,
-                    other => return Err(EvalError::Runtime(format!(
-                        "import ast item '{local}' from '{specifier}' is not a component template (got {other:?})"
-                    ))),
+                    other => {
+                        return Err(EvalError::Runtime(format!(
+                            "import ast item '{local}' from '{specifier}' is not a component template (got {other:?})"
+                        )));
+                    }
                 }
             } else {
                 // Ordinary imports are live. Module assignment already registered
@@ -456,7 +512,10 @@ impl<'a, H: Host> Evaluator<'a, H> {
                         ast_named.insert(assignment.name.0.clone(), (**tree).clone());
                     }
                     let value = self.register_live_component_value(raw)?;
-                    self.scopes.last_mut().unwrap().insert(assignment.name.0.clone(), value.clone());
+                    self.scopes
+                        .last_mut()
+                        .unwrap()
+                        .insert(assignment.name.0.clone(), value.clone());
                     named.insert(assignment.name.0.clone(), value);
                 } else {
                     self.eval_statement(statement)?;
@@ -501,7 +560,8 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::Array),
             Expression::Table(fields) => {
-                let map = fields.iter()
+                let map = fields
+                    .iter()
                     .map(|field| Ok((field.name.0.clone(), self.eval_expr(&field.value)?)))
                     .collect::<Result<HashMap<_, _>, EvalError>>()?;
                 Ok(Value::Object(self.heap.alloc(Object::Map(map))))
@@ -541,7 +601,8 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 Ok(values.get(&key).cloned().unwrap_or(Value::Null))
             }
             (Value::Object(id), Value::String(key))
-            | (Value::Object(id), Value::Identifier(key)) => id.with_map(|values| values.get(&key).cloned().unwrap_or(Value::Null))
+            | (Value::Object(id), Value::Identifier(key)) => id
+                .with_map(|values| values.get(&key).cloned().unwrap_or(Value::Null))
                 .ok_or_else(|| EvalError::Runtime("stale table reference".into())),
             _ => Err(EvalError::Runtime("invalid index operation".into())),
         }
@@ -608,7 +669,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
             let lhs = self.eval_expr(lhs)?;
             let key = match rhs {
                 Expression::Identifier(key) => &key.0,
-                _ => return Err(EvalError::Runtime("table field must be an identifier".into())),
+                _ => {
+                    return Err(EvalError::Runtime(
+                        "table field must be an identifier".into(),
+                    ));
+                }
             };
             return match lhs {
                 Value::Identifier(name) if name == "Math" => match key.as_str() {
@@ -768,18 +833,29 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     }
                 }
                 Value::Map(map) => Ok(map.get(&method).cloned().unwrap_or(Value::Null)),
-                Value::Object(id) => id.with_map(|map| map.get(&method).cloned().unwrap_or(Value::Null))
+                Value::Object(id) => id
+                    .with_map(|map| map.get(&method).cloned().unwrap_or(Value::Null))
                     .ok_or_else(|| EvalError::Runtime("stale table reference".into())),
                 Value::Identifier(name) if name == "Math" => math(&method, &args),
-                Value::Identifier(namespace) if self.catalog.as_ref().is_some_and(|c| c.has_namespace(&namespace)) => {
+                Value::Identifier(namespace)
+                    if self
+                        .catalog
+                        .as_ref()
+                        .is_some_and(|c| c.has_namespace(&namespace)) =>
+                {
                     self.call_api(Some(&namespace), &method, args)
                 }
                 Value::Identifier(name) if self.catalog.is_some() => {
                     let catalog = self.catalog.as_ref().unwrap();
-                    let suggestion = catalog.components.keys()
-                        .min_by_key(|candidate| edit_distance(&candidate.to_lowercase(), &name.to_lowercase()));
-                    let suffix = suggestion.map_or(String::new(), |candidate| format!("; did you mean '{candidate}'?"));
-                    Err(EvalError::Runtime(format!("unknown component or namespace '{name}'{suffix}")))
+                    let suggestion = catalog.components.keys().min_by_key(|candidate| {
+                        edit_distance(&candidate.to_lowercase(), &name.to_lowercase())
+                    });
+                    let suffix = suggestion.map_or(String::new(), |candidate| {
+                        format!("; did you mean '{candidate}'?")
+                    });
+                    Err(EvalError::Runtime(format!(
+                        "unknown component or namespace '{name}'{suffix}"
+                    )))
                 }
                 other => Err(EvalError::Runtime(format!(
                     "cannot call method '{method}' on {other:?}"
@@ -787,11 +863,17 @@ impl<'a, H: Host> Evaluator<'a, H> {
             };
         }
         if let Expression::Identifier(name) = callee {
-            if self.catalog.as_ref().is_some_and(|c| c.apis.contains_key(&api_key(None, &name.0))) {
+            if self
+                .catalog
+                .as_ref()
+                .is_some_and(|c| c.apis.contains_key(&api_key(None, &name.0)))
+            {
                 return self.call_api(None, &name.0, args);
             }
         }
-        Err(EvalError::Runtime(format!("value is not callable: {callee:?}")))
+        Err(EvalError::Runtime(format!(
+            "value is not callable: {callee:?}"
+        )))
     }
 
     /// In a session, a component expression assigned to a binding denotes one
@@ -916,9 +998,10 @@ impl<'a, H: Host> Evaluator<'a, H> {
         }
         let first = constructors.first().cloned();
         let component_key = component.component_type.0.to_lowercase();
-        let operations = self.catalog.as_ref().and_then(|catalog| {
-            catalog.component_operations.get(&component_key).cloned()
-        });
+        let operations = self
+            .catalog
+            .as_ref()
+            .and_then(|catalog| catalog.component_operations.get(&component_key).cloned());
         let component_spec = self
             .catalog
             .as_ref()
@@ -930,8 +1013,14 @@ impl<'a, H: Host> Evaluator<'a, H> {
         let mut tree = MaterializedCE {
             component_type: self.catalog.as_ref().map_or_else(
                 || component.component_type.0.clone(),
-                |catalog| catalog.components.get(&component.component_type.0.to_lowercase())
-                    .map(|spec| spec.name.clone()).unwrap_or_else(|| component.component_type.0.clone())),
+                |catalog| {
+                    catalog
+                        .components
+                        .get(&component.component_type.0.to_lowercase())
+                        .map(|spec| spec.name.clone())
+                        .unwrap_or_else(|| component.component_type.0.clone())
+                },
+            ),
             component_property_assignment_only: body_mode == ComponentBodyMode::PropsOnly,
             constructor: first.map_or_else(
                 || MaterializedConstructor {
@@ -940,22 +1029,24 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     arguments: Vec::new(),
                 },
                 |(name, arguments)| MaterializedConstructor {
-                    operation_id: operations.as_ref().and_then(|ids| {
-                        ids.constructors.get(&name.to_lowercase()).copied()
-                    }),
+                    operation_id: operations
+                        .as_ref()
+                        .and_then(|ids| ids.constructors.get(&name.to_lowercase()).copied()),
                     name: Some(name),
                     arguments,
                 },
             ),
-            initializer_calls: constructors.into_iter().skip(1).map(|(name, arguments)| {
-                MaterializedOperation {
-                    operation_id: operations.as_ref().and_then(|ids| {
-                        ids.builder_calls.get(&name.to_lowercase()).copied()
-                    }),
+            initializer_calls: constructors
+                .into_iter()
+                .skip(1)
+                .map(|(name, arguments)| MaterializedOperation {
+                    operation_id: operations
+                        .as_ref()
+                        .and_then(|ids| ids.builder_calls.get(&name.to_lowercase()).copied()),
                     name,
                     arguments,
-                }
-            }).collect(),
+                })
+                .collect(),
             properties: Vec::new(),
             positionals: Vec::new(),
             deferred_block: None,
@@ -983,7 +1074,10 @@ impl<'a, H: Host> Evaluator<'a, H> {
             }
         }
         if let Some(catalog) = &self.catalog {
-            let spec = catalog.components.get(&component.component_type.0.to_lowercase()).cloned();
+            let spec = catalog
+                .components
+                .get(&component.component_type.0.to_lowercase())
+                .cloned();
             let Some(spec) = spec else {
                 if catalog.component_name_policy == ComponentNamePolicy::OpenUppercase {
                     return Ok(tree);
@@ -995,20 +1089,63 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 ));
             };
             if let Some(name) = &tree.constructor.name {
-                let signature = spec.constructors.get(name).ok_or_else(|| unknown("constructor", name, spec.constructors.keys().map(String::as_str)))?;
-                validate_args(&format!("{}.{}", spec.name, name), signature, &tree.constructor.arguments)?;
+                let signature = spec.constructors.get(name).ok_or_else(|| {
+                    unknown(
+                        "constructor",
+                        name,
+                        spec.constructors.keys().map(String::as_str),
+                    )
+                })?;
+                validate_args(
+                    &format!("{}.{}", spec.name, name),
+                    signature,
+                    &tree.constructor.arguments,
+                )?;
             }
             for call in &tree.initializer_calls {
-                let signature = spec.builder_calls.get(&call.name).ok_or_else(|| unknown("builder call", &call.name, spec.builder_calls.keys().map(String::as_str)))?;
-                validate_args(&format!("{}.{}", spec.name, call.name), signature, &call.arguments)?;
+                let signature = spec.builder_calls.get(&call.name).ok_or_else(|| {
+                    unknown(
+                        "builder call",
+                        &call.name,
+                        spec.builder_calls.keys().map(String::as_str),
+                    )
+                })?;
+                validate_args(
+                    &format!("{}.{}", spec.name, call.name),
+                    signature,
+                    &call.arguments,
+                )?;
             }
             for property in &tree.properties {
-                let ty = spec.properties.get(&property.name).ok_or_else(|| unknown("property", &property.name, spec.properties.keys().map(String::as_str)))?;
-                if !ty.accepts(&property.value) { return Err(EvalError::Runtime(format!("property '{}.{}' has the wrong value type", spec.name, property.name))); }
+                let ty = spec.properties.get(&property.name).ok_or_else(|| {
+                    unknown(
+                        "property",
+                        &property.name,
+                        spec.properties.keys().map(String::as_str),
+                    )
+                })?;
+                if !ty.accepts(&property.value) {
+                    return Err(EvalError::Runtime(format!(
+                        "property '{}.{}' has the wrong value type",
+                        spec.name, property.name
+                    )));
+                }
             }
             for (index, value) in tree.positionals.iter().enumerate() {
-                let Some(ty) = spec.positional.get(index) else { return Err(EvalError::Runtime(format!("component '{}' does not accept positional value {}", spec.name, index + 1))); };
-                if !ty.accepts(value) { return Err(EvalError::Runtime(format!("positional value {} for '{}' has the wrong type", index + 1, spec.name))); }
+                let Some(ty) = spec.positional.get(index) else {
+                    return Err(EvalError::Runtime(format!(
+                        "component '{}' does not accept positional value {}",
+                        spec.name,
+                        index + 1
+                    )));
+                };
+                if !ty.accepts(value) {
+                    return Err(EvalError::Runtime(format!(
+                        "positional value {} for '{}' has the wrong type",
+                        index + 1,
+                        spec.name
+                    )));
+                }
             }
         }
         Ok(tree)
@@ -1087,11 +1224,11 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 name.0.as_str(),
                 component_spec,
                 body_mode,
-            ) => {
+            ) =>
+            {
                 tree.properties.push(MaterializedProperty {
-                    operation_id: operations.and_then(|ids| {
-                        ids.properties.get(&name.0.to_lowercase()).copied()
-                    }),
+                    operation_id: operations
+                        .and_then(|ids| ids.properties.get(&name.0.to_lowercase()).copied()),
                     name: name.0.clone(),
                     value: self.eval_expr(value)?,
                 });
@@ -1105,13 +1242,7 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 None => Value::Null,
             })),
             Statement::Block(block) => {
-                self.eval_component_body_block(
-                    block,
-                    tree,
-                    operations,
-                    component_spec,
-                    body_mode,
-                )
+                self.eval_component_body_block(block, tree, operations, component_spec, body_mode)
             }
             Statement::If(statement) => {
                 if truthy(&self.eval_expr(&statement.condition)?) {
@@ -1124,15 +1255,13 @@ impl<'a, H: Host> Evaluator<'a, H> {
                     )
                 } else if let Some(branch) = &statement.else_branch {
                     match branch {
-                        ElseBranch::Block(block) => {
-                            self.eval_component_body_block(
-                                block,
-                                tree,
-                                operations,
-                                component_spec,
-                                body_mode,
-                            )
-                        }
+                        ElseBranch::Block(block) => self.eval_component_body_block(
+                            block,
+                            tree,
+                            operations,
+                            component_spec,
+                            body_mode,
+                        ),
                         ElseBranch::If(nested) => self.eval_component_body_statement(
                             &Statement::If((**nested).clone()),
                             tree,
@@ -1161,14 +1290,13 @@ impl<'a, H: Host> Evaluator<'a, H> {
                 for value in values {
                     self.scopes
                         .push(HashMap::from([(binding.0.clone(), value)]));
-                    let flow =
-                        self.eval_component_body_block(
-                            body,
-                            tree,
-                            operations,
-                            component_spec,
-                            body_mode,
-                        )?;
+                    let flow = self.eval_component_body_block(
+                        body,
+                        tree,
+                        operations,
+                        component_spec,
+                        body_mode,
+                    )?;
                     self.scopes.pop();
                     match flow {
                         Flow::Break => break,
@@ -1227,39 +1355,70 @@ impl<'a, H: Host> Evaluator<'a, H> {
             return false;
         }
         !self.catalog.as_ref().is_some_and(|catalog| {
-            catalog.builtins.contains(name)
-                || catalog.apis.contains_key(&api_key(None, name))
+            catalog.builtins.contains(name) || catalog.apis.contains_key(&api_key(None, name))
         })
     }
 
     fn dispatch(&mut self, request: HostRequest) -> Result<HostResponse, EvalError> {
         if let Some(context) = self.context.as_deref_mut() {
-            let response = self.host.dispatch_with_context(context, request).map_err(EvalError::from)?;
+            let response = self
+                .host
+                .dispatch_with_context(context, request)
+                .map_err(EvalError::from)?;
             adopt_component_response(context, &response);
             Ok(response)
-        } else { self.host.dispatch(request).map_err(Into::into) }
+        } else {
+            self.host.dispatch(request).map_err(Into::into)
+        }
     }
 
     fn emit_component(&mut self, tree: MaterializedCE) -> Result<HostResponse, EvalError> {
         if let Some(context) = self.context.as_deref_mut() {
-            let response = self.host.dispatch_with_context(context, HostRequest::Emit { tree })
+            let response = self
+                .host
+                .dispatch_with_context(context, HostRequest::Emit { tree })
                 .map_err(EvalError::from)?;
             adopt_component_response(context, &response);
             Ok(response)
-        } else { self.host.dispatch(HostRequest::Spawn { tree }).map_err(Into::into) }
+        } else {
+            self.host
+                .dispatch(HostRequest::Spawn { tree })
+                .map_err(Into::into)
+        }
     }
 
-    fn host_query(&mut self, selector: String, scope: Option<ComponentHandle>, multiple: bool) -> Result<Value, EvalError> {
-        let response = self.dispatch(HostRequest::Query { selector, scope, multiple })?;
+    fn host_query(
+        &mut self,
+        selector: String,
+        scope: Option<ComponentHandle>,
+        multiple: bool,
+    ) -> Result<Value, EvalError> {
+        let response = self.dispatch(HostRequest::Query {
+            selector,
+            scope,
+            multiple,
+        })?;
         response_to_query_value(response)
     }
 
-    fn call_api(&mut self, namespace: Option<&str>, name: &str, args: Vec<Value>) -> Result<Value, EvalError> {
+    fn call_api(
+        &mut self,
+        namespace: Option<&str>,
+        name: &str,
+        args: Vec<Value>,
+    ) -> Result<Value, EvalError> {
         let key = api_key(namespace, name);
-        let spec = self.catalog.as_ref().and_then(|c| c.apis.get(&key)).cloned()
+        let spec = self
+            .catalog
+            .as_ref()
+            .and_then(|c| c.apis.get(&key))
+            .cloned()
             .ok_or_else(|| EvalError::Runtime(format!("unknown host API '{key}'")))?;
         validate_args(&spec.id, &spec.signature, &args)?;
-        let transport = args.into_iter().map(|value| self.to_transport(value)).collect::<Result<Vec<_>, _>>()?;
+        let transport = args
+            .into_iter()
+            .map(|value| self.to_transport(value))
+            .collect::<Result<Vec<_>, _>>()?;
         let request = if let Some(operation_id) = self
             .catalog
             .as_ref()
@@ -1293,18 +1452,27 @@ impl<'a, H: Host> Evaluator<'a, H> {
             TransportValue::Number(value) => Value::Number(value),
             TransportValue::String(value) => Value::String(value),
             TransportValue::Array(values) => Value::Array(
-                values.into_iter().map(|value| self.from_transport(value)).collect::<Result<_, _>>()?,
+                values
+                    .into_iter()
+                    .map(|value| self.from_transport(value))
+                    .collect::<Result<_, _>>()?,
             ),
             TransportValue::Table(values) => {
-                let values = values.into_iter()
+                let values = values
+                    .into_iter()
                     .map(|(key, value)| Ok((key, self.from_transport(value)?)))
                     .collect::<Result<_, EvalError>>()?;
                 Value::Object(self.heap.alloc(Object::Map(values)))
             }
-            TransportValue::Component(id) => Value::ComponentObject { id, component_type: "Component".into() },
-            TransportValue::Callback(_) => return Err(EvalError::Runtime(
-                "a host cannot return a callback handle as a script closure".into(),
-            )),
+            TransportValue::Component(id) => Value::ComponentObject {
+                id,
+                component_type: "Component".into(),
+            },
+            TransportValue::Callback(_) => {
+                return Err(EvalError::Runtime(
+                    "a host cannot return a callback handle as a script closure".into(),
+                ));
+            }
         })
     }
 
@@ -1313,35 +1481,88 @@ impl<'a, H: Host> Evaluator<'a, H> {
         self.to_transport_inner(value, &mut visiting)
     }
 
-    fn to_transport_inner(&mut self, value: Value, visiting: &mut HashSet<ObjectId>) -> Result<TransportValue, EvalError> {
+    fn to_transport_inner(
+        &mut self,
+        value: Value,
+        visiting: &mut HashSet<ObjectId>,
+    ) -> Result<TransportValue, EvalError> {
         match value {
-            Value::Null => Ok(TransportValue::Null), Value::Bool(v) => Ok(TransportValue::Bool(v)),
-            Value::Number(v) => Ok(TransportValue::Number(v)), Value::String(v) | Value::Identifier(v) => Ok(TransportValue::String(v)),
-            Value::Array(values) => values.into_iter().map(|v| self.to_transport_inner(v, visiting)).collect::<Result<_, _>>().map(TransportValue::Array),
-            Value::Map(map) => map.into_iter().map(|(k, v)| Ok((k, self.to_transport_inner(v, visiting)?))).collect::<Result<_, EvalError>>().map(TransportValue::Table),
+            Value::Null => Ok(TransportValue::Null),
+            Value::Bool(v) => Ok(TransportValue::Bool(v)),
+            Value::Number(v) => Ok(TransportValue::Number(v)),
+            Value::String(v) | Value::Identifier(v) => Ok(TransportValue::String(v)),
+            Value::Array(values) => values
+                .into_iter()
+                .map(|v| self.to_transport_inner(v, visiting))
+                .collect::<Result<_, _>>()
+                .map(TransportValue::Array),
+            Value::Map(map) => map
+                .into_iter()
+                .map(|(k, v)| Ok((k, self.to_transport_inner(v, visiting)?)))
+                .collect::<Result<_, EvalError>>()
+                .map(TransportValue::Table),
             Value::Object(id) => {
                 if !visiting.insert(id.clone()) {
-                    return Err(EvalError::Host(HostError { kind: HostErrorKind::Conversion, operation: "value_conversion".into(), message: "cyclic table cannot cross the host boundary".into() }));
+                    return Err(EvalError::Host(HostError {
+                        kind: HostErrorKind::Conversion,
+                        operation: "value_conversion".into(),
+                        message: "cyclic table cannot cross the host boundary".into(),
+                    }));
                 }
-                let map = id.with_map(Clone::clone).ok_or_else(|| EvalError::Runtime("stale table reference".into()))?;
-                let converted = map.into_iter().map(|(k, v)| Ok((k, self.to_transport_inner(v, visiting)?))).collect::<Result<_, EvalError>>().map(TransportValue::Table);
+                let map = id
+                    .with_map(Clone::clone)
+                    .ok_or_else(|| EvalError::Runtime("stale table reference".into()))?;
+                let converted = map
+                    .into_iter()
+                    .map(|(k, v)| Ok((k, self.to_transport_inner(v, visiting)?)))
+                    .collect::<Result<_, EvalError>>()
+                    .map(TransportValue::Table);
                 visiting.remove(&id);
                 converted
             }
             Value::ComponentObject { id, .. } => Ok(TransportValue::Component(id)),
             function @ Value::Function { .. } => {
-                let context = self.context.as_deref_mut().ok_or_else(|| EvalError::Runtime("callbacks require a session".into()))?;
-                let handle = context.allocate_callback(); self.callbacks.insert(handle, function); Ok(TransportValue::Callback(handle))
+                let context = self
+                    .context
+                    .as_deref_mut()
+                    .ok_or_else(|| EvalError::Runtime("callbacks require a session".into()))?;
+                let handle = context.allocate_callback();
+                self.callbacks.insert(handle, function);
+                Ok(TransportValue::Callback(handle))
             }
-            other => Err(EvalError::Host(HostError { kind: HostErrorKind::Conversion, operation: "value_conversion".into(), message: format!("value {other:?} cannot cross the host boundary") })),
+            other => Err(EvalError::Host(HostError {
+                kind: HostErrorKind::Conversion,
+                operation: "value_conversion".into(),
+                message: format!("value {other:?} cannot cross the host boundary"),
+            })),
         }
     }
 
-    pub(crate) fn invoke_value(&mut self, callback: Value, args: Vec<Value>) -> Result<Value, EvalError> {
-        let Value::Function { params, body, captured_env, .. } = callback else { return Err(EvalError::Runtime("callback is not callable".into())); };
+    pub(crate) fn invoke_value(
+        &mut self,
+        callback: Value,
+        args: Vec<Value>,
+    ) -> Result<Value, EvalError> {
+        let Value::Function {
+            params,
+            body,
+            captured_env,
+            ..
+        } = callback
+        else {
+            return Err(EvalError::Runtime("callback is not callable".into()));
+        };
         self.scopes.push((*captured_env).clone());
-        self.scopes.push(params.into_iter().enumerate().map(|(i, p)| (p, args.get(i).cloned().unwrap_or(Value::Null))).collect());
-        let result = self.eval_block(&body); self.scopes.pop(); self.scopes.pop();
+        self.scopes.push(
+            params
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| (p, args.get(i).cloned().unwrap_or(Value::Null)))
+                .collect(),
+        );
+        let result = self.eval_block(&body);
+        self.scopes.pop();
+        self.scopes.pop();
         match result? {
             Flow::Return(value) => self.register_live_component_value(value),
             _ => Ok(Value::Null),
@@ -1358,11 +1579,27 @@ impl<'a, H: Host> Evaluator<'a, H> {
 
 fn response_to_query_value(response: HostResponse) -> Result<Value, EvalError> {
     match response {
-        HostResponse::Component { handle, component_type } => Ok(Value::ComponentObject { id: handle, component_type }),
-        HostResponse::Components(values) => Ok(Value::Array(values.into_iter().map(|(id, component_type)| Value::ComponentObject { id, component_type }).collect())),
-        HostResponse::Value(value) => Ok(value), HostResponse::Transport(value) => transport_to_value(value), HostResponse::Unit => Ok(Value::Null),
-        HostResponse::Source(_) => Err(EvalError::Host(HostError { kind: HostErrorKind::InvalidRequest,
-            operation: "query".into(), message: "host returned source data for a query".into() })),
+        HostResponse::Component {
+            handle,
+            component_type,
+        } => Ok(Value::ComponentObject {
+            id: handle,
+            component_type,
+        }),
+        HostResponse::Components(values) => Ok(Value::Array(
+            values
+                .into_iter()
+                .map(|(id, component_type)| Value::ComponentObject { id, component_type })
+                .collect(),
+        )),
+        HostResponse::Value(value) => Ok(value),
+        HostResponse::Transport(value) => transport_to_value(value),
+        HostResponse::Unit => Ok(Value::Null),
+        HostResponse::Source(_) => Err(EvalError::Host(HostError {
+            kind: HostErrorKind::InvalidRequest,
+            operation: "query".into(),
+            message: "host returned source data for a query".into(),
+        })),
     }
 }
 
@@ -1380,12 +1617,31 @@ fn adopt_component_response(context: &mut HostContext, response: &HostResponse) 
 
 pub(crate) fn transport_to_value(value: TransportValue) -> Result<Value, EvalError> {
     Ok(match value {
-        TransportValue::Null => Value::Null, TransportValue::Bool(v) => Value::Bool(v),
-        TransportValue::Number(v) => Value::Number(v), TransportValue::String(v) => Value::String(v),
-        TransportValue::Array(values) => Value::Array(values.into_iter().map(transport_to_value).collect::<Result<_, _>>()?),
-        TransportValue::Table(values) => Value::Map(values.into_iter().map(|(k, v)| Ok((k, transport_to_value(v)?))).collect::<Result<_, EvalError>>()?),
-        TransportValue::Component(id) => Value::ComponentObject { id, component_type: "Component".into() },
-        TransportValue::Callback(_) => return Err(EvalError::Runtime("a host cannot return a callback handle as a script closure".into())),
+        TransportValue::Null => Value::Null,
+        TransportValue::Bool(v) => Value::Bool(v),
+        TransportValue::Number(v) => Value::Number(v),
+        TransportValue::String(v) => Value::String(v),
+        TransportValue::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(transport_to_value)
+                .collect::<Result<_, _>>()?,
+        ),
+        TransportValue::Table(values) => Value::Map(
+            values
+                .into_iter()
+                .map(|(k, v)| Ok((k, transport_to_value(v)?)))
+                .collect::<Result<_, EvalError>>()?,
+        ),
+        TransportValue::Component(id) => Value::ComponentObject {
+            id,
+            component_type: "Component".into(),
+        },
+        TransportValue::Callback(_) => {
+            return Err(EvalError::Runtime(
+                "a host cannot return a callback handle as a script closure".into(),
+            ));
+        }
     })
 }
 
@@ -1396,9 +1652,16 @@ fn validate_args(name: &str, signature: &ValueSignature, args: &[Value]) -> Resu
         let expected = if signature.minimum_arguments == signature.arguments.len() {
             signature.arguments.len().to_string()
         } else {
-            format!("{}..={}", signature.minimum_arguments, signature.arguments.len())
+            format!(
+                "{}..={}",
+                signature.minimum_arguments,
+                signature.arguments.len()
+            )
         };
-        return Err(EvalError::Runtime(format!("'{name}' expects {expected} argument(s), got {}", args.len())));
+        return Err(EvalError::Runtime(format!(
+            "'{name}' expects {expected} argument(s), got {}",
+            args.len()
+        )));
     }
     for (index, ty) in signature.arguments.iter().take(args.len()).enumerate() {
         if !ty.accepts(&args[index]) {
@@ -1413,19 +1676,28 @@ fn validate_args(name: &str, signature: &ValueSignature, args: &[Value]) -> Resu
 }
 
 fn unknown<'a>(kind: &str, name: &str, known: impl Iterator<Item = &'a str>) -> EvalError {
-    let suggestion = known.min_by_key(|candidate| edit_distance(&candidate.to_lowercase(), &name.to_lowercase()));
-    let suffix = suggestion.map_or(String::new(), |candidate| format!("; did you mean '{candidate}'?"));
+    let suggestion = known
+        .min_by_key(|candidate| edit_distance(&candidate.to_lowercase(), &name.to_lowercase()));
+    let suffix = suggestion.map_or(String::new(), |candidate| {
+        format!("; did you mean '{candidate}'?")
+    });
     EvalError::Runtime(format!("unknown {kind} '{name}'{suffix}"))
 }
 
 fn edit_distance(a: &str, b: &str) -> usize {
     let mut row: Vec<usize> = (0..=b.chars().count()).collect();
     for (i, ca) in a.chars().enumerate() {
-        let mut previous = row[0]; row[0] = i + 1;
+        let mut previous = row[0];
+        row[0] = i + 1;
         for (j, cb) in b.chars().enumerate() {
-            let old = row[j + 1]; row[j + 1] = (row[j + 1] + 1).min(row[j] + 1).min(previous + usize::from(ca != cb)); previous = old;
+            let old = row[j + 1];
+            row[j + 1] = (row[j + 1] + 1)
+                .min(row[j] + 1)
+                .min(previous + usize::from(ca != cb));
+            previous = old;
         }
-    } *row.last().unwrap()
+    }
+    *row.last().unwrap()
 }
 
 fn component_response(response: HostResponse, component_type: String) -> Result<Value, EvalError> {
@@ -1510,7 +1782,11 @@ fn math(method: &str, args: &[Value]) -> Result<Value, EvalError> {
         "perlin" if matches!(args.len(), 2 | 3) => Ok(Value::Number(crate::math::perlin(
             number(0)?,
             number(1)?,
-            if args.len() == 3 { Some(number(2)?) } else { None },
+            if args.len() == 3 {
+                Some(number(2)?)
+            } else {
+                None
+            },
         ))),
         "clamp" => {
             require_len(3)?;

@@ -1,6 +1,6 @@
 use crate::engine::ecs::component::{
-    AudioBandPassFilterComponent, EmissiveComponent, RayCastComponent, TransformComponent,
-    TextComponent, TransitionComponent,
+    AudioBandPassFilterComponent, AudioInputComponent, EmissiveComponent, RayCastComponent,
+    TextComponent, TransformComponent, TransitionComponent,
 };
 use crate::engine::ecs::{ComponentId, IntentValue, PoseApplyMode, World};
 use crate::engine::transform::TransformSpace;
@@ -29,6 +29,8 @@ pub(crate) fn legacy_supports_component_method(component_type: &str, method: &st
             component_type,
             "AudioBandPassFilter" | "audio_band_pass_filter"
         ) && method == "set_center_hz")
+        || (matches!(component_type, "AudioInput" | "audio_input")
+            && method == "select_device_number")
         || (matches!(component_type, "HttpClient" | "http_client")
             && matches!(method, "get" | "post" | "put" | "delete"))
         || (matches!(component_type, "HttpServer" | "http_server")
@@ -379,6 +381,28 @@ pub(crate) fn invoke_component_method(
                 component_id: id,
                 center_hz,
             });
+            Ok(Value::Null)
+        }
+        ("AudioInput" | "audio_input", "select_device_number") => {
+            let device_number = match args {
+                [Value::Number(value)]
+                    if value.is_finite()
+                        && *value >= 0.0
+                        && value.fract() == 0.0
+                        && *value <= usize::MAX as f64 =>
+                {
+                    *value as usize
+                }
+                other => {
+                    return Err(format!(
+                        "select_device_number(): expected one non-negative integer, got {other:?}"
+                    ));
+                }
+            };
+            let input = world
+                .get_component_by_id_as_mut::<AudioInputComponent>(id)
+                .ok_or_else(|| "select_device_number(): not an AudioInputComponent".to_string())?;
+            input.select_device_number(device_number);
             Ok(Value::Null)
         }
         ("HttpClient" | "http_client", "get" | "delete") => {

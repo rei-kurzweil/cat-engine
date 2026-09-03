@@ -1,7 +1,7 @@
+pub mod amplitude_system;
 pub(crate) mod animation_keyframe_evaluator;
 pub(crate) mod animation_scheduler;
 pub mod animation_system;
-pub mod amplitude_system;
 pub mod armature_visualization_system;
 pub mod asset_system;
 pub mod audio_decode;
@@ -47,11 +47,10 @@ pub mod grid_gesture;
 pub mod grid_system;
 pub mod http_client_system;
 pub mod http_server_system;
-pub mod implicit_surface_system;
 pub mod humanoid_bone_map_system;
-pub mod morph_target_system;
 pub mod ik;
 pub mod ik_system;
+pub mod implicit_surface_system;
 pub mod input_system;
 pub mod input_xr_gamepad_system;
 pub mod joint_basis_retargeting_system;
@@ -60,6 +59,7 @@ pub mod light_system;
 pub mod mesh_bounds_system;
 pub mod mirror_system;
 pub mod model;
+pub mod morph_target_system;
 pub mod music_system;
 pub mod object_placement_preview;
 pub mod openxr_system;
@@ -90,12 +90,12 @@ pub mod transition_system;
 pub mod vr_types;
 pub mod xr_eye_tracking_system;
 
-pub use animation_system::AnimationSystem;
 pub use amplitude_system::{AmplitudeSnapshot, AmplitudeSystem};
+pub use animation_system::AnimationSystem;
 pub use armature_visualization_system::ArmatureVisualizationSystem;
 pub use asset_system::AssetSystem;
-pub use audio_system::AudioSystem;
 pub use audio_input_system::AudioInputSystem;
+pub use audio_system::AudioSystem;
 pub use avatar_body_yaw_system::AvatarBodyYawSystem;
 pub use avatar_control_system::AvatarControlSystem;
 pub use bounds_visualization_system::BoundsVisualizationSystem;
@@ -129,13 +129,13 @@ pub use grabbable_system::GrabbableSystem;
 pub use grid_system::GridSystem;
 pub use http_client_system::HttpClientSystem;
 pub use http_server_system::HttpServerSystem;
-pub use implicit_surface_system::ImplicitSurfaceSystem;
 pub use humanoid_bone_map_system::{
     HumanoidBoneMapReport, HumanoidBoneMapSystem, HumanoidSlotProvenance, HumanoidSlotReport,
     HumanoidSlotStatus, ResolvedHumanoidTarget, ResolvedHumanoidTargetKind,
 };
 pub use ik::HeadPoseBodyXzFollowSystem;
 pub use ik_system::IKSystem;
+pub use implicit_surface_system::ImplicitSurfaceSystem;
 pub use input_system::InputSystem;
 pub use input_xr_gamepad_system::InputXRGamepadSystem;
 pub use joint_basis_retargeting_system::{

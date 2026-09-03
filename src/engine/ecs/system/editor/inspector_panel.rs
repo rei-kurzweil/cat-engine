@@ -1185,8 +1185,11 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
 
     let shell_spec = PanelShellSpec {
         panel_kind: PanelKind::Inspector,
-        asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
-            .to_string(),
+        asset_path: concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/components/internal/panels.mms"
+        )
+        .to_string(),
         export_name: "inspector_panel".to_string(),
         args: vec![
             Value::String(model.title.clone()),
@@ -1218,8 +1221,11 @@ pub(crate) fn spawn_inspector_panel_instance_tree(
             (PanelControlKind::TitleLabel, "#title_label".to_string()),
         ]),
         body_spec: Some(crate::engine::ecs::system::panel_system::PanelBodySpec {
-            asset_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
-                .to_string(),
+            asset_path: concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/components/internal/panels.mms"
+            )
+            .to_string(),
             export_name: "inspector_panel_body".to_string(),
             args: Vec::new(),
             root_selector: "#accordion_body".to_string(),

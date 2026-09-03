@@ -580,7 +580,9 @@ fn file_read_text(args: Vec<mms::TransportValue>) -> Result<mms::HostResponse, m
     let text = std::fs::read_to_string(path).map_err(|error| {
         mms::HostError::failure("File.read_text", format!("cannot read '{path}': {error}"))
     })?;
-    Ok(mms::HostResponse::Transport(mms::TransportValue::String(text)))
+    Ok(mms::HostResponse::Transport(mms::TransportValue::String(
+        text,
+    )))
 }
 
 fn audio_input_devices(
@@ -596,13 +598,18 @@ fn audio_input_devices(
     }
     let host = cpal::default_host();
     let devices = host.input_devices().map_err(|error| {
-        mms::HostError::failure("Audio.input_devices", format!("cannot enumerate inputs: {error}"))
+        mms::HostError::failure(
+            "Audio.input_devices",
+            format!("cannot enumerate inputs: {error}"),
+        )
     })?;
     let names = devices
         .filter_map(|device| device.name().ok())
         .map(mms::TransportValue::String)
         .collect();
-    Ok(mms::HostResponse::Transport(mms::TransportValue::Array(names)))
+    Ok(mms::HostResponse::Transport(mms::TransportValue::Array(
+        names,
+    )))
 }
 
 fn json_parse(args: Vec<mms::TransportValue>) -> Result<mms::HostResponse, mms::HostError> {

@@ -1,6 +1,4 @@
-use meow_meow_script::{
-    ConfiguredRuntime, JsonLinesHost, RuntimeSpec, ValueSignature, ValueType,
-};
+use meow_meow_script::{ConfiguredRuntime, JsonLinesHost, RuntimeSpec, ValueSignature, ValueType};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = configured_runtime()?;

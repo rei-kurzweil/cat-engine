@@ -161,15 +161,32 @@ fn vtuber_eye_tracking_mirror_microphone_binding_is_valid_mms_syntax() {
         Some(&mut assets),
         &mut queue,
     );
-    assert!(output.errors.is_empty(), "mirror microphone scene errors: {:?}", output.errors);
-    let amplitude = world.all_components().find(|&id| {
-        world.get_component_by_id_as::<crate::engine::ecs::component::AmplitudeComponent>(id).is_some()
-    }).expect("mirror scene amplitude");
-    let avc = world.parent_of(amplitude).expect("amplitude should be attached directly to AVC");
-    let avc = world.get_component_by_id_as::<crate::engine::ecs::component::AvatarControlComponent>(avc)
+    assert!(
+        output.errors.is_empty(),
+        "mirror microphone scene errors: {:?}",
+        output.errors
+    );
+    let amplitude = world
+        .all_components()
+        .find(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::AmplitudeComponent>(id)
+                .is_some()
+        })
+        .expect("mirror scene amplitude");
+    let avc = world
+        .parent_of(amplitude)
+        .expect("amplitude should be attached directly to AVC");
+    let avc = world
+        .get_component_by_id_as::<crate::engine::ecs::component::AvatarControlComponent>(avc)
         .expect("amplitude parent should be AVC");
     let amplitude_guid = world.get_component_record(amplitude).unwrap().guid;
-    assert_eq!(avc.mouth_open_amplitude, Some(crate::engine::ecs::component::ComponentRef::Guid(amplitude_guid)));
+    assert_eq!(
+        avc.mouth_open_amplitude,
+        Some(crate::engine::ecs::component::ComponentRef::Guid(
+            amplitude_guid
+        ))
+    );
 }
 
 #[test]
@@ -204,8 +221,86 @@ fn vtuber_microphone_speaking_animation_scene_materializes_info_panel() {
     assert!(world.all_components().any(|id| {
         world
             .get_component_by_id_as::<crate::engine::ecs::component::TextComponent>(id)
-            .is_some_and(|text| text.text == "device list will appear here in the next slice")
+            .is_some_and(|text| {
+                text.text == "default audio input selected — click a device to switch"
+            })
     }));
+}
+
+#[test]
+fn audio_input_device_row_click_calls_live_selector_method() {
+    let source = r#"
+        let microphone = AudioInput {}
+        let device_row = T {
+            name = "device_row"
+            Option {}
+            Raycastable.enabled()
+            Text { "[2] test microphone" }
+        }
+        on(device_row, "Click", fn(event) {
+            microphone.select_device_number(2)
+        })
+        microphone
+        device_row
+    "#;
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut queue = CommandQueue::new();
+    let (mut session, output) = RuntimeSpecSession::start_at_path(
+        source,
+        "examples/_mms_test_audio_input_device_selection.mms",
+        &mut world,
+        &mut rx,
+        None,
+        &mut queue,
+    )
+    .expect("strict runtime should start audio-input selection test");
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+
+    let microphone = world
+        .all_components()
+        .find(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::AudioInputComponent>(id)
+                .is_some()
+        })
+        .expect("audio input");
+    let row = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("device_row"))
+        .expect("device row");
+    rx.dispatch_event_handlers(
+        &mut world,
+        &Signal::event(
+            row,
+            EventSignal::Click {
+                raycaster: ComponentId::default(),
+                renderable: row,
+                hit_point: [0.0, 0.0, 0.0],
+                screen_pos_px: None,
+            },
+        ),
+    );
+    let output = session.service_callbacks(&mut world, &mut rx, None, &mut queue);
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+    assert_eq!(
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::AudioInputComponent>(
+                microphone
+            )
+            .expect("audio input after click")
+            .device,
+        crate::engine::ecs::component::AudioInputDeviceSelector::DeviceNumber(2),
+    );
+    assert_eq!(
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::AudioInputComponent>(
+                microphone
+            )
+            .expect("audio input after click")
+            .selection_generation,
+        1,
+    );
 }
 
 #[test]

@@ -103,11 +103,9 @@ impl RxMutationExecutor {
 
         match &intent.value {
             IntentValue::RefreshEditorWorldPanel { editor_root } => {
-                systems.editor_inspector.refresh_world_panel_after_topology_change(
-                    world,
-                    emit,
-                    *editor_root,
-                );
+                systems
+                    .editor_inspector
+                    .refresh_world_panel_after_topology_change(world, emit, *editor_root);
             }
             IntentValue::RegisterRenderable { component_id } => {
                 let component = *component_id;

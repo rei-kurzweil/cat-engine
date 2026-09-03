@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mittens_engine::engine::ecs::component::{
     ColorComponent, Display, EdgeInsets, SizeDimension, StyleComponent, TextComponent,

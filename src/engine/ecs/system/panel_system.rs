@@ -679,7 +679,10 @@ pub fn build_placeholder_panel_component_expr(title_name: &str, title: &str) -> 
 }
 
 pub fn world_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 pub fn icons_asset_path() -> &'static str {
@@ -694,7 +697,10 @@ pub fn world_panel_status_asset_path() -> &'static str {
 }
 
 pub fn inspector_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 pub fn inspector_details_asset_path() -> &'static str {
@@ -705,23 +711,38 @@ pub fn inspector_details_asset_path() -> &'static str {
 }
 
 pub fn asset_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 pub fn paint_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 pub fn grid_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 pub fn editor_settings_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 pub fn pose_panel_asset_path() -> &'static str {
-    concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms")
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/components/internal/panels.mms"
+    )
 }
 
 /// Default restoration metadata for the eight built-in editor panel bodies.
@@ -1062,7 +1083,10 @@ mod tests {
 
     #[test]
     fn panel_body_can_be_removed_and_restored_for_one_hundred_cycles() {
-        let asset_path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/components/internal/panels.mms");
+        let asset_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/components/internal/panels.mms"
+        );
         let rgba = || {
             Value::Array(vec![
                 Value::Number(0.2),

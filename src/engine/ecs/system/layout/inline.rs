@@ -95,13 +95,7 @@ pub(crate) fn layout_items(
 
         // Wrap to a new line if this item won't fit and we're not at the line start.
         if cursor_x_gu > 0.0 && cursor_x_gu + item.margin_box_width_gu > avail_w_gu {
-            apply_inline_vertical_align(
-                world,
-                emit,
-                &line_items,
-                line_height_gu,
-                unit_scale,
-            );
+            apply_inline_vertical_align(world, emit, &line_items, line_height_gu, unit_scale);
             line_items.clear();
             cursor_y_gu += line_height_gu;
             cursor_x_gu = 0.0;
@@ -132,12 +126,7 @@ pub(crate) fn layout_items(
                 scale: tc_scale,
             },
         );
-        line_items.push((
-            item.tc_id,
-            translation,
-            tc_scale,
-            item.margin_box_height_gu,
-        ));
+        line_items.push((item.tc_id, translation, tc_scale, item.margin_box_height_gu));
 
         super::block::sync_layout_bounds(world, emit, item, unit_scale);
 

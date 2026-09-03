@@ -23,6 +23,11 @@ impl Default for AudioInputDeviceSelector {
 pub struct AudioInputComponent {
     pub device: AudioInputDeviceSelector,
     pub enabled: bool,
+    /// Increments for every explicit live-selection request. This is runtime
+    /// state: it lets a user retry the same unavailable device deliberately
+    /// without persisting a host-local retry counter into authored scenes.
+    #[serde(skip)]
+    pub selection_generation: u64,
     #[serde(skip)]
     component: Option<ComponentId>,
 }
@@ -38,6 +43,7 @@ impl AudioInputComponent {
         Self {
             device: AudioInputDeviceSelector::Default,
             enabled: true,
+            selection_generation: 0,
             component: None,
         }
     }
@@ -52,6 +58,11 @@ impl AudioInputComponent {
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
+    }
+
+    pub fn select_device_number(&mut self, index: usize) {
+        self.device = AudioInputDeviceSelector::DeviceNumber(index);
+        self.selection_generation = self.selection_generation.wrapping_add(1);
     }
 
     pub fn id(&self) -> Option<ComponentId> {
@@ -112,5 +123,13 @@ mod tests {
             AudioInputComponent::device_number(2).device,
             AudioInputDeviceSelector::DeviceNumber(2)
         );
+    }
+
+    #[test]
+    fn selecting_the_same_numbered_device_is_an_explicit_retry_request() {
+        let mut input = AudioInputComponent::device_number(2);
+        input.select_device_number(2);
+        assert_eq!(input.device, AudioInputDeviceSelector::DeviceNumber(2));
+        assert_eq!(input.selection_generation, 1);
     }
 }

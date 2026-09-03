@@ -62,15 +62,23 @@ pub struct EventStreamHost {
 }
 
 impl EventStreamHost {
-    pub fn new() -> Self { Self { events: vec![] } }
+    pub fn new() -> Self {
+        Self { events: vec![] }
+    }
 }
 
 impl Default for EventStreamHost {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Host for EventStreamHost {
-    fn dispatch_with_context(&mut self, context: &mut HostContext, request: HostRequest) -> Result<HostResponse, HostError> {
+    fn dispatch_with_context(
+        &mut self,
+        context: &mut HostContext,
+        request: HostRequest,
+    ) -> Result<HostResponse, HostError> {
         let event = match request {
             HostRequest::Emit { tree } => {
                 let handle = context.allocate_component();
@@ -81,7 +89,10 @@ impl Host for EventStreamHost {
                 HostEvent::Register { handle, tree }
             }
             HostRequest::Attach { parent, child } => {
-                require_handle(context, child, "attach")?; if let Some(parent) = parent { require_handle(context, parent, "attach")?; }
+                require_handle(context, child, "attach")?;
+                if let Some(parent) = parent {
+                    require_handle(context, parent, "attach")?;
+                }
                 HostEvent::Attach { parent, child }
             }
             HostRequest::InvokeComponentMethod {
@@ -103,7 +114,12 @@ impl Host for EventStreamHost {
                 args,
             } => {
                 require_handle(context, component, "invoke_component_method")?;
-                HostEvent::Method { component, component_type, method, args }
+                HostEvent::Method {
+                    component,
+                    component_type,
+                    method,
+                    args,
+                }
             }
             HostRequest::RegisterSignalHandler {
                 operation_id,
@@ -146,10 +162,16 @@ impl Host for EventStreamHost {
             other => return Err(HostError::unsupported(other.operation_name())),
         };
         let response = match &event {
-            HostEvent::Emit { handle, tree } | HostEvent::Register { handle, tree } => HostResponse::Component { handle: *handle, component_type: tree.component_type.clone() },
+            HostEvent::Emit { handle, tree } | HostEvent::Register { handle, tree } => {
+                HostResponse::Component {
+                    handle: *handle,
+                    component_type: tree.component_type.clone(),
+                }
+            }
             _ => HostResponse::Unit,
         };
-        self.events.push(event); Ok(response)
+        self.events.push(event);
+        Ok(response)
     }
 }
 
@@ -160,24 +182,53 @@ pub struct JsonLinesHost<W: Write> {
 }
 
 impl<W: Write> JsonLinesHost<W> {
-    pub fn new(writer: W) -> Self { Self { inner: EventStreamHost::new(), writer } }
-    pub fn into_inner(self) -> W { self.writer }
-    pub fn into_inner_ref(&self) -> &W { &self.writer }
+    pub fn new(writer: W) -> Self {
+        Self {
+            inner: EventStreamHost::new(),
+            writer,
+        }
+    }
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
+    pub fn into_inner_ref(&self) -> &W {
+        &self.writer
+    }
 }
 
 impl<W: Write> Host for JsonLinesHost<W> {
-    fn dispatch_with_context(&mut self, context: &mut HostContext, request: HostRequest) -> Result<HostResponse, HostError> {
+    fn dispatch_with_context(
+        &mut self,
+        context: &mut HostContext,
+        request: HostRequest,
+    ) -> Result<HostResponse, HostError> {
         let response = self.inner.dispatch_with_context(context, request)?;
-        let event = self.inner.events.last().expect("successful dispatch records an event");
+        let event = self
+            .inner
+            .events
+            .last()
+            .expect("successful dispatch records an event");
         let line = event_json(event);
-        writeln!(self.writer, "{line}").map_err(|error| HostError::failure("json_lines", error.to_string()))?;
+        writeln!(self.writer, "{line}")
+            .map_err(|error| HostError::failure("json_lines", error.to_string()))?;
         Ok(response)
     }
 }
 
-fn require_handle(context: &HostContext, handle: ComponentHandle, operation: &str) -> Result<(), HostError> {
-    if context.owns_component(handle) { Ok(()) } else { Err(HostError { kind: HostErrorKind::ForeignHandle,
-        operation: operation.into(), message: format!("component handle {handle:?} is stale or foreign") }) }
+fn require_handle(
+    context: &HostContext,
+    handle: ComponentHandle,
+    operation: &str,
+) -> Result<(), HostError> {
+    if context.owns_component(handle) {
+        Ok(())
+    } else {
+        Err(HostError {
+            kind: HostErrorKind::ForeignHandle,
+            operation: operation.into(),
+            message: format!("component handle {handle:?} is stale or foreign"),
+        })
+    }
 }
 
 fn require_callback(
@@ -255,8 +306,17 @@ fn event_json(event: &HostEvent) -> String {
             ("api", None, format!("operation_id={operation_id:?}"))
         }
     };
-    format!("{{\"operation\":\"{}\",\"handle\":{},\"detail\":\"{}\"}}",
-        escape(operation), handle.map_or_else(|| "null".into(), |h| h.into_raw().to_string()), escape(&detail))
+    format!(
+        "{{\"operation\":\"{}\",\"handle\":{},\"detail\":\"{}\"}}",
+        escape(operation),
+        handle.map_or_else(|| "null".into(), |h| h.into_raw().to_string()),
+        escape(&detail)
+    )
 }
 
-fn escape(value: &str) -> String { value.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n") }
+fn escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}

@@ -235,7 +235,10 @@ impl AudioGraphNode {
                 )
             }
             AudioGraphNodeKind::InputSource => {
-                format!("{pad}- AudioInputComponent (component={:?})\n", self.component)
+                format!(
+                    "{pad}- AudioInputComponent (component={:?})\n",
+                    self.component
+                )
             }
             AudioGraphNodeKind::Gain { gain } => {
                 format!(
@@ -325,7 +328,10 @@ mod tests {
         let mut world = World::default();
         let input = world.add_component(AudioInputComponent::new());
         let compiled = AudioGraphCompiler::compile(&world, input).unwrap();
-        assert!(matches!(compiled.root.kind, AudioGraphNodeKind::InputSource));
+        assert!(matches!(
+            compiled.root.kind,
+            AudioGraphNodeKind::InputSource
+        ));
         assert!(compiled.pretty().contains("AudioInputComponent"));
     }
 }

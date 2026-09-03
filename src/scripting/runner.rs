@@ -1274,9 +1274,11 @@ mod runtime_spec_session_tests {
 
         let (_session, _intents) =
             RuntimeSpecSession::start(source, &mut world, &mut rx, None, &mut commands).unwrap();
-        assert!(world
-            .all_components()
-            .any(|id| world.component_label(id) == Some("pi-rotation")));
+        assert!(
+            world
+                .all_components()
+                .any(|id| world.component_label(id) == Some("pi-rotation"))
+        );
     }
 
     #[test]

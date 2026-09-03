@@ -10,12 +10,12 @@ use crate::engine::ecs::component::style::VerticalAlign;
 /// ctor info, applies builder calls, named assignments, and positionals, then
 /// recurses into children.
 use crate::engine::ecs::component::{
-    AlignItems, AmbientLightComponent, AnimationComponent, AnimationState,
-    AmplitudeComponent, AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioInputComponent, AudioLimiterComponent,
-    AudioOscillator, AudioOscillatorComponent, AudioOutputComponent, AudioTriggerMode,
-    AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent, BackgroundComponent,
-    BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing, Camera2DComponent,
-    Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
+    AlignItems, AmbientLightComponent, AmplitudeComponent, AnimationComponent, AnimationState,
+    AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioInputComponent,
+    AudioLimiterComponent, AudioOscillator, AudioOscillatorComponent, AudioOutputComponent,
+    AudioTriggerMode, AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent,
+    BackgroundComponent, BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing,
+    Camera2DComponent, Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
     CollisionResponseComponent, CollisionShape, CollisionShapeComponent, ColorComponent,
     CombineMeshComponent, ControllerHand, ControllerPoseKind, DataComponent, DataValue,
     DirectionalLightComponent, Display, DragContinuationPolicy, DragMappingPolicy,
@@ -3615,27 +3615,40 @@ fn apply_call(
         }
         return Ok(());
     }
-    if world.get_component_by_id_as::<AmplitudeComponent>(id).is_some() {
+    if world
+        .get_component_by_id_as::<AmplitudeComponent>(id)
+        .is_some()
+    {
         match method {
             "from" => {
                 let source = arg_component_ref(world, args, 0)?;
                 let resolved = resolve_component_ref(world, &source);
                 if let Some(source_id) = resolved {
-                    let is_audio_source = world.get_component_by_id_as::<AudioInputComponent>(source_id).is_some()
-                        || world.get_component_by_id_as::<AudioClipComponent>(source_id).is_some()
-                        || world.get_component_by_id_as::<AudioOscillatorComponent>(source_id).is_some();
+                    let is_audio_source = world
+                        .get_component_by_id_as::<AudioInputComponent>(source_id)
+                        .is_some()
+                        || world
+                            .get_component_by_id_as::<AudioClipComponent>(source_id)
+                            .is_some()
+                        || world
+                            .get_component_by_id_as::<AudioOscillatorComponent>(source_id)
+                            .is_some();
                     if !is_audio_source {
                         return Err("Amplitude.from(source) requires an AudioInput, AudioClip, or AudioOscillator".into());
                     }
                 }
-                let amplitude = world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap();
+                let amplitude = world
+                    .get_component_by_id_as_mut::<AmplitudeComponent>(id)
+                    .unwrap();
                 amplitude.source = Some(source);
                 amplitude.resolved_source = None;
                 amplitude.bump_generation(crate::engine::ecs::component::AmplitudeStatus::Pending);
             }
             "enabled" => {
                 let enabled = arg_bool(args, 0)?;
-                let amplitude = world.get_component_by_id_as_mut::<AmplitudeComponent>(id).unwrap();
+                let amplitude = world
+                    .get_component_by_id_as_mut::<AmplitudeComponent>(id)
+                    .unwrap();
                 *amplitude = amplitude.clone().with_enabled(enabled);
             }
             _ => return Err(format!("unknown Amplitude builder '.{method}'")),
