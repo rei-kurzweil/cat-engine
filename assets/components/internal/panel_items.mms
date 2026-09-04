@@ -35,13 +35,16 @@ export fn paint_panel_item(item_label, icon, item_background_color, title_color)
             vertical_align("middle")
         }
         T {
+            name = "paint_item_content"
             Style {
                 display("block")
                 width(100%)
             }
             T {
+                name = "paint_item_icon_slot"
                 Style {
                     display("block")
+                    width(100%)
                     height(4.0)
                     margin_top(0.4)
                     margin_bottom(0.3)
@@ -49,12 +52,14 @@ export fn paint_panel_item(item_label, icon, item_background_color, title_color)
                     vertical_align("middle")
                 }
                 T.scale(PAINT_PANEL_ICON_SCALE, PAINT_PANEL_ICON_SCALE, 1.0) {
+                    name = "paint_item_icon_visual"
                     T {
                         icon
                     }
                 }
             }
             T {
+                name = "paint_item_label_slot"
                 Style {
                     display("block")
                     width(100%)

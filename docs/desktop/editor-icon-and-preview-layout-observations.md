@@ -195,6 +195,21 @@ fallback, not reasons to restore that fallback. Bounds-late preview centering
 belongs in the preview remeasurement lifecycle; Paint icon and label alignment
 belongs to their respective styled slots.
 
+### Paint-panel inspection names
+
+The Paint-item template retains named content, icon-slot, icon-visual, and
+label-slot nodes for direct CLI/REPL inspection. The temporary per-frame trace
+used during this investigation was removed after it established the cause.
+
+The first production trace resolved that distinction. Every tile/content box
+was `0.56` world units wide, while each icon slot shrink-wrapped to exactly its
+icon's source width (for example, Free Draw was approximately `0.10604` wide).
+The placement correctly centered the icon within that narrow slot, whose
+origin remained at the tile's left edge. Vertical centering worked because the
+slot already had an explicit 4-GU height. The Paint template now explicitly
+authors `width(100%)` on the icon slot so editor layout, rather than intrinsic
+icon bounds, owns both slot dimensions.
+
 ## Current implementation shape (for diagnosis)
 
 - Paint icons use a manually authored scale beneath the 4 GU icon slot.
