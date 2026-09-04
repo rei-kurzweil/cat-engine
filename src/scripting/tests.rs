@@ -5880,6 +5880,16 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             true,
             &[EditorPanel::Settings, EditorPanel::Grid][..],
         ),
+        (
+            "examples/rough-transmission-xr.mms",
+            include_str!("../../examples/rough-transmission-xr.mms"),
+            0,
+            5,
+            0,
+            1,
+            true,
+            &[][..],
+        ),
     ] {
         let mut world = World::default();
         let mut rx = RxWorld::default();
@@ -5919,6 +5929,18 @@ fn transmissive_examples_evaluate_with_expected_materials_and_camera_paths() {
             rough_transmissions,
             "{path}: rough transmission count",
         );
+        if path == "examples/rough-transmission-xr.mms" {
+            let mut roughnesses: Vec<_> = world
+                .all_components()
+                .filter_map(|id| {
+                    world
+                        .get_component_by_id_as::<RoughTransmissionComponent>(id)
+                        .map(|component| component.roughness)
+                })
+                .collect();
+            roughnesses.sort_by(f32::total_cmp);
+            assert_eq!(roughnesses, vec![0.0, 0.25, 0.5, 0.75, 1.0]);
+        }
         assert_eq!(
             world
                 .all_components()
