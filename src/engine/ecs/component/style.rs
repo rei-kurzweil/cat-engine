@@ -85,13 +85,12 @@ pub enum WordWrapMode {
     BreakAll,
 }
 
-/// CSS `text-align` values.
+/// Horizontal content-alignment values.
 ///
-/// When non-`Auto`, the layout system positions the text-bearing inner
-/// `TransformComponent` inside the content box per this alignment, and
-/// (if `width`/`height` are `Auto`) shrinks the box to fit the measured
-/// text bounds plus padding. `Auto` leaves the inner T's authored
-/// translation alone.
+/// When non-`Auto`, the layout system aligns text-bearing inner transforms and
+/// bounded visual content inside the styled content box. Text and visuals use
+/// separate placement paths so neither rewrites the other's authored
+/// transform. For bounded visuals, `Auto` preserves center alignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextAlign {
     #[default]
@@ -103,9 +102,11 @@ pub enum TextAlign {
 
 /// Vertical alignment within a styled box or inline line box.
 ///
-/// On a block item this applies to the text-bearing inner transform, alongside
-/// `text_align`. On an inline-block it aligns the item's margin box against the
-/// tallest item on its line.
+/// On a block item this aligns text-bearing inner transforms and bounded visual
+/// content inside the content box. On an inline-block it also aligns the item's
+/// margin box against the tallest item on its line; nesting allows external and
+/// internal alignment to use different values. For bounded visuals, `Auto`
+/// preserves bottom alignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VerticalAlign {
     #[default]

@@ -141,8 +141,20 @@ line-box alignment from internal bounded-visual alignment:
 
 This reproduces both parts of the suspected gap: visual placement ignores the
 authored internal alignment. The slot backgrounds themselves are not currently
-the suspected cause; the remaining issue is the relationship between the
-bounded renderable's visual placement and the slot's resolved content box.
+the cause. Instrumentation identifies an exact double placement: generic
+`apply_text_align()` mistakes the non-text visual transform for a zero-sized
+text anchor and writes `[+0.4, -0.24]` into its authored position. The bounded-
+visual placement path then adds its own correction. Removing that accidental
+text-placement write should put the cubes back inside the slots; separately,
+bounded visual placement still needs to honor the intended internal Style
+alignment to distinguish top, middle, and bottom.
+
+The working-tree fix now implements both separations: text alignment only
+selects text-bearing transforms, and bounded visual placement maps
+`text_align`/`vertical_align` to the source and target AABB edges or centers.
+The focused reproduction should therefore render the red cube at the top, the
+green cube in the middle, and the blue cube at the bottom, with all three
+horizontally centered and their authored transforms preserved.
 
 ## Current implementation shape (for diagnosis)
 

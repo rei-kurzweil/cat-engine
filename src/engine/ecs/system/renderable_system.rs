@@ -4,9 +4,9 @@ use crate::engine::ecs::component::OverlayComponent;
 use crate::engine::ecs::component::morph_target::active_factors;
 use crate::engine::ecs::component::{
     BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
-    LightQuantizationComponent, MeshComponent, OpacityComponent, RenderableComponent,
-    RendererSettingsComponent, TransmissiveModel, TransparentCutoutComponent, UVComponent,
-    UnlitComponent, resolve_transmissive_model,
+    LayoutVisualPlacementComponent, LightQuantizationComponent, MeshComponent, OpacityComponent,
+    RenderableComponent, RendererSettingsComponent, TransformComponent, TransmissiveModel,
+    TransparentCutoutComponent, UVComponent, UnlitComponent, resolve_transmissive_model,
 };
 use crate::engine::ecs::component::{GLTFComponent, MorphTargetBindingComponent};
 
@@ -1356,6 +1356,13 @@ impl RenderableSystem {
                 None,
                 quant_steps,
             );
+            Self::trace_registered_layout_renderable(
+                world,
+                visuals,
+                p.renderable_cid,
+                handle,
+                model,
+            );
             if let Some(transmission) = transmission {
                 let (options, roughness) = match transmission {
                     TransmissiveModel::Refraction(options) => (options, 0.0),
@@ -1418,6 +1425,98 @@ impl RenderableSystem {
         self.spawn_pending_normal_vis(world, render_assets, queue);
 
         inserted_any
+    }
+
+    fn trace_registered_layout_renderable(
+        world: &World,
+        visuals: &VisualWorld,
+        renderable_id: ComponentId,
+        handle: crate::engine::graphics::primitives::InstanceHandle,
+        registered_world: crate::engine::transform::TransformMatrix,
+    ) {
+        let mut current = world.parent_of(renderable_id);
+        let mut traced_root = None;
+        while let Some(node) = current {
+            let is_visual_root = world.children_of(node).iter().any(|&child| {
+                world
+                    .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                    .is_some()
+            });
+            if is_visual_root || world.component_label(node) == Some("__bg") {
+                traced_root = Some(node);
+                break;
+            }
+            current = world.parent_of(node);
+        }
+        let Some(traced_root) = traced_root else {
+            return;
+        };
+        if !crate::engine::ecs::system::layout::visual_placement_trace_enabled(world, traced_root) {
+            return;
+        }
+
+        let stored_world = visuals
+            .instance(handle)
+            .map(|instance| instance.transform.model);
+        let (authored_pos, cached_root_pos) = world
+            .get_component_by_id_as::<TransformComponent>(traced_root)
+            .map(|transform| {
+                (
+                    [
+                        transform.transform.model[3][0],
+                        transform.transform.model[3][1],
+                        transform.transform.model[3][2],
+                    ],
+                    [
+                        transform.transform.matrix_world[3][0],
+                        transform.transform.matrix_world[3][1],
+                        transform.transform.matrix_world[3][2],
+                    ],
+                )
+            })
+            .map_or((None, None), |(authored, cached)| {
+                (Some(authored), Some(cached))
+            });
+        let placement = world.children_of(traced_root).iter().find_map(|&child| {
+            world
+                .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                .map(|component| component.translation_parent_local)
+        });
+        let mut parent = world.parent_of(traced_root);
+        let parent_cached_pos = loop {
+            let Some(node) = parent else {
+                break None;
+            };
+            if let Some(transform) = world.get_component_by_id_as::<TransformComponent>(node) {
+                break Some([
+                    transform.transform.matrix_world[3][0],
+                    transform.transform.matrix_world[3][1],
+                    transform.transform.matrix_world[3][2],
+                ]);
+            }
+            parent = world.parent_of(node);
+        };
+        let max_abs_diff = stored_world.map(|stored| {
+            let mut max_diff = 0.0_f32;
+            for column in 0..4 {
+                for row in 0..4 {
+                    max_diff =
+                        max_diff.max((stored[column][row] - registered_world[column][row]).abs());
+                }
+            }
+            max_diff
+        });
+
+        eprintln!(
+            "[InspectLayout][render-register] root={}({traced_root:?}) renderable={renderable_id:?} handle={handle:?} authored_pos={authored_pos:?} placement={placement:?} parent_cached_pos={parent_cached_pos:?} cached_root_pos={cached_root_pos:?} registered_pos={:?} stored_pos={:?} max_abs_diff={max_abs_diff:?}",
+            world.component_label(traced_root).unwrap_or("<unnamed>"),
+            [
+                registered_world[3][0],
+                registered_world[3][1],
+                registered_world[3][2]
+            ],
+            stored_world.map(|stored| [stored[3][0], stored[3][1], stored[3][2]]),
+        );
     }
 
     fn spawn_pending_normal_vis(

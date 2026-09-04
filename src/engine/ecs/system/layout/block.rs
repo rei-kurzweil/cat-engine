@@ -757,11 +757,17 @@ fn sync_visual_placement(
     };
 
     let source = measurement.bounds_parent_local;
-    let translation = [
-        content_local.center()[0] - source.center()[0],
-        content_local.min[1] - source.min[1],
-        0.0,
-    ];
+    let (text_align, vertical_align) = world
+        .children_of(item.tc_id)
+        .iter()
+        .find_map(|&child| {
+            world
+                .get_component_by_id_as::<StyleComponent>(child)
+                .map(|style| (style.text_align, style.vertical_align))
+        })
+        .unwrap_or((TextAlign::Auto, VerticalAlign::Auto));
+    let translation =
+        visual_alignment_translation(content_local, source, text_align, vertical_align);
     if !source
         .min
         .into_iter()
@@ -844,6 +850,25 @@ fn sync_visual_placement(
             },
         );
     }
+}
+
+fn visual_alignment_translation(
+    target: crate::engine::graphics::bounds::Aabb,
+    source: crate::engine::graphics::bounds::Aabb,
+    text_align: TextAlign,
+    vertical_align: VerticalAlign,
+) -> [f32; 3] {
+    let x = match text_align {
+        TextAlign::Auto | TextAlign::Center => target.center()[0] - source.center()[0],
+        TextAlign::Left => target.min[0] - source.min[0],
+        TextAlign::Right => target.max[0] - source.max[0],
+    };
+    let y = match vertical_align {
+        VerticalAlign::Auto | VerticalAlign::Bottom => target.min[1] - source.min[1],
+        VerticalAlign::Top => target.max[1] - source.max[1],
+        VerticalAlign::Middle => target.center()[1] - source.center()[1],
+    };
+    [x, y, 0.0]
 }
 
 fn trace_visual_placement(
@@ -1060,7 +1085,6 @@ pub(crate) fn apply_text_align(
 }
 
 fn find_alignable_direct_child(world: &World, tc_id: ComponentId) -> Option<ComponentId> {
-    let mut fallback = None;
     for &child in world.children_of(tc_id) {
         if world
             .component_label(child)
@@ -1076,15 +1100,10 @@ fn find_alignable_direct_child(world: &World, tc_id: ComponentId) -> Option<Comp
             if subtree_has_text(world, child) {
                 return Some(child);
             }
-            if fallback.is_none() {
-                fallback = Some(child);
-            }
         }
     }
-    fallback.or_else(|| {
-        let text = super::measure::find_text_id_in_local_content_subtree(world, tc_id)?;
-        TextSystem::owned_text_block(world, text)
-    })
+    let text = super::measure::find_text_id_in_local_content_subtree(world, tc_id)?;
+    TextSystem::owned_text_block(world, text)
 }
 
 fn subtree_has_text(world: &World, root: ComponentId) -> bool {
@@ -1341,7 +1360,9 @@ fn spawn_bg_quad(
 
 #[cfg(test)]
 mod tests {
-    use crate::engine::ecs::component::style::{EdgeInsets, SizeDimension};
+    use crate::engine::ecs::component::style::{
+        EdgeInsets, SizeDimension, TextAlign, VerticalAlign,
+    };
     use crate::engine::ecs::component::{
         BoundsComponent, ColorComponent, LayoutComponent, LayoutVisualPlacementComponent,
         RenderableComponent, SerializeComponent, StencilClipComponent, StyleComponent,
@@ -1352,6 +1373,115 @@ mod tests {
     use crate::engine::ecs::{CommandQueue, SystemWorld, World};
     use crate::engine::graphics::bounds::Aabb;
     use crate::engine::graphics::{RenderAssets, VisualWorld};
+
+    #[test]
+    fn bounded_visual_alignment_maps_style_to_target_edges_and_centers() {
+        let target = Aabb {
+            min: [0.0, -0.48, 0.0],
+            max: [0.8, 0.0, 0.0],
+        };
+        let source = Aabb {
+            min: [-0.06, -0.06, 0.0],
+            max: [0.06, 0.06, 0.06],
+        };
+
+        assert_eq!(
+            super::visual_alignment_translation(
+                target,
+                source,
+                TextAlign::Left,
+                VerticalAlign::Top,
+            ),
+            [0.06, -0.06, 0.0]
+        );
+        assert_eq!(
+            super::visual_alignment_translation(
+                target,
+                source,
+                TextAlign::Center,
+                VerticalAlign::Middle,
+            ),
+            [0.4, -0.24, 0.0]
+        );
+        assert_eq!(
+            super::visual_alignment_translation(
+                target,
+                source,
+                TextAlign::Right,
+                VerticalAlign::Bottom,
+            ),
+            [0.74, -0.42, 0.0]
+        );
+        assert_eq!(
+            super::visual_alignment_translation(
+                target,
+                source,
+                TextAlign::Auto,
+                VerticalAlign::Auto,
+            ),
+            [0.4, -0.42, 0.0]
+        );
+    }
+
+    #[test]
+    fn text_alignment_does_not_rewrite_a_non_text_visual_transform() {
+        let mut world = World::default();
+        let root = world.add_component(LayoutComponent::new(10.0).with_height(6.0));
+        let slot = world.add_component(TransformComponent::new());
+        let style = world.add_component({
+            let mut style = StyleComponent::new();
+            style.width = SizeDimension::GlyphUnits(10.0);
+            style.height = SizeDimension::GlyphUnits(6.0);
+            style.text_align = TextAlign::Center;
+            style.vertical_align = VerticalAlign::Middle;
+            style
+        });
+        let visual = world.add_component(
+            TransformComponent::new()
+                .with_position(0.0, 0.0, 0.03)
+                .with_scale(0.12, 0.12, 0.06),
+        );
+        let renderable = world.add_component(RenderableComponent::cube());
+        let bounds = world.add_component(BoundsComponent::new(Aabb {
+            min: [-0.5, -0.5, -0.5],
+            max: [0.5, 0.5, 0.5],
+        }));
+        world.add_child(root, slot).unwrap();
+        world.add_child(slot, style).unwrap();
+        world.add_child(slot, visual).unwrap();
+        world.add_child(visual, renderable).unwrap();
+        world.add_child(renderable, bounds).unwrap();
+
+        let mut queue = CommandQueue::new();
+        let mut layout = LayoutSystem::new();
+        world
+            .get_component_by_id_as_mut::<LayoutComponent>(root)
+            .unwrap()
+            .dirty = true;
+        layout.tick(&mut world, &mut queue);
+
+        let placement = world
+            .children_of(visual)
+            .iter()
+            .find_map(|&child| {
+                world.get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+            })
+            .expect("layout-owned visual placement");
+        assert_eq!(placement.translation_parent_local, [5.0, -3.0, 0.0]);
+
+        let mut systems = SystemWorld::default();
+        let mut visuals = VisualWorld::new();
+        let mut render_assets = RenderAssets::new();
+        queue.flush(&mut world, &mut systems, &mut visuals, &mut render_assets);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<TransformComponent>(visual)
+                .unwrap()
+                .transform
+                .translation,
+            [0.0, 0.0, 0.03]
+        );
+    }
 
     #[test]
     fn layout_places_one_centered_visual_below_its_label() {

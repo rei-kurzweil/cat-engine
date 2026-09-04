@@ -10,6 +10,7 @@ use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformStreamSystem;
 use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::graphics::VisualWorld;
+use crate::engine::graphics::primitives::InstanceHandle;
 use crate::engine::transform::{TransformMatrix, TransformTrs, TransformTrsError};
 use crate::engine::user_input::InputState;
 
@@ -259,6 +260,7 @@ impl TransformSystem {
                     .and_then(|r| r.get_handle())
                 {
                     visuals.update_model(handle, next_world);
+                    Self::trace_render_model_handoff(world, visuals, child, handle, next_world);
                 }
 
                 stack.push((child, next_world));
@@ -346,6 +348,60 @@ impl TransformSystem {
         eprintln!(
             "[InspectLayout][background-transform] item={}({item_id:?}) background={transform_id:?} expected_world={expected_world:?} actual_world={actual_world:?}",
             world.component_label(item_id).unwrap_or("<unnamed>"),
+        );
+    }
+
+    fn trace_render_model_handoff(
+        world: &World,
+        visuals: &VisualWorld,
+        renderable_id: ComponentId,
+        handle: InstanceHandle,
+        submitted_world: TransformMatrix,
+    ) {
+        let mut current = world.parent_of(renderable_id);
+        let mut traced_root = None;
+        while let Some(node) = current {
+            let is_visual_root = world.children_of(node).iter().any(|&child| {
+                world
+                    .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                    .is_some()
+            });
+            if is_visual_root || world.component_label(node) == Some("__bg") {
+                traced_root = Some(node);
+                break;
+            }
+            current = world.parent_of(node);
+        }
+        let Some(traced_root) = traced_root else {
+            return;
+        };
+        if !crate::engine::ecs::system::layout::visual_placement_trace_enabled(world, traced_root) {
+            return;
+        }
+
+        let stored_world = visuals
+            .instance(handle)
+            .map(|instance| instance.transform.model);
+        let max_abs_diff = stored_world.map(|stored| {
+            let mut max_diff = 0.0_f32;
+            for column in 0..4 {
+                for row in 0..4 {
+                    max_diff =
+                        max_diff.max((stored[column][row] - submitted_world[column][row]).abs());
+                }
+            }
+            max_diff
+        });
+
+        eprintln!(
+            "[InspectLayout][render-model] root={}({traced_root:?}) renderable={renderable_id:?} handle={handle:?} submitted_pos={:?} stored_pos={:?} max_abs_diff={max_abs_diff:?}",
+            world.component_label(traced_root).unwrap_or("<unnamed>"),
+            [
+                submitted_world[3][0],
+                submitted_world[3][1],
+                submitted_world[3][2]
+            ],
+            stored_world.map(|stored| [stored[3][0], stored[3][1], stored[3][2]]),
         );
     }
 

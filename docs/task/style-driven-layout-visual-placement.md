@@ -51,6 +51,70 @@ match—compare their projected clip/screen coordinates with the corresponding
 background quad. This will distinguish a stale/wrong render-instance transform
 from a projection or render-pass discrepancy.
 
+The first transform-propagation probe emitted no `[render-model]` lines for
+these nodes because their GPU meshes and render handles did not exist during
+that traversal. They are inserted later by `RenderableSystem::flush_pending`.
+The environment-gated `[InspectLayout][render-register]` trace therefore runs
+at the actual insertion point. `registered_pos` is the world translation used
+to create the instance, `stored_pos` is read back through the newly allocated
+render handle, and `max_abs_diff` compares every matrix entry.
+
+Early `[background-transform]` entries may report `actual_world=None` for the
+same reason: the generated background's mesh bounds have not yet been attached
+when transform propagation first encounters it. Those entries describe
+initialization order, not evidence that the visible background has no bounds.
+
+In the settled ECS trace, the first slot spans approximately X `[-1.8, -1.0]`
+and Y `[0.03, 0.51]`, while its cube spans X `[-1.46, -1.34]` and Y
+`[0.03, 0.15]`. The numbers describe a horizontally centered, bottom-aligned
+cube inside the slot even though the rendered image shows it outside at the
+bottom-right. This concrete disagreement moves the investigation beyond the
+layout/background calculation and into render-instance registration or later
+GPU draw-data handling.
+
+The registration trace then identified a concrete stale position. The final
+correct ECS centers for the top, middle, and bottom cubes are approximately
+`[-1.4, 0.09]`, `[-0.52, 0.09]`, and `[0.36, 0.09]`, but their render instances
+were created at `[-1.0, -0.15]`, `[-0.12, -0.15]`, and `[0.76, -0.15]`.
+Every registered cube is therefore displaced by `[+0.4, -0.24]`: exactly half
+of a slot's `0.8 × 0.48` world-space dimensions. The matrix stored in
+`VisualWorld` exactly matches this incorrect registration matrix. This points
+to an ECS-side transform mutation before registration, rather than a renderer
+matrix-storage defect or a concurrent/threaded data race. The expanded trace
+below identifies the writer.
+
+### Identified double-placement writer
+
+The expanded registration trace shows that this is more specific than a
+generic stale-cache problem. Each cube was authored at `[0, 0, 0.03]`, but by
+registration its authored transform is `[0.4, -0.24, 0.03]`.
+`apply_text_align()` in `layout/block.rs` is the writer:
+
+- `find_alignable_direct_child()` falls back to the first non-helper transform
+  even when that transform contains no text.
+- With no text descriptor, `apply_text_align()` treats the child as a
+  zero-sized text anchor.
+- `text_align("center")` moves that zero-sized anchor by half the 0.8-world-unit
+  content width: `+0.4` X.
+- For an inline-block, internal vertical alignment is reduced to `Auto`; the
+  legacy “text-align implies vertical centering” branch then moves the anchor
+  by half the 0.48-world-unit content height: `-0.24` Y.
+- `LayoutVisualPlacement` subsequently adds its own `[+0.4, -0.42]` bounded-
+  visual correction, so the same visual root is positioned twice.
+
+This explains both observed offsets exactly. It also separates two changes
+that should not be conflated:
+
+1. Text alignment must not rewrite a non-text bounded visual's authored
+   transform as though it were a zero-sized glyph block.
+2. Once that accidental first placement is removed, bounded visual placement
+   must intentionally resolve the appropriate `Style` alignment instead of
+   retaining its unconditional center-X/bottom-Y policy.
+
+Removing only the first write should bring all three cubes back inside their
+slots, but all three would still be bottom-aligned. The top/middle/bottom
+behavior remains the semantic/API task described below.
+
 The `InspectLayout` geometry overlay remains commented in this reproduction
 because of the separate transparency-ordering bug. The environment flag
 provides the same console diagnostics without adding overlay geometry.
@@ -215,8 +279,9 @@ correction before treating the alignment-policy change as complete.
   alignment applicable in the current context. For an inline item it still
   participates in line-box alignment; for bounded content it also determines
   placement within that item's assigned visual region.
-- `Auto` must have a documented neutral/default placement. It must not be an
-  undocumented synonym for bottom alignment.
+- For compatibility, bounded visual `Auto` currently resolves to horizontal
+  center and vertical bottom placement. This default is now explicit rather
+  than hidden inside unconditional placement arithmetic.
 - Text and renderables use shared edge/center calculations and the same local
   layout-axis convention. Their different bounds sources do not justify
   different alignment semantics.
@@ -265,6 +330,11 @@ could record the target region and resolved alignment, but rendering and
 transform propagation must not resolve Style themselves.
 
 ## Implementation outline
+
+The first two implementation steps below are now present in the working tree:
+text alignment only selects text-bearing transforms, and bounded visual
+placement resolves horizontal and vertical Style alignment through centralized
+AABB edge/center calculations.
 
 ### 1. Represent the visual target region
 
