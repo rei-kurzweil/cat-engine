@@ -7,7 +7,8 @@
 //   2. internal: align bounded visual content within a fixed item box.
 //
 // Expected:
-//   - Scenario 1: the short orange box and tall cyan box share a bottom edge.
+//   - Scenario 1: the short orange box and two tall reference boxes share a
+//     bottom edge across the full three-block row.
 //   - Scenario 2: the red, green, and blue cubes appear at the top, middle,
 //     and bottom of three equal white slots. Every cube is centered on X.
 //
@@ -36,8 +37,10 @@ I {
 }
 
 let UNIT_SCALE = 0.08
-let PANEL_WIDTH = 50.0
-let PANEL_HEIGHT = 30.0
+// Three 10-GU blocks plus two 1-GU gaps, with 0.5 GU row padding and 1 GU
+// panel padding. The extra GU over the block/gap sum is the row padding.
+let PANEL_WIDTH = 35.0
+let PANEL_HEIGHT = 33.0
 let WHITE = [0.94, 0.95, 0.98, 1.0]
 let DARK = [0.10, 0.12, 0.17, 0.98]
 let ROW = [0.16, 0.18, 0.24, 1.0]
@@ -66,7 +69,8 @@ let panel = T {
     T {
         Style {
             display("block")
-            height(2.0)
+            // The narrowed panel wraps this heading onto two lines.
+            height(4.0)
             margin_bottom(0.5)
             color = TEXT
             text_align("left")
@@ -78,19 +82,21 @@ let panel = T {
     T {
         Style {
             display("block")
-            height(2.0)
+            // Reserve two lines so wrapped text cannot overlap the row.
+            height(4.0)
+            margin_bottom(0.5)
             color = TEXT
             text_align("left")
             vertical_align("middle")
         }
-        Text { "1. ITEM BOXES: orange short box should bottom-align with cyan tall box" }
+        Text { "1. ITEM BOXES: three blocks should share a bottom edge" }
     }
 
     T {
         name = "scenario_1_external_line_alignment"
         Style {
             display("block")
-            width(48.0)
+            width(33.0)
             height(7.0)
             padding(0.5)
             margin_bottom(1.0)
@@ -117,8 +123,21 @@ let panel = T {
                 display("inline-block")
                 width(10.0)
                 height(5.0)
+                margin_right(1.0)
                 vertical_align("top")
                 background_color([0.12, 0.72, 0.82, 1.0])
+                background_z(-0.01)
+            }
+        }
+
+        T {
+            name = "third_reference_item"
+            Style {
+                display("inline-block")
+                width(10.0)
+                height(4.0)
+                vertical_align("bottom")
+                background_color([0.55, 0.34, 0.88, 1.0])
                 background_z(-0.01)
             }
         }
@@ -127,7 +146,9 @@ let panel = T {
     T {
         Style {
             display("block")
-            height(2.0)
+            // Reserve two lines so wrapped text cannot overlap the row.
+            height(4.0)
+            margin_bottom(0.5)
             color = TEXT
             text_align("left")
             vertical_align("middle")
@@ -139,7 +160,7 @@ let panel = T {
         name = "scenario_2_internal_visual_alignment"
         Style {
             display("block")
-            width(48.0)
+            width(33.0)
             height(8.0)
             padding(0.5)
             background_color(ROW)
@@ -201,7 +222,10 @@ Selectable.off() {
                 available_height(PANEL_HEIGHT)
                 unit_scale(UNIT_SCALE)
 
-                // Uncomment to compare resolved layout boxes with geometry.
+                // Keep the geometry overlay disabled: it currently interacts
+                // with transparent backgrounds and obscures this comparison.
+                // Set MITTENS_TRACE_LAYOUT_VISUAL_PLACEMENT=1 for console
+                // source/target/transform diagnostics without overlay quads.
                 // InspectLayout {}
 
                 panel

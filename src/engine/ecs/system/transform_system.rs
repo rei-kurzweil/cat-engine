@@ -1,12 +1,14 @@
 use crate::engine::ecs::ComponentId;
 use crate::engine::ecs::World;
 use crate::engine::ecs::component::{
-    Camera2DComponent, Camera3DComponent, CollisionComponent, LayoutVisualPlacementComponent,
-    RenderableComponent, TransformComponent, TransformParentComponent,
+    Camera2DComponent, Camera3DComponent, CollisionComponent, LayoutBoundsComponent,
+    LayoutVisualPlacementComponent, RenderableComponent, TransformComponent,
+    TransformParentComponent,
 };
 use crate::engine::ecs::system::CollisionSystem;
 use crate::engine::ecs::system::System;
 use crate::engine::ecs::system::TransformStreamSystem;
+use crate::engine::ecs::system::bounds_system::BoundsSystem;
 use crate::engine::graphics::VisualWorld;
 use crate::engine::transform::{TransformMatrix, TransformTrs, TransformTrsError};
 use crate::engine::user_input::InputState;
@@ -217,6 +219,8 @@ impl TransformSystem {
                     if let Some(t) = world.get_component_by_id_as_mut::<TransformComponent>(child) {
                         t.transform.matrix_world = w;
                     }
+                    Self::trace_resolved_visual_placement(world, child, inherited, w);
+                    Self::trace_resolved_layout_background(world, child, inherited, w);
                     w
                 } else {
                     inherited
@@ -260,6 +264,89 @@ impl TransformSystem {
                 stack.push((child, next_world));
             }
         }
+    }
+
+    fn trace_resolved_visual_placement(
+        world: &World,
+        transform_id: ComponentId,
+        parent_world: TransformMatrix,
+        resolved_world: TransformMatrix,
+    ) {
+        let Some(placement) = world.children_of(transform_id).iter().find_map(|&child| {
+            world
+                .get_component_by_id_as::<LayoutVisualPlacementComponent>(child)
+                .copied()
+        }) else {
+            return;
+        };
+
+        if !crate::engine::ecs::system::layout::visual_placement_trace_enabled(world, transform_id)
+        {
+            return;
+        }
+
+        let [x, y, z] = placement.translation_parent_local;
+        let placement_matrix = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [x, y, z, 1.0],
+        ];
+        let predicted_world = placement
+            .source_bounds_parent_local
+            .transformed(Self::mat4_mul(parent_world, placement_matrix));
+        let actual_world =
+            BoundsSystem::measure_cached_renderable_subtree_bounds(world, transform_id, |node| {
+                world
+                    .component_label(node)
+                    .is_some_and(|label| label.starts_with("__"))
+            })
+            .map(|bounds_root_local| bounds_root_local.transformed(resolved_world));
+
+        eprintln!(
+            "[InspectLayout][visual-transform] visual={}({transform_id:?}) parent_world_pos={:?} resolved_world_pos={:?} predicted_world={predicted_world:?} actual_world={actual_world:?}",
+            world.component_label(transform_id).unwrap_or("<unnamed>"),
+            [parent_world[3][0], parent_world[3][1], parent_world[3][2]],
+            [
+                resolved_world[3][0],
+                resolved_world[3][1],
+                resolved_world[3][2]
+            ],
+        );
+    }
+
+    fn trace_resolved_layout_background(
+        world: &World,
+        transform_id: ComponentId,
+        parent_world: TransformMatrix,
+        resolved_world: TransformMatrix,
+    ) {
+        if world.component_label(transform_id) != Some("__bg") {
+            return;
+        }
+        let Some(item_id) = world.parent_of(transform_id) else {
+            return;
+        };
+        if !crate::engine::ecs::system::layout::visual_placement_trace_enabled(world, item_id) {
+            return;
+        }
+        let Some(layout_bounds) = world.children_of(item_id).iter().find_map(|&child| {
+            world
+                .get_component_by_id_as::<LayoutBoundsComponent>(child)
+                .copied()
+        }) else {
+            return;
+        };
+
+        let expected_world = layout_bounds.padding_local.transformed(parent_world);
+        let actual_world =
+            BoundsSystem::measure_cached_renderable_subtree_bounds(world, transform_id, |_| false)
+                .map(|bounds_local| bounds_local.transformed(resolved_world));
+
+        eprintln!(
+            "[InspectLayout][background-transform] item={}({item_id:?}) background={transform_id:?} expected_world={expected_world:?} actual_world={actual_world:?}",
+            world.component_label(item_id).unwrap_or("<unnamed>"),
+        );
     }
 
     fn update_transform_parent_dependents(

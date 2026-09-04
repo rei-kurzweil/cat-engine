@@ -5,7 +5,8 @@ use crate::engine::ecs::component::Component;
 ///
 /// When attached as a child of a TC that also carries a `LayoutComponent`, the
 /// layout pass over that subtree spawns box-model viz quads (`__box_padding_*`,
-/// `__box_content`, `__box_margin_*`) per styled item. Without this component,
+/// `__box_content`, `__box_margin_*`) per styled item and logs bounded visual
+/// placement and resolved-transform inputs/results. Without this component,
 /// layout skips viz and tears down any pre-existing viz subtrees so the panel
 /// renders clean.
 ///

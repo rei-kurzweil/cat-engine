@@ -772,6 +772,15 @@ fn sync_visual_placement(
         return;
     }
 
+    trace_visual_placement(
+        world,
+        item.tc_id,
+        measurement.content_root,
+        content_local,
+        source,
+        translation,
+    );
+
     for (root, placement) in existing.iter().copied() {
         if root != measurement.content_root {
             let authored = world
@@ -835,6 +844,47 @@ fn sync_visual_placement(
             },
         );
     }
+}
+
+fn trace_visual_placement(
+    world: &World,
+    item_id: ComponentId,
+    content_root: ComponentId,
+    target: crate::engine::graphics::bounds::Aabb,
+    source: crate::engine::graphics::bounds::Aabb,
+    translation: [f32; 3],
+) {
+    if !super::visual_placement_trace_enabled(world, item_id) {
+        return;
+    }
+
+    let (text_align, vertical_align) = world
+        .children_of(item_id)
+        .iter()
+        .find_map(|&child| {
+            world
+                .get_component_by_id_as::<StyleComponent>(child)
+                .map(|style| (style.text_align, style.vertical_align))
+        })
+        .unwrap_or((TextAlign::Auto, VerticalAlign::Auto));
+    let placed = crate::engine::graphics::bounds::Aabb {
+        min: [
+            source.min[0] + translation[0],
+            source.min[1] + translation[1],
+            source.min[2] + translation[2],
+        ],
+        max: [
+            source.max[0] + translation[0],
+            source.max[1] + translation[1],
+            source.max[2] + translation[2],
+        ],
+    };
+
+    eprintln!(
+        "[InspectLayout][visual-placement] item={}({item_id:?}) visual={}({content_root:?}) style=({text_align:?},{vertical_align:?}) target={target:?} source={source:?} offset={translation:?} predicted={placed:?}",
+        world.component_label(item_id).unwrap_or("<unnamed>"),
+        world.component_label(content_root).unwrap_or("<unnamed>"),
+    );
 }
 
 fn immediate_owned_layout_stencil_clip(

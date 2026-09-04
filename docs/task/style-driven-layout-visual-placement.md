@@ -21,29 +21,59 @@ Runnable focused reproduction:
 Launch it from the repository root:
 
 ```sh
-cargo run -- load examples/triage/layout-visual-placement-alignment.mms
+MITTENS_TRACE_LAYOUT_VISUAL_PLACEMENT=1 \
+    cargo run -- load examples/triage/layout-visual-placement-alignment.mms
 ```
 
-The scene labels its two scenarios and expected colors. Leave
-`InspectLayout` commented for the first visual comparison, then enable it in
-the scene to compare the generated boxes with the rendered geometry.
+The scene labels its two scenarios and expected colors. Both repro rows are
+exactly three 10-GU blocks wide with two 1-GU gaps; each row is 33 GU wide
+(including its 0.5-GU side padding), and the containing panel is 35 GU wide
+(with 1 GU padding). There is no unused horizontal space or accidental wrap
+that could make an edge-placement error ambiguous. The environment flag
+logs one
+`[InspectLayout][visual-placement]` line per bounded visual. Each line includes
+the resolved Style alignment, target content AABB, source visual AABB,
+generated offset, and predicted placed AABB. Transform propagation also emits
+`[InspectLayout][visual-transform]` with the parent and resolved world
+positions plus predicted and independently measured actual world AABBs. If
+those two world AABBs differ, the placement correction is being composed in a
+different basis than its declared parent-local basis.
+
+The current trace results show those two AABBs matching exactly for all three
+cubes. This verifies the ECS-side bounds and transform calculation, but the
+`actual_world` field is still derived from ECS state; it is not a readback of
+the model matrix stored in `VisualWorld` or consumed by the renderer. Because
+the white background slots look correct while the cubes visibly do not, the
+next boundary to inspect is the handoff from the resolved ECS transform to the
+render instance/model matrix. Compare the final model matrix associated with
+each cube's render handle against its resolved transform, then—if those also
+match—compare their projected clip/screen coordinates with the corresponding
+background quad. This will distinguish a stale/wrong render-instance transform
+from a projection or render-pass discrepancy.
+
+The `InspectLayout` geometry overlay remains commented in this reproduction
+because of the separate transparency-ordering bug. The environment flag
+provides the same console diagnostics without adding overlay geometry.
 
 ### Observed baseline: `bisket-desktop-demo` build
 
 - Scenario 1 behaves as expected: the short orange item and tall cyan item are
   bottom-aligned. This confirms that the inline post-pass can align complete
   item boxes within a line.
-- Scenario 2 does not honor its three authored internal alignments. The red,
-  green, and blue shapes all appear slightly below and to the right of the
-  bottom-right corner of their respective white slots.
+- Scenario 2's white slots appear correctly positioned, sized, centered in the
+  row, and separated by the authored margins. The slots are authored as
+  10-GU-wide by 6-GU-tall rectangles. The red, green, and blue cubes are the
+  items that appear wrong: each is horizontally centered on the slot's right
+  edge and vertically displaced below the slot by approximately one cube
+  height (the same apparent displacement for all three alignment values).
 
 The identical result for `top`, `middle`, and `bottom` confirms that
-`sync_visual_placement()` is not consuming those Style values. The fact that
-the shapes are also outside the right edge means replacing the hard-coded
-bottom policy with a vertical enum match will not be sufficient by itself.
-The source visual AABB and target content AABB are likely being compared in
-different local bases, or the resulting parent-local correction is being
-composed at the wrong transform level.
+`sync_visual_placement()` is not consuming those Style values. At this stage
+we are documenting the behavior, not selecting a source fix. The generated
+backgrounds are not the apparent cause: their geometry is in the expected
+location and has the expected dimensions. The remaining question is why the
+bounded renderable's authored placement does not visually coincide with the
+slot despite the layout placement diagnostics reporting the expected target.
 
 ## The two meanings that must not be confused
 

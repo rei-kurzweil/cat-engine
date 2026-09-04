@@ -132,15 +132,17 @@ selection.
 line-box alignment from internal bounded-visual alignment:
 
 - The short orange and tall cyan item boxes are correctly bottom-aligned.
-- The red, green, and blue visual shapes all appear slightly below and to the
-  right of the bottom-right corner of their equal white slots, despite
-  authoring `vertical_align("top")`, `vertical_align("middle")`, and
-  `vertical_align("bottom")` respectively.
+- The three white slots are correctly sized and positioned as 10-GU-wide by
+  6-GU-tall rectangles, with visible margins between them.
+- The red, green, and blue visual shapes appear horizontally centered on the
+  right edge of their slots and vertically below the slot by about one cube
+  height, despite authoring `vertical_align("top")`,
+  `vertical_align("middle")`, and `vertical_align("bottom")` respectively.
 
 This reproduces both parts of the suspected gap: visual placement ignores the
-authored internal alignment, and its generated correction has an additional
-coordinate-space/origin error that places the visual outside the resolved
-slot.
+authored internal alignment. The slot backgrounds themselves are not currently
+the suspected cause; the remaining issue is the relationship between the
+bounded renderable's visual placement and the slot's resolved content box.
 
 ## Current implementation shape (for diagnosis)
 

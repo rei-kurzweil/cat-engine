@@ -34,6 +34,29 @@ pub(crate) const LAYER_DISTANCE: f32 = 0.05;
 /// the next layer's content plane at `+1.0 * LAYER_DISTANCE`.
 pub(crate) const AUTO_TEXT_LIFT_Z: f32 = 0.4 * LAYER_DISTANCE;
 
+/// Enable bounded-visual placement diagnostics without requiring the
+/// `InspectLayout` geometry overlay. The environment flag is useful when the
+/// overlay itself obscures a transparency or ordering bug. An inspected
+/// LayoutRoot also enables the same trace.
+pub(crate) fn visual_placement_trace_enabled(world: &World, id: ComponentId) -> bool {
+    if std::env::var_os("MITTENS_TRACE_LAYOUT_VISUAL_PLACEMENT").is_some() {
+        return true;
+    }
+
+    let mut ancestor = Some(id);
+    while let Some(node) = ancestor {
+        if world
+            .get_component_by_id_as::<LayoutComponent>(node)
+            .is_some()
+            && block::layout_root_has_inspect(world, node)
+        {
+            return true;
+        }
+        ancestor = world.parent_of(node);
+    }
+    false
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FormattingContext {
     Block,
