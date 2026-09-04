@@ -60,6 +60,7 @@ export fn paint_panel_item(item_label, icon, item_background_color, title_color)
                     width(100%)
                     padding_xy(0.2, 0.0)
                     color = [0,0,0,1]
+                    text_align("center")
                     word_wrap("normal")
                 }
                 Text {

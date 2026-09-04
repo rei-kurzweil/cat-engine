@@ -156,6 +156,45 @@ The focused reproduction should therefore render the red cube at the top, the
 green cube in the middle, and the blue cube at the bottom, with all three
 horizontally centered and their authored transforms preserved.
 
+### Post-fix editor observation
+
+The focused cubes and most production editor visuals now align correctly. The
+Grid delete X is centered. Two narrower follow-up cases remain:
+
+- Asset previews: Icosahedron, Star, Heart, Partial Annulus 2D, and the truss
+  now place their visual origin at the preview slot's top-left corner. These
+  were the previews that appeared centered before the general fix. The four
+  primitives use procedurally generated meshes, while the truss is produced by
+  `CombineMesh`; unlike ordinary built-in meshes, their final bounds are not
+  available during the asset shell's first measurement. The asset system has a
+  `pending_remeasure` queue and a post-layout remeasurement pass, but
+  `build_asset_item_shell()` currently never adds an unmeasurable preview to
+  that queue. The removed non-text fallback had accidentally supplied the
+  half-slot centering translation for these bounds-late previews.
+- Paint tiles: the icon slot itself is authored with
+  `text_align("center")`/`vertical_align("middle")`, but the label's own styled
+  block has no `text_align`, so its effective/default placement is left. The
+  outer tile is centered, but `apply_text_align()` can select its unstyled
+  direct wrapper by finding text inside a deeper styled label item; that moves
+  the entire icon-plus-label layout using the label's text measurement. Text
+  discovery should stop at nested styled layout-item boundaries, and the label
+  block should explicitly author `text_align("center")`.
+
+Adding `text_align("center")` to the Paint label confirms a further wrapped-
+text gap: single-line labels center, but wrapped labels remain left-aligned.
+`apply_text_align()` currently measures the label with `wrap_at = 0` (the
+unwrapped width). When that width exceeds the content box, its centering offset
+is clamped to zero. The text system subsequently generates wrapped lines from
+that left-edge origin. Measuring the resolved wrapped width would center the
+multiline block as a whole; CSS-like centering of every line additionally
+requires per-line offsets during glyph layout because one transform translation
+cannot center lines of different widths independently.
+
+These are consequences of previously relying on the accidental generic text
+fallback, not reasons to restore that fallback. Bounds-late preview centering
+belongs in the preview remeasurement lifecycle; Paint icon and label alignment
+belongs to their respective styled slots.
+
 ## Current implementation shape (for diagnosis)
 
 - Paint icons use a manually authored scale beneath the 4 GU icon slot.
