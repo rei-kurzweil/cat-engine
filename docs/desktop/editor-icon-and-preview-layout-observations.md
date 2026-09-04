@@ -38,6 +38,61 @@ preview is presentational content inside that box:
 The background need not literally be white in the shipped UI. White is a
 useful diagnostic because it makes the intended container boundary obvious.
 
+## Editor ownership rule versus general intrinsic layout
+
+The engine needs both behaviors, but a given visual subtree must have one
+unambiguous sizing owner.
+
+### Built-in editor UI
+
+For Paint icons, asset previews, Grid controls, and other built-in editor
+visuals, layout owns the available slot size. The renderable is uniformly
+fitted and aligned inside that resolved slot. Its fitted bounds must not feed
+back into the slot's explicit width or height or alter adjacent text flow.
+
+Built-in icons should also use a normalized authoring convention: centered
+local bounds with a consistent nominal extent, such as fitting within a
+`1 × 1 × 1` cube. Normalized source assets make icon sizing predictable, but
+layout/fitting must still use the measured AABB rather than assume the origin
+is centered. Asset previews can contain arbitrary authored geometry and cannot
+depend on the normalization convention.
+
+### General authored layout and data visualization
+
+An auto-sized styled transform may intentionally derive intrinsic width and
+height from a transformed renderable subtree. This is the useful graph/bar
+case: differently scaled bars produce differently sized layout items, and
+normal inline `vertical_align("bottom")` can make their item boxes share a
+baseline.
+
+That intrinsic mode preserves the authored renderable scale. It must not also
+fit the renderable back into the auto-sized box derived from that same
+renderable, because that would create circular sizing ownership.
+
+## Layout-managed metadata involved
+
+Layout currently manages two internal children on styled transforms:
+
+- `__layout_bounds` stores the resolved content and padding AABBs in the
+  styled transform's local coordinate system.
+- `__layout_visual_placement` stores the selected visual root's complete
+  pre-placement AABB and a layout-owned translation. Transform propagation
+  composes that translation outside the authored transform, preserving its
+  scale and rotation.
+
+The second component is the extra origin/basis bridge: renderable bounds are
+centered or otherwise authored in graphics coordinates, while a layout content
+box starts at its content origin and extends down local negative Y.
+
+The current placement calculation always centers X and aligns the visual's
+bottom edge to the content box's bottom edge. It does not consult an editor
+fit/alignment policy and it does not scale the visual. This is a strong
+explanation for the consistent bottom placement in the observations: a rule
+introduced for bottom-aligned visual content is being applied to fixed editor
+slots whose intended result is centered fitting. The remaining left-versus-
+right differences still require comparing source AABB coordinates and subtree
+selection.
+
 ## Observation table
 
 | Surface | Authored visual container | Expected desktop result | Actual desktop observation |
@@ -71,6 +126,22 @@ useful diagnostic because it makes the intended container boundary obvious.
   bounds/origin or preview-tree shape likely differs from the bottom-right
   cases and should be the first before/after comparison pair.
 
+### Focused triage reproduction
+
+`examples/triage/layout-visual-placement-alignment.mms` isolates external
+line-box alignment from internal bounded-visual alignment:
+
+- The short orange and tall cyan item boxes are correctly bottom-aligned.
+- The red, green, and blue visual shapes all appear slightly below and to the
+  right of the bottom-right corner of their equal white slots, despite
+  authoring `vertical_align("top")`, `vertical_align("middle")`, and
+  `vertical_align("bottom")` respectively.
+
+This reproduces both parts of the suspected gap: visual placement ignores the
+authored internal alignment, and its generated correction has an additional
+coordinate-space/origin error that places the visual outside the resolved
+slot.
+
 ## Current implementation shape (for diagnosis)
 
 - Paint icons use a manually authored scale beneath the 4 GU icon slot.
@@ -84,6 +155,7 @@ instances of the same desired ownership rule implemented separately.
 
 ## Related trackers
 
+- [Style-driven placement of bounded visual content](../task/style-driven-layout-visual-placement.md)
 - [Layout-owned visual content is misaligned across editor UI](../bugs/layout-owned-visual-content-misaligned-in-editor-ui.md)
 - [Paint-panel icons overlap labels before and after layout refresh](../bugs/paint-panel-icon-label-overlap-and-layout-refresh.md)
 - [FitBounds layout-container targeting and presentational subtree split](../task/fit-bounds-layout-container-and-presentational-subtree.md)
