@@ -1,4 +1,4 @@
-# Task: microphone-speaking VTuber eye-tracking demo and info panel
+# Task: microphone-speaking VTuber HTC eye-tracking demo and info panel
 
 Date: 2026-09-02
 
@@ -8,7 +8,7 @@ enumeration verified live; microphone capture/switching acceptance remains open
 ## Outcome and stop condition
 
 Add a focused live-input acceptance scene at
-`examples/vtuber-microphone-speaking-animation-eye-tracking.mms`. It begins as
+`examples/vtuber-microphone-speaking-xr-eye-tracking-htc.mms`. It begins as
 a copy of `vtuber-eye-tracking-mirror-eye-stabilize.mms`, keeps eye tracking
 and amplitude-driven `viseme_aa`, uses a black clear background, and displays
 the available microphone inputs in a world-space panel.
@@ -146,7 +146,7 @@ open a capture stream; only the authored microphone that is consumed by
    mounts content, minimizes, emits restore, and accepts caller-reloaded body
    content.
 3. Copy the mirror example into
-   `examples/vtuber-microphone-speaking-animation-eye-tracking.mms`; set the
+   `examples/vtuber-microphone-speaking-xr-eye-tracking-htc.mms`; set the
    black clear color and preserve its existing amplitude/AVC setup.
 4. Build device rows from `AudioInput.devices()` using the public panel.
 5. Add the narrow `info_panel` content-reload callback, then register an

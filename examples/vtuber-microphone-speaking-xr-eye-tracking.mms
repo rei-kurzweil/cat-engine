@@ -1,4 +1,4 @@
-// VTuber microphone-speaking animation + eye-tracking mirror
+// VTuber microphone-speaking animation + VRChat OSC eye-tracking mirror
 //
 // A focused XR acceptance scene for automatic eye-bone tracking and the
 // amplitude-driven mouth-open fallback. This first panel slice deliberately
@@ -212,9 +212,8 @@ ED {
                     }
 
                     // Direct child: enables automatic mapped left/right eye
-                    // bone rotation. For HTC packets, replace with
-                    // XREyeTrackingHTC.on().
-                    XREyeTrackingHTC.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+                    // bone rotation from VRChat OSC packets.
+                    XREyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
 
                     // Direct children supply the left/right hand targets used
                     // by AVC's mapped TwoBoneIK chains.

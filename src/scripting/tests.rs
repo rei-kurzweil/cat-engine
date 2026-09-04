@@ -190,8 +190,8 @@ fn vtuber_eye_tracking_mirror_microphone_binding_is_valid_mms_syntax() {
 }
 
 #[test]
-fn vtuber_microphone_speaking_animation_scene_materializes_info_panel() {
-    let path = repo_path("examples/vtuber-microphone-speaking-animation-eye-tracking.mms");
+fn vtuber_microphone_speaking_htc_eye_tracking_scene_materializes_info_panel() {
+    let path = repo_path("examples/vtuber-microphone-speaking-xr-eye-tracking-htc.mms");
     let source = fs::read_to_string(&path).expect("read microphone-speaking mirror example");
     assert!(!parse(&source).is_empty());
     let mut world = World::default();
@@ -224,6 +224,37 @@ fn vtuber_microphone_speaking_animation_scene_materializes_info_panel() {
             .is_some_and(|text| {
                 text.text == "default audio input selected — click a device to switch"
             })
+    }));
+}
+
+#[test]
+fn vtuber_microphone_speaking_eye_tracking_scene_uses_standard_eye_tracking() {
+    let path = repo_path("examples/vtuber-microphone-speaking-xr-eye-tracking.mms");
+    let source = fs::read_to_string(&path).expect("read microphone-speaking eye-tracking example");
+    assert!(!parse(&source).is_empty());
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+    let (_session, output) = RuntimeSpecSession::start_at_path(
+        &source,
+        path.to_str().expect("scene path should be UTF-8"),
+        &mut world,
+        &mut rx,
+        Some(&mut assets),
+        &mut queue,
+    )
+    .expect("strict runtime should load microphone-speaking eye-tracking scene");
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+    assert!(world.all_components().any(|id| {
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(id)
+            .is_some()
+    }));
+    assert!(!world.all_components().any(|id| {
+        world
+            .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(id)
+            .is_some()
     }));
 }
 
