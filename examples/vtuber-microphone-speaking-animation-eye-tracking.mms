@@ -21,7 +21,7 @@ RenderGraph {
 }
 
 BG.occlusion_and_lighting() {
-    star_kawaii_background([1.0, 0.78, 0.35, 1.0])
+    star_kawaii_background([1.0, 0.72, 0.15, 1.0])
 }
 
 // Three physical studio fixtures make the mirror's lighting easy to inspect.
