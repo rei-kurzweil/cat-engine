@@ -2,9 +2,9 @@
 
 Date: 2026-09-03
 
-Status: expected-state baseline. Record observed desktop behavior in the last
-column before deciding whether the shared fix belongs in layout placement,
-preview fitting, or a specific panel.
+Status: desktop observation recorded for `bisket-desktop-demo`; root cause is
+not yet confirmed. The differing corner direction and the correctly centered
+asset exceptions are important discriminators, not noise.
 
 [Back to editor/grid/paint workbench](editor-grid-paint.md)
 
@@ -42,9 +42,9 @@ useful diagnostic because it makes the intended container boundary obvious.
 
 | Surface | Authored visual container | Expected desktop result | Actual desktop observation |
 |---|---|---|---|
-| Paint tool tile icon | The Paint tile is `7.0 × 7.5` GU; its icon slot reserves `4.0` GU height above the label. The tile background is on the outer styled transform. | Each tool icon is wholly within its 4 GU icon region, centered horizontally and vertically as a group. It has consistent visual breathing room across Pencil, Grid, Line, Spray, Color, and Erase. The label begins below the icon region, is readable, and never overlaps the icon. | _Pending user observation._ |
-| Asset-panel preview | The asset tile is `8.5` GU wide; `preview_slot` is `8.5 × 5.0` GU. The unavailable-preview placeholder is the current explicit painted background; successful previews replace it with a separate preview shell. | The preview is wholly within the `8.5 × 5.0` slot, centered in both axes and uniformly fitted with visible margins. It does not resize the slot or push/cover the asset label below. If the white placeholder is visible, its text is centered in the same slot. | _Pending user observation._ |
-| Grid panel delete / X button | The delete button itself has a red styled background of `3.5 × 2.3` GU; `delete_x_icon` is a separately scaled child transform. | The X is visually centered in the red button with even apparent left/right and top/bottom margins. Both diagonal arms remain inside the button; it neither affects the adjacent inline controls nor crowds them. | _Pending user observation._ |
+| Paint tool tile icon | The Paint tile is `7.0 × 7.5` GU; its icon slot reserves `4.0` GU height above the label. The tile background is on the outer styled transform. | Each tool icon is wholly within its 4 GU icon region, centered horizontally and vertically as a group. It has consistent visual breathing room across Pencil, Grid, Line, Spray, Color, and Erase. The label begins below the icon region, is readable, and never overlaps the icon. | In `bisket-desktop-demo`, Free Draw, Grid Tool, Line, Spray Can, Color, and Erase all appear left-justified at the bottom-left of their white tile backgrounds. The icons overlap their respective labels there; the labels are also at the bottom-left rather than flowing below an icon region. |
+| Asset-panel preview | The asset tile is `8.5` GU wide; `preview_slot` is `8.5 × 5.0` GU. The unavailable-preview placeholder is the current explicit painted background; successful previews replace it with a separate preview shell. | The preview is wholly within the `8.5 × 5.0` slot, centered in both axes and uniformly fitted with visible margins. It does not resize the slot or push/cover the asset label below. If the white placeholder is visible, its text is centered in the same slot. | In `bisket-desktop-demo`, icons from `icons.mms` are centered over the bottom-right of their preview slots. The names appear broadly correct: they wrap at the full tile width and stay near the bottom. Most primitive previews are also bottom-right. The truss is centered correctly. The Star, Icosahedron, Heart, and Partial Annulus 2D previews also look roughly centered; all other observed primitives are bottom-right. |
+| Grid panel delete / X button | The delete button itself has a red styled background of `3.5 × 2.3` GU; `delete_x_icon` is a separately scaled child transform. | The X is visually centered in the red button with even apparent left/right and top/bottom margins. Both diagonal arms remain inside the button; it neither affects the adjacent inline controls nor crowds them. | In `bisket-desktop-demo`, the red X is at the bottom-right of its red button instead of centered. |
 
 ## What a mismatch would mean
 
@@ -55,6 +55,21 @@ useful diagnostic because it makes the intended container boundary obvious.
 - Correct after a refresh but wrong on first display: record the first and
   second completed layout states separately; that may identify an invalidation
   or preview-bootstrap timing defect.
+
+### Current comparison
+
+- Paint is not just an icon-fitting failure: both icon and label collapse into
+  the tile's bottom-left. That points to a parent/child layout placement or
+  coordinate-origin failure before the separate icon-scale wrapper is even the
+  only concern.
+- The Grid X and most asset previews are bottom-right, while Paint is
+  bottom-left. A single hard-coded "place every visual at the lower corner"
+  explanation is therefore insufficient; compare the root-local AABB `min`,
+  `max`, and center with each target box.
+- The correctly centered truss, Star, Icosahedron, Heart, and Partial Annulus
+  2D previews show that the asset panel's slot and label flow can work. Their
+  bounds/origin or preview-tree shape likely differs from the bottom-right
+  cases and should be the first before/after comparison pair.
 
 ## Current implementation shape (for diagnosis)
 
