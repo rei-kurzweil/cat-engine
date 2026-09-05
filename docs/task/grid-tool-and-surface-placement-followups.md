@@ -231,38 +231,30 @@ Likely work:
 - verify the grid mesh/material shader assumes the same local plane axis as the placement code
 - confirm fallback surface normals for unsupported renderables are conservative and face-like rather than arbitrary transform-axis copies
 
-### 6. `Select + Cursor` vs `Cursor` vs `Select` interaction with Grid Tool is unclear
+### 6. Paint is a first-class editor interaction mode
 
-Question:
+Decision updated 2026-09-05:
 
-- should `Grid Tool` in `paint_panel` depend on the workspace interaction mode at all?
-
-Current concern:
-
-- it is not obvious whether:
-  - `Grid Tool` always uses panel-local placement rules
-  - or whether workspace mode changes where / how the tool resolves placement
-
-Expected design:
-
+- Add `EditorInteractionMode::Paint` as a peer of Select, 3D Cursor, and
+  Select + Cursor.
 - Activating any Paint tool, or focusing the Paint panel while a Paint tool is
-  already active, must set the owning editor's interaction mode to `3D Cursor`.
-- Paint therefore has one explicit scene-interaction mode rather than a
-  panel-local exception layered over `Select` or `Select + Cursor`.
+  already active, sets the owning editor's interaction mode to Paint.
+- Paint owns scene click/drag routing. Select and 3D Cursor handlers are
+  suppressed, and transform gizmos are hidden and non-interactive.
+- Grid Tool and every other Paint-panel tool use this mode; they no longer
+  borrow `3D Cursor` as an activation shim.
 - The transition must occur before the next pointer gesture is interpreted, so
   the selection handler cannot consume or alter Paint's drag start.
 - Leaving Paint must have an explicit restoration policy. The recommended MVP
-  is to retain `3D Cursor` until the user chooses another editor mode, rather
-  than silently restoring a stale mode from before Paint focus.
+  is to retain Paint until the user chooses another editor mode, rather than
+  silently restoring a stale mode from before Paint focus.
 
 This applies to Free Draw, Grid Tool, Spray Can, Line, Erase, and Color. Tools
 that do not require grid placement still benefit from Paint owning the same
 cursor/raycast interaction path.
 
-Follow-up:
-
-- document this explicitly
-- if current behavior differs, fix routing so `Grid Tool` owns scene drag interpretation while active
+The complete seam audit and implementation plan is in
+[Paint as a first-class editor interaction mode](paint-as-first-class-editor-interaction-mode.md).
 
 Code note confirmed on 2026-06-14:
 
@@ -277,16 +269,17 @@ than merely an unclear policy:
 
 | Workspace mode | Observed Grid Tool / grid-paint behavior |
 | --- | --- |
-| `3D Cursor` | The only mode that currently behaves as expected. |
+| `3D Cursor` | Historical workaround; Paint should no longer depend on it. |
 | `Select` | Grid painting behaves incorrectly. |
 | `Select + Cursor` | Grid painting behaves incorrectly. |
+| `Paint` | Target mode; Paint owns the gesture and suppresses selection/gizmos. |
 
 This must be treated as an input-routing regression. Paint focus/tool activation
-should have transitioned both failing rows to `3D Cursor` before their gesture
-began. The observed mode matrix is retained as a regression test until that
-transition is implemented.
+should have transitioned to Paint before their gesture began. The observed mode
+matrix is retained as a regression test until the first-class mode is
+implemented.
 
-Required trace for the same desktop pointer drag in all three modes:
+Required trace for the same desktop pointer drag in all four modes:
 
 - raycast winner and whether it is a grid analytic-plane or scene hit;
 - handler order/consumption for selection, cursor, gesture, and paint;
@@ -295,14 +288,13 @@ Required trace for the same desktop pointer drag in all three modes:
 
 Acceptance addition:
 
-- Focusing Paint or activating any Paint tool sets the owning editor's mode to
-  `3D Cursor` before the next scene pointer event.
+- Focusing Paint with an active tool or activating any Paint tool sets the
+  owning editor's mode to Paint before the next scene pointer event.
 - A Paint gesture begun after the transition has the same start, address
   sequence, preview pose, and committed result regardless of the mode that was
   active immediately before Paint gained focus.
-- Choosing another editor interaction mode while Paint remains focused is an
-  explicit user override; its interaction with Paint must be visibly indicated
-  and covered by a separate decision/test, not silently routed as Paint.
+- Choosing another editor interaction mode is an explicit exit from Paint and
+  cancels any in-progress stroke; panel focus does not silently restore Paint.
 
 ### 7. Cursor mode currently seems editor-root specific
 

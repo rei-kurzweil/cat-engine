@@ -265,7 +265,8 @@ surface-normal alignment, or brush strokes.
 - [ ] Ensure clicks from descendants select the immediate child panel shell/tool item.
 - [ ] Decide default focused panel after spawn; recommended default is World panel.
 - [ ] Decide default selected paint tool after spawn; recommended default is Free Draw.
-- [ ] Add a `PaintSystem` gated by focused Paint panel + selected paint tool.
+- [ ] Gate `PaintSystem` by `EditorInteractionMode::Paint` plus a valid selected paint tool and
+  any tool-specific asset/grid requirements.
 - [ ] Ensure paint-system clicks only target objects inside an `Editor {}` subtree.
 - [ ] Ensure panel UI clicks do not trigger paint actions.
 - [ ] Add tests for selection resolution through descendants.
@@ -274,6 +275,12 @@ surface-normal alignment, or brush strokes.
 - [ ] Add tests for paint-system inactive/active gating.
 
 ## Risks and constraints
+
+Direction updated 2026-09-05: Paint is no longer intended to be authorized by
+panel focus alone. It becomes a first-class `EditorInteractionMode`; choosing a
+Paint tool enters that mode, which suppresses scene selection, 3D Cursor, and
+gizmo input. See
+[Paint as a first-class editor interaction mode](paint-as-first-class-editor-interaction-mode.md).
 
 - Nested `Selection` scopes must select the nearest scope first. A click on a Paint tool should
   update the Paint tool selection and also likely focus the Paint panel through event bubbling.
@@ -284,9 +291,9 @@ surface-normal alignment, or brush strokes.
   be cleaner later.
 - Panel shell sizing is duplicated between MMS constants and Rust stopgap constants. Keep the
   first change narrow and verify the shell height after layout.
-- `EditorSystem` currently selects scene objects on `DragStart`. If PaintSystem acts on `Click`,
-  a paint click may also briefly select the object first. That is acceptable for a first routing
-  pass, but later paint mode may need an editor-selection suppression policy while active.
+- `EditorSystem` currently selects scene objects on `DragStart`. Paint mode must suppress that
+  path completely; briefly selecting or retargeting a gizmo before Paint handles the gesture is
+  no longer acceptable.
 - Assets panel selection currently uses the same `SelectionSystem`; generalizing visuals must not
   regress existing asset selection tests.
 
@@ -298,9 +305,9 @@ surface-normal alignment, or brush strokes.
   that panel shell.
 - Clicking descendants inside a panel focuses the containing panel, not an arbitrary leaf.
 - Clicking Paint panel tools both focuses Paint panel and changes selected paint tool.
-- With any non-Paint panel focused, clicking scene/editor objects does not invoke PaintSystem.
-- With Paint panel focused and a tool selected, clicking scene/editor objects reaches PaintSystem
-  with the correct selected tool.
+- Outside Paint interaction mode, clicking scene/editor objects does not invoke PaintSystem.
+- In Paint interaction mode with a valid tool, clicking scene/editor objects reaches PaintSystem
+  with the correct selected tool regardless of incidental panel focus.
 
 ## Related
 

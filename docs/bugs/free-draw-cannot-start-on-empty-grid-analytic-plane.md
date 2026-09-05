@@ -46,9 +46,17 @@ ordering and ownership of:
 - `DragStart` reduction in `editor_paint_system.rs`;
 - the finite analytic-plane hit in `grid_system.rs`.
 
-One possible implementation is a paint-only invisible raycast/capture surface matching the active
-grid's finite plane. Prefer a direct analytic hit path if it can participate in `DragStart` without
-introducing hidden scene geometry, selection side effects, or conflict with gizmo routing.
+Paint is now intended to be a first-class `EditorInteractionMode`, mutually exclusive with Select,
+3D Cursor, and Select + Cursor. Use that mode as the policy boundary for grid drag eligibility:
+
+- reuse the grid's existing live renderable as the BVH broad-phase candidate;
+- enable its drag eligibility only for the selected grid while Paint mode owns scene input;
+- use the existing finite analytic-plane helper for the exact hit and continued projection; and
+- keep the grid non-selectable and the transform gizmo hidden/inert in Paint mode.
+
+Do not add an invisible renderable or transform solely to catch the initial pointer activation. See
+[Paint as a first-class editor interaction mode](../task/paint-as-first-class-editor-interaction-mode.md)
+for the complete routing and mode-transition work.
 
 ## Acceptance criteria
 
@@ -58,10 +66,14 @@ introducing hidden scene geometry, selection side effects, or conflict with gizm
 - A continuous stroke remains constrained/projected to the grid while held.
 - Grid interaction does not regress into the known behavior where a grid drag arms a gizmo or
   monopolizes selection.
-- A regression test covers a `DragStart` whose ray intersects an active grid but no renderable.
+- The fix is active only under `EditorInteractionMode::Paint`; Paint gestures cannot retarget or
+  manipulate a transform gizmo.
+- A regression test covers a `DragStart` whose ray intersects the active grid's existing live
+  renderable but no other raycastable scene renderable.
 
 ## Related trackers
 
 - [Free Draw paint placement does not snap to grid while Grid Tool placement does](./free-draw-paint-does-not-snap-to-grid-while-grid-tool-placement-does.md)
 - [Grid tool can leave a grid as the only selectable target, and dragging the grid rotates the gizmo](./grid-tool-leaves-grid-as-only-selectable-target-and-grid-drags-rotate-gizmo.md)
 - [Editor 3D Cursor GLTF Coverage and Grid Alignment](./editor-cursor-3d-gltf-and-grid-alignment.md)
+- [Paint as a first-class editor interaction mode](../task/paint-as-first-class-editor-interaction-mode.md)

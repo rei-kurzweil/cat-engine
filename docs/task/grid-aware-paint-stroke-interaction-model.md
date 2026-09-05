@@ -6,6 +6,7 @@ Status: implemented contract for the `mittens-engine 0.8` paint release gate.
 
 Related:
 
+- [Paint as a first-class editor interaction mode](paint-as-first-class-editor-interaction-mode.md)
 - [Editor grid and paint 0.8.0 release gate](editor-grid-paint-0.8.0-release-gate.md)
 - [Grid + Gizmo + Paint end-to-end UX and test matrix](grid-gizmo-paint-end-to-end-ux-and-test-matrix.md)
 - [Unified grid snap mode](unified-grid-snap-mode-mms-gizmo-and-paint.md)
@@ -53,6 +54,12 @@ analytic intersection math itself is wrong. The runtime is still requiring a
 scene renderable hit before it emits or accepts paint `DragStart`, rather than
 considering the selected enabled grid's analytic plane as an eligible nearest
 candidate.
+
+Direction updated 2026-09-05: perform this arbitration under the new
+`EditorInteractionMode::Paint`. Reuse the grid's existing live renderable for
+BVH broad phase, keep it non-selectable, and use the analytic finite plane for
+the exact start/continuation hit. Paint mode suppresses Select, 3D Cursor, and
+gizmo input while this candidate is eligible.
 
 Required investigation:
 

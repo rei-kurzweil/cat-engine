@@ -34,11 +34,16 @@ their intended occupancy/overwrite policy needs an explicit product decision.
 - Intersecting an ordinary raycastable object near/behind the grid can start
   Free Draw. Intersecting only the unobscured grid plane in empty space cannot.
   The selected-grid analytic-plane drag-start path is therefore not live.
+- `3D Cursor` is only a historical workaround. The intended resolution is a
+  first-class Paint mode that owns scene gestures and suppresses selection and
+  gizmos.
 
 The detailed routing work belongs in
 [Grid Tool and Surface Placement Follow-ups](grid-tool-and-surface-placement-followups.md);
 the analytic-plane contract and its integration work belong in
 [Grid-aware paint stroke interaction model](grid-aware-paint-stroke-interaction-model.md).
+Mode ownership and the complete code-seam audit are tracked in
+[Paint as a first-class editor interaction mode](paint-as-first-class-editor-interaction-mode.md).
 
 ## Isolated reproduction
 
@@ -92,6 +97,7 @@ or XR input state participating.
 ## Related
 
 - [Grid-aware paint stroke interaction model](grid-aware-paint-stroke-interaction-model.md)
+- [Paint as a first-class editor interaction mode](paint-as-first-class-editor-interaction-mode.md)
 - [Grid + Gizmo + Paint end-to-end UX and test matrix](grid-gizmo-paint-end-to-end-ux-and-test-matrix.md)
 - [Editor grid and paint 0.8.0 release gate](editor-grid-paint-0.8.0-release-gate.md)
 - [Grid visual-coordinate-space tracker](grid-visual-coordinate-space-tracker.md)
