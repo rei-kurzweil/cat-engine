@@ -4,17 +4,17 @@ use std::time::Instant;
 
 use crate::engine::ecs::component::{
     ColorComponent, DataComponent, DataValue, EditorComponent, EditorInteractionMode,
-    EmissiveComponent, OptionComponent, OverlayComponent, RaycastableComponent,
+    EmissiveComponent, LayoutComponent, OptionComponent, OverlayComponent, RaycastableComponent,
     RenderableComponent, SelectableComponent, SelectionComponent, SerializeComponent,
-    TransformComponent, TransformGizmoComponent,
+    StyleComponent, TransformComponent, TransformGizmoComponent,
 };
 use crate::engine::ecs::system::editor::context::{
     EDITOR_WORKSPACE_ASSET_SELECTION_CHANGED, EDITOR_WORKSPACE_COLOR_SELECTION_CHANGED,
     EditorContextState, set_editor_interaction_mode,
 };
 use crate::engine::ecs::system::editor_paint_system_state_manager::{
-    COLOR_PANEL_ROOT_SELECTOR, COLOR_PANEL_SELECTION_SELECTOR, PaintEvent, PaintState, PaintTool,
-    is_paint_active, paint_tool_from_item, reduce_paint_state,
+    ACTIVE_COLOR_WELL_SELECTOR, COLOR_PANEL_ROOT_SELECTOR, COLOR_PANEL_SELECTION_SELECTOR,
+    PaintEvent, PaintState, PaintTool, is_paint_active, paint_tool_from_item, reduce_paint_state,
 };
 use crate::engine::ecs::system::editor_system::select_editor_target;
 use crate::engine::ecs::system::grid_gesture::{GridGestureSession, GridGestureTool};
@@ -936,6 +936,12 @@ fn apply_paint_side_effects(
     stroke_runtime: Option<&Arc<Mutex<PaintStrokeRuntime>>>,
 ) {
     let total_start = Instant::now();
+    if let PaintEvent::ColorSelectionChanged {
+        rgba: Some(rgba), ..
+    } = event
+    {
+        update_active_color_well(world, panel_query_root, *rgba);
+    }
     update_last_scene_interacted_editor(world, editor_context_state, event);
     enter_paint_mode_for_activation(
         world,
@@ -1211,6 +1217,40 @@ fn apply_paint_side_effects(
         total_start,
         format!("event={event:?}"),
     );
+}
+
+fn update_active_color_well(world: &mut World, panel_query_root: ComponentId, rgba: [f32; 4]) {
+    let Some(well) = world.find_component(panel_query_root, ACTIVE_COLOR_WELL_SELECTOR) else {
+        return;
+    };
+    let style = world.children_of(well).iter().copied().find(|&child| {
+        world
+            .get_component_by_id_as::<StyleComponent>(child)
+            .is_some()
+    });
+    if let Some(style) = style
+        && let Some(style) = world.get_component_by_id_as_mut::<StyleComponent>(style)
+    {
+        style.background_color = Some(rgba);
+    }
+
+    let mut current = Some(well);
+    while let Some(component) = current {
+        if let Some(layout) = world.get_component_by_id_as_mut::<LayoutComponent>(component) {
+            layout.mark_dirty();
+            break;
+        }
+        if let Some(layout_id) = world.children_of(component).iter().copied().find(|&child| {
+            world
+                .get_component_by_id_as::<LayoutComponent>(child)
+                .is_some()
+        }) && let Some(layout) = world.get_component_by_id_as_mut::<LayoutComponent>(layout_id)
+        {
+            layout.mark_dirty();
+            break;
+        }
+        current = world.parent_of(component);
+    }
 }
 
 /// Paint owns the scene-placement gesture contract.  Switch modes as soon as
@@ -3483,6 +3523,124 @@ mod tests {
             asset_payload.get("asset_key"),
             Some(DataValue::Text(asset_key)) if !asset_key.is_empty()
         ));
+    }
+
+    #[test]
+    fn palette_selection_updates_active_well_without_recoloring_swatches() {
+        let (
+            mut world,
+            mut emit,
+            mut visuals,
+            mut systems,
+            mut render_assets,
+            _editor_root,
+            _scene_root,
+            _renderable,
+            _paint_panel_root,
+        ) = init_editor_fixture();
+        let runtime_ui_root = find_named_root(&world, RUNTIME_UI_ROOT_NAME);
+        assert_eq!(
+            world
+                .find_all_components(runtime_ui_root, "[name='color_swatch_payload']")
+                .len(),
+            16
+        );
+        let well = world
+            .find_component(runtime_ui_root, ACTIVE_COLOR_WELL_SELECTOR)
+            .expect("active color well");
+        let well_style = world
+            .children_of(well)
+            .iter()
+            .copied()
+            .find(|&child| {
+                world
+                    .get_component_by_id_as::<StyleComponent>(child)
+                    .is_some()
+            })
+            .expect("active color well style");
+        assert_eq!(
+            world
+                .get_component_by_id_as::<StyleComponent>(well_style)
+                .expect("well style")
+                .background_color,
+            Some([1.0, 1.0, 1.0, 1.0])
+        );
+
+        for (name, expected) in [
+            ("swatch_0", [1.0, 0.0, 0.0, 1.0]),
+            ("swatch_2", [0.0, 0.0, 1.0, 1.0]),
+        ] {
+            let swatch = world
+                .find_component(runtime_ui_root, &format!("#{name}"))
+                .unwrap_or_else(|| panic!("{name}"));
+            let swatch_style = world
+                .children_of(swatch)
+                .iter()
+                .copied()
+                .find(|&child| {
+                    world
+                        .get_component_by_id_as::<StyleComponent>(child)
+                        .is_some()
+                })
+                .expect("swatch style");
+            systems.rx.push_event(
+                swatch,
+                EventSignal::Click {
+                    raycaster: swatch,
+                    renderable: swatch,
+                    hit_point: [0.0, 0.0, 0.0],
+                    screen_pos_px: None,
+                },
+            );
+            let _ = systems.process_signals(
+                &mut world,
+                &mut visuals,
+                &mut render_assets,
+                &mut emit,
+                100_000,
+            );
+            systems.rx.begin_frame();
+            let _ = systems.process_signals(
+                &mut world,
+                &mut visuals,
+                &mut render_assets,
+                &mut emit,
+                100_000,
+            );
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<StyleComponent>(well_style)
+                    .expect("well style")
+                    .background_color,
+                Some(expected)
+            );
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<StyleComponent>(swatch_style)
+                    .expect("swatch style")
+                    .background_color,
+                Some(expected)
+            );
+        }
+
+        let selection_root = world
+            .find_component(runtime_ui_root, COLOR_PANEL_SELECTION_SELECTOR)
+            .expect("palette selection");
+        assert!(
+            !world
+                .get_component_by_id_as::<SelectionComponent>(selection_root)
+                .expect("palette selection")
+                .visual_feedback
+        );
+        assert_eq!(
+            systems
+                .editor_paint
+                .shared_state
+                .lock()
+                .expect("paint state")
+                .selected_color,
+            Some([0.0, 0.0, 1.0, 1.0])
+        );
     }
 
     #[test]

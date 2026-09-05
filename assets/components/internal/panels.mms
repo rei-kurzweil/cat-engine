@@ -284,9 +284,9 @@ let PAINT_PANEL_CONTENT_STATUS_GAP_GU = 0.5
 let PAINT_PANEL_CONTENT_HEIGHT_GU = 8.5
 let PAINT_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + PAINT_PANEL_CONTENT_HEIGHT_GU + PAINT_PANEL_CONTENT_STATUS_GAP_GU + PAINT_PANEL_STATUS_BAR_HEIGHT_GU
 // Temporary explicit width: LayoutRoot does not yet accept an auto-sized inline
-// constraint. 25.6 GU is 60% wider than the old panel and fits eight swatches
-// per row, keeping the 16-color palette to two rows.
-let COLOR_PANEL_WIDTH_GU = 25.6
+// constraint. This fits the active well, its separator, and eight swatches per
+// row, keeping the 16-color palette to two rows.
+let COLOR_PANEL_WIDTH_GU = 32.6
 
 let tool_names = ["Free Draw", "Grid Tool", "Line", "Spray Can", "Color", "Erase"]
 
@@ -426,27 +426,49 @@ export fn color_panel_body() {
                 background_z(-0.001)
                 padding(0.4)
             }
-            // Row 1: gamut extremes and neutral endpoints.
-            color_swatch("swatch_0", "Red", 0, [1.0, 0.0, 0.0, 1.0], "1.0,0.0,0.0,1.0")
-            color_swatch("swatch_1", "Green", 1, [0.0, 1.0, 0.0, 1.0], "0.0,1.0,0.0,1.0")
-            color_swatch("swatch_2", "Blue", 2, [0.0, 0.0, 1.0, 1.0], "0.0,0.0,1.0,1.0")
-            color_swatch("swatch_3", "Cyan", 3, [0.0, 1.0, 1.0, 1.0], "0.0,1.0,1.0,1.0")
-            color_swatch("swatch_4", "Yellow", 4, [1.0, 1.0, 0.0, 1.0], "1.0,1.0,0.0,1.0")
-            color_swatch("swatch_5", "Magenta", 5, [1.0, 0.0, 1.0, 1.0], "1.0,0.0,1.0,1.0")
-            color_swatch("swatch_6", "Black", 6, [0.0, 0.0, 0.0, 1.0], "0.0,0.0,0.0,1.0")
-            color_swatch("swatch_7", "White", 7, [1.0, 1.0, 1.0, 1.0], "1.0,1.0,1.0,1.0")
+            // White is also EditorPaintSystem's deterministic initial color.
+            T {
+                name = "active_color_well"
+                Style {
+                    display("inline-block")
+                    vertical_align("top")
+                    width(5.4)
+                    height(5.4)
+                    margin_xy(0.2, 0.2)
+                    background_color([1.0, 1.0, 1.0, 1.0])
+                    background_z(-0.01)
+                }
+            }
+            T {
+                name = "palette_options"
+                Style {
+                    display("inline-block")
+                    vertical_align("top")
+                    width(23.2)
+                    margin_left(1.0)
+                }
+                // Row 1: gamut extremes and neutral endpoints.
+                color_swatch("swatch_0", "Red", 0, [1.0, 0.0, 0.0, 1.0], "1.0,0.0,0.0,1.0")
+                color_swatch("swatch_1", "Green", 1, [0.0, 1.0, 0.0, 1.0], "0.0,1.0,0.0,1.0")
+                color_swatch("swatch_2", "Blue", 2, [0.0, 0.0, 1.0, 1.0], "0.0,0.0,1.0,1.0")
+                color_swatch("swatch_3", "Cyan", 3, [0.0, 1.0, 1.0, 1.0], "0.0,1.0,1.0,1.0")
+                color_swatch("swatch_4", "Yellow", 4, [1.0, 1.0, 0.0, 1.0], "1.0,1.0,0.0,1.0")
+                color_swatch("swatch_5", "Magenta", 5, [1.0, 0.0, 1.0, 1.0], "1.0,0.0,1.0,1.0")
+                color_swatch("swatch_6", "Black", 6, [0.0, 0.0, 0.0, 1.0], "0.0,0.0,0.0,1.0")
+                color_swatch("swatch_7", "White", 7, [1.0, 1.0, 1.0, 1.0], "1.0,1.0,1.0,1.0")
 
-            // Row 2: four intermediate hues at full value, followed by the
-            // same tessellation at half value.
-            color_swatch("swatch_8", "Orange", 8, [1.0, 0.5, 0.0, 1.0], "1.0,0.5,0.0,1.0")
-            color_swatch("swatch_9", "Chartreuse", 9, [0.5, 1.0, 0.0, 1.0], "0.5,1.0,0.0,1.0")
-            color_swatch("swatch_10", "Azure", 10, [0.0, 0.5, 1.0, 1.0], "0.0,0.5,1.0,1.0")
-            color_swatch("swatch_11", "Violet", 11, [0.5, 0.0, 1.0, 1.0], "0.5,0.0,1.0,1.0")
-            color_swatch("swatch_12", "Dark Orange", 12, [0.5, 0.25, 0.0, 1.0], "0.5,0.25,0.0,1.0")
-            color_swatch("swatch_13", "Dark Chartreuse", 13, [0.25, 0.5, 0.0, 1.0], "0.25,0.5,0.0,1.0")
-            color_swatch("swatch_14", "Dark Azure", 14, [0.0, 0.25, 0.5, 1.0], "0.0,0.25,0.5,1.0")
-            color_swatch("swatch_15", "Dark Violet", 15, [0.25, 0.0, 0.5, 1.0], "0.25,0.0,0.5,1.0")
-            Selection.root("#content_slot") { name = "color_panel_selection" }
+                // Row 2: four intermediate hues at full value, followed by the
+                // same tessellation at half value.
+                color_swatch("swatch_8", "Orange", 8, [1.0, 0.5, 0.0, 1.0], "1.0,0.5,0.0,1.0")
+                color_swatch("swatch_9", "Chartreuse", 9, [0.5, 1.0, 0.0, 1.0], "0.5,1.0,0.0,1.0")
+                color_swatch("swatch_10", "Azure", 10, [0.0, 0.5, 1.0, 1.0], "0.0,0.5,1.0,1.0")
+                color_swatch("swatch_11", "Violet", 11, [0.5, 0.0, 1.0, 1.0], "0.5,0.0,1.0,1.0")
+                color_swatch("swatch_12", "Dark Orange", 12, [0.5, 0.25, 0.0, 1.0], "0.5,0.25,0.0,1.0")
+                color_swatch("swatch_13", "Dark Chartreuse", 13, [0.25, 0.5, 0.0, 1.0], "0.25,0.5,0.0,1.0")
+                color_swatch("swatch_14", "Dark Azure", 14, [0.0, 0.25, 0.5, 1.0], "0.0,0.25,0.5,1.0")
+                color_swatch("swatch_15", "Dark Violet", 15, [0.25, 0.0, 0.5, 1.0], "0.25,0.0,0.5,1.0")
+            }
+            Selection.root("#palette_options").visual_feedback(false) { name = "color_panel_selection" }
         }
     })
 }

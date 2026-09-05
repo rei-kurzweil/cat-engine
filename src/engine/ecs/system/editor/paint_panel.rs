@@ -4,6 +4,7 @@ use crate::engine::ecs::system::editor::context::EditorContextState;
 
 pub const COLOR_PANEL_ROOT_SELECTOR: &str = "#color_panel_root";
 pub const COLOR_PANEL_SELECTION_SELECTOR: &str = "#color_panel_selection";
+pub const ACTIVE_COLOR_WELL_SELECTOR: &str = "#active_color_well";
 pub const COLOR_SWATCH_PAYLOAD_NAME: &str = "color_swatch_payload";
 
 const FREE_DRAW_LABEL: &str = "Free Draw";

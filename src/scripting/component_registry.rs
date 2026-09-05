@@ -2504,6 +2504,18 @@ fn apply_named_assignment(
         return Ok(());
     }
 
+    if name == "visual_feedback"
+        && world
+            .get_component_by_id_as::<SelectionComponent>(id)
+            .is_some()
+    {
+        let enabled = val_as_bool(val)?;
+        if let Some(selection) = world.get_component_by_id_as_mut::<SelectionComponent>(id) {
+            selection.visual_feedback = enabled;
+        }
+        return Ok(());
+    }
+
     if let Some(router) = world.get_component_by_id_as_mut::<RouterComponent>(id) {
         match name {
             "target" => {
@@ -2854,6 +2866,13 @@ fn apply_call(
                 if let Some(selection) = world.get_component_by_id_as_mut::<SelectionComponent>(id)
                 {
                     selection.target_root_source = Some(src);
+                }
+            }
+            "visual_feedback" => {
+                let enabled = arg_bool(args, 0)?;
+                if let Some(selection) = world.get_component_by_id_as_mut::<SelectionComponent>(id)
+                {
+                    selection.visual_feedback = enabled;
                 }
             }
             _ => {}

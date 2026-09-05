@@ -263,6 +263,20 @@ fn mark_nearest_layout_dirty(world: &mut World, start: ComponentId) {
             layout.mark_dirty();
             return;
         }
+        if let Some(layout_id) = world
+            .children_of(component_id)
+            .iter()
+            .copied()
+            .find(|&child| {
+                world
+                    .get_component_by_id_as::<LayoutComponent>(child)
+                    .is_some()
+            })
+            && let Some(layout) = world.get_component_by_id_as_mut::<LayoutComponent>(layout_id)
+        {
+            layout.mark_dirty();
+            return;
+        }
         current = world.parent_of(component_id);
     }
 }
@@ -297,23 +311,24 @@ fn set_styled_selection(
         return true;
     }
 
-    let original_background_color =
-        selection_style_state_child(world, item_id).and_then(|state_id| {
-            world
-                .get_component_by_id_as::<SelectionStyleStateComponent>(state_id)
-                .map(|state| state.original_background_color)
-        });
+    let Some(state_id) = selection_style_state_child(world, item_id) else {
+        // No built-in style feedback was applied, so the current authored
+        // background must remain untouched.
+        return true;
+    };
+    let original_background_color = world
+        .get_component_by_id_as::<SelectionStyleStateComponent>(state_id)
+        .map(|state| state.original_background_color)
+        .unwrap_or(None);
     if let Some(style) = world.get_component_by_id_as_mut::<StyleComponent>(style_id) {
-        style.background_color = original_background_color.unwrap_or(None);
+        style.background_color = original_background_color;
     }
-    if let Some(state_id) = selection_style_state_child(world, item_id) {
-        emit.push_intent_now(
-            state_id,
-            IntentValue::RemoveSubtree {
-                component_id: state_id,
-            },
-        );
-    }
+    emit.push_intent_now(
+        state_id,
+        IntentValue::RemoveSubtree {
+            component_id: state_id,
+        },
+    );
     mark_nearest_layout_dirty(world, item_id);
     true
 }
@@ -634,6 +649,7 @@ pub fn apply_selection_set(
 ) {
     let (
         mode,
+        visual_feedback,
         old_entries,
         old_selected_component,
         old_selected_payload,
@@ -681,6 +697,7 @@ pub fn apply_selection_set(
 
         (
             selection.mode,
+            selection.visual_feedback,
             old_entries,
             old_selected_component,
             old_selected_payload,
@@ -697,28 +714,34 @@ pub fn apply_selection_set(
     }
 
     for entry in old_entries.iter() {
-        if !new_entries
-            .iter()
-            .any(|new_entry| new_entry.component == entry.component)
+        if !visual_feedback
+            || !new_entries
+                .iter()
+                .any(|new_entry| new_entry.component == entry.component)
         {
             remove_selection_highlight(world, emit, entry.component);
         }
     }
 
-    for entry in new_entries.iter() {
-        if !old_entries
-            .iter()
-            .any(|old_entry| old_entry.component == entry.component)
-        {
+    if visual_feedback {
+        // Re-applying feedback to every selected entry also reconciles a
+        // runtime policy change from disabled to enabled.
+        for entry in &new_entries {
             add_selection_highlight(world, emit, entry.component);
         }
-    }
-
-    if matches!(mode, SelectionMode::Single) {
-        if let Some(selected_component) = new_selected_component {
-            if old_selected_component != Some(selected_component) {
-                add_selection_highlight(world, emit, selected_component);
-            }
+        // Preserve the established single-select refresh path. In addition to
+        // refitting overlays, this lets style-helper initialization invalidate
+        // an enclosing layout during the same transition.
+        if matches!(mode, SelectionMode::Single)
+            && let Some(selected_component) = new_selected_component
+        {
+            add_selection_highlight(world, emit, selected_component);
+        }
+    } else {
+        // Reconcile a runtime policy change even when the selected set itself
+        // did not change.
+        for entry in &new_entries {
+            remove_selection_highlight(world, emit, entry.component);
         }
     }
 
@@ -1934,6 +1957,101 @@ mod tests {
                 .find_component(first, "[name='selection_style_state']")
                 .is_none(),
             "expected old styled selection cache to be removed on deselect"
+        );
+    }
+
+    #[test]
+    fn disabled_visual_feedback_preserves_style_state_and_events() {
+        let mut world = World::default();
+        let mut emit = CommandQueue::new();
+        let mut rx = RxWorld::default();
+
+        let root = world.add_component_boxed_named("root", Box::new(TransformComponent::new()));
+        let mut selection = SelectionComponent::new();
+        selection.visual_feedback = false;
+        let selection_root = world.add_component_boxed(Box::new(selection));
+        let _ = world.add_child(root, selection_root);
+        let (item, _hit, style_id) = spawn_test_option_item(&mut world, root, "item", true);
+        let style_id = style_id.expect("style");
+        let authored_color = [0.2, 0.4, 0.8, 1.0];
+        world
+            .get_component_by_id_as_mut::<StyleComponent>(style_id)
+            .expect("style")
+            .background_color = Some(authored_color);
+
+        handle_selection_click(&mut world, &mut emit, selection_root, item);
+
+        let selection = world
+            .get_component_by_id_as::<SelectionComponent>(selection_root)
+            .expect("selection");
+        assert_eq!(selection.selected_component, Some(item));
+        assert_eq!(selection.selected_entries.len(), 1);
+        assert_eq!(
+            world
+                .get_component_by_id_as::<StyleComponent>(style_id)
+                .expect("style")
+                .background_color,
+            Some(authored_color)
+        );
+        assert!(
+            world
+                .find_component(item, "[name='selection_style_state']")
+                .is_none()
+        );
+        assert!(
+            world
+                .find_component(item, "[name='selection_highlight']")
+                .is_none()
+        );
+
+        emit.drain_into_rx(&mut rx);
+        assert!(rx.drain_ready_events().iter().any(|signal| matches!(
+            signal.event,
+            Some(EventSignal::SelectionChanged { selection_root: root, .. }) if root == selection_root
+        )));
+
+        // Re-applying the same selected set reconciles runtime policy changes.
+        world
+            .get_component_by_id_as_mut::<SelectionComponent>(selection_root)
+            .expect("selection")
+            .visual_feedback = true;
+        apply_selection_set(
+            &mut world,
+            &mut emit,
+            selection_root,
+            vec![SelectionEntry {
+                index: Some(0),
+                component: item,
+            }],
+            Some(item),
+        );
+        assert_eq!(
+            world
+                .get_component_by_id_as::<StyleComponent>(style_id)
+                .expect("style")
+                .background_color,
+            Some(SELECTED_HIGHLIGHT_RGBA)
+        );
+        world
+            .get_component_by_id_as_mut::<SelectionComponent>(selection_root)
+            .expect("selection")
+            .visual_feedback = false;
+        apply_selection_set(
+            &mut world,
+            &mut emit,
+            selection_root,
+            vec![SelectionEntry {
+                index: Some(0),
+                component: item,
+            }],
+            Some(item),
+        );
+        assert_eq!(
+            world
+                .get_component_by_id_as::<StyleComponent>(style_id)
+                .expect("style")
+                .background_color,
+            Some(authored_color)
         );
     }
 

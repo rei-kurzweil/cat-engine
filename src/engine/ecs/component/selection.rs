@@ -18,6 +18,9 @@ pub struct SelectionEntry {
 pub struct SelectionComponent {
     pub mode: SelectionMode,
     pub allow_empty_single: bool,
+    /// Whether the selection system should author its built-in highlight.
+    /// This does not affect selection state, payloads, or events.
+    pub visual_feedback: bool,
     pub target_root_source: Option<ComponentRef>,
     pub selected_index: Option<usize>,
     pub selected_component: Option<ComponentId>,
@@ -31,6 +34,7 @@ impl SelectionComponent {
         Self {
             mode: SelectionMode::Single,
             allow_empty_single: false,
+            visual_feedback: true,
             target_root_source: None,
             selected_index: None,
             selected_component: None,
@@ -156,6 +160,13 @@ impl Component for SelectionComponent {
                 .push(crate::scripting::ast::ConstructorCall {
                     method: crate::scripting::ast::Ident("root".to_string()),
                     args: vec![arg],
+                });
+        }
+        if !self.visual_feedback {
+            expr.constructors
+                .push(crate::scripting::ast::ConstructorCall {
+                    method: crate::scripting::ast::Ident("visual_feedback".to_string()),
+                    args: vec![b(false)],
                 });
         }
         expr
