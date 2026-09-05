@@ -283,8 +283,10 @@ let PAINT_PANEL_STATUS_BAR_HEIGHT_GU = 4.0
 let PAINT_PANEL_CONTENT_STATUS_GAP_GU = 0.5
 let PAINT_PANEL_CONTENT_HEIGHT_GU = 8.5
 let PAINT_PANEL_TOTAL_HEIGHT_GU = TITLE_BAR_HEIGHT_GU + TITLE_CONTENT_GAP_GU + PAINT_PANEL_CONTENT_HEIGHT_GU + PAINT_PANEL_CONTENT_STATUS_GAP_GU + PAINT_PANEL_STATUS_BAR_HEIGHT_GU
-let COLOR_PANEL_WIDTH_GU = 16.0
-let COLOR_PANEL_HEIGHT_GU = 18.5
+// Temporary explicit width: LayoutRoot does not yet accept an auto-sized inline
+// constraint. 25.6 GU is 60% wider than the old panel and fits eight swatches
+// per row, keeping the 16-color palette to two rows.
+let COLOR_PANEL_WIDTH_GU = 25.6
 
 let tool_names = ["Free Draw", "Grid Tool", "Line", "Spray Can", "Color", "Erase"]
 
@@ -424,22 +426,26 @@ export fn color_panel_body() {
                 background_z(-0.001)
                 padding(0.4)
             }
-            color_swatch("swatch_0", "Snow", 0, [0.96, 0.95, 0.90, 1.0], "0.96,0.95,0.90,1.0")
-            color_swatch("swatch_1", "Apricot", 1, [0.96, 0.75, 0.46, 1.0], "0.96,0.75,0.46,1.0")
-            color_swatch("swatch_2", "Tomato", 2, [0.91, 0.34, 0.25, 1.0], "0.91,0.34,0.25,1.0")
-            color_swatch("swatch_3", "Berry", 3, [0.66, 0.17, 0.24, 1.0], "0.66,0.17,0.24,1.0")
-            color_swatch("swatch_4", "Sun", 4, [0.95, 0.84, 0.22, 1.0], "0.95,0.84,0.22,1.0")
-            color_swatch("swatch_5", "Moss", 5, [0.63, 0.74, 0.24, 1.0], "0.63,0.74,0.24,1.0")
-            color_swatch("swatch_6", "Leaf", 6, [0.24, 0.58, 0.27, 1.0], "0.24,0.58,0.27,1.0")
-            color_swatch("swatch_7", "Pine", 7, [0.12, 0.31, 0.19, 1.0], "0.12,0.31,0.19,1.0")
-            color_swatch("swatch_8", "Sky", 8, [0.46, 0.78, 0.94, 1.0], "0.46,0.78,0.94,1.0")
-            color_swatch("swatch_9", "Ocean", 9, [0.19, 0.52, 0.80, 1.0], "0.19,0.52,0.80,1.0")
-            color_swatch("swatch_10", "Ink", 10, [0.14, 0.25, 0.50, 1.0], "0.14,0.25,0.50,1.0")
-            color_swatch("swatch_11", "Night", 11, [0.10, 0.12, 0.24, 1.0], "0.10,0.12,0.24,1.0")
-            color_swatch("swatch_12", "Lilac", 12, [0.78, 0.60, 0.87, 1.0], "0.78,0.60,0.87,1.0")
-            color_swatch("swatch_13", "Rose", 13, [0.90, 0.45, 0.66, 1.0], "0.90,0.45,0.66,1.0")
-            color_swatch("swatch_14", "Clay", 14, [0.61, 0.44, 0.31, 1.0], "0.61,0.44,0.31,1.0")
-            color_swatch("swatch_15", "Char", 15, [0.16, 0.16, 0.16, 1.0], "0.16,0.16,0.16,1.0")
+            // Row 1: gamut extremes and neutral endpoints.
+            color_swatch("swatch_0", "Red", 0, [1.0, 0.0, 0.0, 1.0], "1.0,0.0,0.0,1.0")
+            color_swatch("swatch_1", "Green", 1, [0.0, 1.0, 0.0, 1.0], "0.0,1.0,0.0,1.0")
+            color_swatch("swatch_2", "Blue", 2, [0.0, 0.0, 1.0, 1.0], "0.0,0.0,1.0,1.0")
+            color_swatch("swatch_3", "Cyan", 3, [0.0, 1.0, 1.0, 1.0], "0.0,1.0,1.0,1.0")
+            color_swatch("swatch_4", "Yellow", 4, [1.0, 1.0, 0.0, 1.0], "1.0,1.0,0.0,1.0")
+            color_swatch("swatch_5", "Magenta", 5, [1.0, 0.0, 1.0, 1.0], "1.0,0.0,1.0,1.0")
+            color_swatch("swatch_6", "Black", 6, [0.0, 0.0, 0.0, 1.0], "0.0,0.0,0.0,1.0")
+            color_swatch("swatch_7", "White", 7, [1.0, 1.0, 1.0, 1.0], "1.0,1.0,1.0,1.0")
+
+            // Row 2: four intermediate hues at full value, followed by the
+            // same tessellation at half value.
+            color_swatch("swatch_8", "Orange", 8, [1.0, 0.5, 0.0, 1.0], "1.0,0.5,0.0,1.0")
+            color_swatch("swatch_9", "Chartreuse", 9, [0.5, 1.0, 0.0, 1.0], "0.5,1.0,0.0,1.0")
+            color_swatch("swatch_10", "Azure", 10, [0.0, 0.5, 1.0, 1.0], "0.0,0.5,1.0,1.0")
+            color_swatch("swatch_11", "Violet", 11, [0.5, 0.0, 1.0, 1.0], "0.5,0.0,1.0,1.0")
+            color_swatch("swatch_12", "Dark Orange", 12, [0.5, 0.25, 0.0, 1.0], "0.5,0.25,0.0,1.0")
+            color_swatch("swatch_13", "Dark Chartreuse", 13, [0.25, 0.5, 0.0, 1.0], "0.25,0.5,0.0,1.0")
+            color_swatch("swatch_14", "Dark Azure", 14, [0.0, 0.25, 0.5, 1.0], "0.0,0.25,0.5,1.0")
+            color_swatch("swatch_15", "Dark Violet", 15, [0.25, 0.0, 0.5, 1.0], "0.25,0.0,0.5,1.0")
             Selection.root("#content_slot") { name = "color_panel_selection" }
         }
     })

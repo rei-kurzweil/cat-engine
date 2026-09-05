@@ -4,6 +4,8 @@ Date: 2026-06-06
 
 Status: planning only.
 
+Updated: 2026-09-05 with the color-panel sizing use case.
+
 This is a `docs/task` note only. No `src/` changes are proposed here yet.
 
 ## Goal
@@ -24,6 +26,29 @@ This forces every layout root to pick a concrete width up front, which means:
 - You have to guess how wide the content will be before layout runs.
 - The stopgap adapter multiplies the guess by 10× as a fudge factor.
 - There's no way to say "just let the children determine the width naturally."
+
+### Concrete use case: color panel
+
+The color panel is a small example of this limitation. Its swatches are ordinary
+`T { Style { ... } }` inline-block nodes and can participate in intrinsic sizing, but the private
+accordion `LayoutRoot` still requires an explicit `available_width`. A two-row palette therefore
+has to predict the needed outer width even though the swatch margin-box widths and panel padding
+already describe the desired content extent.
+
+For the current 16-swatch experiment, the panel uses a temporary explicit width of `25.6gu`—60%
+wider than its previous `16gu` width—so eight `2.5gu` swatches plus margins fit on each row. This
+should remain a local workaround until `LayoutRoot` auto dimensions have defined semantics and
+regression coverage.
+
+Changing `LayoutRoot` sizing globally could disrupt more than wrapping. Before using auto width in
+the color panel, verify its interaction with:
+
+- block children whose `width: auto` currently fill the root's available width
+- percentage-width descendants, which require a definite containing-block width
+- accordion title bars and body nodes authored with `width(100%)`
+- layout backgrounds, raycast geometry, clipping, and bounds derived from computed extents
+- nested layout roots and editor workspace panel placement
+- relayout convergence when content is inserted, removed, or changes intrinsic size
 
 Meanwhile, `computed_size_wu` already exists on `LayoutComponent` (added alongside
 `LayoutRootSizeAvailable`), but it's not yet derived from the true content extent
