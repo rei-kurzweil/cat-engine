@@ -951,10 +951,9 @@ fn apply_paint_side_effects(
         new_state,
     );
     let editor_context = current_editor_context(editor_context_state);
-    grid_system.sync_paint_raycast_target(
+    grid_system.sync_paint_raycast_targets(
         world,
         emit,
-        editor_context.active_grid_owner_transform,
         editor_context.interaction_mode == EditorInteractionMode::Paint,
     );
     let active_editor = event_active_editor(event).or(editor_context.active_editor);
@@ -1024,7 +1023,7 @@ fn apply_paint_side_effects(
                 if let Some(markers) = runtime.debug_markers.take() {
                     markers.remove(emit);
                 }
-                if let Some(context) = resolve_paint_context(
+                if let Some(mut context) = resolve_paint_context(
                     world,
                     grid_system,
                     *editor,
@@ -1033,6 +1032,15 @@ fn apply_paint_side_effects(
                     &editor_context,
                     templates,
                 ) {
+                    // A Paint-only grid BVH hit chooses the grid captured by this stroke. This
+                    // keeps all managed grids usable as start surfaces without mutating editor
+                    // selection or relying on the previously selected grid.
+                    if let Some(hit_grid) = grid_system
+                        .grid_hit_context_for_renderable(world, *renderable)
+                        .and_then(|active| grid_system.capture_grid(world, active))
+                    {
+                        context.selected_grid = Some(hit_grid);
+                    }
                     let preview_session = start_preview_session_for_tool(
                         world,
                         render_assets,

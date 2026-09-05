@@ -9,7 +9,9 @@ use crate::engine::ecs::component::{
 use crate::engine::ecs::system::editor::settings_panel::{
     EDITOR_SETTINGS_PAYLOAD_NAME, EDITOR_SETTINGS_SELECTION_SELECTOR, EditorSettingsOption,
 };
-use crate::engine::ecs::system::editor_system::select_editor_target;
+use crate::engine::ecs::system::editor_system::{
+    select_editor_target, select_editor_target_from_panel,
+};
 use crate::engine::ecs::system::object_placement_preview::PlacementPreviewSession;
 use crate::engine::ecs::system::paint_placement::SurfacePlacementFrame;
 use crate::engine::ecs::system::selection_system::resolve_semantic_target_from_payload;
@@ -346,7 +348,13 @@ fn install_shared_panel_handlers(
                 ..
             } = event
             {
-                let _ = apply_semantic_target_selection(world, emit, &state, owner_transform, true);
+                let _ = apply_semantic_target_selection_from_grid_panel(
+                    world,
+                    emit,
+                    &state,
+                    owner_transform,
+                    true,
+                );
             }
             emit_editor_workspace_data_event(world, emit, panel_query_root, &event);
             sync_editor_component_selection(world, &event);
@@ -1132,10 +1140,20 @@ fn sync_editor_observer_routes(
                 .retain(|name| name != EDITOR_PANEL_REFRESH_HANDLER_NAME);
         }
     }
-    sync_gizmo_interaction_mode(world, editor_context.interaction_mode);
+    sync_gizmo_interaction_mode(
+        world,
+        editor_context.interaction_mode,
+        editor_context.active_grid_owner_transform.is_some()
+            && editor_context.active_grid_owner_transform == editor_context.selected_component,
+    );
 }
 
-fn sync_gizmo_interaction_mode(world: &mut World, mode: EditorInteractionMode) {
+fn sync_gizmo_interaction_mode(
+    world: &mut World,
+    mode: EditorInteractionMode,
+    grid_selected_from_panel: bool,
+) {
+    let gizmo_enabled = mode != EditorInteractionMode::Paint || grid_selected_from_panel;
     let gizmos = world
         .all_components()
         .filter(|id| {
@@ -1167,11 +1185,7 @@ fn sync_gizmo_interaction_mode(world: &mut World, mode: EditorInteractionMode) {
         };
         if let Some(transform) = world.get_component_by_id_as_mut::<TransformComponent>(visual_root)
         {
-            transform.transform.scale = if mode == EditorInteractionMode::Paint {
-                [0.0; 3]
-            } else {
-                [1.0; 3]
-            };
+            transform.transform.scale = if gizmo_enabled { [1.0; 3] } else { [0.0; 3] };
             transform.transform.recompute_model();
         }
         let mut descendants = vec![visual_root];
@@ -1185,7 +1199,7 @@ fn sync_gizmo_interaction_mode(world: &mut World, mode: EditorInteractionMode) {
                 if let Some(raycastable) =
                     world.get_component_by_id_as_mut::<RaycastableComponent>(child)
                 {
-                    raycastable.enable = mode != EditorInteractionMode::Paint;
+                    raycastable.enable = gizmo_enabled;
                 }
             }
         }
@@ -1225,7 +1239,13 @@ pub(crate) fn set_editor_interaction_mode(
         };
         configure_editor_scene_router(router, mode);
     }
-    sync_gizmo_interaction_mode(world, mode);
+    let editor_context = state.lock().expect("editor context state poisoned").clone();
+    sync_gizmo_interaction_mode(
+        world,
+        mode,
+        editor_context.active_grid_owner_transform.is_some()
+            && editor_context.active_grid_owner_transform == editor_context.selected_component,
+    );
 }
 
 fn ensure_default_active_editor(
@@ -1288,13 +1308,52 @@ pub(crate) fn apply_semantic_target_selection(
     target_component: ComponentId,
     update_repl_cwd: bool,
 ) -> SemanticEditorSelectionResult {
+    apply_semantic_target_selection_with_policy(
+        world,
+        emit,
+        state,
+        target_component,
+        update_repl_cwd,
+        false,
+    )
+}
+
+fn apply_semantic_target_selection_from_grid_panel(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    state: &Arc<Mutex<EditorContextState>>,
+    target_component: ComponentId,
+    update_repl_cwd: bool,
+) -> SemanticEditorSelectionResult {
+    apply_semantic_target_selection_with_policy(
+        world,
+        emit,
+        state,
+        target_component,
+        update_repl_cwd,
+        true,
+    )
+}
+
+fn apply_semantic_target_selection_with_policy(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    state: &Arc<Mutex<EditorContextState>>,
+    target_component: ComponentId,
+    update_repl_cwd: bool,
+    show_gizmo_in_paint: bool,
+) -> SemanticEditorSelectionResult {
     let active_editor = nearest_editor_ancestor(world, target_component);
     let gizmo_target = nearest_transform_ancestor(world, target_component);
     let is_editor_root_target = active_editor == Some(target_component);
     let used_editor_selection_path = if is_editor_root_target {
         false
     } else if let Some((editor_root, transform)) = active_editor.zip(gizmo_target) {
-        select_editor_target(world, emit, editor_root, transform, update_repl_cwd);
+        if show_gizmo_in_paint {
+            select_editor_target_from_panel(world, emit, editor_root, transform, update_repl_cwd);
+        } else {
+            select_editor_target(world, emit, editor_root, transform, update_repl_cwd);
+        }
         true
     } else {
         false
@@ -1482,9 +1541,9 @@ mod tests {
         EDITOR_CURSOR_HANDLER_NAME, EDITOR_SELECT_HANDLER_NAME, EditorContextEvent,
         EditorContextState, EditorContextWorkspaceState, NullEmit, PAINT_SYSTEM_HANDLER_NAME,
         apply_editor_root_selection, apply_semantic_target_selection,
-        editor_context_event_from_shared_signal, ensure_editor_observer_router,
-        reduce_editor_context_state, sync_editor_component_selection, sync_editor_observer_routes,
-        world_panel_selection_event,
+        apply_semantic_target_selection_from_grid_panel, editor_context_event_from_shared_signal,
+        ensure_editor_observer_router, reduce_editor_context_state,
+        sync_editor_component_selection, sync_editor_observer_routes, world_panel_selection_event,
     };
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
@@ -1535,6 +1594,51 @@ mod tests {
         let state = state.lock().expect("state");
         assert_eq!(state.active_editor, Some(editor));
         assert_eq!(state.selected_component, Some(target));
+    }
+
+    #[test]
+    fn grid_panel_selection_exposes_gizmo_without_changing_paint_or_cursor_mode() {
+        for mode in [
+            EditorInteractionMode::Paint,
+            EditorInteractionMode::Cursor3d,
+        ] {
+            let mut world = World::default();
+            let editor = world
+                .add_component_boxed(Box::new(EditorComponent::new().with_interaction_mode(mode)));
+            let grid_owner = world.add_component_boxed(Box::new(TransformComponent::new()));
+            let _ = world.add_child(editor, grid_owner);
+            let state = Arc::new(Mutex::new(EditorContextState {
+                active_editor: Some(editor),
+                selected_component: None,
+                active_grid_owner_transform: Some(grid_owner),
+                interaction_mode: mode,
+                ..EditorContextState::default()
+            }));
+            let mut emit = NullEmit;
+
+            let result = apply_semantic_target_selection_from_grid_panel(
+                &mut world, &mut emit, &state, grid_owner, false,
+            );
+
+            assert!(result.used_editor_selection_path);
+            assert!(world.all_components().any(|component_id| {
+                world
+                    .get_component_by_id_as::<
+                        crate::engine::ecs::component::TransformGizmoComponent,
+                    >(component_id)
+                    .is_some()
+            }));
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<EditorComponent>(editor)
+                    .expect("editor")
+                    .interaction_mode,
+                mode
+            );
+            let state = state.lock().expect("state");
+            assert_eq!(state.selected_component, Some(grid_owner));
+            assert_eq!(state.interaction_mode, mode);
+        }
     }
 
     #[test]

@@ -731,13 +731,7 @@ impl TransformGizmoSystem {
         env: &crate::engine::ecs::Signal,
         editor_context_state: Option<Arc<Mutex<EditorContextState>>>,
     ) {
-        if editor_context_state.is_some_and(|state| {
-            state
-                .lock()
-                .expect("editor context state poisoned")
-                .interaction_mode
-                == EditorInteractionMode::Paint
-        }) {
+        if Self::gizmo_input_suppressed(editor_context_state.as_ref()) {
             return;
         }
         let Some(EventSignal::DragStart {
@@ -786,13 +780,7 @@ impl TransformGizmoSystem {
         env: &crate::engine::ecs::Signal,
         editor_context_state: Option<Arc<Mutex<EditorContextState>>>,
     ) {
-        if editor_context_state.as_ref().is_some_and(|state| {
-            state
-                .lock()
-                .expect("editor context state poisoned")
-                .interaction_mode
-                == EditorInteractionMode::Paint
-        }) {
+        if Self::gizmo_input_suppressed(editor_context_state.as_ref()) {
             return;
         }
         use crate::engine::ecs::system::transform_system::TransformSystem;
@@ -1235,6 +1223,17 @@ impl TransformGizmoSystem {
                 t.set_scale(emit, s[0], s[1], s[2]);
             }
         }
+    }
+
+    fn gizmo_input_suppressed(
+        editor_context_state: Option<&Arc<Mutex<EditorContextState>>>,
+    ) -> bool {
+        editor_context_state.is_some_and(|state| {
+            let state = state.lock().expect("editor context state poisoned");
+            state.interaction_mode == EditorInteractionMode::Paint
+                && (state.active_grid_owner_transform.is_none()
+                    || state.active_grid_owner_transform != state.selected_component)
+        })
     }
 
     fn on_drag_end(
@@ -2090,9 +2089,10 @@ impl TransformGizmoSystem {
 mod tests {
     use super::TransformGizmoSystem;
     use crate::engine::ecs::component::{
-        ColorComponent, DragContinuationPolicy, DragMappingPolicy, EditorComponent, GridComponent,
-        RaycastableComponent, TransformComponent, TransformGizmoAxis, TransformGizmoComponent,
-        TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoTranslatePlaneComponent,
+        ColorComponent, DragContinuationPolicy, DragMappingPolicy, EditorComponent,
+        EditorInteractionMode, GridComponent, RaycastableComponent, TransformComponent,
+        TransformGizmoAxis, TransformGizmoComponent, TransformGizmoCoordSpace, TransformGizmoPlane,
+        TransformGizmoTranslatePlaneComponent,
     };
     use crate::engine::ecs::system::GridSystem;
     use crate::engine::ecs::system::editor::context::EditorContextState;
@@ -2108,6 +2108,23 @@ mod tests {
                 b
             );
         }
+    }
+
+    #[test]
+    fn paint_mode_allows_gizmo_input_only_for_the_explicit_grid_panel_target() {
+        let mut world = World::default();
+        let grid_owner = world.add_component(TransformComponent::new());
+        let other = world.add_component(TransformComponent::new());
+        let state = Arc::new(Mutex::new(EditorContextState {
+            interaction_mode: EditorInteractionMode::Paint,
+            active_grid_owner_transform: Some(grid_owner),
+            selected_component: Some(other),
+            ..EditorContextState::default()
+        }));
+
+        assert!(TransformGizmoSystem::gizmo_input_suppressed(Some(&state)));
+        state.lock().expect("state").selected_component = Some(grid_owner);
+        assert!(!TransformGizmoSystem::gizmo_input_suppressed(Some(&state)));
     }
 
     #[test]

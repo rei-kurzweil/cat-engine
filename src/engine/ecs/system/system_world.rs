@@ -2873,6 +2873,20 @@ impl SystemWorld {
         // world matrices / acceleration structures (e.g. raycasting).
         queue.flush(world, self, visuals, render_assets);
 
+        // Grid hit surfaces participate in raycasting only while Paint owns scene input.
+        // Run this every frame so mode transitions and grid create/delete/visibility changes
+        // are reflected before the BVH is built and the next pointer activation is sampled.
+        let paint_mode = self
+            .editor_context
+            .shared_state()
+            .lock()
+            .expect("editor context state mutex poisoned")
+            .interaction_mode
+            == crate::engine::ecs::component::EditorInteractionMode::Paint;
+        self.grid
+            .sync_paint_raycast_targets(world, queue, paint_mode);
+        queue.flush(world, self, visuals, render_assets);
+
         // Movement observers see input-driven local transforms from this frame, and run
         // before animation sampling. Avoid allocating/dispatching a per-frame event when
         // no script or system asked for it.

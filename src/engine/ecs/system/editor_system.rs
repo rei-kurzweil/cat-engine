@@ -259,6 +259,43 @@ pub(crate) fn select_editor_target(
     target_transform: ComponentId,
     update_repl_cwd: bool,
 ) {
+    select_editor_target_with_gizmo_policy(
+        world,
+        emit,
+        editor_root,
+        target_transform,
+        update_repl_cwd,
+        false,
+    );
+}
+
+/// Selects through the normal editor path while allowing an explicit panel command to expose the
+/// gizmo in modes whose scene-selection routing normally suppresses it.
+pub(crate) fn select_editor_target_from_panel(
+    world: &mut World,
+    emit: &mut dyn crate::engine::ecs::SignalEmitter,
+    editor_root: ComponentId,
+    target_transform: ComponentId,
+    update_repl_cwd: bool,
+) {
+    select_editor_target_with_gizmo_policy(
+        world,
+        emit,
+        editor_root,
+        target_transform,
+        update_repl_cwd,
+        true,
+    );
+}
+
+fn select_editor_target_with_gizmo_policy(
+    world: &mut World,
+    emit: &mut dyn crate::engine::ecs::SignalEmitter,
+    editor_root: ComponentId,
+    target_transform: ComponentId,
+    update_repl_cwd: bool,
+    show_gizmo_in_paint: bool,
+) {
     let interaction_mode = world
         .get_component_by_id_as::<EditorComponent>(editor_root)
         .map(|editor| editor.interaction_mode)
@@ -267,7 +304,7 @@ pub(crate) fn select_editor_target(
         "🧲🛠️🐛 select_editor_target called editor_root={editor_root:?} target_transform={target_transform:?} mode={interaction_mode:?} update_repl_cwd={update_repl_cwd}"
     );
 
-    let gizmo = (interaction_mode != EditorInteractionMode::Paint)
+    let gizmo = (show_gizmo_in_paint || interaction_mode != EditorInteractionMode::Paint)
         .then(|| ensure_shared_workspace_transform_gizmo_global(world, emit))
         .flatten();
 

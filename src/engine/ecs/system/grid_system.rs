@@ -113,17 +113,17 @@ impl GridSystem {
         Self::default()
     }
 
-    /// Makes only the selected live grid eligible as a Paint drag candidate.
+    /// Synchronizes every managed live grid's Paint-only raycast/BVH eligibility.
     /// Grid visuals remain non-selectable in every interaction mode.
-    pub fn sync_paint_raycast_target(
+    pub fn sync_paint_raycast_targets(
         &self,
         world: &mut World,
         emit: &mut dyn SignalEmitter,
-        selected_owner: Option<ComponentId>,
         paint_mode: bool,
     ) {
         use crate::engine::ecs::component::PointerEvents;
 
+        self.ensure_registry_current(world);
         let entries = self
             .registry
             .lock()
@@ -131,12 +131,10 @@ impl GridSystem {
             .by_grid
             .values()
             .copied()
+            .map(|entry| refresh_grid_entry(world, entry))
             .collect::<Vec<_>>();
         for entry in entries {
-            let enabled = paint_mode
-                && selected_owner == Some(entry.owner_transform)
-                && entry.enabled
-                && !entry.hidden;
+            let enabled = paint_mode && entry.enabled && !entry.hidden;
             let Some(raycastable_id) =
                 world.find_component(entry.owner_transform, "#grid_live_raycastable")
             else {
@@ -154,8 +152,14 @@ impl GridSystem {
             if changed {
                 emit.push_intent_now(
                     raycastable_id,
-                    IntentValue::RegisterRaycastable {
-                        component_id: raycastable_id,
+                    if enabled {
+                        IntentValue::RegisterRaycastable {
+                            component_id: raycastable_id,
+                        }
+                    } else {
+                        IntentValue::RemoveRaycastable {
+                            component_id: raycastable_id,
+                        }
                     },
                 );
             }
@@ -512,7 +516,7 @@ impl GridSystem {
     ) -> Option<ActiveGrid> {
         let grid_component = self.grid_component_for_renderable(world, renderable)?;
         let entry = self.grid_entry(world, grid_component)?;
-        if !entry.enabled || entry.hidden || !entry.selectable {
+        if !entry.enabled || entry.hidden {
             return None;
         }
         self.active_grid_from_entry(world, entry)
@@ -889,10 +893,10 @@ impl GridSystem {
             GRID_LIVE_SELECTABLE_NAME,
             Box::new(SelectableComponent::off()),
         );
-        let live_raycastable = world.add_component_boxed_named(
-            GRID_LIVE_RAYCASTABLE_NAME,
-            Box::new(RaycastableComponent::disabled()),
-        );
+        let mut paint_raycastable = RaycastableComponent::disabled();
+        paint_raycastable.pointer_events = crate::engine::ecs::component::PointerEvents::DragOnly;
+        let live_raycastable = world
+            .add_component_boxed_named(GRID_LIVE_RAYCASTABLE_NAME, Box::new(paint_raycastable));
         let live_serialize = world.add_component_boxed_named(
             GRID_LIVE_SERIALIZE_NAME,
             Box::new(SerializeComponent::off()),
@@ -1001,13 +1005,6 @@ impl GridSystem {
                 world.get_component_by_id_as_mut::<SelectableComponent>(selectable_id)
         {
             selectable.enabled = false;
-        }
-        if let Some(raycastable_id) =
-            world.find_component(owner_transform, "#grid_live_raycastable")
-            && let Some(raycastable) =
-                world.get_component_by_id_as_mut::<RaycastableComponent>(raycastable_id)
-        {
-            raycastable.enable = false;
         }
     }
 
@@ -1172,7 +1169,7 @@ pub fn remap_grid_rotation_to_surface_up(surface_aligned_rotation: [f32; 4]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::{CommandQueue, RxWorld};
 
     fn add_grid(world: &mut World, editor: ComponentId, grid: GridComponent) -> ComponentId {
         let owner = world.add_component(TransformComponent::new());
@@ -1180,6 +1177,127 @@ mod tests {
         world.add_child(editor, owner).unwrap();
         world.add_child(owner, grid).unwrap();
         owner
+    }
+
+    #[test]
+    fn paint_mode_raycast_sync_tracks_all_visible_live_grids_and_is_idempotent() {
+        let mut world = World::default();
+        let grids = GridSystem::new();
+        let mut emit = CommandQueue::new();
+        let mut rx = RxWorld::default();
+        let editor = world.add_component(EditorComponent::new());
+        let spec = GridSpawnSpec {
+            translation: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            world_space_pose: false,
+            spacing: 1.0,
+            size_x: 4,
+            size_z: 4,
+            enabled: true,
+            hidden: false,
+            preview_mode: false,
+        };
+        let first = grids.spawn_grid_for_editor(&mut world, &mut emit, editor, spec);
+        let second = grids.spawn_grid_for_editor(
+            &mut world,
+            &mut emit,
+            editor,
+            GridSpawnSpec {
+                translation: [4.0, 0.0, 0.0],
+                ..spec
+            },
+        );
+        let second_grid_component = grids
+            .grid_owned_by_transform(&world, second)
+            .expect("second grid entry")
+            .grid_component;
+        world
+            .get_component_by_id_as_mut::<GridComponent>(second_grid_component)
+            .expect("second grid")
+            .selectable = false;
+        let hidden = grids.spawn_grid_for_editor(
+            &mut world,
+            &mut emit,
+            editor,
+            GridSpawnSpec {
+                hidden: true,
+                ..spec
+            },
+        );
+
+        emit.drain_into_rx(&mut rx);
+        let _ = rx.drain_ready_intents();
+
+        grids.sync_paint_raycast_targets(&mut world, &mut emit, true);
+
+        let raycastable_for = |world: &World, owner| {
+            world
+                .find_component(owner, "#grid_live_raycastable")
+                .expect("live grid raycastable")
+        };
+        let first_raycastable = raycastable_for(&world, first);
+        let second_raycastable = raycastable_for(&world, second);
+        let hidden_raycastable = raycastable_for(&world, hidden);
+        assert!(
+            world
+                .get_component_by_id_as::<RaycastableComponent>(first_raycastable)
+                .expect("first raycastable")
+                .enable
+        );
+        assert!(
+            world
+                .get_component_by_id_as::<RaycastableComponent>(second_raycastable)
+                .expect("second raycastable")
+                .enable
+        );
+        assert!(
+            !world
+                .get_component_by_id_as::<RaycastableComponent>(hidden_raycastable)
+                .expect("hidden raycastable")
+                .enable
+        );
+
+        emit.drain_into_rx(&mut rx);
+        let enabled_intents = rx.drain_ready_intents();
+        assert_eq!(
+            enabled_intents
+                .iter()
+                .filter(|signal| matches!(
+                    signal.intent.as_ref().map(|intent| &intent.value),
+                    Some(IntentValue::RegisterRaycastable { .. })
+                ))
+                .count(),
+            2
+        );
+
+        grids.sync_paint_raycast_targets(&mut world, &mut emit, true);
+        emit.drain_into_rx(&mut rx);
+        assert!(rx.drain_ready_intents().is_empty());
+
+        grids.sync_paint_raycast_targets(&mut world, &mut emit, false);
+        assert!(
+            !world
+                .get_component_by_id_as::<RaycastableComponent>(first_raycastable)
+                .expect("first raycastable")
+                .enable
+        );
+        assert!(
+            !world
+                .get_component_by_id_as::<RaycastableComponent>(second_raycastable)
+                .expect("second raycastable")
+                .enable
+        );
+        emit.drain_into_rx(&mut rx);
+        assert_eq!(
+            rx.drain_ready_intents()
+                .iter()
+                .filter(|signal| matches!(
+                    signal.intent.as_ref().map(|intent| &intent.value),
+                    Some(IntentValue::RemoveRaycastable { .. })
+                ))
+                .count(),
+            2
+        );
     }
 
     #[test]
