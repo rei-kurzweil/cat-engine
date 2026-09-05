@@ -146,6 +146,9 @@ observer should consume or replace the event in a way that prevents the other fr
 
 ## Validation slices
 
+Implementation sequence and concrete acceptance checks:
+[Editor UI live MMS panel validation slices](./editor-ui-live-mms-panel-validation-slices.md).
+
 Use small behavioral fixtures before migrating every editor panel:
 
 1. Instantiate a test panel whose MMS click handler captures a text or style component and mutates
