@@ -1,6 +1,7 @@
 # Task: deterministic implicit cloud MMS assets
 
-Status: tracked; not started.
+Status: active — the compact cloud prefab is implemented; the reusable sky
+arrangement and its first desktop consumer are being added.
 
 ## Outcome
 
@@ -13,6 +14,8 @@ Target assets:
 - `assets/components/backgrounds/cloud.mms` exports one cloud generator;
 - `assets/components/backgrounds/clouds.mms` exports a sky/background helper
   that attaches generated clouds below `BG.occlusion_and_lighting()`.
+- `examples/e2.mms` is the desktop still-life acceptance scene: Bisket in a
+  first-person desktop rig, mirror, estradiol tablet, and a simple room.
 
 ## Authoring contract
 
@@ -31,18 +34,27 @@ components are field controls only; the baked implicit mesh is the cloud.
 
 ## Required implementation slices
 
-- [ ] Establish an MMS-safe deterministic pseudo-random helper. Reuse a stable
+- [x] Establish an MMS-safe deterministic pseudo-random helper. Reuse a stable
       math/noise primitive only if it guarantees repeatable results from seed
       and integer-like indices.
-- [ ] Establish a bounded expansion expression. If recursive MMS functions are
+- [x] Establish a bounded expansion expression. If recursive MMS functions are
       unavailable or unsuitable, use an explicitly bounded iterative tree with
       the same `depth`/`max_puffs` observable contract.
-- [ ] Add `cloud.mms` with a small fixture cloud and validation that all puff
+- [x] Add `cloud.mms` with a small fixture cloud and validation that all puff
       centers/radii preserve intersection connectivity and stay inside padded
       sample bounds.
-- [ ] Add `clouds.mms` for a deterministic multi-cloud sky arrangement under a
-      background component, with controls for count, spread, height, seed, and
-      detail limit.
+- [x] Add `clouds.mms` for a deterministic multi-cloud sky arrangement under a
+      background component. Its initial public surface is deliberately small:
+      one shared `color`, `puff_count`, `max_puff_size`, and
+      `puff_clustering` (angular jitter away from even ring spacing).
+- [x] Add `examples/e2.mms` as the concrete desktop acceptance scene. It keeps
+      XR head/eye/hand tracking out of scope, preserves Bisket's desktop
+      secondary motion and colliders, and uses a head-attached monoscopic
+      camera plus a mirror.
+- [ ] Replace the temporary cube room's window openings with a layout-authored
+      wall factory. A window wall should have a short lower wall, an open gap,
+      and a short upper wall; keep this out of the first scene so layout
+      behavior can be designed and tested independently.
 - [ ] Add MMS materialization tests plus an extraction test proving each cloud
       creates one nonempty baked mesh and no boundary-field error.
 - [ ] Tune LOD/bake budgets and document safe defaults; avoid unbounded puffs
