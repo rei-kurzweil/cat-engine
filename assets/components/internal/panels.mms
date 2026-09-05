@@ -245,6 +245,7 @@ export fn editor_settings_panel_body(config) {
                 editor_settings_mode_row("editor_settings_mode_select", "Select", "select")
                 editor_settings_mode_row("editor_settings_mode_cursor_3d", "3D Cursor", "cursor_3d")
                 editor_settings_mode_row("editor_settings_mode_select_cursor", "Select + Cursor", "select_cursor")
+                editor_settings_mode_row("editor_settings_mode_paint", "Paint", "paint")
             }
             if config.show_armature { editor_settings_armature_row() }
             if config.show_bounds { editor_settings_bounds_row() }

@@ -10,12 +10,11 @@ use crate::engine::ecs::component::{
 };
 use crate::engine::ecs::system::editor::context::{
     EDITOR_WORKSPACE_ASSET_SELECTION_CHANGED, EDITOR_WORKSPACE_COLOR_SELECTION_CHANGED,
-    EditorContextState,
+    EditorContextState, set_editor_interaction_mode,
 };
 use crate::engine::ecs::system::editor_paint_system_state_manager::{
-    COLOR_PANEL_ROOT_SELECTOR, COLOR_PANEL_SELECTION_SELECTOR, COLOR_SWATCH_PAYLOAD_NAME,
-    PaintEvent, PaintState, PaintTool, is_paint_active, is_paint_panel_focused,
-    is_paint_workspace_focused, paint_tool_from_item, reduce_paint_state,
+    COLOR_PANEL_ROOT_SELECTOR, COLOR_PANEL_SELECTION_SELECTOR, PaintEvent, PaintState, PaintTool,
+    is_paint_active, paint_tool_from_item, reduce_paint_state,
 };
 use crate::engine::ecs::system::editor_system::select_editor_target;
 use crate::engine::ecs::system::grid_gesture::{GridGestureSession, GridGestureTool};
@@ -318,6 +317,7 @@ pub struct EditorPaintSystem {
     shared_state: Arc<Mutex<PaintState>>,
     shared_templates: Arc<Mutex<Vec<PaintAssetTemplate>>>,
     pending_effects: Arc<Mutex<Vec<PaintEffectRequest>>>,
+    stroke_runtimes: Arc<Mutex<Vec<Arc<Mutex<PaintStrokeRuntime>>>>>,
 }
 
 /// A paint event has already updated the reactive state, but its world mutation
@@ -366,6 +366,7 @@ impl EditorPaintSystem {
                 Arc::clone(&editor_context_state),
                 Arc::clone(&self.shared_templates),
                 Arc::clone(&self.pending_effects),
+                Arc::clone(&self.stroke_runtimes),
             );
             bootstrap_paint_state(world, panel_query_root, &self.shared_state);
         }
@@ -376,6 +377,10 @@ impl EditorPaintSystem {
         self.installed_editor_roots.insert(editor_root);
 
         let stroke_runtime = Arc::new(Mutex::new(PaintStrokeRuntime::default()));
+        self.stroke_runtimes
+            .lock()
+            .expect("paint stroke runtimes mutex poisoned")
+            .push(Arc::clone(&stroke_runtime));
         install_editor_scene_handlers(
             rx,
             editor_root,
@@ -431,6 +436,7 @@ fn install_shared_panel_handlers(
     editor_context_state: Arc<Mutex<EditorContextState>>,
     templates: Arc<Mutex<Vec<PaintAssetTemplate>>>,
     pending_effects: Arc<Mutex<Vec<PaintEffectRequest>>>,
+    stroke_runtimes: Arc<Mutex<Vec<Arc<Mutex<PaintStrokeRuntime>>>>>,
 ) {
     let _ = world;
 
@@ -517,12 +523,49 @@ fn install_shared_panel_handlers(
                     "paint_debug bridge SelectionChanged is_tool={is_tool} selection_root={selection_root:?} component={component:?} label={label:?}",
                 );
             }
+            if world.component_label(*selection_root) == Some("editor_panel_layout_selection") {
+                let event = PaintEvent::PanelFocusChanged {
+                    focused_panel: *selected_component,
+                };
+                enqueue_paint_event(
+                    world,
+                    panel_query_root,
+                    &grid_system,
+                    &tpl,
+                    &state,
+                    &ctx,
+                    None,
+                    &event,
+                    &pending,
+                );
+                return;
+            }
+            if world.component_label(*selection_root) == Some("editor_settings_selection") {
+                let editor = ctx
+                    .lock()
+                    .expect("editor context mutex poisoned")
+                    .active_editor;
+                rollback_all_paint_strokes(world, emit, &stroke_runtimes);
+                enqueue_paint_event(
+                    world,
+                    panel_query_root,
+                    &grid_system,
+                    &tpl,
+                    &state,
+                    &ctx,
+                    None,
+                    &PaintEvent::ActiveEditorChanged { editor },
+                    &pending,
+                );
+                return;
+            }
             if is_tool {
                 let event = PaintEvent::ToolSelectionChanged {
                     tool: paint_tool_from_item(label.clone()),
                     item: label,
                     component,
                 };
+                rollback_all_paint_strokes(world, emit, &stroke_runtimes);
                 enqueue_paint_event(
                     world,
                     panel_query_root,
@@ -894,8 +937,20 @@ fn apply_paint_side_effects(
 ) {
     let total_start = Instant::now();
     update_last_scene_interacted_editor(world, editor_context_state, event);
-    force_cursor_mode_for_paint_activation(world, panel_query_root, editor_context_state, event);
+    enter_paint_mode_for_activation(
+        world,
+        panel_query_root,
+        editor_context_state,
+        event,
+        new_state,
+    );
     let editor_context = current_editor_context(editor_context_state);
+    grid_system.sync_paint_raycast_target(
+        world,
+        emit,
+        editor_context.active_grid_owner_transform,
+        editor_context.interaction_mode == EditorInteractionMode::Paint,
+    );
     let active_editor = event_active_editor(event).or(editor_context.active_editor);
     trace_paint_stroke_event(
         world,
@@ -916,7 +971,6 @@ fn apply_paint_side_effects(
         PaintEvent::AssetSelectionChanged { .. }
             | PaintEvent::ToolSelectionChanged { .. }
             | PaintEvent::SnapSelectionChanged { .. }
-            | PaintEvent::PanelFocusChanged { .. }
             | PaintEvent::ActiveEditorChanged { .. }
     ) {
         if let Some(runtime) = stroke_runtime {
@@ -1162,15 +1216,18 @@ fn apply_paint_side_effects(
 /// Paint owns the scene-placement gesture contract.  Switch modes as soon as
 /// Paint is focused or a tool is chosen, before the next pointer gesture can
 /// be interpreted by the selection handler.
-fn force_cursor_mode_for_paint_activation(
+fn enter_paint_mode_for_activation(
     world: &mut World,
     panel_query_root: ComponentId,
     editor_context_state: &Arc<Mutex<EditorContextState>>,
     event: &PaintEvent,
+    paint_state: &PaintState,
 ) {
     let paint_panel_root = world.find_component(panel_query_root, PAINT_PANEL_ROOT_SELECTOR);
-    let should_activate = matches!(event, PaintEvent::ToolSelectionChanged { .. })
-        || matches!(event, PaintEvent::PanelFocusChanged { focused_panel } if *focused_panel == paint_panel_root);
+    let valid_tool = !matches!(paint_state.selected_tool, PaintTool::Unknown(_));
+    let should_activate = valid_tool
+        && (matches!(event, PaintEvent::ToolSelectionChanged { .. })
+            || matches!(event, PaintEvent::PanelFocusChanged { focused_panel } if *focused_panel == paint_panel_root));
     if !should_activate {
         return;
     }
@@ -1181,14 +1238,11 @@ fn force_cursor_mode_for_paint_activation(
     let Some(editor_root) = editor_root else {
         return;
     };
-    if let Some(editor) = world.get_component_by_id_as_mut::<EditorComponent>(editor_root) {
-        editor.interaction_mode = EditorInteractionMode::Cursor3d;
-    }
-    let mut context = editor_context_state
+    editor_context_state
         .lock()
-        .expect("editor context mutex poisoned");
-    context.active_editor = Some(editor_root);
-    context.interaction_mode = EditorInteractionMode::Cursor3d;
+        .expect("editor context mutex poisoned")
+        .active_editor = Some(editor_root);
+    set_editor_interaction_mode(world, editor_context_state, EditorInteractionMode::Paint);
 }
 
 fn rollback_paint_stroke(
@@ -1207,6 +1261,20 @@ fn rollback_paint_stroke(
         markers.remove(emit);
     }
     *runtime = PaintStrokeRuntime::default();
+}
+
+fn rollback_all_paint_strokes(
+    world: &mut World,
+    emit: &mut dyn SignalEmitter,
+    stroke_runtimes: &Arc<Mutex<Vec<Arc<Mutex<PaintStrokeRuntime>>>>>,
+) {
+    let runtimes = stroke_runtimes
+        .lock()
+        .expect("paint stroke runtimes mutex poisoned")
+        .clone();
+    for runtime in &runtimes {
+        rollback_paint_stroke(world, emit, runtime);
+    }
 }
 
 fn retain_paint_preview_grid_binding(world: &mut World, session: &PlacementPreviewSession) -> bool {
@@ -2230,15 +2298,14 @@ fn paint_activity_status(
     world: &World,
     grid_system: &GridSystem,
     active_editor: Option<ComponentId>,
-    panel_query_root: ComponentId,
+    _panel_query_root: ComponentId,
     paint_state: &PaintState,
     editor_context: &EditorContextState,
 ) -> PaintActivityStatus {
-    let paint_panel_root = world.find_component(panel_query_root, PAINT_PANEL_ROOT_SELECTOR);
-    if !is_paint_panel_focused(paint_panel_root, editor_context) {
+    if editor_context.interaction_mode != EditorInteractionMode::Paint {
         return PaintActivityStatus {
             active: false,
-            reason: "focus Paint panel".to_string(),
+            reason: "switch to Paint mode".to_string(),
         };
     }
 
@@ -2534,15 +2601,13 @@ fn update_paint_status(
 fn base_status_text(
     world: &World,
     active_editor: Option<ComponentId>,
-    panel_query_root: ComponentId,
+    _panel_query_root: ComponentId,
     grid_system: &GridSystem,
     paint_state: &PaintState,
     editor_context: &EditorContextState,
 ) -> String {
-    let paint_panel_root = world.find_component(panel_query_root, PAINT_PANEL_ROOT_SELECTOR);
-    let color_panel_root = world.find_component(panel_query_root, COLOR_PANEL_ROOT_SELECTOR);
-    if !is_paint_workspace_focused(paint_panel_root, color_panel_root, editor_context) {
-        return "paint inactive: focus Paint panel".to_string();
+    if editor_context.interaction_mode != EditorInteractionMode::Paint {
+        return "paint inactive: switch to Paint mode".to_string();
     }
 
     let asset_required = !matches!(
@@ -3652,7 +3717,8 @@ mod tests {
 
         assert_eq!(
             count_named_descendants(&world, editor_root, "painted_asset_root"),
-            1
+            2,
+            "the drag crosses two grid cells and each must be committed once"
         );
     }
 

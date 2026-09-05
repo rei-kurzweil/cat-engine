@@ -113,6 +113,55 @@ impl GridSystem {
         Self::default()
     }
 
+    /// Makes only the selected live grid eligible as a Paint drag candidate.
+    /// Grid visuals remain non-selectable in every interaction mode.
+    pub fn sync_paint_raycast_target(
+        &self,
+        world: &mut World,
+        emit: &mut dyn SignalEmitter,
+        selected_owner: Option<ComponentId>,
+        paint_mode: bool,
+    ) {
+        use crate::engine::ecs::component::PointerEvents;
+
+        let entries = self
+            .registry
+            .lock()
+            .expect("grid registry mutex poisoned")
+            .by_grid
+            .values()
+            .copied()
+            .collect::<Vec<_>>();
+        for entry in entries {
+            let enabled = paint_mode
+                && selected_owner == Some(entry.owner_transform)
+                && entry.enabled
+                && !entry.hidden;
+            let Some(raycastable_id) =
+                world.find_component(entry.owner_transform, "#grid_live_raycastable")
+            else {
+                continue;
+            };
+            let mut changed = false;
+            if let Some(raycastable) =
+                world.get_component_by_id_as_mut::<RaycastableComponent>(raycastable_id)
+            {
+                changed = raycastable.enable != enabled
+                    || raycastable.pointer_events != PointerEvents::DragOnly;
+                raycastable.enable = enabled;
+                raycastable.pointer_events = PointerEvents::DragOnly;
+            }
+            if changed {
+                emit.push_intent_now(
+                    raycastable_id,
+                    IntentValue::RegisterRaycastable {
+                        component_id: raycastable_id,
+                    },
+                );
+            }
+        }
+    }
+
     pub fn install_handlers(&self, rx: &mut RxWorld) {
         let mut registry = self.registry.lock().expect("grid registry mutex poisoned");
         if registry.handlers_installed {

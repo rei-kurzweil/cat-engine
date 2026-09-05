@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::engine::ecs::component::EditorInteractionMode;
-use crate::engine::ecs::component::{
-    DataComponent, EditorComponent, GLTFComponent, SelectionEntry,
-};
+use crate::engine::ecs::component::{DataComponent, GLTFComponent, SelectionEntry};
 use crate::engine::ecs::system::editor::context::EditorContextState;
 use crate::engine::ecs::system::editor::world_panel::effective_editor_roots;
 use crate::engine::ecs::system::panel_system::{data_text, is_descendant_or_self};
@@ -18,6 +16,7 @@ pub(crate) const EDITOR_SETTINGS_SELECT_ROW_NAME: &str = "editor_settings_mode_s
 pub(crate) const EDITOR_SETTINGS_CURSOR_ROW_NAME: &str = "editor_settings_mode_cursor_3d";
 pub(crate) const EDITOR_SETTINGS_SELECT_CURSOR_ROW_NAME: &str =
     "editor_settings_mode_select_cursor";
+pub(crate) const EDITOR_SETTINGS_PAINT_ROW_NAME: &str = "editor_settings_mode_paint";
 pub(crate) const EDITOR_SETTINGS_ARMATURE_ROW_NAME: &str = "editor_settings_armature_visibility";
 pub(crate) const EDITOR_SETTINGS_ARMATURE_TOGGLE_SLOT_NAME: &str = "armature_toggle_slot";
 pub(crate) const EDITOR_SETTINGS_BOUNDS_ROW_NAME: &str = "editor_settings_bounds_visibility";
@@ -39,6 +38,7 @@ pub(crate) enum EditorSettingsOption {
     Select,
     Cursor3d,
     SelectAndCursor,
+    Paint,
 }
 
 impl EditorSettingsOption {
@@ -47,6 +47,7 @@ impl EditorSettingsOption {
             Self::Select => EditorInteractionMode::Select,
             Self::Cursor3d => EditorInteractionMode::Cursor3d,
             Self::SelectAndCursor => EditorInteractionMode::SelectAndCursor,
+            Self::Paint => EditorInteractionMode::Paint,
         }
     }
 
@@ -55,6 +56,7 @@ impl EditorSettingsOption {
             Self::Select => EDITOR_SETTINGS_SELECT_ROW_NAME,
             Self::Cursor3d => EDITOR_SETTINGS_CURSOR_ROW_NAME,
             Self::SelectAndCursor => EDITOR_SETTINGS_SELECT_CURSOR_ROW_NAME,
+            Self::Paint => EDITOR_SETTINGS_PAINT_ROW_NAME,
         }
     }
 
@@ -63,6 +65,7 @@ impl EditorSettingsOption {
             "select" => Some(Self::Select),
             "cursor_3d" => Some(Self::Cursor3d),
             "select_cursor" => Some(Self::SelectAndCursor),
+            "paint" => Some(Self::Paint),
             _ => None,
         }
     }
@@ -331,6 +334,7 @@ pub(crate) fn sync_editor_settings_panel_selection(
         EditorInteractionMode::Select => EditorSettingsOption::Select,
         EditorInteractionMode::Cursor3d => EditorSettingsOption::Cursor3d,
         EditorInteractionMode::SelectAndCursor => EditorSettingsOption::SelectAndCursor,
+        EditorInteractionMode::Paint => EditorSettingsOption::Paint,
     };
     let Some(panel_root) =
         world.find_component(panel_query_root, EDITOR_SETTINGS_PANEL_ROOT_SELECTOR)
@@ -351,6 +355,7 @@ pub(crate) fn sync_editor_settings_panel_selection(
                 EditorSettingsOption::Select => 0,
                 EditorSettingsOption::Cursor3d => 1,
                 EditorSettingsOption::SelectAndCursor => 2,
+                EditorSettingsOption::Paint => 3,
             }),
             component: row_root,
         }],
@@ -463,12 +468,6 @@ pub(crate) fn handle_editor_settings_panel_click(
                 .expect("editor context state mutex poisoned")
                 .active_editor
                 .or_else(|| editor_roots.first().copied());
-            if let Some(editor_root) = active_editor
-                && let Some(editor) =
-                    world.get_component_by_id_as_mut::<EditorComponent>(editor_root)
-            {
-                editor.interaction_mode = option.interaction_mode();
-            }
             {
                 let mut context = editor_context_state
                     .lock()
@@ -476,6 +475,11 @@ pub(crate) fn handle_editor_settings_panel_click(
                 context.active_editor = active_editor;
                 context.interaction_mode = option.interaction_mode();
             }
+            super::context::set_editor_interaction_mode(
+                world,
+                editor_context_state,
+                option.interaction_mode(),
+            );
             if let Some(selection_root) =
                 world.find_component(settings_panel_root, EDITOR_SETTINGS_SELECTION_SELECTOR)
             {
@@ -488,6 +492,7 @@ pub(crate) fn handle_editor_settings_panel_click(
                             EditorSettingsOption::Select => 0,
                             EditorSettingsOption::Cursor3d => 1,
                             EditorSettingsOption::SelectAndCursor => 2,
+                            EditorSettingsOption::Paint => 3,
                         }),
                         component: component_id,
                     }],
@@ -654,6 +659,14 @@ mod tests {
     use crate::engine::ecs::component::{DataValue, EditorComponent};
     use crate::engine::ecs::system::{CollisionVisualizationMode, SystemWorld};
     use crate::engine::graphics::{RenderAssets, VisualWorld};
+
+    #[test]
+    fn paint_is_the_fourth_editor_mode_option() {
+        let option = EditorSettingsOption::from_mode_value("paint").expect("paint option");
+        assert_eq!(option, EditorSettingsOption::Paint);
+        assert_eq!(option.interaction_mode(), EditorInteractionMode::Paint);
+        assert_eq!(option.row_name(), EDITOR_SETTINGS_PAINT_ROW_NAME);
+    }
 
     #[test]
     fn armature_settings_click_toggles_state_renders_toggle_and_fans_out_to_all_editors() {

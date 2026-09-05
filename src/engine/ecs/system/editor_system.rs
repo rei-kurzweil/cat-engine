@@ -100,6 +100,7 @@ impl EditorSystem {
                         );
                     }
                     EditorInteractionMode::Cursor3d => {}
+                    EditorInteractionMode::Paint => {}
                     EditorInteractionMode::SelectAndCursor => {
                         select_editor_target(
                             world,
@@ -160,7 +161,7 @@ impl EditorSystem {
                             true,
                         );
                     }
-                    EditorInteractionMode::Cursor3d => {}
+                    EditorInteractionMode::Cursor3d | EditorInteractionMode::Paint => {}
                 }
             },
         );
@@ -266,7 +267,9 @@ pub(crate) fn select_editor_target(
         "🧲🛠️🐛 select_editor_target called editor_root={editor_root:?} target_transform={target_transform:?} mode={interaction_mode:?} update_repl_cwd={update_repl_cwd}"
     );
 
-    let gizmo = ensure_shared_workspace_transform_gizmo_global(world, emit);
+    let gizmo = (interaction_mode != EditorInteractionMode::Paint)
+        .then(|| ensure_shared_workspace_transform_gizmo_global(world, emit))
+        .flatten();
 
     if let Some(gizmo) = gizmo {
         emit.push_intent_now(

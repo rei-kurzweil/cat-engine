@@ -6984,8 +6984,11 @@ fn mms_input_transform_mode_accepts_explicit_roll_axis_z() {
 
 #[test]
 fn roundtrip_editor() {
-    use crate::engine::ecs::component::{EditorComponent, TransformGizmoCoordSpace};
+    use crate::engine::ecs::component::{
+        EditorComponent, EditorInteractionMode, TransformGizmoCoordSpace,
+    };
     let original = EditorComponent::new()
+        .with_interaction_mode(EditorInteractionMode::Paint)
         .with_transform_gizmo_translation_space(TransformGizmoCoordSpace::Local)
         .with_transform_gizmo_rotation_space(TransformGizmoCoordSpace::World)
         .with_panels(false)
@@ -6993,6 +6996,7 @@ fn roundtrip_editor() {
         .with_asset_dir("../custom-assets");
     let (world, id) = roundtrip_component(original);
     let got = world.get_component_by_id_as::<EditorComponent>(id).unwrap();
+    assert_eq!(got.interaction_mode, EditorInteractionMode::Paint);
     assert_eq!(
         got.transform_gizmo_translation_space,
         TransformGizmoCoordSpace::Local

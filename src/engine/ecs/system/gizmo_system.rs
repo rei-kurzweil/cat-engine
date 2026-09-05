@@ -1,3 +1,4 @@
+use crate::engine::ecs::component::EditorInteractionMode;
 use crate::engine::ecs::component::{
     GestureCoordType, GestureCoordTypeComponent, SignalRouteUpwardComponent,
     TransformCameraSpecificComponent, TransformCameraSpecificMode, TransformComponent,
@@ -145,7 +146,15 @@ impl TransformGizmoSystem {
             gizmo_root,
             Self::on_parent_changed,
         );
-        rx.add_handler(SignalKind::DragStart, gizmo_root, Self::on_drag_start);
+        let editor_context_state = self.editor_context_state.clone();
+        rx.add_handler_closure_named(
+            SignalKind::DragStart,
+            gizmo_root,
+            None,
+            move |world, emit, env| {
+                Self::on_drag_start(world, emit, env, editor_context_state.clone());
+            },
+        );
         let editor_context_state = self.editor_context_state.clone();
         rx.add_handler_closure_named(
             SignalKind::DragMove,
@@ -720,7 +729,17 @@ impl TransformGizmoSystem {
         world: &mut World,
         _emit: &mut dyn SignalEmitter,
         env: &crate::engine::ecs::Signal,
+        editor_context_state: Option<Arc<Mutex<EditorContextState>>>,
     ) {
+        if editor_context_state.is_some_and(|state| {
+            state
+                .lock()
+                .expect("editor context state poisoned")
+                .interaction_mode
+                == EditorInteractionMode::Paint
+        }) {
+            return;
+        }
         let Some(EventSignal::DragStart {
             raycaster,
             renderable,
@@ -767,6 +786,15 @@ impl TransformGizmoSystem {
         env: &crate::engine::ecs::Signal,
         editor_context_state: Option<Arc<Mutex<EditorContextState>>>,
     ) {
+        if editor_context_state.as_ref().is_some_and(|state| {
+            state
+                .lock()
+                .expect("editor context state poisoned")
+                .interaction_mode
+                == EditorInteractionMode::Paint
+        }) {
+            return;
+        }
         use crate::engine::ecs::system::transform_system::TransformSystem;
         use crate::utils::math;
 

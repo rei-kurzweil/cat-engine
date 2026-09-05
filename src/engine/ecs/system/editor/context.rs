@@ -6,7 +6,6 @@ use crate::engine::ecs::component::{
     RaycastableComponent, RenderableComponent, SelectableComponent, SelectionComponent,
     SerializeComponent, SignalObserverRouterComponent, TransformComponent,
 };
-use crate::engine::ecs::system::editor::paint_panel::COLOR_PANEL_ROOT_SELECTOR;
 use crate::engine::ecs::system::editor::settings_panel::{
     EDITOR_SETTINGS_PAYLOAD_NAME, EDITOR_SETTINGS_SELECTION_SELECTOR, EditorSettingsOption,
 };
@@ -24,7 +23,6 @@ const PANEL_LAYOUT_SELECTION_SELECTOR: &str = "#editor_panel_layout_selection";
 const WORLD_PANEL_SELECTION_SELECTOR: &str = "#world_panel_selection";
 const ASSETS_SELECTION_SELECTOR: &str = "#assets_selection";
 const GRID_PANEL_SELECTION_SELECTOR: &str = "#grid_panel_selection";
-const PAINT_PANEL_ROOT_SELECTOR: &str = "#paint_panel_root";
 pub const EDITOR_WORKSPACE_ASSET_SELECTION_CHANGED: &str = "EditorWorkspaceAssetSelectionChanged";
 pub const EDITOR_WORKSPACE_COLOR_SELECTION_CHANGED: &str = "EditorWorkspaceColorSelectionChanged";
 const PAINT_SYSTEM_HANDLER_NAME: &str = "paint_system";
@@ -1061,6 +1059,42 @@ fn cursor_marker_opacities(world: &World, marker_root: ComponentId) -> Vec<Compo
     opacities
 }
 
+fn configure_editor_scene_router(
+    router: &mut SignalObserverRouterComponent,
+    mode: EditorInteractionMode,
+) {
+    router.blacklist.retain(|name| {
+        name != PAINT_SYSTEM_HANDLER_NAME
+            && name != EDITOR_SELECT_HANDLER_NAME
+            && name != EDITOR_CURSOR_HANDLER_NAME
+    });
+    match mode {
+        EditorInteractionMode::Select => {
+            router
+                .blacklist
+                .push(EDITOR_CURSOR_HANDLER_NAME.to_string());
+            router.blacklist.push(PAINT_SYSTEM_HANDLER_NAME.to_string());
+        }
+        EditorInteractionMode::Cursor3d => {
+            router
+                .blacklist
+                .push(EDITOR_SELECT_HANDLER_NAME.to_string());
+            router.blacklist.push(PAINT_SYSTEM_HANDLER_NAME.to_string());
+        }
+        EditorInteractionMode::SelectAndCursor => {
+            router.blacklist.push(PAINT_SYSTEM_HANDLER_NAME.to_string());
+        }
+        EditorInteractionMode::Paint => {
+            router
+                .blacklist
+                .push(EDITOR_SELECT_HANDLER_NAME.to_string());
+            router
+                .blacklist
+                .push(EDITOR_CURSOR_HANDLER_NAME.to_string());
+        }
+    }
+}
+
 fn sync_editor_observer_routes(
     world: &mut World,
     state: &Arc<Mutex<EditorContextState>>,
@@ -1071,16 +1105,6 @@ fn sync_editor_observer_routes(
         .lock()
         .expect("editor context workspace poisoned")
         .clone();
-    let paint_panel_root = workspace.panel_query_root.and_then(|panel_query_root| {
-        world.find_component(panel_query_root, PAINT_PANEL_ROOT_SELECTOR)
-    });
-    let color_panel_root = workspace.panel_query_root.and_then(|panel_query_root| {
-        world.find_component(panel_query_root, COLOR_PANEL_ROOT_SELECTOR)
-    });
-    let paint_focused = paint_panel_root
-        .is_some_and(|panel| editor_context.focused_panel == Some(panel))
-        || color_panel_root.is_some_and(|panel| editor_context.focused_panel == Some(panel));
-
     for editor_root in workspace.registered_editors {
         let router_id = ensure_editor_observer_router(world, editor_root);
         let interaction_mode = editor_context.interaction_mode;
@@ -1090,34 +1114,7 @@ fn sync_editor_observer_routes(
             continue;
         };
 
-        if paint_focused {
-            router
-                .blacklist
-                .retain(|name| name != PAINT_SYSTEM_HANDLER_NAME);
-        } else if !router
-            .blacklist
-            .iter()
-            .any(|name| name == PAINT_SYSTEM_HANDLER_NAME)
-        {
-            router.blacklist.push(PAINT_SYSTEM_HANDLER_NAME.to_string());
-        }
-
-        router.blacklist.retain(|name| {
-            name != EDITOR_SELECT_HANDLER_NAME && name != EDITOR_CURSOR_HANDLER_NAME
-        });
-        match interaction_mode {
-            EditorInteractionMode::Select => {
-                router
-                    .blacklist
-                    .push(EDITOR_CURSOR_HANDLER_NAME.to_string());
-            }
-            EditorInteractionMode::Cursor3d => {
-                router
-                    .blacklist
-                    .push(EDITOR_SELECT_HANDLER_NAME.to_string());
-            }
-            EditorInteractionMode::SelectAndCursor => {}
-        }
+        configure_editor_scene_router(router, interaction_mode);
 
         if DEBUG_BLACKLIST_EDITOR_PANEL_REFRESH {
             if !router
@@ -1135,6 +1132,100 @@ fn sync_editor_observer_routes(
                 .retain(|name| name != EDITOR_PANEL_REFRESH_HANDLER_NAME);
         }
     }
+    sync_gizmo_interaction_mode(world, editor_context.interaction_mode);
+}
+
+fn sync_gizmo_interaction_mode(world: &mut World, mode: EditorInteractionMode) {
+    let gizmos = world
+        .all_components()
+        .filter(|id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::TransformGizmoComponent>(
+                    *id,
+                )
+                .is_some()
+        })
+        .collect::<Vec<_>>();
+    for gizmo_id in gizmos {
+        let visual_root = world
+            .get_component_by_id_as::<crate::engine::ecs::component::TransformGizmoComponent>(
+                gizmo_id,
+            )
+            .and_then(|gizmo| gizmo.visual_root);
+        if let Some(gizmo) = world
+            .get_component_by_id_as_mut::<crate::engine::ecs::component::TransformGizmoComponent>(
+                gizmo_id,
+            )
+        {
+            gizmo.active_raycaster = None;
+            gizmo.active_drag_start_hit_point_world = None;
+            gizmo.active_drag_start_target_translation = None;
+            gizmo.active_drag_plane_axes_world = None;
+        }
+        let Some(visual_root) = visual_root else {
+            continue;
+        };
+        if let Some(transform) = world.get_component_by_id_as_mut::<TransformComponent>(visual_root)
+        {
+            transform.transform.scale = if mode == EditorInteractionMode::Paint {
+                [0.0; 3]
+            } else {
+                [1.0; 3]
+            };
+            transform.transform.recompute_model();
+        }
+        let mut descendants = vec![visual_root];
+        let mut nodes = Vec::new();
+        while let Some(node) = descendants.pop() {
+            nodes.push(node);
+            descendants.extend_from_slice(world.children_of(node));
+        }
+        for node in nodes {
+            for child in world.children_of(node).to_vec() {
+                if let Some(raycastable) =
+                    world.get_component_by_id_as_mut::<RaycastableComponent>(child)
+                {
+                    raycastable.enable = mode != EditorInteractionMode::Paint;
+                }
+            }
+        }
+    }
+}
+
+/// Apply a mode immediately to every editor root and scene observer route.
+/// This is used by Paint tool activation at the deferred-effects boundary,
+/// before the next pointer activation is sampled.
+pub(crate) fn set_editor_interaction_mode(
+    world: &mut World,
+    state: &Arc<Mutex<EditorContextState>>,
+    mode: EditorInteractionMode,
+) {
+    state
+        .lock()
+        .expect("editor context state poisoned")
+        .interaction_mode = mode;
+
+    let editor_roots = world
+        .all_components()
+        .filter(|id| {
+            world
+                .get_component_by_id_as::<EditorComponent>(*id)
+                .is_some()
+        })
+        .collect::<Vec<_>>();
+    for editor_root in editor_roots {
+        if let Some(editor) = world.get_component_by_id_as_mut::<EditorComponent>(editor_root) {
+            editor.interaction_mode = mode;
+        }
+        let router_id = ensure_editor_observer_router(world, editor_root);
+        let Some(router) =
+            world.get_component_by_id_as_mut::<SignalObserverRouterComponent>(router_id)
+        else {
+            continue;
+        };
+        configure_editor_scene_router(router, mode);
+    }
+    sync_gizmo_interaction_mode(world, mode);
 }
 
 fn ensure_default_active_editor(
@@ -1389,10 +1480,11 @@ fn sync_global_editor_interaction_mode(world: &mut World, state: &Arc<Mutex<Edit
 mod tests {
     use super::{
         EDITOR_CURSOR_HANDLER_NAME, EDITOR_SELECT_HANDLER_NAME, EditorContextEvent,
-        EditorContextState, EditorContextWorkspaceState, NullEmit, apply_editor_root_selection,
-        apply_semantic_target_selection, editor_context_event_from_shared_signal,
-        ensure_editor_observer_router, reduce_editor_context_state,
-        sync_editor_component_selection, sync_editor_observer_routes, world_panel_selection_event,
+        EditorContextState, EditorContextWorkspaceState, NullEmit, PAINT_SYSTEM_HANDLER_NAME,
+        apply_editor_root_selection, apply_semantic_target_selection,
+        editor_context_event_from_shared_signal, ensure_editor_observer_router,
+        reduce_editor_context_state, sync_editor_component_selection, sync_editor_observer_routes,
+        world_panel_selection_event,
     };
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
@@ -1652,6 +1744,34 @@ mod tests {
                 .blacklist
                 .iter()
                 .any(|name| name == EDITOR_CURSOR_HANDLER_NAME)
+        );
+
+        if let Ok(mut guard) = state.lock() {
+            guard.interaction_mode = EditorInteractionMode::Paint;
+        }
+        sync_editor_observer_routes(&mut world, &state, &workspace);
+        let router = world
+            .children_of(editor_root)
+            .iter()
+            .find_map(|child| world.get_component_by_id_as::<SignalObserverRouterComponent>(*child))
+            .expect("router");
+        assert!(
+            router
+                .blacklist
+                .iter()
+                .any(|name| name == EDITOR_SELECT_HANDLER_NAME)
+        );
+        assert!(
+            router
+                .blacklist
+                .iter()
+                .any(|name| name == EDITOR_CURSOR_HANDLER_NAME)
+        );
+        assert!(
+            !router
+                .blacklist
+                .iter()
+                .any(|name| name == PAINT_SYSTEM_HANDLER_NAME)
         );
     }
 

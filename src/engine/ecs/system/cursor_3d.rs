@@ -195,7 +195,7 @@ fn update_editor_cursor(
         .unwrap_or(EditorInteractionMode::Select);
 
     let (translation, rotation, frame) = match interaction_mode {
-        EditorInteractionMode::Select => return,
+        EditorInteractionMode::Select | EditorInteractionMode::Paint => return,
         EditorInteractionMode::Cursor3d => {
             let frame = match resolve_surface_placement_frame(
                 world,

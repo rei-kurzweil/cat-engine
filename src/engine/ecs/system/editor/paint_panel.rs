@@ -1,4 +1,5 @@
 use crate::engine::ecs::ComponentId;
+use crate::engine::ecs::component::EditorInteractionMode;
 use crate::engine::ecs::system::editor::context::EditorContextState;
 
 pub const COLOR_PANEL_ROOT_SELECTOR: &str = "#color_panel_root";
@@ -223,7 +224,8 @@ pub fn is_paint_active(
     paint_state: &PaintState,
     editor_context: &EditorContextState,
 ) -> bool {
-    let focused = is_paint_workspace_focused(paint_panel_root, color_panel_root, editor_context);
+    let _ = (paint_panel_root, color_panel_root);
+    let mode_ok = editor_context.interaction_mode == EditorInteractionMode::Paint;
     let tool_ok = !matches!(paint_state.selected_tool, PaintTool::Unknown(_));
     let asset_ok = if matches!(
         paint_state.selected_tool,
@@ -237,9 +239,9 @@ pub fn is_paint_active(
             .and_then(|selection| selection.component)
             .is_some()
     };
-    let result = focused && tool_ok && asset_ok;
+    let result = mode_ok && tool_ok && asset_ok;
     eprintln!(
-        "🎨🖌️ paint_debug is_paint_active result={result} focused={focused} tool_ok={tool_ok} asset_ok={asset_ok} tool={:?} asset={:?} color={:?} panel={paint_panel_root:?} focused_panel={:?}",
+        "🎨🖌️ paint_debug is_paint_active result={result} mode_ok={mode_ok} tool_ok={tool_ok} asset_ok={asset_ok} tool={:?} asset={:?} color={:?} panel={paint_panel_root:?} focused_panel={:?}",
         paint_state.selected_tool,
         paint_state.selected_asset,
         paint_state.selected_color,
@@ -279,6 +281,21 @@ mod tests {
             &PaintEvent::SnapSelectionChanged { enabled: true },
         );
         assert!(enabled.snap_enabled);
+    }
+
+    #[test]
+    fn paint_activity_is_owned_by_mode_not_panel_focus() {
+        let paint_state = PaintState {
+            selected_tool: PaintTool::Erase,
+            ..PaintState::default()
+        };
+        let context = EditorContextState {
+            interaction_mode: EditorInteractionMode::Paint,
+            focused_panel: None,
+            ..EditorContextState::default()
+        };
+
+        assert!(is_paint_active(None, None, &paint_state, &context));
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub enum EditorInteractionMode {
     Select,
     Cursor3d,
     SelectAndCursor,
+    Paint,
 }
 
 impl Default for EditorInteractionMode {
@@ -204,6 +205,7 @@ impl Component for EditorComponent {
             EditorInteractionMode::Select => "select",
             EditorInteractionMode::Cursor3d => "cursor_3d",
             EditorInteractionMode::SelectAndCursor => "select_cursor",
+            EditorInteractionMode::Paint => "paint",
         };
         let mut expr = ce("Editor")
             .with_call("interaction_mode", vec![s(interaction_mode)])
