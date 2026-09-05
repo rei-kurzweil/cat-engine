@@ -29,11 +29,14 @@ stroke. This makes painting an empty grid depend on prior painted scene geometry
 
 ## Expected behavior
 
-- With an active, visible paint grid, users can begin a Free Draw stroke anywhere inside that
-  grid's finite bounds, even when no scene renderables exist there.
+- While the editor is in Paint mode, users can begin a Free Draw stroke anywhere inside any
+  enabled, visible grid's finite bounds, even when no scene renderables exist there.
 - The same grid plane should supply both the initial stroke point and later drag-projection points.
 - Starting a paint stroke from a grid surface must not select, move, rotate, or otherwise treat the
   grid as a gizmo target.
+- Selecting a grid explicitly from `grid_panel` is a separate command path: it selects the grid's
+  owning transform and attaches the normal transform gizmo even when the editor is currently in
+  Paint or 3D Cursor mode. It does not make ordinary grid-surface paint hits select the grid.
 - Outside the finite grid bounds, normal no-surface behavior should remain unchanged.
 
 ## Likely investigation
@@ -47,29 +50,55 @@ ordering and ownership of:
 - the finite analytic-plane hit in `grid_system.rs`.
 
 Paint is now intended to be a first-class `EditorInteractionMode`, mutually exclusive with Select,
-3D Cursor, and Select + Cursor. Use that mode as the policy boundary for grid drag eligibility:
+3D Cursor, and Select + Cursor. Use entering and exiting that mode as the policy boundary for grid
+raycast/BVH participation:
 
-- reuse the grid's existing live renderable as the BVH broad-phase candidate;
-- enable its drag eligibility only for the selected grid while Paint mode owns scene input;
-- use the existing finite analytic-plane helper for the exact hit and continued projection; and
-- keep the grid non-selectable and the transform gizmo hidden/inert in Paint mode.
+- on entry to Paint mode, consult `GridSystem`, iterate every enabled, visible live grid it manages,
+  and register each grid's existing live renderable as a raycast/BVH broad-phase candidate;
+- while Paint mode remains active, keep that membership synchronized when grids are created,
+  deleted, enabled, disabled, shown, or hidden;
+- on exit from Paint mode, consult `GridSystem` again and unregister every managed grid renderable
+  that was made raycastable for Paint;
+- make the transition idempotent so repeated mode synchronization cannot duplicate registration or
+  leave stale BVH entries;
+- use the existing finite analytic-plane helper for the exact hit, grid choice, and continued
+  projection after broad-phase candidate discovery; and
+- keep grid paint surfaces non-selectable. A grid-surface hit initiates Paint; it is not a scene
+  selection or transform-gizmo hit.
+
+The `grid_panel` selection action is an explicit exception to mode-based scene selection routing.
+It should resolve and select the grid's owning transform and attach the normal transform gizmo
+without first forcing the editor into Select mode. This applies in Paint and 3D Cursor modes as
+well as Select modes. Only a deliberate panel selection or a dedicated gizmo handle may target the
+grid transform; clicking or dragging the grid's BVH/analytic paint surface must never do so.
 
 Do not add an invisible renderable or transform solely to catch the initial pointer activation. See
 [Paint as a first-class editor interaction mode](../task/paint-as-first-class-editor-interaction-mode.md)
-for the complete routing and mode-transition work.
+for the complete routing and mode-transition work. That broader task's blanket rule that Paint
+hides the gizmo needs to preserve the explicit `grid_panel` selection exception documented here.
 
 ## Acceptance criteria
 
-- A fresh empty grid accepts an initial desktop click-drag and XR trigger-drag for Free Draw.
+- Fresh empty grids accept an initial desktop click-drag and XR trigger-drag for Free Draw while
+  Paint mode is active.
 - The first painted item is placed at the grid-plane intersection, using the same grid coordinate
   and snapping rules as subsequent stroke points.
 - A continuous stroke remains constrained/projected to the grid while held.
+- Entering Paint registers all enabled, visible managed grids for raycast/BVH broad-phase testing;
+  exiting Paint removes that Paint-only participation from every managed grid.
+- Creating, deleting, enabling, disabling, showing, or hiding a grid while Paint is active updates
+  BVH participation without leaving a stale or duplicate entry.
+- Outside Paint mode, grid renderables do not participate in raycasting merely because they are
+  visible or managed by `GridSystem`.
 - Grid interaction does not regress into the known behavior where a grid drag arms a gizmo or
   monopolizes selection.
-- The fix is active only under `EditorInteractionMode::Paint`; Paint gestures cannot retarget or
-  manipulate a transform gizmo.
-- A regression test covers a `DragStart` whose ray intersects the active grid's existing live
-  renderable but no other raycastable scene renderable.
+- Selecting a grid row selects its owning transform and attaches the gizmo without changing an
+  existing Paint or 3D Cursor interaction mode.
+- A Paint gesture cannot retarget or manipulate the grid gizmo unless its initial hit is a dedicated
+  gizmo handle.
+- Regression tests cover a `DragStart` whose ray intersects a managed grid's existing live
+  renderable but no other raycastable scene renderable, Paint entry/exit with multiple grids, and
+  grid-panel selection while Paint and 3D Cursor modes are active.
 
 ## Related trackers
 
