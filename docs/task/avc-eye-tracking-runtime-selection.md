@@ -2,7 +2,8 @@
 
 Date: 2026-09-04
 
-Status: planned — lifecycle seam audit complete; no runtime switching UI yet.
+Status: first OSC/HTC selector slice implemented; immediate tracker-resource
+cleanup remains follow-up work.
 
 ## Outcome
 
@@ -19,8 +20,19 @@ attach and initialize the selected replacement, and make AVC consume only that
 replacement. This is a transport selector, not a policy to blend all available
 trackers.
 
-Until the selector lands, the transport-neutral base scene starts with VRChat
-OSC. Its HTC companion remains a static transport-specific acceptance scene:
+Implemented in `examples/vtuber-microphone-speaking-xr-eye-tracking.mms`:
+
+- an `eye tracking` `info_panel` to the left of the microphone panel;
+- `VRChat OSC` and `HTC Wave Sdk\n(experimental)` option rows;
+- retained OSC → HTC → OSC swaps using `remove_subtree()` then `attach()`;
+- shared dark-gray panel/row styling with white text; and
+- the built-in yellow `Selection` highlight for the clicked `Option` row.
+
+`Selection`'s yellow `[1.0, 0.84, 0.0, 1.0]` highlight is currently a global
+engine constant, rather than an authored per-panel color option.
+
+The transport-neutral base scene starts with VRChat OSC, and its HTC companion
+remains a static transport-specific acceptance scene:
 
 - `examples/vtuber-microphone-speaking-xr-eye-tracking.mms` uses
   `XREyeTracking.on()` (VRChat OSC; default UDP port `9000`).
@@ -30,8 +42,7 @@ OSC. Its HTC companion remains a static transport-specific acceptance scene:
 
 ## What works today
 
-MMS already has the primitives needed to express the structural part of a
-swap:
+MMS has the primitives needed to express the structural part of a swap:
 
 1. A `let`-bound component expression materializes as a detached live
    component object.
@@ -41,24 +52,35 @@ swap:
 4. `SystemWorld::remove_subtree_immediate` deletes the subtree and removes
    scoped signal handlers rooted within it.
 
-The desired authored shape is therefore feasible without re-creating the
-avatar or `AVC`:
+The implemented authored shape is feasible without re-creating the avatar or
+`AVC`:
 
 ```mms
-let active_tracker = XREyeTracking.on()
-avc.attach(active_tracker)
+let avatar_control = AVC { initial_tracker }
+let eye_tracking_state = { tracker = initial_tracker }
 
-// on a selector-row click, after the runtime has a way to retain/reassign
-// live component handles:
-active_tracker.remove_subtree()
-let replacement = XREyeTrackingHTC.on()
-avc.attach(replacement)
-active_tracker = replacement
+on(htc_option, "Click", fn(event) {
+    let active_tracker = eye_tracking_state.tracker
+    active_tracker.remove_subtree()
+    let replacement = XREyeTrackingHTC.on()
+    avatar_control.attach(replacement)
+    eye_tracking_state.tracker = replacement
+})
 ```
 
-The exact reassignment/selection-state syntax should follow the retained MMS
-component-handle work; this snippet states the required topology and ordering,
-not a claimed complete program.
+The focused scripting test executes OSC → HTC → OSC click callbacks through
+the mutation executor and confirms that each result has exactly one direct AVC
+tracker child.
+
+### Current MMS authoring constraint
+
+Live component handles work reliably when retained in direct top-level bindings
+and captured by the row handler. Passing a component handle through an MMS
+helper-function argument currently degrades it to a component expression; a
+subsequent `.attach()` is parsed as a constructor. The demo deliberately keeps
+the two initial row handlers direct and shares the replaceable tracker through
+a mutable table. Generalize this only after component-handle function arguments
+retain their live-object identity.
 
 ## AVC seam
 
@@ -98,7 +120,9 @@ currently expose a per-component `remove`/`component_removed` hook, and
 `SystemWorld::remove_subtree_immediate` does not notify it. A switch can
 therefore leave the old socket registered until the next eye-tracking tick.
 
-Before exposing the selector, add an explicit
+The current selector is safe for its OSC (`9000`) and HTC (`9002`) choices
+because their default ports differ; no ALVR restart is needed. Still add an
+explicit
 `XREyeTrackingSystem::component_removed(ComponentId)` (or a shared component
 lifecycle hook) and call it during authoritative subtree removal. It must
 remove the ID from both socket maps, sample cache, and failed-bind sets so the
@@ -112,8 +136,8 @@ component configured for the same port.
 
 ## Menu design
 
-Place a second ordinary-scene `info_panel` beside the existing microphone
-panel in the base scene. Reuse its title chrome, drag behavior, accordion
+The implementation places a second ordinary-scene `info_panel` beside the
+existing microphone panel in the base scene. It reuses title chrome, drag behavior, accordion
 minimize/restore behavior, raycast rows, and styling; do not build a parallel
 editor panel.
 
@@ -127,30 +151,23 @@ eye tracking
   (experimental) ]
 ```
 
-Each option row should set a small status text such as `selected VRChat OSC`.
-The active row needs a selected visual treatment. The two labels are stable UI
+Each option row sets a status text such as `selected VRChat OSC`. The selected
+row receives the built-in yellow visual treatment. The two labels are stable UI
 names; they must map to component factories, not directly to socket/port
 details. MediaPipe later adds one factory and one row without changing AVC.
 
-## First implementation plan
+## Follow-up plan
 
-1. Finish the removal-lifecycle seam above and add focused tests that removal
-   immediately clears both standard and HTC socket/cache registrations.
-2. Add a minimal retained selection holder to MMS/runtime code: active tracker
-   handle plus selected transport key. Its replacement operation must serialize
-   `remove_subtree(old)` before attaching the new direct child.
-3. Add `eye_tracking_option` / `eye_tracking_options` helpers in the base
-   microphone scene, following its `audio_input_option` pattern.
-4. Create the `info_panel` with exactly the two labels above and route clicks
-   through the selection holder/factories.
-5. Give each factory the exact current defaults and common eye rotation limits:
-   `XREyeTracking.on()` for OSC and `XREyeTrackingHTC.on()` for HTC.
-6. Test initial materialization, OSC → HTC → OSC switching, no stale direct
-   child, rest-pose release before first replacement sample, and handler/socket
-   cleanup after every switch.
-7. Validate live with VRChat OSC and an HTC Wave SDK/ALVR feed. Confirm that
+1. Add the immediate removal-lifecycle hook and focused tests that removal
+   clears both standard and HTC socket/cache registrations in the same mutation
+   drain.
+2. Extend the selector test with first-packet/rest-pose behavior and scoped
+   handler/socket cleanup checks.
+3. Validate live with VRChat OSC and an HTC Wave SDK/ALVR feed. Confirm that
    the inactive port is no longer held and that blinking and per-eye gaze both
    transfer correctly.
+4. Preserve live component-object identity through MMS helper-function
+   arguments before factoring the direct row handlers into transport factories.
 
 ## Non-goals and open questions
 
@@ -175,7 +192,8 @@ details. MediaPipe later adds one factory and one row without changing AVC.
 - The menu contains precisely `VRChat OSC` and `HTC Wave Sdk\n(experimental)`.
 - A click leaves exactly one direct eye-tracking child beneath AVC.
 - Old tracker UDP/socket/cache state and its scoped handlers are gone at
-  removal, not merely discovered by a later full-world scan.
+  removal, not merely discovered by a later full-world scan. This remains
+  open; today the eye-tracking system prunes it on its next tick.
 - AVC releases old gaze/blink ownership safely and accepts the selected
   transport's first valid samples without avatar or GLTF reinitialization.
 - The transport-neutral base and the HTC companion scenes remain valid; before

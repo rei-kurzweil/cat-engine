@@ -1,4 +1,4 @@
-// VTuber microphone-speaking animation + VRChat OSC eye-tracking mirror
+// VTuber microphone-speaking animation + switchable XR eye-tracking mirror
 //
 // A focused XR acceptance scene for automatic eye-bone tracking and the
 // amplitude-driven mouth-open fallback. This first panel slice deliberately
@@ -33,6 +33,8 @@ tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1
 // live source to that row's session-local AudioInput.devices() index.
 let microphone = AudioInput {}
 let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
+let active_eye_tracking = XREyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+let eye_tracking_state = { tracker = active_eye_tracking }
 
 let audio_input_devices = AudioInput.devices()
 let audio_input_status = Text { "default audio input selected — click a device to switch" }
@@ -48,9 +50,9 @@ fn audio_input_option(input_source_name, input_source_index, microphone, status_
             width(100%)
             margin_xy(0.1, 0.12)
             padding_xy(0.45, 0.35)
-            background_color([0.12, 0.18, 0.29, 0.96])
+            background_color([0.15, 0.15, 0.17, 0.98])
             background_z(-0.01)
-            color([0.88, 0.95, 1.0, 1.0])
+            color([0.96, 0.96, 0.98, 1.0])
         }
         T.position(0.0, 0.0, 0.02) { Text { label } }
     }
@@ -99,13 +101,72 @@ let microphone_info_panel = info_panel({
                 display("block")
                 width(100%)
                 padding_xy(0.35, 0.25)
-                color([0.62, 0.78, 1.0, 1.0])
+                color([0.96, 0.96, 0.98, 1.0])
             }
             audio_input_status
         }
         audio_input_options(audio_input_devices, microphone, audio_input_status)
     }
 })
+
+let avatar_control = AVC {
+        name = "avatar_control"
+        mouth_open_from_amplitude(voice_level)
+        mouth_open_rms_floor(0.005)
+        mouth_open_rms_ceiling(0.09)
+        mouth_open_smoothing(16.0)
+
+        // Direct placement also makes the retained measurement available to
+        // AVC diagnostics. Capture is not monitored.
+        voice_level
+
+        // OpenXR's rest-forward is -Z.
+        initial_yaw(3.14159)
+        left_arm_pole_direction([1, -0.35, -1])
+        right_arm_pole_direction([-1, -0.35, -1])
+        hand_rotation_smoothing(220.0)
+
+        T {
+            GLTF.new("assets/models/bisket.glb") {
+                MorphTargetMap.new()
+                    .slot("left_eye_blink", "Fcl_EYE_Close_L")
+                    .slot("right_eye_blink", "Fcl_EYE_Close_R")
+                    .slot("viseme_aa", "Fcl_MTH_A")
+                    .slot("viseme_ih", "Fcl_MTH_I")
+                    .slot("viseme_ou", "Fcl_MTH_U")
+                    .slot("viseme_e", "Fcl_MTH_E")
+                    .slot("viseme_oh", "Fcl_MTH_O")
+                EM.on()
+                bisket_colliders()
+                bisket_shirt_physics(false)
+            }
+        }
+
+        // AVC reparents this camera path to the mapped head.
+        T.position(0.0, 0.08, 0.12) {
+            CXR { Pointer {} }
+        }
+
+        // The active transport is always a direct AVC child.
+        eye_tracking_state.tracker
+
+        // Direct children supply the left/right hand targets used by AVC's
+        // mapped TwoBoneIK chains.
+        XRHand.new(true, "Left", "GripAim").laser() {
+            T {
+                RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
+                    Pointer {}
+                }
+            }
+        }
+        XRHand.new(true, "Right", "GripAim").laser() {
+            T {
+                RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
+                    Pointer {}
+                }
+            }
+        }
+}
 
 // An explicit list keeps the editor useful without materializing the default
 // world and assets panels in this focused capture scene.
@@ -125,13 +186,7 @@ T.position(-2.75, 2.8, -1.5) {
     }
 }
 
-// This is ordinary scene UI. The accordion title bar can be dragged and the
-// body can be collapsed while testing the avatar in XR.
-T.position(-3.6, 2.25, -3.8) {
-    microphone_info_panel
-}
-
-ED {
+let scene_root = ED {
     // Low presentation stage, with colored block piles marking its edges.
     T.position(0.0, -0.85, -1.5).scale(9.8, 0.16, 8.4) {
         R.cube() { C.rgba(0.20, 0.22, 0.27, 1.0) }
@@ -173,68 +228,111 @@ ED {
     T {
         InputXR.on() {
             InputXRGamepad { locomotion() speed(1.5) }
-            T {
-                AVC {
-                    mouth_open_from_amplitude(voice_level)
-                    mouth_open_rms_floor(0.005)
-                    mouth_open_rms_ceiling(0.09)
-                    mouth_open_smoothing(16.0)
-
-                    // Direct placement also makes the retained measurement
-                    // available to AVC diagnostics. Capture is not monitored.
-                    voice_level
-
-                    // OpenXR's rest-forward is -Z.
-                    initial_yaw(3.14159)
-                    left_arm_pole_direction([1, -0.35, -1])
-                    right_arm_pole_direction([-1, -0.35, -1])
-                    hand_rotation_smoothing(220.0)
-
-                    T {
-                        GLTF.new("assets/models/bisket.glb") {
-                            MorphTargetMap.new()
-                                .slot("left_eye_blink", "Fcl_EYE_Close_L")
-                                .slot("right_eye_blink", "Fcl_EYE_Close_R")
-                                .slot("viseme_aa", "Fcl_MTH_A")
-                                .slot("viseme_ih", "Fcl_MTH_I")
-                                .slot("viseme_ou", "Fcl_MTH_U")
-                                .slot("viseme_e", "Fcl_MTH_E")
-                                .slot("viseme_oh", "Fcl_MTH_O")
-                            EM.on()
-                            bisket_colliders()
-                            bisket_shirt_physics(false)
-                        }
-                    }
-
-                    // AVC reparents this camera path to the mapped head.
-                    T.position(0.0, 0.08, 0.12) {
-                        CXR { Pointer {} }
-                    }
-
-                    // Direct child: enables automatic mapped left/right eye
-                    // bone rotation from VRChat OSC packets.
-                    XREyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
-
-                    // Direct children supply the left/right hand targets used
-                    // by AVC's mapped TwoBoneIK chains.
-                    XRHand.new(true, "Left", "GripAim").laser() {
-                        T {
-                            RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
-                                Pointer {}
-                            }
-                        }
-                    }
-                    XRHand.new(true, "Right", "GripAim").laser() {
-                        T {
-                            RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
-                                Pointer {}
-                            }
-                        }
-                    }
-                }
-            }
+            T { avatar_control }
         }
     }
+}
+
+// Emit the scene before creating the panel.
+scene_root
+
+let eye_tracking_status = Text { "selected VRChat OSC" }
+
+let vrchat_eye_tracking_option = T {
+    name = "eye_tracking_option_vrchat_osc"
+    Option {}
+    Raycastable.enabled()
+    Style {
+        display("block")
+        width(100%)
+        margin_xy(0.1, 0.12)
+        padding_xy(0.45, 0.35)
+        background_color([0.15, 0.15, 0.17, 0.98])
+        background_z(-0.01)
+        color([0.96, 0.96, 0.98, 1.0])
+    }
+    T.position(0.0, 0.0, 0.02) { Text { "VRChat OSC" } }
+}
+
+let htc_eye_tracking_option = T {
+    name = "eye_tracking_option_htc_wave"
+    Option {}
+    Raycastable.enabled()
+    Style {
+        display("block")
+        width(100%)
+        margin_xy(0.1, 0.12)
+        padding_xy(0.45, 0.35)
+        background_color([0.15, 0.15, 0.17, 0.98])
+        background_z(-0.01)
+        color([0.96, 0.96, 0.98, 1.0])
+    }
+    T.position(0.0, 0.0, 0.02) { Text { "HTC Wave Sdk\n(experimental)" } }
+}
+
+on(vrchat_eye_tracking_option, "Click", fn(event) {
+    let current_tracker = eye_tracking_state.tracker
+    current_tracker.remove_subtree()
+    let replacement = XREyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+    avatar_control.attach(replacement)
+    eye_tracking_state.tracker = replacement
+    eye_tracking_status.set_text("selected VRChat OSC")
+})
+
+on(htc_eye_tracking_option, "Click", fn(event) {
+    let current_tracker = eye_tracking_state.tracker
+    current_tracker.remove_subtree()
+    let replacement = XREyeTrackingHTC.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+    avatar_control.attach(replacement)
+    eye_tracking_state.tracker = replacement
+    eye_tracking_status.set_text("selected HTC Wave Sdk (experimental)")
+})
+
+let eye_tracking_options = T {
+    name = "eye_tracking_selection_content"
+    Selection { name = "eye_tracking_selection" }
+    Style {
+        display("flex")
+        flex_direction("column")
+        width(100%)
+    }
+    vrchat_eye_tracking_option
+    htc_eye_tracking_option
+}
+
+let eye_tracking_info_panel = info_panel({
+    root_name = "eye_tracking_panel"
+    width_gu = 24.0
+    unit_scale = 0.075
+    title = "eye tracking"
+    content = T {
+        name = "eye_tracking_content"
+        Style {
+            display("flex")
+            flex_direction("column")
+            width(100%)
+        }
+        T.position(0.0, 0.0, 0.02) {
+            Style {
+                display("block")
+                width(100%)
+                padding_xy(0.35, 0.25)
+                color([1.0, 0.84, 0.0, 1.0])
+            }
+            eye_tracking_status
+        }
+        eye_tracking_options
+    }
+})
+
+// Ordinary scene UI. The selection system supplies its standard yellow
+// highlight to the clicked Option rows; title bars remain draggable and both
+// bodies can be collapsed independently in XR.
+T.position(-5.85, 2.25, -3.8) {
+    eye_tracking_info_panel
+}
+T.position(-3.6, 2.25, -3.8) {
+    microphone_info_panel
 }
 
 XR.on()

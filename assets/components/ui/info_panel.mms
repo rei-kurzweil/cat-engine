@@ -3,7 +3,8 @@
 // Required options:
 //   root_name, width_gu, unit_scale, title, content
 // Optional options:
-//   icon, background_color, toggle_background_color
+//   icon, background_color, toggle_background_color, body_background_color,
+//   title_text_color, body_text_color
 //
 // The panel wraps `content` in its body internally. When the panel is restored
 // after minimizing, the caller receives the forwarded
@@ -13,11 +14,13 @@
 import { accordion, accordion_body } from "../internal/ui/accordion.mms"
 
 let INFO_PANEL_TITLE_HEIGHT_GU = 3.5
-let INFO_PANEL_TITLE_BACKGROUND = [0.08, 0.12, 0.19, 0.98]
-let INFO_PANEL_TOGGLE_BACKGROUND = [0.18, 0.42, 0.74, 1.0]
-let INFO_PANEL_BODY_BACKGROUND = [0.025, 0.04, 0.07, 0.94]
+let INFO_PANEL_TITLE_BACKGROUND = [0.12, 0.12, 0.14, 0.98]
+let INFO_PANEL_TOGGLE_BACKGROUND = [0.24, 0.24, 0.27, 1.0]
+let INFO_PANEL_BODY_BACKGROUND = [0.075, 0.075, 0.09, 0.96]
+let INFO_PANEL_TITLE_TEXT = [0.96, 0.96, 0.98, 1.0]
+let INFO_PANEL_BODY_TEXT = [0.96, 0.96, 0.98, 1.0]
 
-fn info_panel_title(title) {
+fn info_panel_title(title, text_color) {
     return T {
         name = "info_panel_title"
         Style {
@@ -27,7 +30,7 @@ fn info_panel_title(title) {
             height(INFO_PANEL_TITLE_HEIGHT_GU)
             align_items("center")
             padding_xy(0.9, 0.3)
-            color([0.88, 0.95, 1.0, 1.0])
+            color(text_color)
         }
         T.position(0.0, 0.0, 0.02) { Text { title } }
     }
@@ -47,7 +50,7 @@ fn info_panel_icon(icon) {
     }
 }
 
-fn panel_with_title_children(options, title_children, title_bar_background, toggle_background) {
+fn panel_with_title_children(options, title_children, title_bar_background, toggle_background, body_background, body_text_color) {
     // Body structure is an implementation detail of the panel, rather than a
     // second public helper callers must remember to use.
     let body = accordion_body(T {
@@ -58,8 +61,8 @@ fn panel_with_title_children(options, title_children, title_bar_background, togg
             width(100%)
             padding(0.65)
             row_gap(0.35)
-            color([0.90, 0.95, 1.0, 1.0])
-            background_color(INFO_PANEL_BODY_BACKGROUND)
+            color(body_text_color)
+            background_color(body_background)
             background_z(-0.01)
         }
         options.content
@@ -87,7 +90,19 @@ export fn info_panel(options) {
     let authored_toggle_background_color = options["toggle_background_color"]
     if authored_toggle_background_color { toggle_background = authored_toggle_background_color }
 
-    let title = info_panel_title(options.title)
+    let body_background = INFO_PANEL_BODY_BACKGROUND
+    let authored_body_background_color = options["body_background_color"]
+    if authored_body_background_color { body_background = authored_body_background_color }
+
+    let title_text_color = INFO_PANEL_TITLE_TEXT
+    let authored_title_text_color = options["title_text_color"]
+    if authored_title_text_color { title_text_color = authored_title_text_color }
+
+    let body_text_color = INFO_PANEL_BODY_TEXT
+    let authored_body_text_color = options["body_text_color"]
+    if authored_body_text_color { body_text_color = authored_body_text_color }
+
+    let title = info_panel_title(options.title, title_text_color)
     let icon = options["icon"]
     if icon {
         return panel_with_title_children(
@@ -95,6 +110,8 @@ export fn info_panel(options) {
             [info_panel_icon(icon), title],
             title_bar_background,
             toggle_background,
+            body_background,
+            body_text_color,
         )
     }
     return panel_with_title_children(
@@ -102,5 +119,7 @@ export fn info_panel(options) {
         [title],
         title_bar_background,
         toggle_background,
+        body_background,
+        body_text_color,
     )
 }

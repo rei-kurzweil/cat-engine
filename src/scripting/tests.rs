@@ -259,6 +259,178 @@ fn vtuber_microphone_speaking_eye_tracking_scene_uses_standard_eye_tracking() {
 }
 
 #[test]
+fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
+    let path = repo_path("examples/vtuber-microphone-speaking-xr-eye-tracking.mms");
+    let source = fs::read_to_string(&path).expect("read switchable eye-tracking example");
+    let mut world = World::default();
+    let mut systems = crate::engine::ecs::system::SystemWorld::new();
+    systems.selection.install_handlers(&mut systems.rx);
+    let mut assets = RenderAssets::new();
+    let mut queue = CommandQueue::new();
+    let (mut session, output) = RuntimeSpecSession::start_at_path(
+        &source,
+        path.to_str().expect("scene path should be UTF-8"),
+        &mut world,
+        &mut systems.rx,
+        Some(&mut assets),
+        &mut queue,
+    )
+    .expect("strict runtime should load switchable eye-tracking scene");
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+
+    let avc = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("avatar_control"))
+        .expect("named AVC");
+    let standard_tracker = world
+        .children_of(avc)
+        .iter()
+        .copied()
+        .find(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
+                    id,
+                )
+                .is_some()
+        })
+        .expect("initial direct VRChat OSC tracker");
+    let htc_row = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("eye_tracking_option_htc_wave"))
+        .expect("HTC option row");
+
+    systems.rx.dispatch_event_handlers(
+        &mut world,
+        &Signal::event(
+            htc_row,
+            EventSignal::Click {
+                raycaster: ComponentId::default(),
+                renderable: htc_row,
+                hit_point: [0.0, 0.0, 0.0],
+                screen_pos_px: None,
+            },
+        ),
+    );
+    let htc_row_style = world
+        .children_of(htc_row)
+        .iter()
+        .copied()
+        .find_map(|id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::StyleComponent>(id)
+        })
+        .expect("HTC option style");
+    assert_eq!(htc_row_style.background_color, Some([1.0, 0.84, 0.0, 1.0]));
+    let output = session.service_callbacks(
+        &mut world,
+        &mut systems.rx,
+        Some(&mut assets),
+        &mut queue,
+    );
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+    assert!(output.intents.iter().any(|intent| matches!(
+        intent,
+        IntentValue::RemoveSubtree { component_id } if *component_id == standard_tracker
+    )));
+    assert!(output.intents.iter().any(|intent| matches!(
+        intent,
+        IntentValue::Attach { parent, child }
+            if *parent == avc
+                && world
+                    .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(*child)
+                    .is_some()
+    )));
+    for intent in output.intents {
+        queue.push_intent_now(ComponentId::default(), intent);
+    }
+    let mut visuals = VisualWorld::default();
+    systems.process_commands(&mut world, &mut visuals, &mut assets, &mut queue);
+
+    assert!(world.get_component_record(standard_tracker).is_none());
+    let direct_trackers = world
+        .children_of(avc)
+        .iter()
+        .copied()
+        .filter(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
+                    id,
+                )
+                .is_some()
+                || world
+                    .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(
+                        id,
+                    )
+                    .is_some()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(direct_trackers.len(), 1, "one active direct eye tracker");
+    assert!(world
+        .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(
+            direct_trackers[0]
+        )
+        .is_some());
+
+    let htc_tracker = direct_trackers[0];
+    let vrchat_row = world
+        .all_components()
+        .find(|&id| world.component_label(id) == Some("eye_tracking_option_vrchat_osc"))
+        .expect("VRChat OSC option row");
+    systems.rx.dispatch_event_handlers(
+        &mut world,
+        &Signal::event(
+            vrchat_row,
+            EventSignal::Click {
+                raycaster: ComponentId::default(),
+                renderable: vrchat_row,
+                hit_point: [0.0, 0.0, 0.0],
+                screen_pos_px: None,
+            },
+        ),
+    );
+    let output = session.service_callbacks(
+        &mut world,
+        &mut systems.rx,
+        Some(&mut assets),
+        &mut queue,
+    );
+    assert!(output.errors.is_empty(), "{:#?}", output.errors);
+    assert!(output.intents.iter().any(|intent| matches!(
+        intent,
+        IntentValue::RemoveSubtree { component_id } if *component_id == htc_tracker
+    )));
+    for intent in output.intents {
+        queue.push_intent_now(ComponentId::default(), intent);
+    }
+    systems.process_commands(&mut world, &mut visuals, &mut assets, &mut queue);
+
+    assert!(world.get_component_record(htc_tracker).is_none());
+    let direct_trackers = world
+        .children_of(avc)
+        .iter()
+        .copied()
+        .filter(|&id| {
+            world
+                .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
+                    id,
+                )
+                .is_some()
+                || world
+                    .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(
+                        id,
+                    )
+                    .is_some()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(direct_trackers.len(), 1, "one active direct eye tracker");
+    assert!(world
+        .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
+            direct_trackers[0]
+        )
+        .is_some());
+}
+
+#[test]
 fn audio_device_static_apis_are_available_to_strict_mms() {
     let source = r#"
         let inputs = AudioInput.devices()
