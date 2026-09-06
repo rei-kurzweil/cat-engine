@@ -11,7 +11,7 @@ workstream below links to those implementation records.
 
 The [interaction priority meta tracker](interaction-priorities.md) records the
 latest ordering: investigate the still-failing empty-grid Free Draw startup
-first, then the grabbing/poses/release-zones epic. This overrides the relative
+first, grid startup visibility second, then the grabbing/poses/release-zones epic. This overrides the relative
 priority of those items in the broader workstream list below; it does not make
 every tracked item a release blocker.
 

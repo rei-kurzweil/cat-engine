@@ -17,21 +17,38 @@ painting still does not start without backing scene geometry. Investigate this
 before the grab epic. Keep the existing bug as the canonical diagnosis and
 acceptance record; do not create a duplicate bug.
 
-The source audit confirms Paint-mode registration is present, but the finite
-analytic grid-plane helper has no production callers. Gesture start still
-requires a qualifying raycast hit. The reason the existing grid box hit also
-failed in the reported run remains unconfirmed.
+A headless lifecycle probe of the supplied `paint-grids-desktop.mms` confirms
+that its authored grid has no live renderable/raycast marker after Paint sync.
+Disabling/re-enabling it creates the missing runtime. The registration test
+only covers editor-spawned grids, which already have that runtime. The exact
+analytic plane helper also remains unconnected to production hit resolution.
 
-Next milestone: trace the first empty-grid press through eligibility, BVH,
-raycast, gesture delivery, and Paint startup, identify the first failing stage,
-and validate a repair with an actual empty-grid stroke. Registration-only tests
-are insufficient to close this issue.
+The user has now confirmed that toggling the grid does **not** fix empty-grid
+stroke startup. Live traces show empty hit lists on failed presses and backing
+square captures on successful strokes. The lifecycle finding does not close
+this bug; it also informs the separate startup visibility issue below.
+
+Next milestone: inspect the visible, toggled grid's live Paint eligibility,
+raycast marker, BVH entry/bounds, and exact-hit filtering to find where the grid
+candidate disappears. Validate a stroke on the exposed grid area with no
+backing geometry before closing this item.
 
 Related work: [Editor/grid/paint workbench](editor-grid-paint.md),
 [Paint interaction mode](../task/paint-as-first-class-editor-interaction-mode.md),
 and [editor grid/paint release gate](../task/editor-grid-paint-0.8.0-release-gate.md).
 
-## Priority 2: grabbing, poses, and release zones
+## Priority 2: grid startup visibility
+
+- [ ] [Grid startup visibility and UI state](../bugs/default-grid-visibility-ui-state-out-of-sync.md)
+
+The supplied desktop example says its grid is visible at startup, but the user
+must toggle it off/on before it renders. Its authored `enabled(true)` and
+`hidden(false)` state should produce a visible grid immediately. The existing
+tracker now distinguishes this missing-runtime case from the older hidden-default
+UI mismatch. Repair initialization and validate first-load visibility without
+using a toggle as a prerequisite.
+
+## Priority 3: grabbing, poses, and release zones
 
 - [ ] [Grabbing, poses, and release zones epic](../task/epic/grabbing-poses-and-release-zones.md)
 

@@ -20,7 +20,9 @@ losing editor state.
 participation changes and it still fails. [The existing bug](../bugs/free-draw-cannot-start-on-empty-grid-analytic-plane.md)
 now records the implementation audit and the remaining runtime diagnosis.
 Investigate this first under the [interaction priority tracker](interaction-priorities.md).
-Registration is present; end-to-end stroke startup is not validated.
+Registration is present; the user confirms stroke startup still fails after
+toggling the grid. [Startup visibility](../bugs/default-grid-visibility-ui-state-out-of-sync.md)
+is the second priority: the UI says visible before the authored grid renders.
 
 ## Canonical trackers
 
