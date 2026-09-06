@@ -53,8 +53,12 @@ T.position(-6.0, 0.01, 6.0).rotation(-1.5708, 0.0, 0.0).scale(0.10, 0.10, 0.10) 
 }
 
 // Cubes make the first room deliberately legible. The front is open as an
-// entrance; window-gap wall sections are a tracked layout-factory follow-up.
-room_cube("e2_back_wall",  [0.0, 2.0, -5.9], [12.0, 4.0, 0.20], [0.18, 0.20, 0.28])
+// entrance. The back wall is split into a window frame behind the mirror so
+// the mirror capture can be tested against geometry close behind its plane.
+room_cube("e2_back_wall_left",  [-4.10, 2.0, -5.9], [3.80, 4.0, 0.20], [0.18, 0.20, 0.28])
+room_cube("e2_back_wall_right", [ 4.10, 2.0, -5.9], [3.80, 4.0, 0.20], [0.18, 0.20, 0.28])
+room_cube("e2_back_window_lower", [0.0, 0.65, -5.9], [4.40, 1.30, 0.20], [0.18, 0.20, 0.28])
+room_cube("e2_back_window_upper", [0.0, 3.30, -5.9], [4.40, 1.40, 0.20], [0.18, 0.20, 0.28])
 room_cube("e2_left_wall",  [-5.9, 2.0, 0.0], [0.20, 4.0, 12.0], [0.16, 0.18, 0.26])
 room_cube("e2_right_wall", [5.9, 2.0, 0.0], [0.20, 4.0, 12.0], [0.16, 0.18, 0.26])
 room_cube("e2_entry_left",  [-3.8, 1.15, 5.8], [2.2, 2.3, 0.20], [0.18, 0.20, 0.28])
@@ -74,9 +78,16 @@ T.position(0.0, 0.93, -1.15).rotation(0.0, 0.45, 0.0).scale(1.0, 1.0, 1.0) {
     GLTF.new("assets/models/estradiol-tablet.glb") {}
 }
 
+T.position(-2, 5, -2) {
+    name = "preroll"
+    Grabbable {}
+    GLTF.new("assets/models/sativa-preroll.glb") {}
+}
+
 // Full-body mirror facing the desktop avatar and the tablet presentation.
-T.position(0.0, 1.95, -3.72).scale(2.25, 1.85, 0.08) {
+T.position(0.0, 1.95, -4.72).scale(2.25, 1.85, 0.08) {
     name = "e2_mirror"
+    Grabbable {}
     R.cube() { Mirror.quality(2048) {} }
 }
 
