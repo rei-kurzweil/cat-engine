@@ -87,6 +87,7 @@ struct GridRegistry {
     by_grid: HashMap<ComponentId, GridEntry>,
     by_editor: HashMap<ComponentId, Vec<ComponentId>>,
     cached_component_count: usize,
+    debug_raycast_states: HashMap<ComponentId, String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -135,6 +136,25 @@ impl GridSystem {
             .collect::<Vec<_>>();
         for entry in entries {
             let enabled = paint_mode && entry.enabled && !entry.hidden;
+            if crate::engine::ecs::system::BvhSystem::debug_grid_raycast_enabled() {
+                let marker = world.find_component(entry.owner_transform, "#grid_live_raycastable");
+                let renderable =
+                    world.find_component(entry.owner_transform, "#grid_live_renderable");
+                let state = format!(
+                    "owner={:?} paint_mode={paint_mode} enabled={} hidden={} desired={enabled} marker={marker:?} renderable={renderable:?}",
+                    entry.owner_transform, entry.enabled, entry.hidden
+                );
+                let mut registry = self.registry.lock().expect("grid registry mutex poisoned");
+                if registry.debug_raycast_states.get(&entry.grid_component) != Some(&state) {
+                    eprintln!(
+                        "grid_raycast_trace phase=eligibility grid={:?} {state}",
+                        entry.grid_component
+                    );
+                    registry
+                        .debug_raycast_states
+                        .insert(entry.grid_component, state);
+                }
+            }
             let Some(raycastable_id) =
                 world.find_component(entry.owner_transform, "#grid_live_raycastable")
             else {
@@ -150,6 +170,12 @@ impl GridSystem {
                 raycastable.pointer_events = PointerEvents::DragOnly;
             }
             if changed {
+                if crate::engine::ecs::system::BvhSystem::debug_grid_raycast_enabled() {
+                    eprintln!(
+                        "grid_raycast_trace phase=sync grid={:?} owner={:?} marker={raycastable_id:?} paint_mode={paint_mode} enabled={} hidden={} register={enabled}",
+                        entry.grid_component, entry.owner_transform, entry.enabled, entry.hidden
+                    );
+                }
                 emit.push_intent_now(
                     raycastable_id,
                     if enabled {

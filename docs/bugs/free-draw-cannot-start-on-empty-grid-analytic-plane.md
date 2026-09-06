@@ -2,6 +2,28 @@
 
 ## Status: still failing after attempted fix
 
+### Follow-up: live BVH absence traced to unhandled registration intents
+
+The user's instrumented post-toggle press confirms that live renderable
+`698v3` exists, marker `703v3` and its governing policy are enabled/DragOnly,
+but `bounds=None`: the renderable has no indexed BVH leaf. Consequently the
+press has zero candidates and no gesture drag hit. This is upstream of the
+box narrow phase and Paint event handling.
+
+The saved `/tmp/mittens-grid-raycast.log` records Paint eligibility and
+`phase=sync register=true` for that marker at lines 3681–3682, with no matching
+registration-applied record. Source inspection finds the concrete disconnect:
+`RxMutationExecutor::execute`, the active queue-flush executor, omitted both
+`RegisterRaycastable` and `RemoveRaycastable`. Its wildcard arm silently ignored
+them. The earlier source audit followed handlers in an older SystemWorld
+dispatch path and therefore incorrectly assumed delivery to those handlers.
+
+Both intents are now routed by the active executor to SystemWorld's existing
+registration/removal methods. A queue-flush regression covers enabled-marker
+registration, a real BVH candidate query, removal, and re-entry. Live empty-grid
+stroke validation is still required; authored startup visibility and captured
+grid-plane continuation remain separate outstanding work.
+
 2026-09-05: the user revalidated empty-grid Free Draw after the recent grid
 raycast/BVH participation changes and reports that it still does not start.
 Keep this issue open. This is the highest current interaction priority in the
@@ -37,6 +59,51 @@ for the visible, toggled grid. A successful lifecycle-only probe does not prove
 any of those later stages. Include this post-toggle case in regression coverage.
 
 ## Summary
+
+### 2026-09-05 source map: ordinary hit startup, grid-plane continuation
+
+The current investigation separates two responsibilities: initiate the stroke
+from the grid renderable's ordinary BVH/raycast `DragStart`; project the active
+stroke's ray onto its captured logical grid plane. A separate analytic-plane
+activation path is not required to explain or repair missing initial hits.
+
+The source path is:
+
+1. `GridSystem::ensure_live_runtime` creates owner → `grid_live_root` (T) →
+   `grid_live_shape` (T) → `grid_live_renderable` (R, CUBE). The raycast marker
+   is a child of R. The shape transform supplies grid width/depth, thickness
+   0.0025, and local Y offset 0.005.
+2. `sync_paint_raycast_targets` enables that marker only for Paint + enabled +
+   visible, sets `DragOnly`, and emits `RegisterRaycastable` on change.
+3. `SystemWorld::register_raycastable` calls `refresh_raycastable_bindings`.
+   Its ancestor walk finds R from the child marker, then queues R in BVH and
+   notifies the raycaster. The BVH leaf is keyed by R's component ID, not the
+   grid component, owning T, or an analytic plane.
+4. `BvhSystem::tick` flushes pending insertions before raycasting. Insertion
+   rechecks the governing enabled marker and computes R's world AABB.
+5. `RayCastSystem::cast_against_renderables_bvh` queries candidates and runs
+   narrow phase. CUBE resolves to a local box test. The resulting ordinary
+   hit participates in gesture priority/distance ordering.
+6. `GestureSystem` requires a drag-capable hit before emitting `DragStart`.
+   `DragOnly` deliberately does not capture clicks. Paint translates the
+   start to `StrokeStarted`, identifies the grid from R, and captures it.
+
+Continuation needs a correction to the older description below: the grid's
+`intersect_captured_grid_plane` helper has **no production callers**. Desktop
+Auto mapping currently uses `StartRayPlane`, whose normal is the initial ray
+direction, through the initial hit. This is a generic gesture plane, not the
+logical grid plane. Paint then maps/snaps received points into grid coordinates;
+`GridSystem::snap_hit` sets grid-local Y to zero. Snapping a point from the
+gesture plane is not the same as intersecting the current ray with the grid.
+Spatial Auto behavior can instead require target contact. Neither proves the
+intended captured-grid ray projection is implemented.
+
+This is a static source map, not proof of live post-toggle membership. The next
+runtime trace must correlate owner/grid/marker/R IDs, Paint eligibility,
+registration application, actual BVH membership and AABB, pointer ray,
+broad-phase candidacy, box acceptance, and gesture hit selection for the same
+failed press. Missing analytic grid-plane continuation does not by itself
+explain why that press has no ordinary grid-box hit.
 
 `Free Draw` can project an already-active stroke onto a grid, but it cannot begin that stroke by
 clicking or pressing the trigger on an otherwise empty part of the grid. A stroke only starts when

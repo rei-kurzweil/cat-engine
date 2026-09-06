@@ -73,6 +73,32 @@ impl BHShape for RenderableAabb {
 }
 
 impl BvhSystem {
+    pub(crate) fn debug_grid_raycast_enabled() -> bool {
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            matches!(
+                std::env::var("MITTENS_DEBUG_GRID_RAYCAST")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+    }
+
+    /// Actual stored broad-phase bounds, rather than recomputed expected bounds.
+    pub(crate) fn debug_renderable_bounds(
+        &self,
+        component: ComponentId,
+    ) -> Option<([f32; 3], [f32; 3])> {
+        let shape = self.shapes.get(*self.index_by_component.get(&component)?)?;
+        Some((
+            [shape.aabb.min.x, shape.aabb.min.y, shape.aabb.min.z],
+            [shape.aabb.max.x, shape.aabb.max.y, shape.aabb.max.z],
+        ))
+    }
+
     pub fn has_index(&self) -> bool {
         self.bvh.is_some()
     }
@@ -253,12 +279,23 @@ impl BvhSystem {
                 }
 
                 if !Self::renderable_is_raycastable(world, cid) {
+                    if Self::debug_grid_raycast_enabled() {
+                        eprintln!(
+                            "grid_raycast_trace phase=bvh_add_rejected renderable={cid:?} reason=no_enabled_marker"
+                        );
+                    }
                     continue;
                 }
 
                 let aabb = Self::compute_aabb_for_renderable(world, cid)
                     .unwrap_or_else(Self::placeholder_aabb);
 
+                if Self::debug_grid_raycast_enabled() {
+                    eprintln!(
+                        "grid_raycast_trace phase=bvh_add renderable={cid:?} bounds={aabb:?} computed_bounds={}",
+                        Self::compute_aabb_for_renderable(world, cid).is_some()
+                    );
+                }
                 let idx = self.shapes.len();
                 let mut shape = RenderableAabb {
                     component: cid,

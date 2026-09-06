@@ -1923,6 +1923,12 @@ impl SystemWorld {
         }
 
         for renderable in renderables {
+            if BvhSystem::debug_grid_raycast_enabled() {
+                eprintln!(
+                    "grid_raycast_trace phase=registration_applied marker={component:?} renderable={renderable:?} eligible={}",
+                    BvhSystem::renderable_is_raycastable(world, renderable)
+                );
+            }
             if BvhSystem::renderable_is_raycastable(world, renderable) {
                 self.bvh.queue_renderable_added(renderable);
                 self.raycast.notify_renderable_added(world, renderable);

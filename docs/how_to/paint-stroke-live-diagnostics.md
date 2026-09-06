@@ -23,6 +23,38 @@ change Paint's current snap-source behavior.
 
 ## Scene and marker legend
 
+### Empty-grid BVH investigation
+
+Enable the additional opt-in trace for the authored scene:
+
+```sh
+MITTENS_DEBUG_GRID_RAYCAST=1 MITTENS_DEBUG_PAINT_STROKE=1 CAT_DEBUG_GESTURE=1 \
+  cargo run --release -- load examples/paint-grids-desktop.mms 2>&1 | tee /tmp/mittens-grid-raycast.log
+```
+
+Enter Paint, choose Free Draw and an asset, toggle the grid off/on, then compare
+a press on exposed grid with a press on a backing square. `grid_raycast_trace`
+logs eligibility changes (including missing runtime), registration application,
+and BVH additions/rejections. Registration/BVH records include other renderables;
+correlate IDs with the grid's `renderable` field.
+
+On pointer or grip press, `phase=press` records the raycaster, ray, distance
+limit, BVH availability, and final hit list. Each `phase=grid_press` records:
+
+- Grid/owner/renderable/marker IDs, visibility, actual marker and governing policy.
+- `bounds`: stored BVH bounds; `None` means no indexed leaf for this renderable.
+- `bounds_t`: direct ray test against those bounds, before query distance filtering.
+- `broad_t`: result from the untruncated BVH query; `candidate_t`: result after
+  the production 64-candidate limit.
+- `narrow_t`: production narrow-phase result for that candidate; `final_t`:
+  presence in the final hit list after distance checks and any fallback.
+- `model`: the current renderable world transform, for comparison with stored bounds.
+
+The grid snapshot runs only on presses that reach raycasting, not on every move.
+If a gesture press has no corresponding raycast press, investigate raycaster
+activation/ray availability first. Eligibility records are emitted on state
+changes. Diagnostics do not insert candidates or alter hit selection.
+
 The scene contains three adjacent vertical paint targets, a shelf, a floor,
 one vertical grid, one translated/rotated floor grid, editor panels, a desktop
 pointer, and an XR pointer rig. Use the Grid panel to choose a grid and the

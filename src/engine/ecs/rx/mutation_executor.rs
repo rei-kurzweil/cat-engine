@@ -593,6 +593,9 @@ impl RxMutationExecutor {
                 let component = *component_id;
                 systems.register_raycast(world, visuals, component);
             }
+            IntentValue::RegisterRaycastable { component_id } => {
+                systems.register_raycastable(world, visuals, *component_id);
+            }
             IntentValue::RegisterPointer { component_id } => {
                 let component = *component_id;
                 systems.register_pointer(world, visuals, component, emit);
@@ -608,6 +611,9 @@ impl RxMutationExecutor {
             IntentValue::RemoveRaycast { component_id } => {
                 let component = *component_id;
                 systems.remove_raycast(world, visuals, component);
+            }
+            IntentValue::RemoveRaycastable { component_id } => {
+                systems.remove_raycastable(world, visuals, *component_id);
             }
 
             IntentValue::RegisterAnimation { component_id } => {
@@ -815,6 +821,72 @@ impl RxMutationExecutor {
 
             // Not executed by the mutation executor.
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::ecs::component::{
+        RaycastableComponent, RenderableComponent, TransformComponent,
+    };
+    use crate::engine::ecs::system::SystemWorld;
+    use crate::engine::ecs::{CommandQueue, IntentValue, SignalEmitter, World};
+    use crate::engine::graphics::{RenderAssets, VisualWorld};
+
+    #[test]
+    fn raycastable_intents_update_bvh_through_queue_flush() {
+        let mut world = World::default();
+        let mut systems = SystemWorld::default();
+        let mut visuals = VisualWorld::default();
+        let mut assets = RenderAssets::new();
+        let mut queue = CommandQueue::new();
+        let root = world.add_component(TransformComponent::new());
+        let renderable = world.add_component(RenderableComponent::square());
+        let marker = world.add_component(RaycastableComponent::disabled());
+        world.add_child(root, renderable).unwrap();
+        world.add_child(renderable, marker).unwrap();
+
+        // Model a live surface whose marker is enabled after renderable creation,
+        // as when a visible grid enters Paint. Repeat to cover re-entry.
+        for _ in 0..2 {
+            world
+                .get_component_by_id_as_mut::<RaycastableComponent>(marker)
+                .unwrap()
+                .enable = true;
+            queue.push_intent_now(
+                marker,
+                IntentValue::RegisterRaycastable {
+                    component_id: marker,
+                },
+            );
+            queue.flush(&mut world, &mut systems, &mut visuals, &mut assets);
+            systems.bvh.flush_pending(&world);
+            let hits = systems.bvh.raycast_renderables_candidates(
+                [0.0, 0.0, 2.0],
+                [0.0, 0.0, -1.0],
+                10.0,
+                64,
+            );
+            assert_eq!(hits.len(), 1, "registration must reach the active executor");
+            assert_eq!(hits[0].0, renderable);
+
+            world
+                .get_component_by_id_as_mut::<RaycastableComponent>(marker)
+                .unwrap()
+                .enable = false;
+            queue.push_intent_now(
+                marker,
+                IntentValue::RemoveRaycastable {
+                    component_id: marker,
+                },
+            );
+            queue.flush(&mut world, &mut systems, &mut visuals, &mut assets);
+            systems.bvh.flush_pending(&world);
+            assert!(
+                systems.bvh.debug_renderable_bounds(renderable).is_none(),
+                "removal must remove the indexed leaf"
+            );
         }
     }
 }

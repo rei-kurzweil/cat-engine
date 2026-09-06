@@ -73,6 +73,61 @@ impl RayCastSystem {
         self.current_rays.insert(raycaster, snapshot);
     }
 
+    fn trace_grid_press(
+        &self,
+        world: &World,
+        bvh: &BvhSystem,
+        raycaster: ComponentId,
+        origin: [f32; 3],
+        dir: [f32; 3],
+        max_distance: f32,
+        hits: &[(ComponentId, f32)],
+    ) {
+        use crate::engine::ecs::component::GridComponent;
+        use crate::engine::ecs::system::GridSystem;
+        let candidates = bvh.raycast_renderables_candidates(origin, dir, max_distance, 64);
+        let all_candidates = bvh.raycast_renderables_candidates(origin, dir, max_distance, 0);
+        eprintln!(
+            "grid_raycast_trace phase=press raycaster={raycaster:?} origin={origin:?} dir={dir:?} max_distance={max_distance} bvh_index={} candidates={} hits={hits:?}",
+            bvh.has_index(),
+            all_candidates.len()
+        );
+        for grid_id in world.all_components() {
+            let Some(grid) = world.get_component_by_id_as::<GridComponent>(grid_id) else {
+                continue;
+            };
+            let owner = GridSystem::grid_owner_transform(world, grid_id);
+            let renderable = owner.and_then(|id| world.find_component(id, "#grid_live_renderable"));
+            let marker = owner.and_then(|id| world.find_component(id, "#grid_live_raycastable"));
+            let marker_state =
+                marker.and_then(|id| world.get_component_by_id_as::<RaycastableComponent>(id));
+            let bounds = renderable.and_then(|id| bvh.debug_renderable_bounds(id));
+            let bounds_t = bounds.and_then(|(min, max)| Self::ray_aabb(origin, dir, min, max));
+            let broad_t = all_candidates
+                .iter()
+                .find(|(id, _)| Some(*id) == renderable)
+                .map(|(_, t)| *t);
+            let candidate_t = candidates
+                .iter()
+                .find(|(id, _)| Some(*id) == renderable)
+                .map(|(_, t)| *t);
+            let narrow_t = renderable
+                .zip(candidate_t)
+                .and_then(|(id, t)| Self::narrow_phase_accept(world, id, origin, dir, t));
+            let final_t = hits
+                .iter()
+                .find(|(id, _)| Some(*id) == renderable)
+                .map(|(_, t)| *t);
+            let model = renderable.and_then(|id| TransformSystem::world_model(world, id));
+            let governing =
+                renderable.and_then(|id| BvhSystem::find_raycastable_for_renderable(world, id));
+            eprintln!(
+                "grid_raycast_trace phase=grid_press raycaster={raycaster:?} grid={grid_id:?} owner={owner:?} enabled={} hidden={} renderable={renderable:?} marker={marker:?} marker_state={marker_state:?} governing={governing:?} bounds={bounds:?} bounds_t={bounds_t:?} broad_t={broad_t:?} candidate_t={candidate_t:?} narrow_t={narrow_t:?} final_t={final_t:?} model={model:?}",
+                grid.enabled, grid.hidden
+            );
+        }
+    }
+
     fn debug_raycast_enabled() -> bool {
         static ENABLED: OnceLock<bool> = OnceLock::new();
         *ENABLED.get_or_init(|| {
@@ -1077,6 +1132,16 @@ impl RayCastSystem {
                 }
                 if let Some(started) = query_started {
                     self.profile_query_time += started.elapsed();
+                }
+                if BvhSystem::debug_grid_raycast_enabled()
+                    && pointer_system
+                        .raycast_to_pointer(rcid)
+                        .is_some_and(|pointer| {
+                            activations.pressed.contains(&pointer)
+                                || activations.grip_pressed.contains(&pointer)
+                        })
+                {
+                    self.trace_grid_press(world, bvh, rcid, origin, dir, max_distance, &hits);
                 }
                 if Self::debug_raycast_enabled() {
                     let summary: Vec<String> = hits
