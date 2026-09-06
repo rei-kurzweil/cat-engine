@@ -178,6 +178,9 @@ ED {
                 hand_rotation_smoothing(220.0)
                 T {
                     GLTF.new("assets/models/bisket.glb") {
+                        MorphTargetMap.new()
+                            .slot("left_eye_blink", "Fcl_EYE_Close_L")
+                            .slot("right_eye_blink", "Fcl_EYE_Close_R")
                         EM.on()
                         PoseCapture { label("Bisket") asset_name("bisket") }
                         bisket_colliders()
@@ -189,15 +192,16 @@ ED {
                     name = "xr_camera_wrapper"
                     CXR { Pointer {} }
                 }
+                XREyeTracking.on()
 
-                XRHand.new(true, Left, GripAim).laser() {
+                XRHand.new(true, "Left", "GripAim").laser() {
                     T {
                         RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
                             Pointer {}
                         }
                     }
                 }
-                XRHand.new(true, Right, GripAim).laser() {
+                XRHand.new(true, "Right", "GripAim").laser() {
                     T {
                         RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
                             Pointer {}
@@ -224,11 +228,11 @@ InputXR.on() {
     T {
         T.position(0.0, 1.95, 0.8) {
             RendererStats {
-                camera_target(Xr)
+                camera_target("Xr")
             }
         }
 
-        // XRHand.new(true, Left, Aim) {
+        // XRHand.new(true, "Left", "Aim") {
         //     T.scale(0.06, 0.06, 0.12) {
         //         TransformForkTRS {
         //             TransformMapTranslation {}
@@ -243,7 +247,7 @@ InputXR.on() {
         //     }
         // }
 
-        // XRHand.new(true, Right, Aim) {
+        // XRHand.new(true, "Right", "Aim") {
         //     T.scale(0.06, 0.06, 0.12) {
         //         TransformForkTRS {
         //             TransformMapTranslation {}
@@ -258,14 +262,14 @@ InputXR.on() {
         //     }
         // }
 
-        XRHand.new(true, Left, Grip) {
+        XRHand.new(true, "Left", "Grip") {
             T.scale(0.05, 0.05, 0.10) {
                 T {
                     R.cube() { C.rgba(1.0, 1.0, 0.0, 1.0) EM.on() }
                 }
             }
         }
-        XRHand.new(true, Right, Grip) {
+        XRHand.new(true, "Right", "Grip") {
             T.scale(0.05, 0.05, 0.10) {
                 T {
                     R.cube() { C.rgba(0.2, 1.0, 0.2, 1.0) EM.on() }

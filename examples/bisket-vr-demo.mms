@@ -227,6 +227,9 @@ ED {
                 // mirrored pitch branch in the post-yaw local frame.
                 T {
                     GLTF.new("assets/models/bisket.glb") {
+                        MorphTargetMap.new()
+                            .slot("left_eye_blink", "Fcl_EYE_Close_L")
+                            .slot("right_eye_blink", "Fcl_EYE_Close_R")
                         EM.on() 
                         PoseCapture { label("Bisket") asset_name("bisket") }
                         bisket_colliders()
@@ -246,17 +249,18 @@ ED {
                     name = "xr_camera_wrapper"
                     CXR { Pointer {} }
                 }
+                XREyeTracking.on()
                 
                 // Tracked Grip controllers — re-parented to lower-arm bones
                 // by AVC, drive J_Bip_{L,R}_Hand via TwoBoneIK.
-                XRHand.new(true, Left, GripAim).laser() {
+                XRHand.new(true, "Left", "GripAim").laser() {
                     T {
                         RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
                             Pointer {}
                         }
                     }
                 }
-                XRHand.new(true, Right, GripAim).laser() {
+                XRHand.new(true, "Right", "GripAim").laser() {
                     T {
                         RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
                             Pointer {}
@@ -287,11 +291,11 @@ ED {
     //     T {
     //         // T.position(0.0, 1.85, 0.6) {
     //         //     RendererStats {
-    //         //         camera_target(Xr)
+    //         //         camera_target("Xr")
     //         //     }
     //         // }
 
-    //         XRHand.new(true, Left, Aim) {
+    //         XRHand.new(true, "Left", "Aim") {
     //             T.scale(0.06, 0.06, 0.12) {
     //                 TransformForkTRS {
     //                     TransformMapTranslation {}
@@ -306,7 +310,7 @@ ED {
     //             }
     //         }
 
-    //         XRHand.new(true, Right, Aim) {
+    //         XRHand.new(true, "Right", "Aim") {
     //             T.scale(0.06, 0.06, 0.12) {
     //                 TransformForkTRS {
     //                     TransformMapTranslation {}
@@ -322,14 +326,14 @@ ED {
     //         }
 
     //         // Grip pose markers (yellow = left, green = right) — compare with Aim above.
-    //         XRHand.new(true, Left, Grip) {
+    //         XRHand.new(true, "Left", "Grip") {
     //             T.scale(0.05, 0.05, 0.10) {
     //                 T {
     //                     R.cube() { C.rgba(1.0, 1.0, 0.0, 1.0) EM.on() }
     //                 }
     //             }
     //         }
-    //         XRHand.new(true, Right, Grip) {
+    //         XRHand.new(true, "Right", "Grip") {
     //             T.scale(0.05, 0.05, 0.10) {
     //                 T {
     //                     R.cube() { C.rgba(0.2, 1.0, 0.2, 1.0) EM.on() }

@@ -200,6 +200,9 @@ T {
                     hand_rotation_smoothing(220.0)
                     T {
                         GLTF.new("assets/models/bisket.glb") {
+                            MorphTargetMap.new()
+                                .slot("left_eye_blink", "Fcl_EYE_Close_L")
+                                .slot("right_eye_blink", "Fcl_EYE_Close_R")
                             EM.on()
                             PoseCapture { label("Bisket") asset_name("bisket") }
                             bisket_colliders()
@@ -211,15 +214,16 @@ T {
                         name = "xr_camera_wrapper"
                         CXR { Pointer {} }
                     }
+                    XREyeTracking.on()
 
-                    XRHand.new(true, Left, GripAim).laser() {
+                    XRHand.new(true, "Left", "GripAim").laser() {
                         T {
                             RestAttachment.new("[name='J_Bip_L_Hand']", "[name='J_Bip_L_Middle3']") {
                                 Pointer {}
                             }
                         }
                     }
-                    XRHand.new(true, Right, GripAim).laser() {
+                    XRHand.new(true, "Right", "GripAim").laser() {
                         T {
                             RestAttachment.new("[name='J_Bip_R_Hand']", "[name='J_Bip_R_Middle3']") {
                                 Pointer {}
