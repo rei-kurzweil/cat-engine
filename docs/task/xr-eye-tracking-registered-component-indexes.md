@@ -2,7 +2,7 @@
 
 Date: 2026-09-06
 
-Status: interim performance/lifecycle task; implementation pending
+Status: implemented 2026-09-06; focused benchmark remains optional follow-up
 
 Precedes: [One-shot XR eye-tracking source election](one-shot-xr-eye-tracking-source-election.md)
 
@@ -21,10 +21,10 @@ This is a prerequisite cleanup before implementing bounded startup detection and
 election. It removes the current full-world discovery scans without changing the intended election
 policy.
 
-## Current cost and coupling
+## Previous cost and coupling
 
-The current `XREyeTrackingSystem::tick` performs four calls to `world.all_components()` every
-frame:
+Before this task, `XREyeTrackingSystem::tick` performed four calls to `world.all_components()`
+every frame:
 
 1. `ensure_generic_sources` scans the entire world for `XREyeTrackingComponent`.
 2. `tick_standard` scans the entire world for `VRChatOSCEyeTrackingComponent`.
@@ -41,6 +41,24 @@ obscures ownership.
 
 The problem is not primarily the few priority comparisons for one avatar. It is that the system has
 no retained knowledge of its own components and repeatedly rediscovers them from the entire forest.
+
+## Implemented result
+
+`XREyeTrackingSystem` now owns retained sets for generic selectors, VRChat OSC sources, HTC
+sources, and the reserved MediaPipe source type. Component initialization and cleanup emit
+idempotent registration/removal intents, and the authoritative subtree-removal path unregisters
+every removed node as a backstop.
+
+Selector-created default source children are registered immediately in the same operation because
+their current low-level creation path does not invoke `Component::init`. Each tick defensively
+prunes missing or mistyped IDs by inspecting only the retained eye-tracking sets. Removal also
+drops OSC/HTC sockets, retained OSC samples, and bind-failure markers.
+
+The four full-world scans and vector-membership cache pruning have been removed. Current discovery,
+polling, and selector forwarding work is proportional to registered selectors and sources, plus
+received packets. Focused tests cover type classification, duplicate registration, authored-tree
+initialization, generated default registration, stale-ID pruning, transport cache cleanup, and
+subtree removal.
 
 ## Retained indexes
 

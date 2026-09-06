@@ -1085,6 +1085,7 @@ impl SystemWorld {
             {
                 self.ik.remove(n);
             }
+            self.xr_eye_tracking.component_removed(n);
             // Retained secondary-motion indexes cover roots, chains, joint
             // configurations, owning GLTFs, and imported transforms.
             self.secondary_motion.component_removed(world, n);
@@ -1159,6 +1160,14 @@ impl SystemWorld {
     pub fn register_avatar_control(&mut self, component: ComponentId) {
         self.avatar_control.register(component);
         self.head_pose_body_xz_follow.register(component);
+    }
+
+    pub fn register_eye_tracking(&mut self, world: &World, component: ComponentId) {
+        self.xr_eye_tracking.register_component(world, component);
+    }
+
+    pub fn remove_eye_tracking(&mut self, component: ComponentId) {
+        self.xr_eye_tracking.component_removed(component);
     }
 
     pub fn queue_repl_command(&mut self, command: String) {

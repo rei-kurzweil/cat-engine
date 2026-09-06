@@ -198,6 +198,26 @@ impl Component for XREyeTrackingComponent {
         self
     }
     fn set_id(&mut self, _: ComponentId) {}
+    fn init(&mut self, emit: &mut dyn crate::engine::ecs::SignalEmitter, component: ComponentId) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RegisterEyeTracking {
+                component_id: component,
+            },
+        );
+    }
+    fn cleanup(
+        &mut self,
+        emit: &mut dyn crate::engine::ecs::SignalEmitter,
+        component: ComponentId,
+    ) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RemoveEyeTracking {
+                component_id: component,
+            },
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -265,6 +285,26 @@ impl Component for VRChatOSCEyeTrackingComponent {
         self
     }
     fn set_id(&mut self, _: ComponentId) {}
+    fn init(&mut self, emit: &mut dyn crate::engine::ecs::SignalEmitter, component: ComponentId) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RegisterEyeTracking {
+                component_id: component,
+            },
+        );
+    }
+    fn cleanup(
+        &mut self,
+        emit: &mut dyn crate::engine::ecs::SignalEmitter,
+        component: ComponentId,
+    ) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RemoveEyeTracking {
+                component_id: component,
+            },
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -332,6 +372,26 @@ impl Component for HTCEyeTrackingComponent {
         self
     }
     fn set_id(&mut self, _: ComponentId) {}
+    fn init(&mut self, emit: &mut dyn crate::engine::ecs::SignalEmitter, component: ComponentId) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RegisterEyeTracking {
+                component_id: component,
+            },
+        );
+    }
+    fn cleanup(
+        &mut self,
+        emit: &mut dyn crate::engine::ecs::SignalEmitter,
+        component: ComponentId,
+    ) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RemoveEyeTracking {
+                component_id: component,
+            },
+        );
+    }
 }
 
 /// Configuration anchor for the future webcam/MediaPipe eye-tracking source.
@@ -373,6 +433,26 @@ impl Component for MediaPipeEyeTrackingComponent {
         self
     }
     fn set_id(&mut self, _: ComponentId) {}
+    fn init(&mut self, emit: &mut dyn crate::engine::ecs::SignalEmitter, component: ComponentId) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RegisterEyeTracking {
+                component_id: component,
+            },
+        );
+    }
+    fn cleanup(
+        &mut self,
+        emit: &mut dyn crate::engine::ecs::SignalEmitter,
+        component: ComponentId,
+    ) {
+        emit.push_intent_now(
+            component,
+            crate::engine::ecs::IntentValue::RemoveEyeTracking {
+                component_id: component,
+            },
+        );
+    }
 }
 
 /// Compatibility name for the original HTC-specific Rust type.

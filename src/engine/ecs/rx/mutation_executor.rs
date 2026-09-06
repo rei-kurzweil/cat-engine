@@ -588,6 +588,12 @@ impl RxMutationExecutor {
                 let component = *component_id;
                 systems.remove_input_xr_gamepad(world, visuals, component);
             }
+            IntentValue::RegisterEyeTracking { component_id } => {
+                systems.register_eye_tracking(world, *component_id);
+            }
+            IntentValue::RemoveEyeTracking { component_id } => {
+                systems.remove_eye_tracking(*component_id);
+            }
 
             IntentValue::RegisterRaycast { component_id } => {
                 let component = *component_id;

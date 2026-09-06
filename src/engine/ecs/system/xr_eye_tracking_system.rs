@@ -10,6 +10,10 @@ use std::net::UdpSocket;
 
 #[derive(Debug, Default)]
 pub struct XREyeTrackingSystem {
+    selectors: HashSet<ComponentId>,
+    vrchat_osc_sources: HashSet<ComponentId>,
+    htc_sources: HashSet<ComponentId>,
+    mediapipe_sources: HashSet<ComponentId>,
     sockets: HashMap<ComponentId, UdpSocket>,
     htc_sockets: HashMap<ComponentId, UdpSocket>,
     /// A failed bind is retried so a port becoming available recovers without
@@ -32,7 +36,80 @@ struct StandardEyeSample {
     combined_openness: Option<f32>,
 }
 impl XREyeTrackingSystem {
+    pub fn register_component(&mut self, world: &World, id: ComponentId) {
+        if self.selectors.contains(&id)
+            || self.vrchat_osc_sources.contains(&id)
+            || self.htc_sources.contains(&id)
+            || self.mediapipe_sources.contains(&id)
+        {
+            return;
+        }
+        if world
+            .get_component_by_id_as::<XREyeTrackingComponent>(id)
+            .is_some()
+        {
+            self.selectors.insert(id);
+        } else if world
+            .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(id)
+            .is_some()
+        {
+            self.vrchat_osc_sources.insert(id);
+        } else if world
+            .get_component_by_id_as::<HTCEyeTrackingComponent>(id)
+            .is_some()
+        {
+            self.htc_sources.insert(id);
+        } else if world
+            .get_component_by_id_as::<MediaPipeEyeTrackingComponent>(id)
+            .is_some()
+        {
+            self.mediapipe_sources.insert(id);
+        }
+    }
+
+    pub fn component_removed(&mut self, id: ComponentId) {
+        self.selectors.remove(&id);
+        self.vrchat_osc_sources.remove(&id);
+        self.htc_sources.remove(&id);
+        self.mediapipe_sources.remove(&id);
+        self.sockets.remove(&id);
+        self.htc_sockets.remove(&id);
+        self.standard_samples.remove(&id);
+        self.failed_standard_binds.remove(&id);
+        self.failed_htc_binds.remove(&id);
+    }
+
+    fn prune_stale_registrations(&mut self, world: &World) {
+        let mut stale = Vec::new();
+        stale.extend(self.selectors.iter().copied().filter(|id| {
+            world
+                .get_component_by_id_as::<XREyeTrackingComponent>(*id)
+                .is_none()
+        }));
+        stale.extend(self.vrchat_osc_sources.iter().copied().filter(|id| {
+            world
+                .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(*id)
+                .is_none()
+        }));
+        stale.extend(self.htc_sources.iter().copied().filter(|id| {
+            world
+                .get_component_by_id_as::<HTCEyeTrackingComponent>(*id)
+                .is_none()
+        }));
+        stale.extend(self.mediapipe_sources.iter().copied().filter(|id| {
+            world
+                .get_component_by_id_as::<MediaPipeEyeTrackingComponent>(*id)
+                .is_none()
+        }));
+        stale.sort_unstable();
+        stale.dedup();
+        for id in stale {
+            self.component_removed(id);
+        }
+    }
+
     pub fn tick(&mut self, world: &mut World, emit: &mut dyn SignalEmitter) {
+        self.prune_stale_registrations(world);
         self.ensure_generic_sources(world);
         self.tick_standard(world, emit);
         self.tick_htc(world, emit);
@@ -40,14 +117,7 @@ impl XREyeTrackingSystem {
     }
 
     fn ensure_generic_sources(&mut self, world: &mut World) {
-        let selectors: Vec<_> = world
-            .all_components()
-            .filter(|&id| {
-                world
-                    .get_component_by_id_as::<XREyeTrackingComponent>(id)
-                    .is_some()
-            })
-            .collect();
+        let selectors: Vec<_> = self.selectors.iter().copied().collect();
         for selector_id in selectors {
             let (priority, legacy_osc_endpoint) = {
                 let selector = world
@@ -94,19 +164,13 @@ impl XREyeTrackingSystem {
                 world
                     .add_child(selector_id, child)
                     .expect("new source and selector must exist and be acyclic");
+                self.register_component(world, child);
             }
         }
     }
 
     fn resolve_generic_trackers(&mut self, world: &mut World) {
-        let selectors: Vec<_> = world
-            .all_components()
-            .filter(|&id| {
-                world
-                    .get_component_by_id_as::<XREyeTrackingComponent>(id)
-                    .is_some()
-            })
-            .collect();
+        let selectors: Vec<_> = self.selectors.iter().copied().collect();
         for selector_id in selectors {
             let priority = world
                 .get_component_by_id_as::<XREyeTrackingComponent>(selector_id)
@@ -158,17 +222,7 @@ impl XREyeTrackingSystem {
         }
     }
     fn tick_standard(&mut self, world: &mut World, emit: &mut dyn SignalEmitter) {
-        let ids: Vec<_> = world
-            .all_components()
-            .filter(|&id| {
-                world
-                    .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(id)
-                    .is_some()
-            })
-            .collect();
-        self.sockets.retain(|id, _| ids.contains(id));
-        self.standard_samples.retain(|id, _| ids.contains(id));
-        self.failed_standard_binds.retain(|id| ids.contains(id));
+        let ids: Vec<_> = self.vrchat_osc_sources.iter().copied().collect();
         for id in ids {
             // Closure is a live driver value, unlike retained gaze. If the
             // tracker stops sending it, AVC must release its morph override
@@ -279,16 +333,7 @@ impl XREyeTrackingSystem {
         }
     }
     fn tick_htc(&mut self, world: &mut World, emit: &mut dyn SignalEmitter) {
-        let ids: Vec<_> = world
-            .all_components()
-            .filter(|&id| {
-                world
-                    .get_component_by_id_as::<HTCEyeTrackingComponent>(id)
-                    .is_some()
-            })
-            .collect();
-        self.htc_sockets.retain(|id, _| ids.contains(id));
-        self.failed_htc_binds.retain(|id| ids.contains(id));
+        let ids: Vec<_> = self.htc_sources.iter().copied().collect();
         for id in ids {
             if let Some(component) = world.get_component_by_id_as_mut::<HTCEyeTrackingComponent>(id)
             {
@@ -577,12 +622,16 @@ pub fn decode_htc(b: &[u8]) -> Option<(HtcEye, HtcEye)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::ecs::CommandQueue;
+    use crate::engine::ecs::system::SystemWorld;
+    use crate::engine::graphics::{RenderAssets, VisualWorld};
 
     #[test]
     fn generic_tracker_materializes_default_source_components() {
         let mut world = World::default();
         let selector = world.add_component(XREyeTrackingComponent::on());
         let mut system = XREyeTrackingSystem::default();
+        system.register_component(&world, selector);
 
         system.ensure_generic_sources(&mut world);
 
@@ -603,9 +652,113 @@ mod tests {
                 .get_component_by_id_as::<MediaPipeEyeTrackingComponent>(*child)
                 .is_some()
         }));
+        assert_eq!(system.vrchat_osc_sources.len(), 1);
+        assert_eq!(system.htc_sources.len(), 1);
+        assert_eq!(system.mediapipe_sources.len(), 1);
 
         system.ensure_generic_sources(&mut world);
         assert_eq!(world.children_of(selector).len(), 3);
+        assert_eq!(system.vrchat_osc_sources.len(), 1);
+        assert_eq!(system.htc_sources.len(), 1);
+        assert_eq!(system.mediapipe_sources.len(), 1);
+    }
+
+    #[test]
+    fn registration_classifies_each_kind_and_is_idempotent() {
+        let mut world = World::default();
+        let selector = world.add_component(XREyeTrackingComponent::on());
+        let osc = world.add_component(VRChatOSCEyeTrackingComponent::on());
+        let htc = world.add_component(HTCEyeTrackingComponent::on());
+        let mediapipe = world.add_component(MediaPipeEyeTrackingComponent::on());
+        let mut system = XREyeTrackingSystem::default();
+
+        for id in [selector, osc, htc, mediapipe] {
+            system.register_component(&world, id);
+            system.register_component(&world, id);
+        }
+
+        assert_eq!(system.selectors, HashSet::from([selector]));
+        assert_eq!(system.vrchat_osc_sources, HashSet::from([osc]));
+        assert_eq!(system.htc_sources, HashSet::from([htc]));
+        assert_eq!(system.mediapipe_sources, HashSet::from([mediapipe]));
+    }
+
+    #[test]
+    fn initialized_authored_tree_registers_and_subtree_removal_unregisters() {
+        let mut world = World::default();
+        let selector = world.add_component(XREyeTrackingComponent::on());
+        let osc = world.add_component(VRChatOSCEyeTrackingComponent::on());
+        let htc = world.add_component(HTCEyeTrackingComponent::on());
+        let mediapipe = world.add_component(MediaPipeEyeTrackingComponent::on());
+        world.add_child(selector, osc).unwrap();
+        world.add_child(selector, htc).unwrap();
+        world.add_child(selector, mediapipe).unwrap();
+
+        let mut systems = SystemWorld::default();
+        let mut visuals = VisualWorld::default();
+        let mut render_assets = RenderAssets::new();
+        let mut queue = CommandQueue::new();
+        world.init_component_tree(selector, &mut queue);
+        queue.flush(&mut world, &mut systems, &mut visuals, &mut render_assets);
+
+        assert_eq!(systems.xr_eye_tracking.selectors, HashSet::from([selector]));
+        assert_eq!(
+            systems.xr_eye_tracking.vrchat_osc_sources,
+            HashSet::from([osc])
+        );
+        assert_eq!(systems.xr_eye_tracking.htc_sources, HashSet::from([htc]));
+        assert_eq!(
+            systems.xr_eye_tracking.mediapipe_sources,
+            HashSet::from([mediapipe])
+        );
+
+        systems.remove_subtree_immediate(&mut world, &mut visuals, selector);
+        assert!(systems.xr_eye_tracking.selectors.is_empty());
+        assert!(systems.xr_eye_tracking.vrchat_osc_sources.is_empty());
+        assert!(systems.xr_eye_tracking.htc_sources.is_empty());
+        assert!(systems.xr_eye_tracking.mediapipe_sources.is_empty());
+    }
+
+    #[test]
+    fn removal_clears_registration_and_transport_state() {
+        let mut world = World::default();
+        let osc = world.add_component(VRChatOSCEyeTrackingComponent::on());
+        let htc = world.add_component(HTCEyeTrackingComponent::on());
+        let mut system = XREyeTrackingSystem::default();
+        system.register_component(&world, osc);
+        system.register_component(&world, htc);
+        system
+            .standard_samples
+            .insert(osc, StandardEyeSample::default());
+        system.failed_standard_binds.insert(osc);
+        system.failed_htc_binds.insert(htc);
+
+        system.component_removed(osc);
+        system.component_removed(htc);
+        system.component_removed(osc);
+
+        assert!(!system.vrchat_osc_sources.contains(&osc));
+        assert!(!system.htc_sources.contains(&htc));
+        assert!(!system.sockets.contains_key(&osc));
+        assert!(!system.htc_sockets.contains_key(&htc));
+        assert!(!system.standard_samples.contains_key(&osc));
+        assert!(!system.failed_standard_binds.contains(&osc));
+        assert!(!system.failed_htc_binds.contains(&htc));
+    }
+
+    #[test]
+    fn stale_registration_is_pruned_without_discovering_unregistered_components() {
+        let mut world = World::default();
+        let stale = world.add_component(VRChatOSCEyeTrackingComponent::on());
+        let unregistered = world.add_component(HTCEyeTrackingComponent::on());
+        let mut system = XREyeTrackingSystem::default();
+        system.register_component(&world, stale);
+        world.remove_component_subtree(stale).unwrap();
+
+        system.prune_stale_registrations(&world);
+
+        assert!(!system.vrchat_osc_sources.contains(&stale));
+        assert!(!system.htc_sources.contains(&unregistered));
     }
 
     #[test]
@@ -636,7 +789,11 @@ mod tests {
             sequence: 2,
         };
 
-        XREyeTrackingSystem::default().resolve_generic_trackers(&mut world);
+        let mut system = XREyeTrackingSystem::default();
+        system.register_component(&world, selector);
+        system.register_component(&world, osc);
+        system.register_component(&world, htc);
+        system.resolve_generic_trackers(&mut world);
 
         let selected = world
             .get_component_by_id_as::<XREyeTrackingComponent>(selector)

@@ -795,6 +795,12 @@ pub enum IntentValue {
     RemoveInputXrGamepad {
         component_id: ComponentId,
     },
+    RegisterEyeTracking {
+        component_id: ComponentId,
+    },
+    RemoveEyeTracking {
+        component_id: ComponentId,
+    },
 
     RegisterRaycast {
         component_id: ComponentId,
@@ -1039,6 +1045,8 @@ impl IntentValue {
             IntentValue::RemoveInputXr { .. } => "remove_input_xr",
             IntentValue::RemoveControllerXr { .. } => "remove_controller_xr",
             IntentValue::RemoveInputXrGamepad { .. } => "remove_input_xr_gamepad",
+            IntentValue::RegisterEyeTracking { .. } => "register_eye_tracking",
+            IntentValue::RemoveEyeTracking { .. } => "remove_eye_tracking",
 
             IntentValue::RegisterRaycast { .. } => "register_raycast",
             IntentValue::RegisterRaycastable { .. } => "register_raycastable",

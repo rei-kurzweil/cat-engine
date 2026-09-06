@@ -134,6 +134,8 @@ impl SignalPipelineProcessor {
             | IntentValue::RemoveInputXr { component_id }
             | IntentValue::RemoveControllerXr { component_id }
             | IntentValue::RemoveInputXrGamepad { component_id }
+            | IntentValue::RegisterEyeTracking { component_id }
+            | IntentValue::RemoveEyeTracking { component_id }
             | IntentValue::RegisterRaycast { component_id }
             | IntentValue::RegisterRaycastable { component_id }
             | IntentValue::RegisterPointer { component_id }
@@ -278,6 +280,8 @@ impl SignalPipelineProcessor {
             | IntentValue::RemoveInputXr { component_id }
             | IntentValue::RemoveControllerXr { component_id }
             | IntentValue::RemoveInputXrGamepad { component_id }
+            | IntentValue::RegisterEyeTracking { component_id }
+            | IntentValue::RemoveEyeTracking { component_id }
             | IntentValue::RegisterRaycast { component_id }
             | IntentValue::RegisterRaycastable { component_id }
             | IntentValue::RegisterPointer { component_id }
