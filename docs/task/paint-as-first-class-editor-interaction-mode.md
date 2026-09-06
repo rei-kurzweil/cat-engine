@@ -2,7 +2,14 @@
 
 Date: 2026-09-05
 
-Status: proposed direction; seam audit complete, implementation not started.
+Status: partially implemented; end-to-end validation still failing (2026-09-05).
+Paint-mode grid registration and pre-raycast synchronization exist. The user
+retested empty-grid Free Draw and it still fails; the exact finite-plane helper
+has no production callers. See the [updated bug and source audit](../bugs/free-draw-cannot-start-on-empty-grid-analytic-plane.md).
+The seam audit below records the original plan, not a claim that every listed
+change is still absent. Grid eligibility covers all enabled, visible managed
+grids, not only the selected grid. The linked bug also supersedes blanket gizmo
+suppression with the explicit grid-panel selection exception.
 
 Related:
 

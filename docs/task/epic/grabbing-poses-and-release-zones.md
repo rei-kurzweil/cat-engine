@@ -31,13 +31,16 @@ zone while holding only establishes eligibility; releasing commits the action.
 
 Automatic XR controller behaviors should share one configurable component
 surface covering locomotion and interaction. `InputXRGamepad` already provides
-automatic locomotion, enabled by default, with builder configuration. Extend or
-consolidate that surface instead of adding a component for every behavior.
+automatic locomotion, enabled by default, with builder configuration. Extend
+`InputXRGamepad` itself with builder options for minimum grab levitation
+distance; no separate automatic-behaviors component is needed.
 While grabbing, the stick not assigned to locomotion should adjust effective
 `min_grab_distance` continuously using its vertical axis (normally right stick;
 up farther, down closer). Idle input must not change distance. The placement
 ticket records mapping, live destination updates, and remaining default/lifetime
 choices; this is proposed behavior, not an existing capability.
+
+Priority entry point: [Desktop interaction priorities](../../desktop/interaction-priorities.md).
 
 ## Tickets
 

@@ -1,5 +1,14 @@
 # Free Draw cannot start a stroke on an empty grid's analytic plane
 
+## Status: still failing after attempted fix
+
+2026-09-05: the user revalidated empty-grid Free Draw after the recent grid
+raycast/BVH participation changes and reports that it still does not start.
+Keep this issue open. This is the highest current interaction priority in the
+[desktop meta tracker](../desktop/interaction-priorities.md), ahead of the grab
+and attachment epic. The report is user validation; the source audit below is
+not a fresh interactive reproduction or a confirmed complete root cause.
+
 ## Summary
 
 `Free Draw` can project an already-active stroke onto a grid, but it cannot begin that stroke by
@@ -39,15 +48,60 @@ stroke. This makes painting an empty grid depend on prior painted scene geometry
   Paint or 3D Cursor mode. It does not make ordinary grid-surface paint hits select the grid.
 - Outside the finite grid bounds, normal no-surface behavior should remain unchanged.
 
-## Likely investigation
+## Source audit after the failed validation
 
-The gesture pipeline appears to require a raycast hit before it emits `DragStart`, while the grid
-analytic-plane calculation is consulted only after a drag has already been captured. Confirm the
-ordering and ownership of:
+The attempted registration fix is present, but registration alone has not
+established the end-to-end behavior:
 
-- pointer activation and first-hit resolution in `gesture_system.rs`;
-- `DragStart` reduction in `editor_paint_system.rs`;
-- the finite analytic-plane hit in `grid_system.rs`.
+- [GridSystem](../../src/engine/ecs/system/grid_system.rs)
+  `sync_paint_raycast_targets` enables `DragOnly` and emits registration/removal
+  intents for each managed live grid when `paint_mode && enabled && !hidden`.
+  This is Paint-mode plus grid eligibility, not merely selected-grid activation.
+- [SystemWorld](../../src/engine/ecs/system/system_world.rs) calls that sync
+  and flushes its intents before the later BVH/raycast/gesture work.
+- The existing grid live renderable is a thin `CUBE` with a small visual Y
+  offset. [RaycastSystem](../../src/engine/ecs/system/raycast_system.rs) infers
+  `Box` for that mesh. This is a box hit path, not the exact logical grid plane.
+- `GridSystem::intersect_captured_grid_plane` exists, but a source-wide caller
+  search finds only its definition and unit-test calls. The proposed exact
+  finite-plane integration is not wired into production hit resolution.
+- [GestureSystem](../../src/engine/ecs/system/gesture_system.rs) starts a drag
+  only from the pointer's existing hits whose pointer policy captures drags.
+  With no qualifying hit, the press is skipped before `DragStart` is emitted.
+- [EditorPaintSystem](../../src/engine/ecs/system/editor_paint_system.rs) can
+  recognize a grid renderable and capture its grid when handling `StrokeStarted`.
+  That downstream recognition cannot create a missing initial gesture hit.
+- `paint_mode_raycast_sync_tracks_all_visible_live_grids_and_is_idempotent`
+  checks enabled state and emitted intents. It does not prove a populated BVH,
+  successful raycast, gesture delivery, or a painted item on an empty grid.
+
+Confirmed gap: the exact analytic helper is not connected to the initial hit
+path. Still unresolved: why the registered box surface did not supply a usable
+start in the user's validation. Do not claim the missing helper alone explains
+that failure; registration, bounds, hit filtering, and Paint routing also need
+runtime evidence. The earlier continuation description refers to projection
+of an already-started stroke, not proof this helper is called in production.
+
+### Next investigation, in priority order
+
+1. Reproduce in a scene with an enabled, visible finite grid and no backing
+   geometry. Record scene/revision, Paint mode, selected tool/asset, grid IDs,
+   pointer ray, and whether desktop and XR both fail.
+2. Trace mode/eligibility → registration intent application → live renderable
+   bounds and BVH membership → raycast hit list → gesture `drag_hit` → Paint
+   `StrokeStarted` → preview/commit. Identify the first missing stage.
+3. Compare an empty-grid press with a press on existing scene geometry using
+   [paint-stroke diagnostics](../how_to/paint-stroke-live-diagnostics.md).
+   No stroke trace alone cannot distinguish no activation from no eligible hit;
+   inspect the gesture press hit list and BVH membership as well.
+4. Wire the finite analytic-plane exact test into initial candidate resolution
+   using the existing grid live renderable as broad phase, respecting bounds
+   and nearer eligible surfaces. Do not add an invisible catch surface.
+5. Add an integration regression that executes registration, BVH, raycast,
+   gesture, and Paint startup on an empty grid rather than injecting a prebuilt
+   `DragStart`. Revalidate interactively before marking the issue fixed.
+
+## Required registration and routing contract
 
 Paint is now intended to be a first-class `EditorInteractionMode`, mutually exclusive with Select,
 3D Cursor, and Select + Cursor. Use entering and exiting that mode as the policy boundary for grid

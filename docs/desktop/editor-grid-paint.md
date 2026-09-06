@@ -14,6 +14,14 @@ raster-like drawing: select an asset, choose or create a grid, preview a cell or
 stroke, commit exactly the visible result, then select and manipulate it without
 losing editor state.
 
+## Highest-priority validation failure
+
+2026-09-05: the user retested Free Draw on an empty grid after the BVH/raycast
+participation changes and it still fails. [The existing bug](../bugs/free-draw-cannot-start-on-empty-grid-analytic-plane.md)
+now records the implementation audit and the remaining runtime diagnosis.
+Investigate this first under the [interaction priority tracker](interaction-priorities.md).
+Registration is present; end-to-end stroke startup is not validated.
+
 ## Canonical trackers
 
 - [Editor grid and paint 0.8 release gate](../task/editor-grid-paint-0.8.0-release-gate.md)

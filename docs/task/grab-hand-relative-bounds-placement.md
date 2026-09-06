@@ -67,12 +67,12 @@ automatic movement-target resolution uses that same resolver when under
 Default/either hand preference chooses the left stick if available, otherwise
 the right; explicit left/right preferences are supported.
 
-Extend this shared automatic-controller-behavior surface to cover interaction
-as well as locomotion. Prefer evolving `InputXRGamepad` with builder options;
-if its responsibilities warrant a dedicated automatic-behaviors component,
-consolidate locomotion and interaction configuration there. Do not introduce
-one component for each automatic behavior. The final name and whether distance
-adjustment is enabled by default remain open, but it must be configurable.
+Decision: extend `InputXRGamepad` with builder options for minimum grab
+levitation distance adjustment. It is already general enough to configure
+automatic locomotion and interaction together; no additional automatic-behaviors
+component is needed. Do not introduce one component per behavior. Exact builder
+method names and whether adjustment is enabled by default remain open, but it
+must be configurable.
 
 While a grab is active, holding the other stick up/down continuously changes
 the active pointer's effective `min_grab_distance`: proposed mapping is up

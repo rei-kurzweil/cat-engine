@@ -9,6 +9,12 @@ workstream below links to those implementation records.
 
 ## Current priorities
 
+The [interaction priority meta tracker](interaction-priorities.md) records the
+latest ordering: investigate the still-failing empty-grid Free Draw startup
+first, then the grabbing/poses/release-zones epic. This overrides the relative
+priority of those items in the broader workstream list below; it does not make
+every tracked item a release blocker.
+
 | # | Workstream | Status | Useful next move |
 |---|---|---|---|
 | 1 | [Laptop rendering server](rendering-server.md) | Hardware-blocked for full-power validation; protocol design is not blocked | Specify the UDP/MMS contract, recovery snapshot, and two-machine proof |

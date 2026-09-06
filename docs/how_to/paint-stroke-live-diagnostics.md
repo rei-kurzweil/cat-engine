@@ -38,8 +38,10 @@ spheres show:
 
 A missing cyan marker means there is no selected enabled grid. A missing
 yellow marker is expected when the pointer hits ordinary scene geometry:
-committed grid visuals are currently non-raycastable, so the existing Paint
-path normally cannot discover their grid from the hit renderable. Markers are
+grid visuals are now registered as drag targets while Paint mode is active
+and the grid is enabled and visible. A grid-surface hit should resolve its own
+grid, but initial empty-grid stroke startup remains broken in user validation;
+see the [empty-grid investigation](../bugs/free-draw-cannot-start-on-empty-grid-analytic-plane.md). Markers are
 removed when the stroke ends. They are diagnostic only and never become scene
 content.
 
