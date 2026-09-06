@@ -1,6 +1,14 @@
 # Grid startup visibility and UI state are out of sync
 
-## Status and current reproduction
+## Status: closed — user validated 2026-09-06
+
+After additional fixes, the user tested `examples/vtuber-mirror-example.mms`,
+reported grid visibility working, and requested closure for now. This closes
+the reported default-grid visibility/UI mismatch based on that interactive
+validation. Reopen if it recurs. The earlier desktop-example change and model
+test alone were not evidence of a fix across examples.
+
+## Investigation history
 
 2026-09-06: the user clarified the intended behavior: keep the initial grid
 hidden, show Hidden in the panel, and make the first visibility toggle show it.
@@ -20,12 +28,12 @@ intended authoritative hidden state removes that extra toggle.
 Regression `startup_grids_are_hidden_and_show_on_first_toggle` covers the actual
 MMS load and the generated editor default: initially hidden panel model, first
 toggle establishing visible live opacity, and second toggle hiding the same
-runtime. Interactive validation remains pending.
+runtime. At that stage, interactive validation was still pending; see the
+subsequent user validation above.
 
-The broader initialization gap for explicitly visible authored grids remains
-outstanding: registry discovery does not establish their live subtree. This
-change follows the requested hidden startup policy rather than implementing
-that separate lifecycle repair.
+The earlier audit also identified an initialization gap for explicitly visible
+authored grids. That separate case was not revalidated during this closure;
+the hidden startup policy change did not implement a general lifecycle repair.
 
 The empty-grid registration fix was confirmed working by the user before this
 visibility work; its captured-grid-plane continuation remains separate.

@@ -7,6 +7,10 @@ import { pose as relaxed_pose_factory } from "../assets/components/poses/bisket/
 import { tripod_light } from "../assets/components/tripod_light.mms"
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 
+// Default capture is optional: unavailable input leaves AVC's mouth driver neutral.
+let microphone = AudioInput {}
+let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
+
 RendererSettings { window_size(960, 640) }
 BGC.rgba(0.035, 0.045, 0.085, 1.0)
 AL.rgb(0.20, 0.22, 0.30)
@@ -69,6 +73,12 @@ ED.active() {
             T {
                 name = "xr_grab_avatar_driver"
                 AVC {
+                    mouth_open_from_amplitude(voice_level)
+                    mouth_open_rms_floor(0.005)
+                    mouth_open_rms_ceiling(0.09)
+                    mouth_open_smoothing(16.0)
+                    voice_level
+
                     initial_yaw(3.14159)
                     left_arm_pole_direction([1, -0.35, 1])
                     right_arm_pole_direction([-1, -0.35, 1])
@@ -79,6 +89,7 @@ ED.active() {
                             MorphTargetMap.new()
                                 .slot("left_eye_blink", "Fcl_EYE_Close_L")
                                 .slot("right_eye_blink", "Fcl_EYE_Close_R")
+                                .slot("viseme_aa", "Fcl_MTH_A")
                             // Establish a relaxed lower-body/rest posture before XR
                             // head and hand tracking take ownership of tracked joints.
                             relaxed_pose_factory()

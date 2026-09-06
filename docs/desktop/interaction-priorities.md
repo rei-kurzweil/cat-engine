@@ -37,16 +37,17 @@ Related work: [Editor/grid/paint workbench](editor-grid-paint.md),
 [Paint interaction mode](../task/paint-as-first-class-editor-interaction-mode.md),
 and [editor grid/paint release gate](../task/editor-grid-paint-0.8.0-release-gate.md).
 
-## Priority 2: grid startup visibility
+## Priority 2: grid startup visibility — closed
 
-- [ ] [Grid startup visibility and UI state](../bugs/default-grid-visibility-ui-state-out-of-sync.md)
+- [x] [Grid startup visibility and UI state](../bugs/default-grid-visibility-ui-state-out-of-sync.md)
 
 The user clarified on 2026-09-06 that the initial grid should stay hidden,
 with a matching Hidden label and one toggle to show it. The desktop example
 now authors that state; generated editor defaults already do. A regression
 covers initial panel state and first-show runtime opacity for both paths.
-Interactive validation remains pending. The initialization gap for explicitly
-visible authored grids is recorded separately within the same tracker.
+After additional fixes, the user validated visibility in
+`examples/vtuber-mirror-example.mms` on 2026-09-06 and requested closure for now.
+Reopen if the default-grid visibility/UI mismatch recurs.
 
 ## Priority 3: grabbing, poses, and release zones
 

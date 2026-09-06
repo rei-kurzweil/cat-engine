@@ -9,6 +9,10 @@
 import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 
+// Default capture is optional: unavailable input leaves AVC's mouth driver neutral.
+let microphone = AudioInput {}
+let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
+
 RendererSettings {
     window_size(640, 480)
 }
@@ -154,6 +158,12 @@ T {
             name = "xr_pose"
             AVC {
 
+                mouth_open_from_amplitude(voice_level)
+                mouth_open_rms_floor(0.005)
+                mouth_open_rms_ceiling(0.09)
+                mouth_open_smoothing(16.0)
+                voice_level
+
                 initial_yaw(3.14159)
                 ik_debug()
 
@@ -166,6 +176,7 @@ T {
                         MorphTargetMap.new()
                             .slot("left_eye_blink", "Fcl_EYE_Close_L")
                             .slot("right_eye_blink", "Fcl_EYE_Close_R")
+                            .slot("viseme_aa", "Fcl_MTH_A")
                         EM.on()
                         PoseCapture { label("Bisket") asset_name("bisket") }
                         bisket_colliders()
