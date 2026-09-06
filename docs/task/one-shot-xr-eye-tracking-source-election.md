@@ -4,6 +4,8 @@ Date: 2026-09-06
 
 Status: corrective design; implementation pending
 
+Prerequisite: [XR eye-tracking registered component indexes](xr-eye-tracking-registered-component-indexes.md)
+
 Revises: [Generic XR eye-tracking source selection](generic-xr-eye-tracking-source-selection.md)
 
 Parent: [Eye and face tracking epic](epic/eye-and-face-tracking.md)
