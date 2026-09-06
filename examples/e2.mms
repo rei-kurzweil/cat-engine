@@ -84,6 +84,12 @@ T.position(-2, 5, -2) {
     GLTF.new("assets/models/sativa-preroll.glb") {}
 }
 
+T.position(2, 5, -2) {
+    name = "broom"
+    Grabbable {}
+    GLTF.new("assets/models/broomstick.glb") {}
+}
+
 // Full-body mirror facing the desktop avatar and the tablet presentation.
 T.position(0.0, 1.95, -4.72).scale(2.25, 1.85, 0.08) {
     name = "e2_mirror"
