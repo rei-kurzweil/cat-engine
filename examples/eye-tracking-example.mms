@@ -68,7 +68,7 @@ T {
     right_openness_marker
 }
 
-let eyes = XREyeTracking.on()
+let eyes = VRChatOSCEyeTracking.on()
 
 // Per-eye gaze drives each square's RGB color. ALVR's PitchYaw values become
 // normalized look vectors: red/green encode horizontal/vertical gaze and blue

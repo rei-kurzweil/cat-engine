@@ -1,10 +1,8 @@
 // VTuber eye-tracking mirror
 //
 // A minimal XR avatar scene for validating AVC automatic eye-bone tracking.
-// `XREyeTracking` must remain a *direct child* of `AVC`: AVC consumes its
-// retained gaze state while the existing XrEyeTrackingUpdated event remains
-// available to scripts. In ALVR, configure the VRChat Eye OSC sink to send to
-// 127.0.0.1:9000 (or use XREyeTracking.listen(host, port) below).
+// `HTCEyeTracking` must remain a *direct child* of `AVC`: this focused scene
+// explicitly validates the HTC binary transport and its retained gaze state.
 //
 // The mirror is in front of the XR start pose. The bisket asset's humanoid map
 // supplies the eye slots automatically; an avatar without mapped eye slots is
@@ -150,8 +148,7 @@ ED {
                     // Direct child: enables automatic mapped left/right eye
                     // bone rotation. AVC freezes retained gaze during rapid
                     // head motion; the tracker caps head-local gaze first.
-                    // For HTC packets, replace with XREyeTrackingHTC.on().
-                    XREyeTrackingHTC.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+                    HTCEyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
 
                     // Direct children supply the left/right hand targets used
                     // by AVC's mapped TwoBoneIK chains.

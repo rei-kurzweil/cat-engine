@@ -273,8 +273,9 @@ pub use unlit::UnlitComponent;
 pub use uv::UVComponent;
 pub use xr::XrComponent;
 pub use xr_eye_tracking::{
-    EyeRotationLimits, HeadRotationCompensation, XREyeTrackingComponent, XREyeTrackingHtcComponent,
-    combined_eye_rotation_limits,
+    EyeRotationLimits, EyeTrackingSource, HTCEyeTrackingComponent, HeadRotationCompensation,
+    MediaPipeEyeTrackingComponent, VRChatOSCEyeTrackingComponent, XREyeTrackingComponent,
+    XREyeTrackingHtcComponent, combined_eye_rotation_limits,
 };
 pub type XRHandComponent = ControllerXRComponent;
 

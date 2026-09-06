@@ -591,12 +591,29 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                     constructor_and_builder(component, "bind", strings(1));
                     constructor_and_builder(component, "enabled", booleans(1));
                 }
-                "XREyeTracking" | "XREyeTrackingHTC" => {
+                "XREyeTracking" => {
                     component.constructor("on", no_args());
                     component.constructor(
                         "listen",
                         component_signature([mms::ValueType::String, mms::ValueType::U16]),
                     );
+                    component.builder_call("priority", any(1));
+                    component.builder_call("head_rotation_compensation", strings(1));
+                    component.builder_call("rotation_limits", floats(4));
+                    component.builder_call("rotation_limits_per_eye", any(2));
+                }
+                "XREyeTrackingHTC" | "VRChatOSCEyeTracking" | "HTCEyeTracking" => {
+                    component.constructor("on", no_args());
+                    component.constructor(
+                        "listen",
+                        component_signature([mms::ValueType::String, mms::ValueType::U16]),
+                    );
+                    component.builder_call("head_rotation_compensation", strings(1));
+                    component.builder_call("rotation_limits", floats(4));
+                    component.builder_call("rotation_limits_per_eye", any(2));
+                }
+                "MediaPipeEyeTracking" => {
+                    component.constructor("on", no_args());
                     component.builder_call("head_rotation_compensation", strings(1));
                     component.builder_call("rotation_limits", floats(4));
                     component.builder_call("rotation_limits_per_eye", any(2));

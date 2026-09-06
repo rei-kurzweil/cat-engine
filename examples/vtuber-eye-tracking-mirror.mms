@@ -2,9 +2,8 @@
 //
 // A minimal XR avatar scene for validating AVC automatic eye-bone tracking.
 // `XREyeTracking` must remain a *direct child* of `AVC`: AVC consumes its
-// retained gaze state while the existing XrEyeTrackingUpdated event remains
-// available to scripts. In ALVR, configure the VRChat Eye OSC sink to send to
-// 127.0.0.1:9000 (or use XREyeTracking.listen(host, port) below).
+// selected gaze state. It automatically checks HTC binary UDP and VRChat Eye
+// OSC using its configured priority.
 //
 // The mirror is in front of the XR start pose. The bisket asset's humanoid map
 // supplies the eye slots automatically; an avatar without mapped eye slots is
@@ -133,8 +132,7 @@ ED {
                     }
 
                     // Direct child: enables automatic mapped left/right eye
-                    // bone rotation. No callback or calibration is needed in
-                    // Phase 1. For HTC packets, replace with XREyeTrackingHTC.on().
+                    // bone rotation. No callback or transport selection is needed.
                     XREyeTracking.on()
 
                     // Direct children supply the left/right hand targets used

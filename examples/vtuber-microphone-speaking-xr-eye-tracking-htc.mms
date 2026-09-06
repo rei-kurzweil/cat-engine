@@ -213,7 +213,7 @@ ED {
 
                     // Direct child: enables automatic mapped left/right eye
                     // bone rotation from HTC Wave SDK packets.
-                    XREyeTrackingHTC.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+                    HTCEyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
 
                     // Direct children supply the left/right hand targets used
                     // by AVC's mapped TwoBoneIK chains.

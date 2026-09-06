@@ -33,7 +33,7 @@ tripod_light("eye_tracking_rim", [1.8, 0.0, -4.2], [0.0, 1.25, -1.5], SL.color(1
 // live source to that row's session-local AudioInput.devices() index.
 let microphone = AudioInput {}
 let voice_level = Amplitude.rolling_window(0.080).from(microphone) {}
-let active_eye_tracking = XREyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+let active_eye_tracking = VRChatOSCEyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
 let eye_tracking_state = { tracker = active_eye_tracking }
 
 let audio_input_devices = AudioInput.devices()
@@ -273,7 +273,7 @@ let htc_eye_tracking_option = T {
 on(vrchat_eye_tracking_option, "Click", fn(event) {
     let current_tracker = eye_tracking_state.tracker
     current_tracker.remove_subtree()
-    let replacement = XREyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+    let replacement = VRChatOSCEyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
     avatar_control.attach(replacement)
     eye_tracking_state.tracker = replacement
     eye_tracking_status.set_text("selected VRChat OSC")
@@ -282,7 +282,7 @@ on(vrchat_eye_tracking_option, "Click", fn(event) {
 on(htc_eye_tracking_option, "Click", fn(event) {
     let current_tracker = eye_tracking_state.tracker
     current_tracker.remove_subtree()
-    let replacement = XREyeTrackingHTC.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
+    let replacement = HTCEyeTracking.on().rotation_limits(0.35, 0.35, 0.25, 0.25)
     avatar_control.attach(replacement)
     eye_tracking_state.tracker = replacement
     eye_tracking_status.set_text("selected HTC Wave Sdk (experimental)")

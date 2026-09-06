@@ -7,7 +7,8 @@ use crate::engine::ecs::component::{
     HeadMotionGazePolicy, HeadRotationCompensation, IKChainComponent, IKSolver, InputXRComponent,
     QuatYawFollowComponent, SerializeComponent, TransformComponent, TransformDropComponent,
     TransformForkTRSComponent, TransformMapRotationComponent, TransformMapScaleComponent,
-    TransformMapTranslationComponent, XREyeTrackingComponent, XREyeTrackingHtcComponent,
+    TransformMapTranslationComponent, VRChatOSCEyeTrackingComponent, XREyeTrackingComponent,
+    XREyeTrackingHtcComponent,
 };
 use crate::engine::ecs::system::bounds_system::{BoundsSystem, RenderableBoundsMeasure};
 use crate::engine::ecs::system::collision_shape_inference::infer_upright_capsule;
@@ -422,6 +423,11 @@ fn newest_direct_eye_closure(world: &World, avc_id: ComponentId) -> (Option<f32>
             .map(|tracker| tracker.closure_sample)
             .or_else(|| {
                 world
+                    .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(id)
+                    .map(|tracker| tracker.closure_sample)
+            })
+            .or_else(|| {
+                world
                     .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
                     .map(|tracker| tracker.closure_sample)
             });
@@ -524,6 +530,18 @@ fn newest_direct_eye_gaze(
                     tracker.rotation_limits,
                     tracker.rotation_limits_per_eye,
                 )
+            })
+            .or_else(|| {
+                world
+                    .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(child)
+                    .map(|tracker| {
+                        (
+                            tracker.gaze_sample,
+                            tracker.head_rotation_compensation,
+                            tracker.rotation_limits,
+                            tracker.rotation_limits_per_eye,
+                        )
+                    })
             })
             .or_else(|| {
                 world

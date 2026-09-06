@@ -21,15 +21,16 @@ use crate::engine::ecs::component::{
     DirectionalLightComponent, Display, DragContinuationPolicy, DragMappingPolicy,
     DraggableComponent, DraggablePlane, EdgeInsets, EditorComponent, EditorInteractionMode,
     EditorPanel, EditorUIComponent, EditorUIPanelConfig, EditorUIPanelSpec, ElementType,
-    EmissiveComponent, EmissivePassComponent, FitBoundsComponent, FitBoundsMode, FitBoundsTarget,
-    FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent, GrabbableComponent,
-    GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace, HtmlElementComponent,
-    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver,
-    ImplicitSphereComponent, ImplicitSurfaceComponent, InputComponent, InputTransformModeComponent,
-    InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent,
-    JustifyContent, KeyframeComponent, LayoutBoundsComponent, LayoutComponent,
-    LightQuantizationComponent, MeshComponent, MirrorComponent, MorphTargetMapComponent, MusicNote,
-    MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
+    EmissiveComponent, EmissivePassComponent, EyeTrackingSource, FitBoundsComponent, FitBoundsMode,
+    FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent,
+    GrabbableComponent, GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace,
+    HTCEyeTrackingComponent, HtmlElementComponent, HttpClientComponent, HttpServerComponent,
+    HumanoidBoneMapComponent, IKChainComponent, IKSolver, ImplicitSphereComponent,
+    ImplicitSurfaceComponent, InputComponent, InputTransformModeComponent, InputXRComponent,
+    InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent,
+    KeyframeComponent, LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent,
+    MediaPipeEyeTrackingComponent, MeshComponent, MirrorComponent, MorphTargetMapComponent,
+    MusicNote, MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
     OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
     PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
     Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
@@ -49,8 +50,9 @@ use crate::engine::ecs::component::{
     TransformMapScaleComponent, TransformMapTranslationComponent, TransformMergeTRSComponent,
     TransformParentComponent, TransformSampleAncestorComponent, TransitionComponent,
     TransitionEasing, TransitionReplacePolicy, TransparentCutoutComponent, UVComponent,
-    UnlitComponent, Vector3TemporalFilterComponent, WordWrapMode, XREyeTrackingComponent,
-    XREyeTrackingHtcComponent, XRHandComponent, XrComponent, XrHandPreference,
+    UnlitComponent, VRChatOSCEyeTrackingComponent, Vector3TemporalFilterComponent, WordWrapMode,
+    XREyeTrackingComponent, XREyeTrackingHtcComponent, XRHandComponent, XrComponent,
+    XrHandPreference,
 };
 use crate::engine::ecs::{ComponentId, World};
 use crate::engine::graphics::CameraTarget;
@@ -121,6 +123,9 @@ pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "HttpServer",
     "XREyeTracking",
     "XREyeTrackingHTC",
+    "VRChatOSCEyeTracking",
+    "HTCEyeTracking",
+    "MediaPipeEyeTracking",
     "HumanoidBoneMap",
     "MorphTargetMap",
     "IKChain",
@@ -1273,6 +1278,28 @@ fn arg_str_vec(args: &[Value], i: usize) -> Result<Vec<String>, String> {
     val_as_str_vec(arg(args, i)?)
 }
 
+fn eye_tracking_priority_arg(args: &[Value]) -> Result<Vec<EyeTrackingSource>, String> {
+    let names = arg_str_vec(args, 0)?;
+    if names.is_empty() {
+        return Err("XREyeTracking.priority expects at least one source".to_string());
+    }
+    let mut priority = Vec::with_capacity(names.len());
+    for name in names {
+        let source = EyeTrackingSource::parse(&name).ok_or_else(|| {
+            format!(
+                "XREyeTracking.priority unknown source '{name}'; expected 'htc', 'vrchat_osc', or 'mediapipe'"
+            )
+        })?;
+        if priority.contains(&source) {
+            return Err(format!(
+                "XREyeTracking.priority contains duplicate source '{name}'"
+            ));
+        }
+        priority.push(source);
+    }
+    Ok(priority)
+}
+
 /// Produce an `ComponentRef` (authoring metadata) from the i-th arg.
 ///
 /// Mapping:
@@ -1645,6 +1672,9 @@ fn create_component(
         }
         "XREyeTracking" => match ctor { Some("on") | None => add!(XREyeTrackingComponent::on()), Some("listen") => add!(XREyeTrackingComponent::listen(arg_str(args, 0)?, arg_f32(args, 1)? as u16)), Some(method) => Err(format!("XREyeTracking: unknown constructor '{method}'")) },
         "XREyeTrackingHTC" => match ctor { Some("on") | None => add!(XREyeTrackingHtcComponent::on()), Some("listen") => add!(XREyeTrackingHtcComponent::listen(arg_str(args, 0)?, arg_f32(args, 1)? as u16)), Some(method) => Err(format!("XREyeTrackingHTC: unknown constructor '{method}'")) },
+        "VRChatOSCEyeTracking" => match ctor { Some("on") | None => add!(VRChatOSCEyeTrackingComponent::on()), Some("listen") => add!(VRChatOSCEyeTrackingComponent::listen(arg_str(args, 0)?, arg_f32(args, 1)? as u16)), Some(method) => Err(format!("VRChatOSCEyeTracking: unknown constructor '{method}'")) },
+        "HTCEyeTracking" => match ctor { Some("on") | None => add!(HTCEyeTrackingComponent::on()), Some("listen") => add!(HTCEyeTrackingComponent::listen(arg_str(args, 0)?, arg_f32(args, 1)? as u16)), Some(method) => Err(format!("HTCEyeTracking: unknown constructor '{method}'")) },
+        "MediaPipeEyeTracking" => match ctor { Some("on") | None => add!(MediaPipeEyeTrackingComponent::on()), Some(method) => Err(format!("MediaPipeEyeTracking: unknown constructor '{method}'")) },
         "StencilClip" => {
             let id = world.add_component(StencilClipComponent::new());
             if let Some(method) = ctor {
@@ -2585,6 +2615,7 @@ fn apply_call(
     }
     if let Some(tracker) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id) {
         match method {
+            "priority" => tracker.priority = eye_tracking_priority_arg(args)?,
             "head_rotation_compensation" => {
                 tracker.head_rotation_compensation =
                     crate::engine::ecs::component::HeadRotationCompensation::parse(arg_str(
@@ -2602,6 +2633,32 @@ fn apply_call(
                 tracker.rotation_limits_per_eye = [
                     Some(rotation_limits_array_arg(args, 0, "XREyeTracking")?),
                     Some(rotation_limits_array_arg(args, 1, "XREyeTracking")?),
+                ];
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+    if let Some(tracker) = world.get_component_by_id_as_mut::<VRChatOSCEyeTrackingComponent>(id) {
+        match method {
+            "head_rotation_compensation" => {
+                tracker.head_rotation_compensation =
+                    crate::engine::ecs::component::HeadRotationCompensation::parse(arg_str(
+                        args, 0,
+                    )?)
+                    .ok_or_else(|| {
+                        "VRChatOSCEyeTracking.head_rotation_compensation expects 'off' or 'cancel'"
+                            .to_string()
+                    })?;
+            }
+            "rotation_limits" => {
+                tracker.rotation_limits =
+                    Some(rotation_limits_call_args(args, "VRChatOSCEyeTracking")?);
+            }
+            "rotation_limits_per_eye" => {
+                tracker.rotation_limits_per_eye = [
+                    Some(rotation_limits_array_arg(args, 0, "VRChatOSCEyeTracking")?),
+                    Some(rotation_limits_array_arg(args, 1, "VRChatOSCEyeTracking")?),
                 ];
             }
             _ => {}
@@ -2628,6 +2685,32 @@ fn apply_call(
                 tracker.rotation_limits_per_eye = [
                     Some(rotation_limits_array_arg(args, 0, "XREyeTrackingHTC")?),
                     Some(rotation_limits_array_arg(args, 1, "XREyeTrackingHTC")?),
+                ];
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+    if let Some(tracker) = world.get_component_by_id_as_mut::<MediaPipeEyeTrackingComponent>(id) {
+        match method {
+            "head_rotation_compensation" => {
+                tracker.head_rotation_compensation =
+                    crate::engine::ecs::component::HeadRotationCompensation::parse(arg_str(
+                        args, 0,
+                    )?)
+                    .ok_or_else(|| {
+                        "MediaPipeEyeTracking.head_rotation_compensation expects 'off' or 'cancel'"
+                            .to_string()
+                    })?;
+            }
+            "rotation_limits" => {
+                tracker.rotation_limits =
+                    Some(rotation_limits_call_args(args, "MediaPipeEyeTracking")?);
+            }
+            "rotation_limits_per_eye" => {
+                tracker.rotation_limits_per_eye = [
+                    Some(rotation_limits_array_arg(args, 0, "MediaPipeEyeTracking")?),
+                    Some(rotation_limits_array_arg(args, 1, "MediaPipeEyeTracking")?),
                 ];
             }
             _ => {}
@@ -4105,6 +4188,74 @@ mod tests {
                 .head_rotation_compensation,
             crate::engine::ecs::component::HeadRotationCompensation::CancelHeadRotation,
         );
+    }
+
+    #[test]
+    fn canonical_eye_tracking_source_components_are_constructible() {
+        let mut world = World::default();
+
+        let osc = create_component(&mut world, "VRChatOSCEyeTracking", Some("on"), &[])
+            .expect("spawn canonical VRChat OSC tracker");
+        assert!(
+            world
+                .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(osc)
+                .is_some()
+        );
+
+        let htc = create_component(&mut world, "HTCEyeTracking", Some("on"), &[])
+            .expect("spawn canonical HTC tracker");
+        assert!(
+            world
+                .get_component_by_id_as::<HTCEyeTrackingComponent>(htc)
+                .is_some()
+        );
+
+        let mediapipe = create_component(&mut world, "MediaPipeEyeTracking", Some("on"), &[])
+            .expect("spawn MediaPipe configuration placeholder");
+        assert!(
+            world
+                .get_component_by_id_as::<MediaPipeEyeTrackingComponent>(mediapipe)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn generic_eye_tracking_priority_builder_is_strict_and_ordered() {
+        let mut world = World::default();
+        let selector = world.add_component(XREyeTrackingComponent::on());
+        apply_call(
+            &mut world,
+            selector,
+            "priority",
+            &[Value::Array(vec![
+                Value::String("vrchat_osc".into()),
+                Value::String("htc".into()),
+                Value::String("mediapipe".into()),
+            ])],
+        )
+        .unwrap();
+        assert_eq!(
+            world
+                .get_component_by_id_as::<XREyeTrackingComponent>(selector)
+                .unwrap()
+                .priority,
+            vec![
+                EyeTrackingSource::VrChatOsc,
+                EyeTrackingSource::Htc,
+                EyeTrackingSource::MediaPipe,
+            ]
+        );
+
+        for invalid in [
+            Value::Array(vec![]),
+            Value::Array(vec![Value::String("unknown".into())]),
+            Value::Array(vec![
+                Value::String("htc".into()),
+                Value::String("htc".into()),
+            ]),
+        ] {
+            assert!(apply_call(&mut world, selector, "priority", &[invalid]).is_err());
+        }
     }
 
     #[test]

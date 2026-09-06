@@ -1,5 +1,8 @@
 use crate::engine::ecs::component::xr_eye_tracking::{EyeClosureSample, EyeGazeSample};
-use crate::engine::ecs::component::{XREyeTrackingComponent, XREyeTrackingHtcComponent};
+use crate::engine::ecs::component::{
+    EyeTrackingSource, HTCEyeTrackingComponent, MediaPipeEyeTrackingComponent,
+    VRChatOSCEyeTrackingComponent, XREyeTrackingComponent,
+};
 use crate::engine::ecs::{ComponentId, EventSignal, SignalEmitter, World};
 use crate::utils::math::quat_rotate_vec3;
 use std::collections::{HashMap, HashSet};
@@ -30,15 +33,136 @@ struct StandardEyeSample {
 }
 impl XREyeTrackingSystem {
     pub fn tick(&mut self, world: &mut World, emit: &mut dyn SignalEmitter) {
+        self.ensure_generic_sources(world);
         self.tick_standard(world, emit);
         self.tick_htc(world, emit);
+        self.resolve_generic_trackers(world);
+    }
+
+    fn ensure_generic_sources(&mut self, world: &mut World) {
+        let selectors: Vec<_> = world
+            .all_components()
+            .filter(|&id| {
+                world
+                    .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                    .is_some()
+            })
+            .collect();
+        for selector_id in selectors {
+            let (priority, legacy_osc_endpoint) = {
+                let selector = world
+                    .get_component_by_id_as::<XREyeTrackingComponent>(selector_id)
+                    .expect("selector id came from the same world scan");
+                (
+                    selector.priority.clone(),
+                    selector.legacy_osc_endpoint.clone(),
+                )
+            };
+            for source in priority {
+                let already_authored =
+                    world
+                        .children_of(selector_id)
+                        .iter()
+                        .copied()
+                        .any(|child| match source {
+                            EyeTrackingSource::VrChatOsc => world
+                                .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(child)
+                                .is_some(),
+                            EyeTrackingSource::Htc => world
+                                .get_component_by_id_as::<HTCEyeTrackingComponent>(child)
+                                .is_some(),
+                            EyeTrackingSource::MediaPipe => world
+                                .get_component_by_id_as::<MediaPipeEyeTrackingComponent>(child)
+                                .is_some(),
+                        });
+                if already_authored {
+                    continue;
+                }
+                let child = match source {
+                    EyeTrackingSource::VrChatOsc => {
+                        let component = legacy_osc_endpoint
+                            .clone()
+                            .map(|(host, port)| VRChatOSCEyeTrackingComponent::listen(host, port))
+                            .unwrap_or_else(VRChatOSCEyeTrackingComponent::on);
+                        world.add_component(component)
+                    }
+                    EyeTrackingSource::Htc => world.add_component(HTCEyeTrackingComponent::on()),
+                    EyeTrackingSource::MediaPipe => {
+                        world.add_component(MediaPipeEyeTrackingComponent::on())
+                    }
+                };
+                world
+                    .add_child(selector_id, child)
+                    .expect("new source and selector must exist and be acyclic");
+            }
+        }
+    }
+
+    fn resolve_generic_trackers(&mut self, world: &mut World) {
+        let selectors: Vec<_> = world
+            .all_components()
+            .filter(|&id| {
+                world
+                    .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                    .is_some()
+            })
+            .collect();
+        for selector_id in selectors {
+            let priority = world
+                .get_component_by_id_as::<XREyeTrackingComponent>(selector_id)
+                .expect("selector id came from the same world scan")
+                .priority
+                .clone();
+            let children = world.children_of(selector_id).to_vec();
+            let mut gaze = None;
+            let mut closure = None;
+            for source in priority {
+                for child in children.iter().copied() {
+                    let samples = match source {
+                        EyeTrackingSource::VrChatOsc => world
+                            .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(child)
+                            .map(|tracker| (tracker.gaze_sample, tracker.closure_sample)),
+                        EyeTrackingSource::Htc => world
+                            .get_component_by_id_as::<HTCEyeTrackingComponent>(child)
+                            .map(|tracker| (tracker.gaze_sample, tracker.closure_sample)),
+                        EyeTrackingSource::MediaPipe => None,
+                    };
+                    let Some((source_gaze, source_closure)) = samples else {
+                        continue;
+                    };
+                    if gaze.is_none()
+                        && source_gaze.sequence > 0
+                        && (source_gaze.left.is_some() || source_gaze.right.is_some())
+                    {
+                        gaze = Some((source, source_gaze));
+                    }
+                    if closure.is_none()
+                        && source_closure.sequence > 0
+                        && (source_closure.left.is_some() || source_closure.right.is_some())
+                    {
+                        closure = Some((source, source_closure));
+                    }
+                }
+            }
+            let selector = world
+                .get_component_by_id_as_mut::<XREyeTrackingComponent>(selector_id)
+                .expect("selector still exists");
+            selector.gaze_source = gaze.map(|(source, _)| source);
+            if let Some((_, sample)) = gaze {
+                selector.gaze_sample = sample;
+            }
+            selector.closure_source = closure.map(|(source, _)| source);
+            selector.closure_sample = closure
+                .map(|(_, sample)| sample)
+                .unwrap_or_else(EyeClosureSample::default);
+        }
     }
     fn tick_standard(&mut self, world: &mut World, emit: &mut dyn SignalEmitter) {
         let ids: Vec<_> = world
             .all_components()
             .filter(|&id| {
                 world
-                    .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                    .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(id)
                     .is_some()
             })
             .collect();
@@ -50,25 +174,29 @@ impl XREyeTrackingSystem {
             // tracker stops sending it, AVC must release its morph override
             // on the next frame instead of leaving an avatar permanently
             // blinking.
-            if let Some(component) = world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
+            if let Some(component) =
+                world.get_component_by_id_as_mut::<VRChatOSCEyeTrackingComponent>(id)
             {
                 component.closure_sample.left = None;
                 component.closure_sample.right = None;
             }
             let c = world
-                .get_component_by_id_as::<XREyeTrackingComponent>(id)
+                .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(id)
                 .unwrap();
             if !self.sockets.contains_key(&id) {
                 match UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
                     Ok(s) => {
                         let _ = s.set_nonblocking(true);
                         self.failed_standard_binds.remove(&id);
-                        eprintln!("[XREyeTracking] listening on {}:{}", c.host, c.port);
+                        eprintln!("[VRChatOSCEyeTracking] listening on {}:{}", c.host, c.port);
                         self.sockets.insert(id, s);
                     }
                     Err(error) => {
                         if self.failed_standard_binds.insert(id) {
-                            eprintln!("[XREyeTracking] cannot bind {}:{}: {error}", c.host, c.port);
+                            eprintln!(
+                                "[VRChatOSCEyeTracking] cannot bind {}:{}: {error}",
+                                c.host, c.port
+                            );
                         }
                     }
                 }
@@ -116,7 +244,7 @@ impl XREyeTrackingSystem {
                                 ..EyeGazeSample::default()
                             });
                         if let Some(component) =
-                            world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
+                            world.get_component_by_id_as_mut::<VRChatOSCEyeTrackingComponent>(id)
                         {
                             component.gaze_sample = gaze_sample;
                         }
@@ -125,22 +253,27 @@ impl XREyeTrackingSystem {
                         if let Some(closure_sample) =
                             standard_closure_sample(sample.combined_openness, self.next_sequence())
                         {
-                            if let Some(component) =
-                                world.get_component_by_id_as_mut::<XREyeTrackingComponent>(id)
+                            if let Some(component) = world
+                                .get_component_by_id_as_mut::<VRChatOSCEyeTrackingComponent>(id)
                             {
                                 component.closure_sample = closure_sample;
                             }
                         }
                     }
-                    emit.push_event(
-                        id,
-                        EventSignal::XrEyeTrackingUpdated {
-                            combined_look: sample.combined_look,
-                            left_look: sample.left_look,
-                            right_look: sample.right_look,
-                            combined_openness: sample.combined_openness,
-                        },
-                    );
+                    let event = EventSignal::XrEyeTrackingUpdated {
+                        combined_look: sample.combined_look,
+                        left_look: sample.left_look,
+                        right_look: sample.right_look,
+                        combined_openness: sample.combined_openness,
+                    };
+                    emit.push_event(id, event.clone());
+                    if let Some(selector) = world.parent_of(id).filter(|parent| {
+                        world
+                            .get_component_by_id_as::<XREyeTrackingComponent>(*parent)
+                            .is_some()
+                    }) {
+                        emit.push_event(selector, event);
+                    }
                 }
             }
         }
@@ -150,34 +283,33 @@ impl XREyeTrackingSystem {
             .all_components()
             .filter(|&id| {
                 world
-                    .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
+                    .get_component_by_id_as::<HTCEyeTrackingComponent>(id)
                     .is_some()
             })
             .collect();
         self.htc_sockets.retain(|id, _| ids.contains(id));
         self.failed_htc_binds.retain(|id| ids.contains(id));
         for id in ids {
-            if let Some(component) =
-                world.get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(id)
+            if let Some(component) = world.get_component_by_id_as_mut::<HTCEyeTrackingComponent>(id)
             {
                 component.closure_sample.left = None;
                 component.closure_sample.right = None;
             }
             let c = world
-                .get_component_by_id_as::<XREyeTrackingHtcComponent>(id)
+                .get_component_by_id_as::<HTCEyeTrackingComponent>(id)
                 .unwrap();
             if !self.htc_sockets.contains_key(&id) {
                 match UdpSocket::bind(format!("{}:{}", c.host, c.port)) {
                     Ok(s) => {
                         let _ = s.set_nonblocking(true);
                         self.failed_htc_binds.remove(&id);
-                        eprintln!("[XREyeTrackingHTC] listening on {}:{}", c.host, c.port);
+                        eprintln!("[HTCEyeTracking] listening on {}:{}", c.host, c.port);
                         self.htc_sockets.insert(id, s);
                     }
                     Err(error) => {
                         if self.failed_htc_binds.insert(id) {
                             eprintln!(
-                                "[XREyeTrackingHTC] cannot bind {}:{}: {error}",
+                                "[HTCEyeTracking] cannot bind {}:{}: {error}",
                                 c.host, c.port
                             );
                         }
@@ -197,7 +329,7 @@ impl XREyeTrackingSystem {
                     let closure_sequence = self.next_sequence();
                     let closure_sample = htc_closure_sample(&left, &right, closure_sequence);
                     if let Some(component) =
-                        world.get_component_by_id_as_mut::<XREyeTrackingHtcComponent>(id)
+                        world.get_component_by_id_as_mut::<HTCEyeTrackingComponent>(id)
                     {
                         if let Some(gaze_sample) = gaze_sample {
                             component.gaze_sample = gaze_sample;
@@ -207,7 +339,15 @@ impl XREyeTrackingSystem {
                             ..EyeClosureSample::default()
                         });
                     }
-                    emit.push_event(id, EventSignal::XrEyeTrackingHtcUpdated { left, right });
+                    let event = EventSignal::XrEyeTrackingHtcUpdated { left, right };
+                    emit.push_event(id, event.clone());
+                    if let Some(selector) = world.parent_of(id).filter(|parent| {
+                        world
+                            .get_component_by_id_as::<XREyeTrackingComponent>(*parent)
+                            .is_some()
+                    }) {
+                        emit.push_event(selector, event);
+                    }
                 }
             }
         }
@@ -437,6 +577,74 @@ pub fn decode_htc(b: &[u8]) -> Option<(HtcEye, HtcEye)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generic_tracker_materializes_default_source_components() {
+        let mut world = World::default();
+        let selector = world.add_component(XREyeTrackingComponent::on());
+        let mut system = XREyeTrackingSystem::default();
+
+        system.ensure_generic_sources(&mut world);
+
+        let children = world.children_of(selector);
+        assert_eq!(children.len(), 3);
+        assert!(children.iter().any(|child| {
+            world
+                .get_component_by_id_as::<VRChatOSCEyeTrackingComponent>(*child)
+                .is_some()
+        }));
+        assert!(children.iter().any(|child| {
+            world
+                .get_component_by_id_as::<HTCEyeTrackingComponent>(*child)
+                .is_some()
+        }));
+        assert!(children.iter().any(|child| {
+            world
+                .get_component_by_id_as::<MediaPipeEyeTrackingComponent>(*child)
+                .is_some()
+        }));
+
+        system.ensure_generic_sources(&mut world);
+        assert_eq!(world.children_of(selector).len(), 3);
+    }
+
+    #[test]
+    fn generic_tracker_uses_priority_independently_per_channel() {
+        let mut world = World::default();
+        let selector = world.add_component(
+            XREyeTrackingComponent::on()
+                .with_priority(vec![EyeTrackingSource::Htc, EyeTrackingSource::VrChatOsc]),
+        );
+        let osc = world.add_component(VRChatOSCEyeTrackingComponent::on());
+        let htc = world.add_component(HTCEyeTrackingComponent::on());
+        world.add_child(selector, osc).unwrap();
+        world.add_child(selector, htc).unwrap();
+        world
+            .get_component_by_id_as_mut::<VRChatOSCEyeTrackingComponent>(osc)
+            .unwrap()
+            .closure_sample = EyeClosureSample {
+            left: Some(0.4),
+            right: Some(0.4),
+            sequence: 3,
+        };
+        world
+            .get_component_by_id_as_mut::<HTCEyeTrackingComponent>(htc)
+            .unwrap()
+            .gaze_sample = EyeGazeSample {
+            left: Some([1.0, 0.0, 0.0]),
+            right: Some([1.0, 0.0, 0.0]),
+            sequence: 2,
+        };
+
+        XREyeTrackingSystem::default().resolve_generic_trackers(&mut world);
+
+        let selected = world
+            .get_component_by_id_as::<XREyeTrackingComponent>(selector)
+            .unwrap();
+        assert_eq!(selected.gaze_source, Some(EyeTrackingSource::Htc));
+        assert_eq!(selected.closure_source, Some(EyeTrackingSource::VrChatOsc));
+        assert_eq!(selected.closure_sample.left, Some(0.4));
+    }
 
     #[test]
     fn standard_sample_prefers_individual_and_falls_back_to_combined() {

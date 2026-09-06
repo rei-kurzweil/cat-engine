@@ -248,12 +248,14 @@ fn vtuber_microphone_speaking_eye_tracking_scene_uses_standard_eye_tracking() {
     assert!(output.errors.is_empty(), "{:#?}", output.errors);
     assert!(world.all_components().any(|id| {
         world
-            .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(id)
+            .get_component_by_id_as::<
+                crate::engine::ecs::component::VRChatOSCEyeTrackingComponent,
+            >(id)
             .is_some()
     }));
     assert!(!world.all_components().any(|id| {
         world
-            .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(id)
+            .get_component_by_id_as::<crate::engine::ecs::component::HTCEyeTrackingComponent>(id)
             .is_some()
     }));
 }
@@ -288,9 +290,9 @@ fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
         .copied()
         .find(|&id| {
             world
-                .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
-                    id,
-                )
+                .get_component_by_id_as::<
+                    crate::engine::ecs::component::VRChatOSCEyeTrackingComponent,
+                >(id)
                 .is_some()
         })
         .expect("initial direct VRChat OSC tracker");
@@ -337,7 +339,7 @@ fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
         IntentValue::Attach { parent, child }
             if *parent == avc
                 && world
-                    .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(*child)
+                    .get_component_by_id_as::<crate::engine::ecs::component::HTCEyeTrackingComponent>(*child)
                     .is_some()
     )));
     for intent in output.intents {
@@ -353,12 +355,12 @@ fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
         .copied()
         .filter(|&id| {
             world
-                .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
-                    id,
-                )
+                .get_component_by_id_as::<
+                    crate::engine::ecs::component::VRChatOSCEyeTrackingComponent,
+                >(id)
                 .is_some()
                 || world
-                    .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(
+                    .get_component_by_id_as::<crate::engine::ecs::component::HTCEyeTrackingComponent>(
                         id,
                     )
                     .is_some()
@@ -366,7 +368,7 @@ fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
         .collect::<Vec<_>>();
     assert_eq!(direct_trackers.len(), 1, "one active direct eye tracker");
     assert!(world
-        .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(
+        .get_component_by_id_as::<crate::engine::ecs::component::HTCEyeTrackingComponent>(
             direct_trackers[0]
         )
         .is_some());
@@ -411,12 +413,12 @@ fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
         .copied()
         .filter(|&id| {
             world
-                .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
-                    id,
-                )
+                .get_component_by_id_as::<
+                    crate::engine::ecs::component::VRChatOSCEyeTrackingComponent,
+                >(id)
                 .is_some()
                 || world
-                    .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingHtcComponent>(
+                    .get_component_by_id_as::<crate::engine::ecs::component::HTCEyeTrackingComponent>(
                         id,
                     )
                     .is_some()
@@ -424,9 +426,9 @@ fn vtuber_microphone_speaking_eye_tracking_panel_swaps_direct_avc_tracker() {
         .collect::<Vec<_>>();
     assert_eq!(direct_trackers.len(), 1, "one active direct eye tracker");
     assert!(world
-        .get_component_by_id_as::<crate::engine::ecs::component::XREyeTrackingComponent>(
-            direct_trackers[0]
-        )
+        .get_component_by_id_as::<
+            crate::engine::ecs::component::VRChatOSCEyeTrackingComponent,
+        >(direct_trackers[0])
         .is_some());
 }
 

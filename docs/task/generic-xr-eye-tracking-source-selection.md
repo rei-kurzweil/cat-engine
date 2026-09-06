@@ -2,7 +2,12 @@
 
 Date: 2026-09-06
 
-Status: investigation complete; implementation pending
+Status: source extraction and first generic selection slice implemented; liveness, shared receivers,
+and explicit-override diagnostics remain
+
+Policy revision: [One-shot XR eye-tracking source election](one-shot-xr-eye-tracking-source-election.md)
+replaces the continuous/per-channel selection described in this task with a bounded startup window
+and one locked whole-eye source.
 
 Parent: [Eye and face tracking epic](epic/eye-and-face-tracking.md)
 
@@ -52,9 +57,9 @@ AVC {
 
 and receive HTC binary UDP or VRChat Eye OSC without editing the example.
 
-## What exists today
+## Starting point
 
-The current names do not match their actual scopes:
+Before the first implementation slice, the names did not match their actual scopes:
 
 | MMS component | Current transport | Default endpoint | AVC use |
 |---|---|---|---|
@@ -73,10 +78,11 @@ automatic source discovery. It also means that, if both components are attached,
 the newest packet can take control independently for each eye/channel; there is no authored source
 priority.
 
-The XR examples now commonly attach `XREyeTracking.on()` directly to `AVC`, so they currently opt in
-to OSC only. The focused microphone/eye-tracking example works around this with a UI that physically
-swaps `XREyeTracking` and `XREyeTrackingHTC`. That selector remains useful as an explicit transport
-demo, but ordinary examples should not require it.
+The XR examples commonly attached `XREyeTracking.on()` directly to `AVC`, which previously opted in
+to OSC only. The focused microphone/eye-tracking example worked around this with a UI that physically
+swapped the old `XREyeTracking` and `XREyeTrackingHTC` transport components. It now uses the
+canonical `VRChatOSCEyeTracking` and `HTCEyeTracking` names and remains useful as an explicit
+transport demo, while ordinary examples use the generic selector.
 
 The target names deliberately separate the selector from the implementations:
 
@@ -248,6 +254,28 @@ All existing shared calibration builders (`head_rotation_compensation`, `rotatio
 Transport/camera-specific configuration belongs to the corresponding source component.
 
 ## Implementation plan
+
+### Implemented first slice
+
+- Added `EyeTrackingSource` with `Htc`, `VrChatOsc`, and the reserved `MediaPipe` variant.
+- Split the transport structs into canonical `VRChatOSCEyeTrackingComponent` and
+  `HTCEyeTrackingComponent` types and added a constructible `MediaPipeEyeTrackingComponent`
+  placeholder.
+- Registered `VRChatOSCEyeTracking`, `HTCEyeTracking`, and `MediaPipeEyeTracking` in MMS while
+  preserving the old HTC name as a compatibility entry point.
+- Made `XREyeTrackingComponent` transport-neutral, with ordered priority, selected normalized
+  samples, and per-channel source provenance.
+- Added `.priority(["htc", "vrchat_osc", "mediapipe"])` parsing with empty, unknown, and duplicate
+  rejection.
+- Made the system create missing default source children and select gaze and closure independently
+  by configured priority.
+- Preserved legacy `XREyeTracking.listen(host, port)` as an OSC-only generic configuration and
+  forwards source-native update events from implicit children to the generic component.
+- Extended AVC to accept the generic selector and direct canonical source components.
+
+This slice makes ordinary `XREyeTracking.on()` examples probe both implemented default transports.
+It does not yet expire retained gaze based on source liveness, share a single receiver among
+multiple avatars, or suppress a generic selector when an explicit source sibling is also attached.
 
 1. Add `EyeTrackingSource`, its strict MMS parser, the default ordered list, and the `priority([...])`
    builder to `XREyeTrackingComponent`, registry dispatch, runtime signatures, and serialization or

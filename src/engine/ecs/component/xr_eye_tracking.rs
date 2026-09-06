@@ -1,6 +1,31 @@
 use super::Component;
 use crate::engine::ecs::ComponentId;
 
+/// A transport implementation that can provide normalized eye-tracking data.
+///
+/// The generic `XREyeTracking` selector will use this enum for authored source
+/// priority. `MediaPipe` is reserved now so scenes can describe their intended
+/// ordering before the webcam transport is implemented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EyeTrackingSource {
+    Htc,
+    VrChatOsc,
+    MediaPipe,
+}
+
+impl EyeTrackingSource {
+    pub const DEFAULT_PRIORITY: [Self; 3] = [Self::Htc, Self::VrChatOsc, Self::MediaPipe];
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "htc" => Some(Self::Htc),
+            "vrchat_osc" => Some(Self::VrChatOsc),
+            "mediapipe" => Some(Self::MediaPipe),
+            _ => None,
+        }
+    }
+}
+
 /// Declares the coordinate convention used by an eye-tracking transport.
 ///
 /// `CancelHeadRotation` treats reported directions as world-relative and
@@ -90,8 +115,93 @@ pub fn combined_eye_rotation_limits(
     }
 }
 
+/// Transport-neutral eye-tracking selector.
+///
+/// Source-specific components are direct children of this component. The
+/// eye-tracking system creates default children for priority entries that do
+/// not have an authored configuration and copies the selected normalized
+/// samples here for AVC to consume.
 #[derive(Debug, Clone)]
 pub struct XREyeTrackingComponent {
+    pub priority: Vec<EyeTrackingSource>,
+    pub head_rotation_compensation: HeadRotationCompensation,
+    pub rotation_limits: Option<EyeRotationLimits>,
+    pub rotation_limits_per_eye: [Option<EyeRotationLimits>; 2],
+    pub(crate) legacy_osc_endpoint: Option<(String, u16)>,
+    pub(crate) gaze_sample: EyeGazeSample,
+    pub(crate) closure_sample: EyeClosureSample,
+    pub(crate) gaze_source: Option<EyeTrackingSource>,
+    pub(crate) closure_source: Option<EyeTrackingSource>,
+}
+
+impl XREyeTrackingComponent {
+    pub fn on() -> Self {
+        Self {
+            priority: EyeTrackingSource::DEFAULT_PRIORITY.to_vec(),
+            head_rotation_compensation: HeadRotationCompensation::Off,
+            rotation_limits: None,
+            rotation_limits_per_eye: [None; 2],
+            legacy_osc_endpoint: None,
+            gaze_sample: EyeGazeSample::default(),
+            closure_sample: EyeClosureSample::default(),
+            gaze_source: None,
+            closure_source: None,
+        }
+    }
+
+    /// Compatibility constructor for the old OSC-specific API.
+    pub fn listen(host: impl Into<String>, port: u16) -> Self {
+        let mut component = Self::on();
+        component.priority = vec![EyeTrackingSource::VrChatOsc];
+        component.legacy_osc_endpoint = Some((host.into(), port));
+        component
+    }
+
+    pub fn with_priority(mut self, priority: Vec<EyeTrackingSource>) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn with_head_rotation_compensation(mut self, value: HeadRotationCompensation) -> Self {
+        self.head_rotation_compensation = value;
+        self
+    }
+
+    pub fn with_rotation_limits(mut self, values: [f32; 4]) -> Self {
+        self.rotation_limits = Some(EyeRotationLimits::from_array(values));
+        self
+    }
+
+    pub fn with_rotation_limits_per_eye(mut self, left: [f32; 4], right: [f32; 4]) -> Self {
+        self.rotation_limits_per_eye = [
+            Some(EyeRotationLimits::from_array(left)),
+            Some(EyeRotationLimits::from_array(right)),
+        ];
+        self
+    }
+}
+
+impl Default for XREyeTrackingComponent {
+    fn default() -> Self {
+        Self::on()
+    }
+}
+
+impl Component for XREyeTrackingComponent {
+    fn name(&self) -> &'static str {
+        "xr_eye_tracking"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn set_id(&mut self, _: ComponentId) {}
+}
+
+#[derive(Debug, Clone)]
+pub struct VRChatOSCEyeTrackingComponent {
     pub host: String,
     pub port: u16,
     pub head_rotation_compensation: HeadRotationCompensation,
@@ -100,7 +210,7 @@ pub struct XREyeTrackingComponent {
     pub(crate) gaze_sample: EyeGazeSample,
     pub(crate) closure_sample: EyeClosureSample,
 }
-impl XREyeTrackingComponent {
+impl VRChatOSCEyeTrackingComponent {
     pub fn on() -> Self {
         Self {
             host: "127.0.0.1".into(),
@@ -139,14 +249,14 @@ impl XREyeTrackingComponent {
         self
     }
 }
-impl Default for XREyeTrackingComponent {
+impl Default for VRChatOSCEyeTrackingComponent {
     fn default() -> Self {
         Self::on()
     }
 }
-impl Component for XREyeTrackingComponent {
+impl Component for VRChatOSCEyeTrackingComponent {
     fn name(&self) -> &'static str {
-        "xr_eye_tracking"
+        "vrchat_osc_eye_tracking"
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -158,7 +268,7 @@ impl Component for XREyeTrackingComponent {
 }
 
 #[derive(Debug, Clone)]
-pub struct XREyeTrackingHtcComponent {
+pub struct HTCEyeTrackingComponent {
     pub host: String,
     pub port: u16,
     pub head_rotation_compensation: HeadRotationCompensation,
@@ -167,7 +277,7 @@ pub struct XREyeTrackingHtcComponent {
     pub(crate) gaze_sample: EyeGazeSample,
     pub(crate) closure_sample: EyeClosureSample,
 }
-impl XREyeTrackingHtcComponent {
+impl HTCEyeTrackingComponent {
     pub fn on() -> Self {
         Self {
             host: "127.0.0.1".into(),
@@ -206,14 +316,14 @@ impl XREyeTrackingHtcComponent {
         self
     }
 }
-impl Default for XREyeTrackingHtcComponent {
+impl Default for HTCEyeTrackingComponent {
     fn default() -> Self {
         Self::on()
     }
 }
-impl Component for XREyeTrackingHtcComponent {
+impl Component for HTCEyeTrackingComponent {
     fn name(&self) -> &'static str {
-        "xr_eye_tracking_htc"
+        "htc_eye_tracking"
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -222,4 +332,78 @@ impl Component for XREyeTrackingHtcComponent {
         self
     }
     fn set_id(&mut self, _: ComponentId) {}
+}
+
+/// Configuration anchor for the future webcam/MediaPipe eye-tracking source.
+///
+/// It is intentionally constructible before the transport exists so generic
+/// source priority and scene topology do not need another API migration later.
+/// The eye-tracking system does not currently produce samples for this type.
+#[derive(Debug, Clone)]
+pub struct MediaPipeEyeTrackingComponent {
+    pub head_rotation_compensation: HeadRotationCompensation,
+    pub rotation_limits: Option<EyeRotationLimits>,
+    pub rotation_limits_per_eye: [Option<EyeRotationLimits>; 2],
+}
+
+impl MediaPipeEyeTrackingComponent {
+    pub fn on() -> Self {
+        Self {
+            head_rotation_compensation: HeadRotationCompensation::Off,
+            rotation_limits: None,
+            rotation_limits_per_eye: [None; 2],
+        }
+    }
+}
+
+impl Default for MediaPipeEyeTrackingComponent {
+    fn default() -> Self {
+        Self::on()
+    }
+}
+
+impl Component for MediaPipeEyeTrackingComponent {
+    fn name(&self) -> &'static str {
+        "mediapipe_eye_tracking"
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn set_id(&mut self, _: ComponentId) {}
+}
+
+/// Compatibility name for the original HTC-specific Rust type.
+pub type XREyeTrackingHtcComponent = HTCEyeTrackingComponent;
+
+#[cfg(test)]
+mod tests {
+    use super::EyeTrackingSource;
+
+    #[test]
+    fn eye_tracking_source_names_and_default_priority_are_stable() {
+        assert_eq!(
+            EyeTrackingSource::parse("htc"),
+            Some(EyeTrackingSource::Htc)
+        );
+        assert_eq!(
+            EyeTrackingSource::parse("vrchat_osc"),
+            Some(EyeTrackingSource::VrChatOsc)
+        );
+        assert_eq!(
+            EyeTrackingSource::parse("mediapipe"),
+            Some(EyeTrackingSource::MediaPipe)
+        );
+        assert_eq!(EyeTrackingSource::parse("osc"), None);
+        assert_eq!(
+            EyeTrackingSource::DEFAULT_PRIORITY,
+            [
+                EyeTrackingSource::Htc,
+                EyeTrackingSource::VrChatOsc,
+                EyeTrackingSource::MediaPipe,
+            ]
+        );
+    }
 }
