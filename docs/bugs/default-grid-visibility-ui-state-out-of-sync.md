@@ -2,33 +2,33 @@
 
 ## Status and current reproduction
 
-Still failing, user revalidated 2026-09-05. Priority 2 in the
-[desktop interaction tracker](../desktop/interaction-priorities.md), after
-[empty-grid stroke startup](free-draw-cannot-start-on-empty-grid-analytic-plane.md).
+2026-09-06: the user clarified the intended behavior: keep the initial grid
+hidden, show Hidden in the panel, and make the first visibility toggle show it.
+The desktop example now explicitly authors `hidden(true)`. The generated editor
+default already uses `GridSpawnSpec::default_hidden_editor_grid()` with
+`hidden=true`; no global Grid constructor or explicitly visible scene state is
+changed.
 
-Run `cargo run --release -- load examples/paint-grids-desktop.mms`.
-The grid UI initially says visible, but the grid does not appear until the user
-toggles it off and back on. This example authors its grid with `enabled(true)`
-and `hidden(false)`: it should actually render on first load. Do not fix this
-case by relabeling it Hidden or changing its authored visibility.
+Source inspection confirms the panel derives both its model and row label from
+`!entry.hidden`, and its action calls `toggle_grid_hidden` on the component.
+The example previously authored `hidden(false)` but lacked live runtime at
+startup. Thus its Visible label reflected authored state, while the absent
+runtime made it look hidden. The first click changed that state to hidden and
+created hidden runtime; the second showed it. Starting this example with the
+intended authoritative hidden state removes that extra toggle.
 
-A headless probe of this exact MMS at revision `faecddc7` found no
-`grid_live_root` or `grid_live_raycastable` after evaluation and Paint sync.
-Disabling/re-enabling through `GridSystem::set_grid_enabled` created the live
-runtime. `GridComponent` initialization and registry discovery do not create
-that subtree; `sync_paint_raycast_targets` skips a missing marker. This is
-concrete evidence of an authored-grid initialization gap, distinct from a panel
-label incorrectly reflecting an intentionally hidden default grid.
+Regression `startup_grids_are_hidden_and_show_on_first_toggle` covers the actual
+MMS load and the generated editor default: initially hidden panel model, first
+toggle establishing visible live opacity, and second toggle hiding the same
+runtime. Interactive validation remains pending.
 
-Required validation:
+The broader initialization gap for explicitly visible authored grids remains
+outstanding: registry discovery does not establish their live subtree. This
+change follows the requested hidden startup policy rather than implementing
+that separate lifecycle repair.
 
-- An authored enabled, visible grid renders on first load with matching UI and
-  no toggle workaround, including reload.
-- An intentionally hidden default grid stays hidden and is labeled Hidden.
-- Visibility/enabled toggles follow authoritative component state and establish
-  or remove the normal runtime consistently without duplicate visuals.
-- Fixing visibility is not grounds to close the stroke bug: the user confirmed
-  that empty-grid painting still fails after toggling makes the grid visible.
+The empty-grid registration fix was confirmed working by the user before this
+visibility work; its captured-grid-plane continuation remains separate.
 
 ## Earlier default-grid report
 

@@ -32,14 +32,15 @@ ED.active() {
         R.cube() { C.rgba(0.88, 0.43, 0.30, 1.0) Raycastable.enabled() }
     }
 
-    // Grid-local X/Z maps to this wall's XY plane.
+    // Grid-local X/Z maps to this wall's XY plane. Start hidden; show it once
+    // from the Grids panel when ready to paint on the grid.
     T.position(0.0, 1.15, -2.90).rotation(1.570796, 0.0, 0.0) {
         name = "debug_vertical_grid_spacing_0_5"
         Grid.spacing(0.5) {
             size_x(16)
             size_z(8)
             enabled(true)
-            hidden(false)
+            hidden(true)
             selectable(true)
         }
     }

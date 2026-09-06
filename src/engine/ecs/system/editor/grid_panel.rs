@@ -838,6 +838,84 @@ mod tests {
     use crate::engine::ecs::component::{EditorComponent, GridComponent, TransformComponent};
 
     #[test]
+    fn startup_grids_are_hidden_and_show_on_first_toggle() {
+        use crate::engine::ecs::component::OpacityComponent;
+        use crate::engine::ecs::{CommandQueue, RxWorld};
+        use crate::scripting::runner::MeowMeowRunner;
+
+        for authored_example in [false, true] {
+            let mut world = World::default();
+            let grids = GridSystem::new();
+            let mut emit = CommandQueue::new();
+            let (editor, owner) = if authored_example {
+                let path = concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/examples/paint-grids-desktop.mms"
+                );
+                let source = std::fs::read_to_string(path).unwrap();
+                let out = MeowMeowRunner::eval_with_world_at_path(
+                    &source,
+                    Some(path),
+                    &mut world,
+                    &mut RxWorld::default(),
+                    &mut emit,
+                );
+                assert!(out.errors.is_empty(), "{:?}", out.errors);
+                let grid = world
+                    .all_components()
+                    .find(|&id| world.get_component_by_id_as::<GridComponent>(id).is_some())
+                    .unwrap();
+                let owner = GridSystem::grid_owner_transform(&world, grid).unwrap();
+                let entry = grids.grid_owned_by_transform(&world, owner).unwrap();
+                (entry.editor_root, owner)
+            } else {
+                let editor = world.add_component(EditorComponent::new());
+                let owner = grids.ensure_default_grid(&mut world, &mut emit, editor);
+                (editor, owner)
+            };
+            let model = build_grid_panel_model(&world, &grids, editor, Some(owner));
+            assert_eq!(model.rows.len(), 1);
+            assert!(!model.rows[0].shown, "startup control must say Hidden");
+            assert!(model.rows[0].enabled);
+            if let Some(opacity) = world.find_component(owner, "#grid_live_opacity") {
+                assert_eq!(
+                    world
+                        .get_component_by_id_as::<OpacityComponent>(opacity)
+                        .unwrap()
+                        .opacity,
+                    0.0
+                );
+            }
+            assert!(grids.toggle_grid_hidden(&mut world, &mut emit, owner));
+            assert!(build_grid_panel_model(&world, &grids, editor, Some(owner)).rows[0].shown);
+            let opacity = world
+                .find_component(owner, "#grid_live_opacity")
+                .expect("first show must establish live runtime");
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<OpacityComponent>(opacity)
+                    .unwrap()
+                    .opacity,
+                1.0
+            );
+            let live_root = world.find_component(owner, "#grid_live_root").unwrap();
+            assert!(grids.toggle_grid_hidden(&mut world, &mut emit, owner));
+            assert!(!build_grid_panel_model(&world, &grids, editor, Some(owner)).rows[0].shown);
+            assert_eq!(
+                world
+                    .get_component_by_id_as::<OpacityComponent>(opacity)
+                    .unwrap()
+                    .opacity,
+                0.0
+            );
+            assert_eq!(
+                world.find_component(owner, "#grid_live_root"),
+                Some(live_root)
+            );
+        }
+    }
+
+    #[test]
     fn reduce_grid_panel_state_tracks_selection_and_delete() {
         let mut world = World::default();
         let a = world.add_component(TransformComponent::new());

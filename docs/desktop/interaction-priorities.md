@@ -41,12 +41,12 @@ and [editor grid/paint release gate](../task/editor-grid-paint-0.8.0-release-gat
 
 - [ ] [Grid startup visibility and UI state](../bugs/default-grid-visibility-ui-state-out-of-sync.md)
 
-The supplied desktop example says its grid is visible at startup, but the user
-must toggle it off/on before it renders. Its authored `enabled(true)` and
-`hidden(false)` state should produce a visible grid immediately. The existing
-tracker now distinguishes this missing-runtime case from the older hidden-default
-UI mismatch. Repair initialization and validate first-load visibility without
-using a toggle as a prerequisite.
+The user clarified on 2026-09-06 that the initial grid should stay hidden,
+with a matching Hidden label and one toggle to show it. The desktop example
+now authors that state; generated editor defaults already do. A regression
+covers initial panel state and first-show runtime opacity for both paths.
+Interactive validation remains pending. The initialization gap for explicitly
+visible authored grids is recorded separately within the same tracker.
 
 ## Priority 3: grabbing, poses, and release zones
 
