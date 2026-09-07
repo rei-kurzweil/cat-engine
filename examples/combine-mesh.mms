@@ -20,9 +20,9 @@ BG.occlusion_and_lighting() {
 // phase-1 CombineMesh visual. ED keeps their authored hierarchy available to
 // the editor's world panel.
 ED {
-    T.position(-5.0, 1.2, -4.0).rotation(0.0, 0.22, 0.08) { truss() }
-    T.position( 4.6, 2.4, -5.5).rotation(0.0, -0.34, -0.10) { truss() }
-    T.position( 0.0, 5.7, -7.0).rotation(0.0, 0.08, 1.5708) { truss() }
+    T.position(-5.0, 1.2, -4.0).rotation(0.0, 0.22, 0.08) { truss(8) }
+    T.position( 4.6, 2.4, -5.5).rotation(0.0, -0.34, -0.10) { truss(8) }
+    T.position( 0.0, 5.7, -7.0).rotation(0.0, 0.08, 1.5708) { truss(8) }
 }
 
 // Keep this scene's editor light: the asset browser is not needed here and

@@ -35,7 +35,7 @@ T.position(0.0, 2.4, -2.2).scale(12.0, 4.8, 0.12) {
 T.position(0.0, 4.05, -0.7).scale(0.78, 0.78, 0.78) {
     name = "shading_models_overhead_truss"
     C.rgba(0.10, 0.11, 0.13, 1.0)
-    truss()
+    truss(32)
 }
 
 let left_model_x = -1.65

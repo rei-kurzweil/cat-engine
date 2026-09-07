@@ -62,7 +62,7 @@ fn vertical_truss_stack(x, z, yaw) {
                             margin_bottom(segment_gap)
                         }
                         T.rotation(0.0, 0.0, 1.5708).scale(0.42, 0.42, 0.42) {
-                            truss()
+                            truss(8)
                         }
                     }
                 }
