@@ -58,6 +58,91 @@ the fragment-program/automatic-vertex-family architecture in
 [Materials v2](materials-v2.md), or use a deliberately temporary compatibility bridge if they land
 before it.
 
+### GLTF-scoped material modifiers
+
+Components authored directly inside a `GLTF` expression have two possible meanings. Some are
+ordinary children, while others configure or decorate resources that the loader creates later.
+Material modifiers belong to the second category:
+
+```mms
+GLTF.new("assets/models/character.glb") {
+    AnimeShading.shade_threshold(0.35).lit_threshold(0.55)
+}
+```
+
+The expected meaning is "apply this shading model to every renderable primitive produced by this
+GLTF instance." It is not merely "attach an `AnimeShading` node beneath the `GLTFComponent` in the
+authored ECS tree."
+
+This distinction matters because `GLTFSystem` currently spawns imported node transforms beneath
+the GLTF component's nearest transform ancestor. The generated renderables are therefore siblings
+of the `GLTFComponent` branch, not descendants of its material-modifier children. Ordinary
+ancestor lookup cannot discover the authored `AnimeShading` component in that topology.
+
+The GLTF loader already interprets some direct children as import parameters: `Serialize` controls
+generated-node serialization and direct pose children become startup overlays after the skeleton
+exists. Material modifiers should use the same explicit import-policy seam.
+
+For the focused anime-material slice, use these semantics:
+
+- During GLTF initialization, inspect its direct children for recognized material modifiers.
+- Project each effective modifier onto every renderable primitive created by that GLTF instance
+  before the renderable is registered in `VisualWorld`.
+- "Project" describes behavior, not necessarily an editor-visible ECS copy. The authored modifier
+  remains the source definition; generated per-renderable state may be a runtime-only clone,
+  compact resolved material state, or explicit source-to-renderable binding.
+- A single modifier is a scope and may affect any number of generated renderables. Do not require
+  one authored `AnimeShading` component per primitive.
+- If runtime mutation of the authored modifier is supported, all projections sourced from it must
+  update. A one-time copy that silently diverges is insufficient.
+- Generated projections must not serialize as additional authored components or appear as
+  independent user-authored controls in the editor.
+- A modifier authored directly on or nearer an individual renderable may override the enclosing
+  GLTF-wide modifier. Exact precedence should be shared by static and skinned renderables.
+
+Physically moving the authored modifier is undesirable because it destroys the declarative GLTF
+input and cannot represent one modifier applied to multiple single-parent renderables. Literal
+component cloning is acceptable as an implementation detail only if clones are runtime-owned,
+non-serializing, linked back to their source, and kept synchronized. A source binding plus resolved
+per-renderable material parameters is the preferred long-term representation.
+
+### General deferred attachment is a separate facility
+
+Fine-grained targeting inside an asynchronously loaded model is broader than material import
+policy. Eventually MMS should be able to retain a component-expression template, wait for an
+event, query relative to an event-provided object, and attach a fresh instance of that template to
+each match. This would support material overrides for one mesh as well as cameras on bones,
+colliders on named nodes, interaction markers, and other post-load composition.
+
+A provisional, non-normative shape could read like:
+
+```mms
+GLTF.new("assets/models/character.glb") {
+    DeferredAttach.on("GLTFInitialized").query("#Face") {
+        AnimeShading.shade_threshold(0.42)
+    }
+}
+```
+
+The final syntax is intentionally unsettled. The semantic pieces are more important:
+
+1. an event source and event kind;
+2. a query root derived from the event payload rather than the pre-load authored tree;
+3. a selector evaluated only after the event's generated objects exist;
+4. a retained child expression used as a template;
+5. explicit cardinality (`first`, `all`, or an error when ambiguous);
+6. clone-per-match behavior, because one ECS component cannot have multiple parents;
+7. routed live attachment and initialization, equivalent to `Attach`/`AttachClone`, rather than a
+   raw `add_child` that bypasses registration signals;
+8. a retrigger policy for reloads and repeated events, including cleanup or replacement of clones;
+9. defined behavior for no matches, query errors, deleted targets, and deleted template owners; and
+10. serialization rules that preserve the deferred authoring expression without persisting its
+    runtime-generated attachments as independent authored content.
+
+The narrow GLTF-wide material projection should not wait for this general mechanism. It has fixed
+timing, fixed scope, and a known output type, so it can ship through the GLTF import seam. A later
+deferred-attachment ticket may reuse the same source-binding and clone-lifecycle primitives.
+
 ## Dependency and recommended delivery order
 
 ```text
@@ -297,6 +382,12 @@ MMS should expose equivalent typed builder methods/properties and serialize them
 - [x] Validate colors and finite/ranged scalar inputs at the material boundary.
 - [x] Support static and cached-deformed/skinned meshes via automatic vertex-family resolution or
       the temporary compatibility bridge documented by Materials v2.
+- [ ] Treat a material modifier directly inside `GLTF { ... }` as GLTF-wide import policy and
+      project it onto every generated primitive before `VisualWorld` registration.
+- [ ] Preserve one authored material-modifier source while keeping any generated per-renderable
+      projections synchronized, runtime-owned, and non-serializing.
+- [ ] Add coverage using the real GLTF importer hierarchy; a synthetic ancestor-only renderable
+      test does not prove that `GLTF { AnimeShading... }` reaches imported primitives.
 - [ ] Add a representative anime-face/humanoid example with controls for threshold, shade tint,
       shade strength, and rim response.
 - [ ] Measure pipeline count, batch count, and frame time against the existing toon material on a
@@ -366,3 +457,9 @@ MMS should expose equivalent typed builder methods/properties and serialize them
    minimum visible shade color?
 6. Should rim light be capped to albedo in the first slice, or may the explicitly configured rim
    color be brighter while the direct lit state remains capped?
+7. Which material-affecting components are recognized as GLTF import modifiers, and should that
+   classification be a component trait/capability rather than a hard-coded type list?
+8. For the later deferred-attachment facility, what MMS syntax best distinguishes an event-relative
+   query/template from a query that executes immediately against the authored tree?
+9. Should deferred attachment default to the first match, all matches, or require authors to state
+   cardinality explicitly?
