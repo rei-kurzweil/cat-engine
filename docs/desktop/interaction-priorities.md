@@ -49,24 +49,31 @@ After additional fixes, the user validated visibility in
 `examples/vtuber-mirror-example.mms` on 2026-09-06 and requested closure for now.
 Reopen if the default-grid visibility/UI mismatch recurs.
 
-## Priority 3: grabbing, poses, and release zones
+## Priority 3: grabbing, poses, and interaction zones
 
 - [ ] [Grabbing, poses, and release zones epic](../task/epic/grabbing-poses-and-release-zones.md)
 
 The epic owns these three tasks and their dependencies:
 
 1. [Hand-relative, bounds-aware grab placement](../task/grab-hand-relative-bounds-placement.md),
-   including live minimum levitation-distance adjustment using the stick not
-   assigned to locomotion. Extend `InputXRGamepad` with builder options; no new
+   including live levitation-distance adjustment with the desktop scroll wheel
+   and XR stick not assigned to locomotion, down to zero anchor clearance.
+   This is the next implementation slice within the epic.
+   Extend `InputXRGamepad` with builder options; no new
    automatic-controller-behaviors component is needed.
 2. [Grab animation and reusable pose transitions](../task/grab-animation-and-pose-transitions.md),
-   including untracked desktop hands and shared component-transform pose blending.
-3. [Release zones for sockets and vehicle mounting](../task/release-zones-sockets-and-vehicle-mounting.md),
-   including mouth props and the release-time avatar-to-broom attachment handoff.
+   including untracked humanoid arm IK reaching and shared component-transform
+   pose blending. Camera-only desktop uses a hold anchor without hand animation.
+3. [Interaction zones, sockets, and vehicle mounting](../task/release-zones-sockets-and-vehicle-mounting.md),
+   including mouth props, release-time avatar-to-broom attachment, explicitly
+   enabled proximity mounting, and car-handle/steering-wheel activation.
 
 Next milestone after the paint investigation: define shared grab state and hand
 anchors, then progress the placement and pose contracts using the existing pose
-layer work. Ordinary socket attachment precedes the broom mounting handoff.
+layer work. The [E2 broom first slice](../task/e2-broom-mounting-first-slice.md)
+is the focused attachment test: pickup, release near the legs to mount, and
+dismount. It uses desktop distance adjustment as needed and precedes full
+vehicle physics; mouth sockets are not a prerequisite.
 
 ## Tracking rules
 

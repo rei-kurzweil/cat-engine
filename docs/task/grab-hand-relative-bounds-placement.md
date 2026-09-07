@@ -9,6 +9,11 @@ initiating hand. At rest, the boundary of its measured bounds meets the hand
 anchor at zero clearance, or leaves an explicitly configured gap. This works
 for XR and desktop, including desktop without hand tracking.
 
+Updated 2026-09-07: live distance adjustment is the next implementation slice
+within this epic. Desktop scroll and XR stick input should bring a levitating
+object all the way to zero clearance. Distinguish untracked humanoid pointers
+from camera-only pointers; the latter have a hold anchor, not a physical hand.
+
 ## Current implementation and gap
 
 See [GrabbableSystem](../../src/engine/ecs/system/grabbable_system.rs) and
@@ -32,9 +37,12 @@ authoring contract rather than introducing the same setting again.
 - Resolve the movable transform for the selected grabbable component tree.
   Preserve attachment to the initiating pointer's nearest ancestor transform.
 - Resolve a hand/contact anchor independently from the pointing ray. XR uses
-  an appropriate tracked/controller hand reference; desktop uses an explicit
-  synthetic anchor coordinated with the grab pose. Specify coordinates and
-  how the anchor moves while held.
+  an appropriate tracked/controller hand reference. Untracked desktop with a
+  humanoid uses an explicit synthetic target coordinated with arm IK and grab
+  posing. Camera-only desktop uses an authored camera-relative hold anchor,
+  independent of a skeleton; zero clearance means contact with that anchor,
+  not a claim of contact with a visible hand. Specify coordinates and how each
+  anchor moves while held, including near-plane visibility for camera-only use.
 - Measure the whole movable tree, including descendant transforms, and place
   a selected boundary contact point at the anchor plus configured clearance.
   Account for rotation, scale, and off-center origins. Define lateral alignment
@@ -53,6 +61,27 @@ authoring contract rather than introducing the same setting again.
 Static/rigid bounds are the first target. Skinned humanoid bounds may poorly
 fit the current pose; accurate deformed-body contact is deferred. Bounding-box
 contact also does not promise exact mesh-surface or finger contact.
+
+## Desktop scroll adjustment
+
+While a pointer holds a successfully grabbed tree, route scroll-wheel input
+to that pointer's effective hold clearance. Proposed configurable mapping:
+scroll down brings it closer, scroll up moves it farther away. Normalize wheel
+steps and smooth/pixel scrolling with configurable sensitivity. This must work
+for both humanoid and camera-only desktop pointers.
+
+Use the same live destination update, nonnegative limits (including zero),
+and smoothing contract as XR below. Wheel deltas are event increments, not
+stick velocities; do not multiply them by elapsed time again. Explicitly route
+input to one active grab and arbitrate against UI scrolling and camera zoom,
+so one event does not adjust distance and perform another action. Unconsumed
+idle scrolling retains its usual behavior. Release/cancellation stops grab
+adjustment; distance persistence versus a per-grab override remains an explicit
+policy shared with the XR design.
+
+Acceptance: scrolling smoothly brings a held object to zero anchor clearance
+and back out in humanoid and camera-only scenes. Check limits, discrete and
+smooth scrolling, pointer focus/input ownership, release, and idle scrolling.
 
 ## XR stick adjustment and shared automatic behaviors
 
@@ -106,7 +135,8 @@ frame-rate independence, limits, two-hand selection, and controller loss.
 
 ## Acceptance criteria
 
-- XR and untracked desktop grabs use the same hand-contact semantics.
+- XR and untracked humanoid desktop grabs use the same hand-contact semantics;
+  camera-only desktop uses the equivalent bounds-to-hold-anchor contract.
 - Small and large trees with offset origins, nested geometry, rotation, and
   nonuniform scale settle with the selected bounds contact at the hand anchor.
 - Zero and nonzero clearance behave predictably; distant grabs approach smoothly.

@@ -2,6 +2,10 @@
 
 Date: 2026-05-07
 
+2026-09-07 follow-up: [scriptable Velocity pose driver](../scriptable-velocity-pose-driver.md)
+defines an active descendant-motion driver for broom flight. This older draft
+describes storage/observation; reconcile those roles before implementation.
+
 Sketch for promoting velocity from a private field hidden inside
 `CollisionResponseComponent` to first-class components attached to a `TransformComponent`.
 Goal: a single source of truth for "this thing is moving" / "this thing is rotating",
