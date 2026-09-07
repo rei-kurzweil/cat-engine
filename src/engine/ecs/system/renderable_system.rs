@@ -911,13 +911,57 @@ impl RenderableSystem {
         visuals: &mut VisualWorld,
         component: ComponentId,
     ) {
-        if world
+        let Some(component_value) = world
             .get_component_by_id_as::<AnimeShadingComponent>(component)
-            .is_none()
-        {
+            .copied()
+        else {
             return;
+        };
+        let source_component = component_value.source_component().unwrap_or(component);
+        let source_value = world
+            .get_component_by_id_as::<AnimeShadingComponent>(source_component)
+            .copied()
+            .unwrap_or(component_value);
+
+        // A projected component always mirrors its authored GLTF-scoped source.
+        if component != source_component {
+            if let Some(projection) =
+                world.get_component_by_id_as_mut::<AnimeShadingComponent>(component)
+            {
+                *projection = source_value.projected_from(source_component);
+            }
+        } else {
+            // Re-registering an authored source fans its current values out to
+            // every primitive projection produced from it.
+            let projections: Vec<_> = world
+                .all_components()
+                .filter(|&id| {
+                    world
+                        .get_component_by_id_as::<AnimeShadingComponent>(id)
+                        .is_some_and(|candidate| {
+                            candidate.source_component() == Some(source_component)
+                        })
+                })
+                .collect();
+            for projection_id in projections {
+                if let Some(projection) =
+                    world.get_component_by_id_as_mut::<AnimeShadingComponent>(projection_id)
+                {
+                    *projection = source_value.projected_from(source_component);
+                }
+                if let Some(renderable) = world.parent_of(projection_id) {
+                    if world
+                        .get_component_by_id_as::<RenderableComponent>(renderable)
+                        .is_some()
+                    {
+                        self.pending_anime_shading
+                            .insert(renderable, source_value.gpu_params());
+                    }
+                }
+            }
         }
         let Some(owner) = world.parent_of(component) else {
+            self.apply_pending_anime_updates_to_registered_renderables(world, visuals);
             return;
         };
 

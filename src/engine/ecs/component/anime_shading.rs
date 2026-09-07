@@ -15,6 +15,11 @@ pub struct AnimeShadingComponent {
     pub rim_color: [f32; 3],
     pub rim_strength: f32,
     pub rim_power: f32,
+    /// Authored GLTF-scoped modifier that produced this runtime projection.
+    ///
+    /// `None` identifies an authored component. Projected copies keep this link
+    /// so re-registering the source can update every generated renderable.
+    source_component: Option<ComponentId>,
 }
 
 impl AnimeShadingComponent {
@@ -35,7 +40,17 @@ impl AnimeShadingComponent {
             rim_color: Self::DEFAULT_RIM_COLOR,
             rim_strength: Self::DEFAULT_RIM_STRENGTH,
             rim_power: Self::DEFAULT_RIM_POWER,
+            source_component: None,
         }
+    }
+
+    pub(crate) fn projected_from(mut self, source_component: ComponentId) -> Self {
+        self.source_component = Some(source_component);
+        self
+    }
+
+    pub(crate) fn source_component(self) -> Option<ComponentId> {
+        self.source_component
     }
 
     pub fn with_shade_color(mut self, color: [f32; 3]) -> Self {

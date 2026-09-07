@@ -1,6 +1,7 @@
 use crate::engine::ecs::component::{
-    ColorComponent, EmissiveComponent, GLTFComponent, MeshComponent, MorphTargetBindingComponent,
-    RenderableComponent, SerializeComponent, TextureComponent, TransformComponent,
+    AnimeShadingComponent, ColorComponent, EmissiveComponent, GLTFComponent, MeshComponent,
+    MorphTargetBindingComponent, RenderableComponent, SerializeComponent, TextureComponent,
+    TransformComponent,
 };
 use crate::engine::ecs::{
     ComponentId, EventSignal, IntentValue, PoseApplyMode, SignalEmitter, World,
@@ -321,6 +322,13 @@ impl GLTFSystem {
                 })
                 .unwrap_or(false);
 
+            let anime_shading = world.children_of(cid).iter().find_map(|&child| {
+                world
+                    .get_component_by_id_as::<AnimeShadingComponent>(child)
+                    .copied()
+                    .map(|modifier| (child, modifier))
+            });
+
             let Some(uri) = world
                 .get_component_by_id_as::<GLTFComponent>(cid)
                 .map(|c| c.uri.clone())
@@ -400,6 +408,7 @@ impl GLTFSystem {
                     &mut pending_skin_bindings,
                     &mut pending_morph_bindings,
                     serialize_spawned_nodes,
+                    anime_shading,
                 );
                 if let Some(root) = root {
                     world.init_component_tree(root, emit);
@@ -1050,6 +1059,7 @@ impl GLTFSystem {
         pending_skin_bindings: &mut Vec<(ComponentId, ComponentId, usize)>,
         pending_morph_bindings: &mut Vec<(ComponentId, ComponentId, MorphTargetBindingComponent)>,
         serialize_spawned_nodes: bool,
+        anime_shading: Option<(ComponentId, AnimeShadingComponent)>,
     ) -> Option<ComponentId> {
         let node_display_name = node
             .name()
@@ -1117,6 +1127,12 @@ impl GLTFSystem {
 
                 let _ = world.add_child(this_transform, renderable);
                 let _ = world.add_child(renderable, mesh_ref);
+                if let Some((source_component, modifier)) = anime_shading {
+                    let projection = world.add_component(modifier.projected_from(source_component));
+                    let serialize_off = world.add_component(SerializeComponent::off());
+                    let _ = world.add_child(renderable, projection);
+                    let _ = world.add_child(projection, serialize_off);
+                }
                 if prim.morph_targets().next().is_some() {
                     let binding_value =
                         MorphTargetBindingComponent::new(gltf_component, node.index(), prim_index);
@@ -1224,6 +1240,7 @@ impl GLTFSystem {
                 pending_skin_bindings,
                 pending_morph_bindings,
                 serialize_spawned_nodes,
+                anime_shading,
             );
         }
 
@@ -1442,6 +1459,134 @@ mod tests {
         );
         assert!(subsequent.intents.is_empty());
         assert!(subsequent.events.is_empty());
+    }
+
+    #[test]
+    fn direct_anime_shading_is_projected_to_imported_visuals() {
+        #[derive(Default)]
+        struct TestMeshUploader(u32);
+
+        impl crate::engine::graphics::MeshUploader for TestMeshUploader {
+            fn upload_mesh(
+                &mut self,
+                _mesh: &CpuMesh,
+            ) -> Result<crate::engine::graphics::MeshHandle, Box<dyn std::error::Error>>
+            {
+                let handle = crate::engine::graphics::MeshHandle(self.0);
+                self.0 += 1;
+                Ok(handle)
+            }
+        }
+
+        let mut world = World::default();
+        let anchor = world.add_component(TransformComponent::new());
+        let gltf = world.add_component(GLTFComponent::new("assets/models/bisket.glb"));
+        let modifier_value = AnimeShadingComponent::new()
+            .with_shade_strength(0.47)
+            .with_shade_threshold(0.21)
+            .with_lit_threshold(0.63);
+        let expected_params = modifier_value.gpu_params();
+        let modifier = world.add_component(modifier_value);
+        world.add_child(anchor, gltf).unwrap();
+        world.add_child(gltf, modifier).unwrap();
+
+        let mut system = GLTFSystem::new();
+        system.register_component(gltf);
+        let mut visuals = VisualWorld::default();
+        let mut skinned_mesh = SkinnedMeshSystem::new();
+        let mut renderable_system = RenderableSystem::default();
+        let mut emitted = RecordingEmitter::default();
+        system.tick_with_queue(
+            &mut world,
+            &mut visuals,
+            &mut skinned_mesh,
+            &mut renderable_system,
+            &mut emitted,
+            0.0,
+        );
+
+        let renderables: Vec<_> = world
+            .all_components()
+            .filter(|&id| {
+                world
+                    .get_component_by_id_as::<RenderableComponent>(id)
+                    .is_some()
+            })
+            .collect();
+        assert!(!renderables.is_empty());
+        for renderable in &renderables {
+            let projection = world
+                .children_of(*renderable)
+                .iter()
+                .find_map(|&child| world.get_component_by_id_as::<AnimeShadingComponent>(child))
+                .expect("imported renderable should have an anime material projection");
+            assert_eq!(projection.source_component(), Some(modifier));
+            assert_eq!(projection.gpu_params(), expected_params);
+        }
+
+        for (_, intent) in &emitted.intents {
+            match intent {
+                IntentValue::RegisterRenderable { component_id } => {
+                    renderable_system.register_renderable_from_world(
+                        &mut world,
+                        &mut visuals,
+                        *component_id,
+                    );
+                }
+                IntentValue::RegisterAnimeShading { component_id } => {
+                    renderable_system.register_anime_shading(
+                        &mut world,
+                        &mut visuals,
+                        *component_id,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        let mut render_assets = RenderAssets::new();
+        system.flush_mesh_imports_only(&mut render_assets);
+        let mut uploader = TestMeshUploader::default();
+        let mut queue = crate::engine::ecs::CommandQueue::new();
+        assert!(renderable_system.flush_pending(
+            &mut world,
+            &mut visuals,
+            &mut render_assets,
+            &mut uploader,
+            &mut queue,
+        ));
+
+        assert_eq!(visuals.instances().len(), renderables.len());
+        assert!(visuals.instances().iter().any(|instance| {
+            instance.renderable.material == MaterialHandle::SKINNED_ANIME_MESH
+        }));
+        assert!(visuals.instances().iter().all(|instance| {
+            matches!(
+                instance.renderable.material,
+                MaterialHandle::ANIME_MESH | MaterialHandle::SKINNED_ANIME_MESH
+            ) && instance.anime_shading == expected_params
+        }));
+
+        let updated_modifier = modifier_value.with_rim_strength(0.71);
+        let updated_params = updated_modifier.gpu_params();
+        *world
+            .get_component_by_id_as_mut::<AnimeShadingComponent>(modifier)
+            .unwrap() = updated_modifier;
+        renderable_system.register_anime_shading(&mut world, &mut visuals, modifier);
+        assert!(
+            visuals
+                .instances()
+                .iter()
+                .all(|instance| instance.anime_shading == updated_params)
+        );
+        for renderable in renderables {
+            let projection = world
+                .children_of(renderable)
+                .iter()
+                .find_map(|&child| world.get_component_by_id_as::<AnimeShadingComponent>(child))
+                .unwrap();
+            assert_eq!(projection.gpu_params(), updated_params);
+        }
     }
 
     #[test]

@@ -382,13 +382,13 @@ MMS should expose equivalent typed builder methods/properties and serialize them
 - [x] Validate colors and finite/ranged scalar inputs at the material boundary.
 - [x] Support static and cached-deformed/skinned meshes via automatic vertex-family resolution or
       the temporary compatibility bridge documented by Materials v2.
-- [ ] Treat a material modifier directly inside `GLTF { ... }` as GLTF-wide import policy and
+- [x] Treat a material modifier directly inside `GLTF { ... }` as GLTF-wide import policy and
       project it onto every generated primitive before `VisualWorld` registration.
-- [ ] Preserve one authored material-modifier source while keeping any generated per-renderable
+- [x] Preserve one authored material-modifier source while keeping any generated per-renderable
       projections synchronized, runtime-owned, and non-serializing.
-- [ ] Add coverage using the real GLTF importer hierarchy; a synthetic ancestor-only renderable
+- [x] Add coverage using the real GLTF importer hierarchy; a synthetic ancestor-only renderable
       test does not prove that `GLTF { AnimeShading... }` reaches imported primitives.
-- [ ] Add a representative anime-face/humanoid example with controls for threshold, shade tint,
+- [x] Add a representative anime-face/humanoid example with controls for threshold, shade tint,
       shade strength, and rim response.
 - [ ] Measure pipeline count, batch count, and frame time against the existing toon material on a
       many-instance scene.

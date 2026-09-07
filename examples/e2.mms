@@ -129,7 +129,7 @@ let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
                 .shade_strength(0.30)
                 .shade_threshold(0.35)
                 .lit_threshold(0.55)
-                .rim_color([1.0, 0.85, 0.92])
+                .rim_color([1.0, 1.0, 1.0])
                 .rim_strength(0.18)
                 .rim_power(4.0)
 
