@@ -3630,11 +3630,19 @@ fn secondary_motion_desktop_example_has_studio_collision_and_no_xr() {
 
 #[test]
 fn every_bisket_example_uses_the_canonical_model_uri() {
-    fn visit(directory: &std::path::Path, checked: &mut usize) {
+    fn visit(
+        directory: &std::path::Path,
+        checked: &mut usize,
+        anime_shaded: &mut usize,
+        default_shaded: &mut usize,
+    ) {
         for entry in std::fs::read_dir(directory).expect("read examples directory") {
             let path = entry.expect("read examples entry").path();
             if path.is_dir() {
-                visit(&path, checked);
+                visit(&path, checked, anime_shaded, default_shaded);
+                continue;
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("mms") {
                 continue;
             }
             let Ok(source) = std::fs::read_to_string(&path) else {
@@ -3654,12 +3662,64 @@ fn every_bisket_example_uses_the_canonical_model_uri() {
                     line.trim()
                 );
             }
+
+            let active_source = source
+                .lines()
+                .map(|line| line.split_once("//").map_or(line, |(code, _)| code))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let model = "GLTF.new(\"assets/models/bisket.glb\")";
+            let mut remaining = active_source.as_str();
+            while let Some(model_offset) = remaining.find(model) {
+                let after_model = &remaining[model_offset + model.len()..];
+                let body_start = after_model
+                    .find('{')
+                    .expect("active Bisket GLTF example should have a component body");
+                let mut depth = 0usize;
+                let mut body_end = None;
+                for (offset, character) in after_model[body_start..].char_indices() {
+                    match character {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                body_end = Some(body_start + offset);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let body_end = body_end.expect("active Bisket GLTF body should be balanced");
+                let body = &after_model[body_start + 1..body_end];
+                if body.contains("bisket_anime_shading()") {
+                    *anime_shaded += 1;
+                } else {
+                    assert_eq!(
+                        path.file_name().and_then(|name| name.to_str()),
+                        Some("shading-models.mms"),
+                        "{} contains a Bisket GLTF without bisket_anime_shading()",
+                        path.display()
+                    );
+                    *default_shaded += 1;
+                }
+                remaining = &after_model[body_end + 1..];
+            }
         }
     }
 
     let mut checked = 0;
-    visit(std::path::Path::new("examples"), &mut checked);
+    let mut anime_shaded = 0;
+    let mut default_shaded = 0;
+    visit(
+        std::path::Path::new("examples"),
+        &mut checked,
+        &mut anime_shaded,
+        &mut default_shaded,
+    );
     assert!(checked > 0, "expected Bisket example references");
+    assert!(anime_shaded > 0, "expected anime-shaded Bisket examples");
+    assert_eq!(default_shaded, 1);
 }
 
 #[test]

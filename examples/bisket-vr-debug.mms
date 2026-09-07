@@ -22,6 +22,8 @@
 // To run:
 //   cargo run --release --example bisket-vr-debug
 
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
+
 RendererSettings.msaa_off() {
     window_size(320, 240)
 }
@@ -35,7 +37,9 @@ ED {
     // for the lifetime of the harness, so they form the comparison baseline.
     T.position(-1.2, 0.0, 0.0) {
         T {
-            GLTF.new("assets/models/bisket.glb")
+            GLTF.new("assets/models/bisket.glb") {
+                bisket_anime_shading()
+            }
         }
     }
 
@@ -50,6 +54,7 @@ ED {
                 initial_yaw(3.14159)
                 T {
                     GLTF.new("assets/models/bisket.glb") {
+                        bisket_anime_shading()
                     }
                 }
 

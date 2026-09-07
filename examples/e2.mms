@@ -5,6 +5,7 @@
 //   cargo run --release -- load examples/e2.mms
 
 import { clouds } from "../assets/components/backgrounds/clouds.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 import { bisket_secondary_motion } from "../assets/components/secondary_motion/bisket.mms"
 import { pose as relaxed_pose_factory } from "../assets/components/poses/bisket/000-relaxed.pose.mms"
 import { tripod_light } from "../assets/components/tripod_light.mms"
@@ -119,19 +120,12 @@ tripod_light(
 )
 
 let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
+    bisket_anime_shading()
     relaxed_pose_factory()
     EM.on()
     // `false` chooses Bisket's full tuned defaults: hair, bust, and tail.
     // Spring colliders are intentionally omitted for this performance probe.
     bisket_secondary_motion(false)
-
-    AnimeShading.shade_color([0.72, 0.50, 0.54])
-                .shade_strength(0.30)
-                .shade_threshold(0.35)
-                .lit_threshold(0.55)
-                .rim_color([1.0, 1.0, 1.0])
-                .rim_strength(0.18)
-                .rim_power(4.0)
 
 }
 

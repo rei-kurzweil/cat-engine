@@ -1,4 +1,5 @@
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 import { bisket_secondary_motion } from "../assets/components/secondary_motion/bisket.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
 import { pose as relaxed_pose_factory } from "../assets/components/poses/bisket/000-relaxed.pose.mms"
@@ -72,6 +73,7 @@ grabbable_cube("pile_c_base", [3.2, 0.45, 2.5], [1.25, 0.9, 0.9], [0.20, 0.92, 0
 grabbable_cube("pile_c_top",  [3.2, 1.37, 2.5], [0.9, 0.9, 0.9], [0.78, 1.00, 0.34])
 
 let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
+    bisket_anime_shading()
     // Direct pose children establish one-shot startup overlays after import.
     relaxed_pose_factory()
     EM.on()

@@ -10,6 +10,7 @@ import { pose as run_pose_1_factory } from "../assets/components/poses/bisket/00
 import { pose as run_pose_2_factory } from "../assets/components/poses/bisket/003-running_2.pose.mms"
 import { bisket_secondary_motion } from "../assets/components/secondary_motion/bisket.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 
 let relaxed_pose = relaxed_pose_factory()
 let run_pose_1 = run_pose_1_factory()
@@ -23,6 +24,7 @@ Clock.bpm(120) {}
 T.position(3.0, 5.0, 4.0) { DL {} }
 
 let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
+    bisket_anime_shading()
     // A direct pose child is overlaid once, after this model's joints spawn.
     relaxed_pose
     EM.on()

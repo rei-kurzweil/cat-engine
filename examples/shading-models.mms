@@ -8,6 +8,7 @@
 // and each is lit by an identical movable white spotlight fixture.
 
 import { pose as relaxed_pose_factory } from "../assets/components/poses/bisket/000-relaxed.pose.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 import { bisket_secondary_motion } from "../assets/components/secondary_motion/bisket.mms"
 import { tripod_light } from "../assets/components/tripod_light.mms"
 import { truss } from "../assets/components/truss.mms"
@@ -58,13 +59,7 @@ T.position(right_model_x, 0.0, 0.0) {
     GLTF.new("assets/models/bisket.glb") {
         relaxed_pose_factory()
         bisket_secondary_motion(false)
-        AnimeShading.shade_color([0.4, 0.4, 0.65])
-            .shade_strength(0.30)
-            .shade_threshold(0.35)
-            .lit_threshold(0.55)
-            .rim_color([1.0, 1.0, 1.0])
-            .rim_strength(0.18)
-            .rim_power(4.0)
+        bisket_anime_shading()
     }
 }
 

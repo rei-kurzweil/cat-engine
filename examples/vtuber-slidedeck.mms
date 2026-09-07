@@ -13,6 +13,7 @@
 
 import { bisket_shirt_physics } from "../assets/components/secondary_motion/bisket-shirt-physics.mms"
 import { bisket_colliders } from "../assets/components/colliders/bisket.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 
 // Default capture is optional: unavailable input leaves AVC's mouth driver neutral.
 let microphone = AudioInput {}
@@ -230,6 +231,7 @@ T {
 
                 T {
                     GLTF.new("assets/models/bisket.glb") {
+                        bisket_anime_shading()
                         MorphTargetMap.new()
                             .slot("left_eye_blink", "Fcl_EYE_Close_L")
                             .slot("right_eye_blink", "Fcl_EYE_Close_R")

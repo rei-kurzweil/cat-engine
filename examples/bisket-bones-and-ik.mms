@@ -14,6 +14,7 @@
 // so the rest of the scene stays clean.
 
 import { world_panel } from "../assets/components/internal/panels.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 
 // ── Renderer settings ─────────────────────────────────────────────────────────
 RendererSettings {
@@ -83,7 +84,10 @@ ED {
                 body_yaw_threshold(3.14 / 7.5)
 
                 T.position(0.0, -1.6, 0.0) {
-                    GLTF.new("assets/models/bisket.glb") { EM.on() }
+                    GLTF.new("assets/models/bisket.glb") {
+                        bisket_anime_shading()
+                        EM.on()
+                    }
                 }
 
                 // Camera reparented under J_Bip_C_Head by AVC.

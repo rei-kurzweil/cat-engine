@@ -1,5 +1,6 @@
 import { star_kawaii_background } from "../assets/components/backgrounds/star_kawaii_background.mms"
 import { voxel_terrain } from "../assets/components/floors/voxel_terrain.mms"
+import { bisket_anime_shading } from "../assets/components/materials/bisket_anime_shading.mms"
 
 let bisket_terrain_palette = [
     [0.56, 0.78, 0.84, 1.0],
@@ -155,6 +156,7 @@ ED.active() {
     T.position(0.0, -0.5, 0.0).rotation(0.0, 3.14159, 0.0) {
         name = "desktop_scene_bisket"
         GLTF.new("assets/models/bisket.glb") {
+            bisket_anime_shading()
             EM.on()
             PoseCapture { label("Bisket Scene") asset_name("bisket_scene") }
         }
@@ -178,6 +180,7 @@ I.speed(2.0) {
         T.position(0.0, -1.7, 1.0).rotation(0.0, 3.14159, 0.0) {
             name = "desktop_camera_rig_bisket"
             GLTF.new("assets/models/bisket.glb") {
+                bisket_anime_shading()
                 EM.on()
                 PoseCapture { label("Bisket Camera Rig") asset_name("bisket_camera_rig") }
             }
