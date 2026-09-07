@@ -1009,6 +1009,19 @@ pub fn build_mittens_runtime() -> Result<MittensRuntime, mms::RuntimeSpecError> 
                 "LightQuantization" => {
                     component.constructor("steps", floats(1));
                 }
+                "AnimeShading" => {
+                    for method in [
+                        "shade_color",
+                        "shade_strength",
+                        "shade_threshold",
+                        "lit_threshold",
+                        "rim_color",
+                        "rim_strength",
+                        "rim_power",
+                    ] {
+                        constructor_and_builder(component, method, any(1));
+                    }
+                }
                 "Bounds" => {
                     component.constructor("aabb", any(2));
                 }
@@ -1461,6 +1474,7 @@ mod tests {
             "TransformMapScale",
             "TransformMapTranslation",
             "TransformMergeTRS",
+            "Unlit",
         ];
         let configured = build_mittens_runtime().unwrap();
 

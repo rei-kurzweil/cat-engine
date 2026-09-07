@@ -11,38 +11,39 @@ use crate::engine::ecs::component::style::VerticalAlign;
 /// recurses into children.
 use crate::engine::ecs::component::{
     AlignItems, AmbientLightComponent, AmplitudeComponent, AnimationComponent, AnimationState,
-    AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent, AudioInputComponent,
-    AudioLimiterComponent, AudioOscillator, AudioOscillatorComponent, AudioOutputComponent,
-    AudioTriggerMode, AvatarBodyYawComponent, AvatarControlComponent, BackgroundColorComponent,
-    BackgroundComponent, BloomComponent, BlurPassComponent, BoundsComponent, BoxSizing,
-    Camera2DComponent, Camera3DComponent, CameraXRComponent, ClockComponent, CollisionComponent,
-    CollisionResponseComponent, CollisionShape, CollisionShapeComponent, ColorComponent,
-    CombineMeshComponent, ControllerHand, ControllerPoseKind, DataComponent, DataValue,
-    DirectionalLightComponent, Display, DragContinuationPolicy, DragMappingPolicy,
-    DraggableComponent, DraggablePlane, EdgeInsets, EditorComponent, EditorInteractionMode,
-    EditorPanel, EditorUIComponent, EditorUIPanelConfig, EditorUIPanelSpec, ElementType,
-    EmissiveComponent, EmissivePassComponent, EyeTrackingSource, FitBoundsComponent, FitBoundsMode,
-    FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent, GestureCoordTypeComponent,
-    GrabbableComponent, GravityComponent, GridBindingComponent, GridComponent, GridVisualSpace,
-    HTCEyeTrackingComponent, HtmlElementComponent, HttpClientComponent, HttpServerComponent,
-    HumanoidBoneMapComponent, IKChainComponent, IKSolver, ImplicitSphereComponent,
-    ImplicitSurfaceComponent, InputComponent, InputTransformModeComponent, InputXRComponent,
-    InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent, JustifyContent,
-    KeyframeComponent, LayoutBoundsComponent, LayoutComponent, LightQuantizationComponent,
-    MediaPipeEyeTrackingComponent, MeshComponent, MirrorComponent, MorphTargetMapComponent,
-    MusicNote, MusicNoteComponent, NormalVisualisationComponent, OpacityComponent, OptionComponent,
-    OscillatorType, Overflow, OverlayComponent, PointLightComponent, PointerComponent,
-    PointerEvents, PoseCaptureComponent, PoseCaptureLibraryComponent, PoseCapturePoseComponent,
-    Position, QuatTemporalFilterComponent, QuatYawFollowComponent, RayCastComponent,
-    RaycastableComponent, RaycastableShapeComponent, RaycastableShapeType, RefractionComponent,
-    RenderGraphComponent, RenderableComponent, RendererSettingsComponent, RendererStatsComponent,
-    RestAttachmentComponent, RoughTransmissionComponent, RouterComponent, ScrollingComponent,
-    SecondaryMotionComponent, SelectableComponent, SelectionComponent, SerializeComponent,
-    SettingsPanelConfig, SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension,
-    SpotLightComponent, SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent,
-    SpringJointComponent, StencilClipComponent, StyleComponent, TextAlign, TextComponent,
-    TextInputComponent, TextShadowComponent, TextureComponent, TextureFilteringComponent,
-    ToggleComponent, TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
+    AnimeShadingComponent, AudioBandPassFilterComponent, AudioClipComponent, AudioGainComponent,
+    AudioInputComponent, AudioLimiterComponent, AudioOscillator, AudioOscillatorComponent,
+    AudioOutputComponent, AudioTriggerMode, AvatarBodyYawComponent, AvatarControlComponent,
+    BackgroundColorComponent, BackgroundComponent, BloomComponent, BlurPassComponent,
+    BoundsComponent, BoxSizing, Camera2DComponent, Camera3DComponent, CameraXRComponent,
+    ClockComponent, CollisionComponent, CollisionResponseComponent, CollisionShape,
+    CollisionShapeComponent, ColorComponent, CombineMeshComponent, ControllerHand,
+    ControllerPoseKind, DataComponent, DataValue, DirectionalLightComponent, Display,
+    DragContinuationPolicy, DragMappingPolicy, DraggableComponent, DraggablePlane, EdgeInsets,
+    EditorComponent, EditorInteractionMode, EditorPanel, EditorUIComponent, EditorUIPanelConfig,
+    EditorUIPanelSpec, ElementType, EmissiveComponent, EmissivePassComponent, EyeTrackingSource,
+    FitBoundsComponent, FitBoundsMode, FitBoundsTarget, FlexDirection, FlexWrap, GLTFComponent,
+    GestureCoordTypeComponent, GrabbableComponent, GravityComponent, GridBindingComponent,
+    GridComponent, GridVisualSpace, HTCEyeTrackingComponent, HtmlElementComponent,
+    HttpClientComponent, HttpServerComponent, HumanoidBoneMapComponent, IKChainComponent, IKSolver,
+    ImplicitSphereComponent, ImplicitSurfaceComponent, InputComponent, InputTransformModeComponent,
+    InputXRComponent, InputXRGamepadComponent, InspectLayoutComponent, JointRetargetBasisComponent,
+    JustifyContent, KeyframeComponent, LayoutBoundsComponent, LayoutComponent,
+    LightQuantizationComponent, MediaPipeEyeTrackingComponent, MeshComponent, MirrorComponent,
+    MorphTargetMapComponent, MusicNote, MusicNoteComponent, NormalVisualisationComponent,
+    OpacityComponent, OptionComponent, OscillatorType, Overflow, OverlayComponent,
+    PointLightComponent, PointerComponent, PointerEvents, PoseCaptureComponent,
+    PoseCaptureLibraryComponent, PoseCapturePoseComponent, Position, QuatTemporalFilterComponent,
+    QuatYawFollowComponent, RayCastComponent, RaycastableComponent, RaycastableShapeComponent,
+    RaycastableShapeType, RefractionComponent, RenderGraphComponent, RenderableComponent,
+    RendererSettingsComponent, RendererStatsComponent, RestAttachmentComponent,
+    RoughTransmissionComponent, RouterComponent, ScrollingComponent, SecondaryMotionComponent,
+    SelectableComponent, SelectionComponent, SerializeComponent, SettingsPanelConfig,
+    SignalObserverRouterComponent, SignalRouteUpwardComponent, SizeDimension, SpotLightComponent,
+    SpringBoneComponent, SpringColliderComponent, SpringCollidersComponent, SpringJointComponent,
+    StencilClipComponent, StyleComponent, TextAlign, TextComponent, TextInputComponent,
+    TextShadowComponent, TextureComponent, TextureFilteringComponent, ToggleComponent,
+    TransformCameraSpecificComponent, TransformComponent, TransformDropComponent,
     TransformForkTRSComponent, TransformGizmoAxis, TransformGizmoComponent,
     TransformGizmoCoordSpace, TransformGizmoPlane, TransformGizmoRotateComponent,
     TransformGizmoScaleComponent, TransformGizmoTranslateComponent,
@@ -81,6 +82,7 @@ pub fn with_live_render_assets<R>(render_assets: &mut RenderAssets, f: impl FnOn
 pub const SUPPORTED_COMPONENT_NAMES: &[&str] = &[
     "AmbientLight",
     "Amplitude",
+    "AnimeShading",
     "Animation",
     "AssetPayload",
     "AudioBandPassFilter",
@@ -2226,6 +2228,13 @@ fn create_component(
             Some("steps") => add!(LightQuantizationComponent::steps(arg_f32(args, 0)?)),
             _ => add!(LightQuantizationComponent::new()),
         },
+        "AnimeShading" => {
+            let id = world.add_component(AnimeShadingComponent::new());
+            if let Some(method) = ctor {
+                apply_call(world, id, method, args)?;
+            }
+            Ok(id)
+        }
         "Bounds" => {
             let (min, max) = match ctor {
                 Some("aabb") => (arg_f32_arr::<3>(args, 0)?, arg_f32_arr::<3>(args, 1)?),
@@ -2585,6 +2594,19 @@ fn apply_call(
     method: &str,
     args: &[Value],
 ) -> Result<(), String> {
+    if let Some(component) = world.get_component_by_id_as_mut::<AnimeShadingComponent>(id) {
+        *component = match method {
+            "shade_color" => component.with_shade_color(arg_f32_arr::<3>(args, 0)?),
+            "shade_strength" => component.with_shade_strength(arg_f32(args, 0)?),
+            "shade_threshold" => component.with_shade_threshold(arg_f32(args, 0)?),
+            "lit_threshold" => component.with_lit_threshold(arg_f32(args, 0)?),
+            "rim_color" => component.with_rim_color(arg_f32_arr::<3>(args, 0)?),
+            "rim_strength" => component.with_rim_strength(arg_f32(args, 0)?),
+            "rim_power" => component.with_rim_power(arg_f32(args, 0)?),
+            _ => return Err(format!("AnimeShading: unknown builder '{method}'")),
+        };
+        return Ok(());
+    }
     if let Some(component) = world.get_component_by_id_as_mut::<RefractionComponent>(id) {
         component.apply_builder(method, arg_f32(args, 0)?)?;
         return Ok(());

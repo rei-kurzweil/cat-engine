@@ -1493,6 +1493,9 @@ impl SystemWorld {
             IntentValue::RegisterLightQuantization { component } => {
                 self.register_light_quantization(world, visuals, *component);
             }
+            IntentValue::RegisterAnimeShading { component } => {
+                self.register_anime_shading(world, visuals, *component);
+            }
 
             IntentValue::RegisterTexture { component } => {
                 self.register_texture(world, visuals, *component);
@@ -2223,6 +2226,17 @@ impl SystemWorld {
     ) {
         self.renderable
             .register_light_quantization(world, visuals, component);
+    }
+
+    /// Register an AnimeShadingComponent and apply it to its ancestor RenderableComponent.
+    pub fn register_anime_shading(
+        &mut self,
+        world: &mut World,
+        visuals: &mut VisualWorld,
+        component: ComponentId,
+    ) {
+        self.renderable
+            .register_anime_shading(world, visuals, component);
     }
 
     /// Register a CollisionComponent instance with the CollisionSystem.

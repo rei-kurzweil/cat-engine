@@ -1,6 +1,7 @@
 pub mod ambient_light;
 pub mod amplitude;
 pub mod animation;
+pub mod anime_shading;
 pub mod asset_payload;
 pub mod audio_band_pass_filter;
 pub mod audio_buffer_size;
@@ -122,6 +123,7 @@ pub use amplitude::{AmplitudeComponent, AmplitudeSample, AmplitudeStatus};
 pub use animation::AnimationComponent;
 pub use animation::AnimationState;
 pub use animation::AnimationStepDirection;
+pub use anime_shading::AnimeShadingComponent;
 pub use asset_payload::AssetPayloadComponent;
 pub use audio_band_pass_filter::*;
 pub use audio_buffer_size::AudioBufferSizeComponent;

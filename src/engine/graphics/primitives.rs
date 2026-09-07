@@ -339,6 +339,18 @@ impl Material {
         vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
         fragment_shader: "assets/shaders/rough-transmission-mesh.frag",
     };
+
+    /// Albedo-derived anime material for ordinary static meshes.
+    pub const ANIME_MESH: Material = Material {
+        vertex_shader: "assets/shaders/toon-mesh.vert",
+        fragment_shader: "assets/shaders/anime-mesh.frag",
+    };
+
+    /// Albedo-derived anime material using the cached-deformation vertex path.
+    pub const SKINNED_ANIME_MESH: Material = Material {
+        vertex_shader: "assets/shaders/cached-skinned-toon-mesh.vert",
+        fragment_shader: "assets/shaders/anime-mesh.frag",
+    };
 }
 
 impl MaterialHandle {
@@ -374,6 +386,12 @@ impl MaterialHandle {
 
     /// Cached-deformed mesh with the rough-transmission fragment stage.
     pub const SKINNED_ROUGH_TRANSMISSION_MESH: MaterialHandle = MaterialHandle(10);
+
+    /// Albedo-derived anime material for a static mesh.
+    pub const ANIME_MESH: MaterialHandle = MaterialHandle(11);
+
+    /// Albedo-derived anime material for a cached-deformed mesh.
+    pub const SKINNED_ANIME_MESH: MaterialHandle = MaterialHandle(12);
 
     pub const fn is_refraction(self) -> bool {
         matches!(self, Self::REFRACTION_MESH | Self::SKINNED_REFRACTION_MESH)

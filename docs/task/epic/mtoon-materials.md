@@ -286,15 +286,16 @@ MMS should expose equivalent typed builder methods/properties and serialize them
 
 ### Work
 
-- [ ] Specify the shade-tint operation precisely—recommended: darken albedo by shade strength and
-      multiply or mix toward the shade color—so defaults are reproducible across Rust and GLSL.
-- [ ] Add the dedicated anime fragment program/material definition and its parameter schema.
-- [ ] Add Rust builder methods plus equivalent MMS construction, setters/properties, and
+- [x] Specify the shade-tint operation precisely—implemented as multiplying albedo by a blend from
+      white toward the shade color according to shade strength—so defaults are reproducible across
+      Rust and GLSL.
+- [x] Add the dedicated anime fragment program/material definition and its parameter schema.
+- [x] Add Rust builder methods plus equivalent MMS construction, setters/properties, and
       serialization.
-- [ ] Implement the two-threshold light ramp, clamped lit state, tinted shade state, and
+- [x] Implement the two-threshold light ramp, clamped lit state, tinted shade state, and
       view-dependent rim term.
-- [ ] Validate colors and finite/ranged scalar inputs at the material boundary.
-- [ ] Support static and cached-deformed/skinned meshes via automatic vertex-family resolution or
+- [x] Validate colors and finite/ranged scalar inputs at the material boundary.
+- [x] Support static and cached-deformed/skinned meshes via automatic vertex-family resolution or
       the temporary compatibility bridge documented by Materials v2.
 - [ ] Add a representative anime-face/humanoid example with controls for threshold, shade tint,
       shade strength, and rim response.

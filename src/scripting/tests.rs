@@ -3876,6 +3876,60 @@ fn lights_example_materializes_all_light_types_and_labeled_targets() {
 }
 
 #[test]
+fn shading_models_example_materializes_comparison_models_and_spotlights() {
+    use crate::engine::ecs::component::{
+        AnimeShadingComponent, GLTFComponent, GrabbableComponent, SpotLightComponent,
+    };
+
+    let source = include_str!("../../examples/shading-models.mms");
+    let mut world = World::default();
+    let mut rx = RxWorld::default();
+    let mut emit = CommandQueue::new();
+    let mut render_assets = RenderAssets::new();
+    let output = MeowMeowRunner::eval_with_world_and_assets_at_path(
+        source,
+        Some("examples/shading-models.mms"),
+        &mut world,
+        &mut rx,
+        Some(&mut render_assets),
+        &mut emit,
+    );
+    assert!(output.errors.is_empty(), "{:?}", output.errors);
+
+    let ids: Vec<_> = world.all_components().collect();
+    assert_eq!(
+        ids.iter()
+            .filter(|&&id| world.get_component_by_id_as::<GLTFComponent>(id).is_some())
+            .count(),
+        2
+    );
+    assert_eq!(
+        ids.iter()
+            .filter(|&&id| world
+                .get_component_by_id_as::<AnimeShadingComponent>(id)
+                .is_some())
+            .count(),
+        1
+    );
+    assert_eq!(
+        ids.iter()
+            .filter(|&&id| world
+                .get_component_by_id_as::<SpotLightComponent>(id)
+                .is_some())
+            .count(),
+        2
+    );
+    assert_eq!(
+        ids.iter()
+            .filter(|&&id| world
+                .get_component_by_id_as::<GrabbableComponent>(id)
+                .is_some())
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn tripod_light_without_a_mounted_light_has_no_emissive_face() {
     use crate::engine::ecs::component::{
         EmissiveComponent, GrabbableComponent, TransformComponent,
@@ -7656,6 +7710,30 @@ fn roundtrip_light_quantization() {
         .get_component_by_id_as::<LightQuantizationComponent>(id)
         .unwrap();
     assert!((got.quant_steps - 5.0).abs() < 1e-6);
+}
+
+#[test]
+fn roundtrip_anime_shading() {
+    use crate::engine::ecs::component::AnimeShadingComponent;
+    let original = AnimeShadingComponent::new()
+        .with_shade_color([0.61, 0.42, 0.53])
+        .with_shade_strength(0.44)
+        .with_shade_threshold(0.22)
+        .with_lit_threshold(0.66)
+        .with_rim_color([0.9, 0.8, 1.0])
+        .with_rim_strength(0.2)
+        .with_rim_power(3.5);
+    let (world, id) = roundtrip_component(original);
+    let got = world
+        .get_component_by_id_as::<AnimeShadingComponent>(id)
+        .unwrap();
+    assert_eq!(got.shade_color, [0.61, 0.42, 0.53]);
+    assert!((got.shade_strength - 0.44).abs() < 1e-6);
+    assert!((got.shade_threshold - 0.22).abs() < 1e-6);
+    assert!((got.lit_threshold - 0.66).abs() < 1e-6);
+    assert_eq!(got.rim_color, [0.9, 0.8, 1.0]);
+    assert!((got.rim_strength - 0.2).abs() < 1e-6);
+    assert!((got.rim_power - 3.5).abs() < 1e-6);
 }
 
 #[test]

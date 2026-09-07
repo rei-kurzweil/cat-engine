@@ -81,6 +81,7 @@ pub struct DrawBatch {
     pub texture: Option<crate::engine::graphics::TextureHandle>,
     pub texture_filtering: TextureFiltering,
     pub quant_steps: f32,
+    pub anime_shading: AnimeShadingParams,
     /// Effective stencil reference value for this batch.
     /// 0 = unclipped; >0 = draw only where stencil == this value.
     /// For clip-source instances this is `parent_ref + 1` (their visual draw is inside their own region).
@@ -88,6 +89,38 @@ pub struct DrawBatch {
     /// Start index into the phase's instance-index array (e.g. `overlay_stream_instances`).
     pub start: usize,
     pub count: usize,
+}
+
+/// Packed, renderer-facing parameters for the albedo-derived anime material.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnimeShadingParams {
+    /// RGB shade tint, followed by shade strength.
+    pub shade_color_strength: [f32; 4],
+    /// RGB rim tint; W is reserved.
+    pub rim_color: [f32; 4],
+    /// Shade threshold, lit threshold, rim strength, and rim power.
+    pub controls: [f32; 4],
+}
+
+impl AnimeShadingParams {
+    pub fn key_bits(self) -> [u32; 12] {
+        let values = [self.shade_color_strength, self.rim_color, self.controls];
+        let mut bits = [0; 12];
+        for (index, value) in values.into_iter().flatten().enumerate() {
+            bits[index] = value.to_bits();
+        }
+        bits
+    }
+}
+
+impl Default for AnimeShadingParams {
+    fn default() -> Self {
+        Self {
+            shade_color_strength: [0.72, 0.50, 0.54, 0.30],
+            rim_color: [1.0, 0.85, 0.92, 0.0],
+            controls: [0.35, 0.55, 0.18, 4.0],
+        }
+    }
 }
 
 /// One entry in a per-phase DFS render stream.
@@ -251,6 +284,7 @@ pub struct VisualInstance {
     pub texture: Option<crate::engine::graphics::TextureHandle>,
     pub texture_filtering: TextureFiltering,
     pub quant_steps: f32,
+    pub anime_shading: AnimeShadingParams,
     /// IOR, effective thickness, strength, and viewport-edge fade.
     pub transmission: [f32; 4],
     /// Rough-transmission filtering control. Non-rough material models ignore it.
@@ -1753,6 +1787,7 @@ impl VisualWorld {
             let texture = inst0.texture;
             let texture_filtering = inst0.texture_filtering;
             let quant_steps = sanitize_quant_steps(inst0.quant_steps);
+            let anime_shading = inst0.anime_shading;
             let stencil_ref = inst0.stencil_ref;
 
             let start = cursor;
@@ -1767,6 +1802,7 @@ impl VisualWorld {
                     && inst.texture == texture
                     && inst.texture_filtering == texture_filtering
                     && sanitize_quant_steps(inst.quant_steps).to_bits() == quant_steps.to_bits()
+                    && inst.anime_shading.key_bits() == anime_shading.key_bits()
                     && inst.stencil_ref == stencil_ref
                 {
                     cursor += 1;
@@ -1781,6 +1817,7 @@ impl VisualWorld {
                 texture,
                 texture_filtering,
                 quant_steps,
+                anime_shading,
                 stencil_ref,
                 start,
                 count: cursor - start,
@@ -2086,6 +2123,7 @@ impl VisualWorld {
             let texture = inst0.texture;
             let texture_filtering = inst0.texture_filtering;
             let quant_steps = sanitize_quant_steps(inst0.quant_steps);
+            let anime_shading = inst0.anime_shading;
 
             let start = out_instances.len();
             out_instances.push(indices[cursor]);
@@ -2100,6 +2138,7 @@ impl VisualWorld {
                     && inst.texture == texture
                     && inst.texture_filtering == texture_filtering
                     && sanitize_quant_steps(inst.quant_steps).to_bits() == quant_steps.to_bits()
+                    && inst.anime_shading.key_bits() == anime_shading.key_bits()
                 {
                     out_instances.push(indices[cursor]);
                     cursor += 1;
@@ -2114,6 +2153,7 @@ impl VisualWorld {
                 texture,
                 texture_filtering,
                 quant_steps,
+                anime_shading,
                 stencil_ref: effective_ref,
                 start,
                 count: out_instances.len() - start,
@@ -2868,6 +2908,7 @@ impl VisualWorld {
                 tex,
                 inst.texture_filtering as u8,
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
+                inst.anime_shading.key_bits(),
             )
         });
         let instances = &self.instances;
@@ -2889,6 +2930,7 @@ impl VisualWorld {
                 tex,
                 inst.texture_filtering as u8,
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
+                inst.anime_shading.key_bits(),
             )
         });
         let background_occluded_lit_draw_order = &self.background_occluded_lit_order;
@@ -2932,6 +2974,7 @@ impl VisualWorld {
                 r.mesh.0,
                 inst.texture_filtering as u8,
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
+                inst.anime_shading.key_bits(),
             )
         });
 
@@ -2967,6 +3010,7 @@ impl VisualWorld {
                 tex,
                 inst.texture_filtering as u8,
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
+                inst.anime_shading.key_bits(),
             )
         });
         Self::build_phase_render_stream(
@@ -3040,6 +3084,7 @@ impl VisualWorld {
                 tex,
                 inst.texture_filtering as u8,
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
+                inst.anime_shading.key_bits(),
             )
         });
         Self::build_phase_render_stream(
@@ -3066,6 +3111,7 @@ impl VisualWorld {
                 r.mesh.0,
                 inst.texture_filtering as u8,
                 sanitize_quant_steps(inst.quant_steps).to_bits(),
+                inst.anime_shading.key_bits(),
             )
         });
         // Build the DFS render stream for the overlay phase.
@@ -3177,6 +3223,7 @@ impl VisualWorld {
             texture,
             texture_filtering: TextureFiltering::default(),
             quant_steps: sanitize_quant_steps(quant_steps),
+            anime_shading: AnimeShadingParams::default(),
             transmission: [1.5, 0.1, 1.0, 0.02],
             transmission_roughness: 0.0,
 
@@ -3206,6 +3253,23 @@ impl VisualWorld {
             }
             self.instances[idx].quant_steps = q;
             // Quantization affects material UBO selection => batching.
+            self.dirty_draw_cache = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn update_anime_shading(
+        &mut self,
+        handle: InstanceHandle,
+        anime_shading: AnimeShadingParams,
+    ) -> bool {
+        if let Some(&idx) = self.handle_to_index.get(&handle) {
+            if self.instances[idx].anime_shading == anime_shading {
+                return true;
+            }
+            self.instances[idx].anime_shading = anime_shading;
             self.dirty_draw_cache = true;
             true
         } else {
@@ -3484,6 +3548,7 @@ impl VisualWorld {
             let texture = self.instances[idx].texture;
             let texture_filtering = self.instances[idx].texture_filtering;
             let quant_steps = self.instances[idx].quant_steps;
+            let anime_shading = self.instances[idx].anime_shading;
             let transmission = self.instances[idx].transmission;
             let transmission_roughness = self.instances[idx].transmission_roughness;
             let bones_base = self.instances[idx].bones_base;
@@ -3508,6 +3573,7 @@ impl VisualWorld {
                 texture,
                 texture_filtering,
                 quant_steps,
+                anime_shading,
                 transmission,
                 transmission_roughness,
                 bones_base,

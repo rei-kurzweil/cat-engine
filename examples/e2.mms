@@ -7,6 +7,7 @@
 import { clouds } from "../assets/components/backgrounds/clouds.mms"
 import { bisket_secondary_motion } from "../assets/components/secondary_motion/bisket.mms"
 import { pose as relaxed_pose_factory } from "../assets/components/poses/bisket/000-relaxed.pose.mms"
+import { tripod_light } from "../assets/components/tripod_light.mms"
 
 RendererSettings { window_size(1280, 720) }
 BGC.rgba(0.055, 0.070, 0.105, 1.0)
@@ -34,22 +35,26 @@ fn room_cube(cube_name, position, size, color) {
 
 // A horizontal LayoutRoot is a floor experiment: layout's authored XY plane is
 // turned onto world XZ.
-T.position(-6.0, 0.01, 6.0).rotation(-1.5708, 0.0, 0.0).scale(0.10, 0.10, 0.10) {
-    LayoutRoot {
-        name = "e2_floor_layout"
-        available_width(120.0)
-        available_height(120.0)
-        T {
-            name = "e2_floor_styled_surface"
-            Style {
-                display("block")
-                width(120.0)
-                height(120.0)
-                background_color([0.11, 0.13, 0.18, 1.0])
-                background_z(-0.01)
-            }
-        }
-    }
+// T.position(-6.0, 0.01, 6.0).rotation(-1.5708, 0.0, 0.0).scale(0.10, 0.10, 0.10) {
+//     LayoutRoot {
+//         name = "e2_floor_layout"
+//         available_width(120.0)
+//         available_height(120.0)
+//         T {
+//             name = "e2_floor_styled_surface"
+//             Style {
+//                 display("block")
+//                 width(120.0)
+//                 height(120.0)
+//                 background_color([0.11, 0.13, 0.18, 1.0])
+//                 background_z(-0.01)
+//             }
+//         }
+//     }
+// }
+T.position(0,0,0).scale(24, 24, 0.1).rotation(-1.5708, 0, 0) {
+    name = "e2_floor"
+    R.cube() { C.rgba(0.11, 0.13, 0.18, 1.0) }
 }
 
 // Cubes make the first room deliberately legible. The front is open as an
@@ -97,9 +102,21 @@ T.position(0.0, 1.95, -4.72).scale(2.25, 1.85, 0.08) {
     R.cube() { Mirror.quality(2048) {} }
 }
 
-// Two local lights create readable material form in the desktop mirror.
-T.position(-3.0, 3.4, 1.5) { PL.color(0.50, 0.70, 1.0).intensity(5.0).distance(11.0) }
-T.position( 3.2, 2.5, 0.2) { PL.color(1.0, 0.55, 0.66).intensity(4.0).distance(10.0) }
+// Two movable studio fixtures aim bright white spotlights at the avatar. Keeping
+// the direct lights neutral makes the AnimeShading lit/shade ramp easy to read.
+let avatar_light_target = [0.0, 1.5, 2.6]
+tripod_light(
+    "e2_left_spotlight",
+    [-3.2, 0.0, 0.8],
+    avatar_light_target,
+    SL.color(1.0, 1.0, 1.0).intensity(8.0).distance(12.0).angle(0.62).penumbra(0.25),
+)
+tripod_light(
+    "e2_right_spotlight",
+    [3.2, 0.0, 0.8],
+    avatar_light_target,
+    SL.color(1.0, 1.0, 1.0).intensity(8.0).distance(12.0).angle(0.62).penumbra(0.25),
+)
 
 let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
     relaxed_pose_factory()
@@ -107,6 +124,15 @@ let avatar_gltf = GLTF.new("assets/models/bisket.glb") {
     // `false` chooses Bisket's full tuned defaults: hair, bust, and tail.
     // Spring colliders are intentionally omitted for this performance probe.
     bisket_secondary_motion(false)
+
+    AnimeShading.shade_color([0.72, 0.50, 0.54])
+                .shade_strength(0.30)
+                .shade_threshold(0.35)
+                .lit_threshold(0.55)
+                .rim_color([1.0, 0.85, 0.92])
+                .rim_strength(0.18)
+                .rim_power(4.0)
+
 }
 
 // This rig has only the normal desktop camera and pointer. In particular, this

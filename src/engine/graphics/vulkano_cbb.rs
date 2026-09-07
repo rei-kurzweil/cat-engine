@@ -2,6 +2,41 @@ use super::*;
 use crate::engine::graphics::primitives::InstanceHandle;
 
 impl VulkanoState {
+    fn anime_pipeline_for_reference(
+        &self,
+        reference: &Arc<GraphicsPipeline>,
+        skinned: bool,
+    ) -> Arc<GraphicsPipeline> {
+        if skinned {
+            if Arc::ptr_eq(reference, &self.pipeline_skinned_toon_mesh_transparent) {
+                self.pipeline_skinned_anime_mesh_transparent.clone()
+            } else if Arc::ptr_eq(reference, &self.pipeline_skinned_toon_mesh_cutout) {
+                self.pipeline_skinned_anime_mesh_cutout.clone()
+            } else {
+                self.pipeline_skinned_anime_mesh.clone()
+            }
+        } else if Arc::ptr_eq(reference, &self.pipeline_toon_mesh_transparent) {
+            self.pipeline_anime_mesh_transparent.clone()
+        } else if Arc::ptr_eq(reference, &self.pipeline_toon_mesh_cutout) {
+            self.pipeline_anime_mesh_cutout.clone()
+        } else {
+            self.pipeline_anime_mesh.clone()
+        }
+    }
+
+    fn anime_clipped_pipeline_for_reference(
+        &self,
+        reference: &Arc<GraphicsPipeline>,
+    ) -> Arc<GraphicsPipeline> {
+        if Arc::ptr_eq(reference, &self.pipeline_toon_mesh_transparent_clipped) {
+            self.pipeline_anime_mesh_transparent_clipped.clone()
+        } else if Arc::ptr_eq(reference, &self.pipeline_toon_mesh_cutout_clipped) {
+            self.pipeline_anime_mesh_cutout_clipped.clone()
+        } else {
+            self.pipeline_anime_mesh_clipped.clone()
+        }
+    }
+
     fn pipeline_for_material(
         &self,
         material: crate::engine::graphics::MaterialHandle,
@@ -14,6 +49,12 @@ impl VulkanoState {
         pipeline_skinned_emissive: Arc<GraphicsPipeline>,
     ) -> Arc<GraphicsPipeline> {
         match material {
+            crate::engine::graphics::MaterialHandle::ANIME_MESH => {
+                self.anime_pipeline_for_reference(&pipeline_toon, false)
+            }
+            crate::engine::graphics::MaterialHandle::SKINNED_ANIME_MESH => {
+                self.anime_pipeline_for_reference(&pipeline_skinned, true)
+            }
             crate::engine::graphics::MaterialHandle::UNLIT_MESH => pipeline_unlit,
             crate::engine::graphics::MaterialHandle::MIRROR => pipeline_mirror,
             crate::engine::graphics::MaterialHandle::GRID_MESH => pipeline_grid,
@@ -51,6 +92,7 @@ impl VulkanoState {
         let mut bound_texture: Option<TextureHandle> = None;
         let mut bound_filtering: Option<TextureFiltering> = None;
         let mut bound_quant: Option<u32> = None;
+        let mut bound_anime: Option<[u32; 12]> = None;
 
         for batch in batches {
             let pipeline = self.pipeline_for_material(
@@ -67,17 +109,20 @@ impl VulkanoState {
             let texture_handle = batch.texture.unwrap_or(self.default_white_texture);
             let filtering = batch.texture_filtering;
             let quant_bits = batch.quant_steps.to_bits();
+            let anime_bits = batch.anime_shading.key_bits();
 
             if bound_material != Some(batch.material)
                 || bound_texture != Some(texture_handle)
                 || bound_filtering != Some(filtering)
                 || bound_quant != Some(quant_bits)
+                || bound_anime != Some(anime_bits)
             {
                 let Some(material_set) = self.get_or_create_material_set(
                     batch.material,
                     texture_handle,
                     filtering,
                     batch.quant_steps,
+                    batch.anime_shading,
                 )?
                 else {
                     continue;
@@ -95,6 +140,7 @@ impl VulkanoState {
                 bound_texture = Some(texture_handle);
                 bound_filtering = Some(filtering);
                 bound_quant = Some(quant_bits);
+                bound_anime = Some(anime_bits);
             }
 
             let Some(mesh) = self.meshes.get(&batch.mesh) else {
@@ -222,6 +268,7 @@ impl VulkanoState {
         let mut bound_texture: Option<TextureHandle> = None;
         let mut bound_filtering: Option<TextureFiltering> = None;
         let mut bound_quant: Option<u32> = None;
+        let mut bound_anime: Option<[u32; 12]> = None;
 
         for op in ops {
             match op {
@@ -252,6 +299,7 @@ impl VulkanoState {
                         texture_handle,
                         inst.texture_filtering,
                         inst.quant_steps,
+                        inst.anime_shading,
                     )?
                     else {
                         continue;
@@ -276,6 +324,10 @@ impl VulkanoState {
                     let pipeline = if batch.stencil_ref > 0 {
                         // Clipped draw: non-skinned only (UI quads are never skinned).
                         match batch.material {
+                            crate::engine::graphics::MaterialHandle::ANIME_MESH
+                            | crate::engine::graphics::MaterialHandle::SKINNED_ANIME_MESH => {
+                                self.anime_clipped_pipeline_for_reference(&pipeline_clipped)
+                            }
                             crate::engine::graphics::MaterialHandle::UNLIT_MESH => {
                                 pipeline_unlit_clipped.clone()
                             }
@@ -303,17 +355,20 @@ impl VulkanoState {
                     let texture_handle = batch.texture.unwrap_or(self.default_white_texture);
                     let filtering = batch.texture_filtering;
                     let quant_bits = batch.quant_steps.to_bits();
+                    let anime_bits = batch.anime_shading.key_bits();
 
                     if bound_material != Some(batch.material)
                         || bound_texture != Some(texture_handle)
                         || bound_filtering != Some(filtering)
                         || bound_quant != Some(quant_bits)
+                        || bound_anime != Some(anime_bits)
                     {
                         let Some(material_set) = self.get_or_create_material_set(
                             batch.material,
                             texture_handle,
                             filtering,
                             batch.quant_steps,
+                            batch.anime_shading,
                         )?
                         else {
                             continue;
@@ -329,6 +384,7 @@ impl VulkanoState {
                         bound_texture = Some(texture_handle);
                         bound_filtering = Some(filtering);
                         bound_quant = Some(quant_bits);
+                        bound_anime = Some(anime_bits);
                     }
 
                     if batch.stencil_ref > 0 {
@@ -381,6 +437,7 @@ impl VulkanoState {
                         texture_handle,
                         inst.texture_filtering,
                         inst.quant_steps,
+                        inst.anime_shading,
                     )?
                     else {
                         continue;
@@ -710,22 +767,26 @@ impl VulkanoState {
         let mut bound_texture: Option<TextureHandle> = None;
         let mut bound_filtering: Option<TextureFiltering> = None;
         let mut bound_quant: Option<u32> = None;
+        let mut bound_anime: Option<[u32; 12]> = None;
 
         for batch in transparent_multi_batches {
             let texture_handle = batch.texture.unwrap_or(self.default_white_texture);
             let filtering = batch.texture_filtering;
             let quant_bits = batch.quant_steps.to_bits();
+            let anime_bits = batch.anime_shading.key_bits();
 
             if bound_material != Some(batch.material)
                 || bound_texture != Some(texture_handle)
                 || bound_filtering != Some(filtering)
                 || bound_quant != Some(quant_bits)
+                || bound_anime != Some(anime_bits)
             {
                 let Some(material_set) = self.get_or_create_material_set(
                     batch.material,
                     texture_handle,
                     filtering,
                     batch.quant_steps,
+                    batch.anime_shading,
                 )?
                 else {
                     continue;
@@ -754,6 +815,7 @@ impl VulkanoState {
                 bound_texture = Some(texture_handle);
                 bound_filtering = Some(filtering);
                 bound_quant = Some(quant_bits);
+                bound_anime = Some(anime_bits);
             }
 
             let Some(mesh) = self.meshes.get(&batch.mesh) else {

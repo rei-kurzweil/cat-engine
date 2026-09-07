@@ -321,6 +321,10 @@ impl RxMutationExecutor {
                 let component = *component_id;
                 systems.register_light_quantization(world, visuals, component);
             }
+            IntentValue::RegisterAnimeShading { component_id } => {
+                let component = *component_id;
+                systems.register_anime_shading(world, visuals, component);
+            }
 
             IntentValue::RegisterTexture { component_id } => {
                 let component = *component_id;

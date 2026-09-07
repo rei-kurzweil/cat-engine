@@ -195,6 +195,13 @@ mod vulkano_backend {
         }
     }
 
+    mod anime_mesh_fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            path: "assets/shaders/anime-mesh.frag",
+        }
+    }
+
     mod emissive_toon_mesh_fs {
         vulkano_shaders::shader! {
             ty: "fragment",
@@ -282,6 +289,9 @@ mod vulkano_backend {
         emissive: u32,
         _pad0: u32,
         _pad1: u32,
+        anime_shade_color_strength: [f32; 4],
+        anime_rim_color: [f32; 4],
+        anime_controls: [f32; 4],
     }
 
     #[derive(BufferContents, Clone, Copy, Debug, Default)]
@@ -437,6 +447,13 @@ mod vulkano_backend {
         pub pipeline_toon_mesh_transparent_clipped: Arc<GraphicsPipeline>,
         pub pipeline_toon_mesh_cutout_clipped: Arc<GraphicsPipeline>,
 
+        pub pipeline_anime_mesh: Arc<GraphicsPipeline>,
+        pub pipeline_anime_mesh_transparent: Arc<GraphicsPipeline>,
+        pub pipeline_anime_mesh_cutout: Arc<GraphicsPipeline>,
+        pub pipeline_anime_mesh_clipped: Arc<GraphicsPipeline>,
+        pub pipeline_anime_mesh_transparent_clipped: Arc<GraphicsPipeline>,
+        pub pipeline_anime_mesh_cutout_clipped: Arc<GraphicsPipeline>,
+
         pub pipeline_unlit_mesh: Arc<GraphicsPipeline>,
         pub pipeline_unlit_mesh_transparent: Arc<GraphicsPipeline>,
         pub pipeline_unlit_mesh_cutout: Arc<GraphicsPipeline>,
@@ -467,6 +484,9 @@ mod vulkano_backend {
         pub pipeline_skinned_toon_mesh: Arc<GraphicsPipeline>,
         pub pipeline_skinned_toon_mesh_transparent: Arc<GraphicsPipeline>,
         pub pipeline_skinned_toon_mesh_cutout: Arc<GraphicsPipeline>,
+        pub pipeline_skinned_anime_mesh: Arc<GraphicsPipeline>,
+        pub pipeline_skinned_anime_mesh_transparent: Arc<GraphicsPipeline>,
+        pub pipeline_skinned_anime_mesh_cutout: Arc<GraphicsPipeline>,
 
         pub pipeline_skinned_emissive_toon_mesh: Arc<GraphicsPipeline>,
         pub pipeline_skinned_emissive_toon_mesh_transparent: Arc<GraphicsPipeline>,
@@ -521,6 +541,7 @@ mod vulkano_backend {
                 TextureHandle,
                 TextureFiltering,
                 u32,
+                [u32; 12],
             ),
             Arc<DescriptorSet>,
         >,
@@ -679,6 +700,7 @@ mod vulkano_backend {
         fn create_material_ubo(
             material: crate::engine::graphics::MaterialHandle,
             quant_steps: f32,
+            anime_shading: crate::engine::graphics::visual_world::AnimeShadingParams,
         ) -> MaterialUBO {
             let quant_steps = if material == crate::engine::graphics::MaterialHandle::GRID_MESH {
                 if quant_steps.is_finite() {
@@ -692,13 +714,16 @@ mod vulkano_backend {
                 3.0
             };
 
-            match material {
-                crate::engine::graphics::MaterialHandle::TOON_MESH => MaterialUBO {
+            let mut ubo = match material {
+                crate::engine::graphics::MaterialHandle::TOON_MESH
+                | crate::engine::graphics::MaterialHandle::ANIME_MESH
+                | crate::engine::graphics::MaterialHandle::SKINNED_ANIME_MESH => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
                     quant_steps,
                     emissive: 0,
                     _pad0: 0,
                     _pad1: 0,
+                    ..Default::default()
                 },
                 crate::engine::graphics::MaterialHandle::SKINNED_TOON_MESH => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
@@ -706,6 +731,7 @@ mod vulkano_backend {
                     emissive: 0,
                     _pad0: 0,
                     _pad1: 0,
+                    ..Default::default()
                 },
                 crate::engine::graphics::MaterialHandle::EMISSIVE_TOON_MESH => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
@@ -713,6 +739,7 @@ mod vulkano_backend {
                     emissive: 0,
                     _pad0: 0,
                     _pad1: 0,
+                    ..Default::default()
                 },
                 crate::engine::graphics::MaterialHandle::SKINNED_EMISSIVE_TOON_MESH => {
                     MaterialUBO {
@@ -721,6 +748,7 @@ mod vulkano_backend {
                         emissive: 0,
                         _pad0: 0,
                         _pad1: 0,
+                        ..Default::default()
                     }
                 }
                 crate::engine::graphics::MaterialHandle::GRID_MESH => MaterialUBO {
@@ -729,6 +757,7 @@ mod vulkano_backend {
                     emissive: 1,
                     _pad0: 0,
                     _pad1: 0,
+                    ..Default::default()
                 },
                 crate::engine::graphics::MaterialHandle::UNLIT_MESH => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
@@ -737,6 +766,7 @@ mod vulkano_backend {
                     emissive: 0,
                     _pad0: 0,
                     _pad1: 0,
+                    ..Default::default()
                 },
                 crate::engine::graphics::MaterialHandle::MIRROR => MaterialUBO {
                     base_color: [1.0, 1.0, 1.0, 1.0],
@@ -744,6 +774,7 @@ mod vulkano_backend {
                     emissive: 1,
                     _pad0: 0,
                     _pad1: 0,
+                    ..Default::default()
                 },
                 crate::engine::graphics::MaterialHandle::REFRACTION_MESH
                 | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH
@@ -755,10 +786,15 @@ mod vulkano_backend {
                         emissive: 0,
                         _pad0: 0,
                         _pad1: 0,
+                        ..Default::default()
                     }
                 }
                 _ => MaterialUBO::default(),
-            }
+            };
+            ubo.anime_shade_color_strength = anime_shading.shade_color_strength;
+            ubo.anime_rim_color = anime_shading.rim_color;
+            ubo.anime_controls = anime_shading.controls;
+            ubo
         }
 
         pub fn new(
@@ -950,6 +986,7 @@ mod vulkano_backend {
             let vs = toon_mesh_vs::load(device.clone())?;
             let mirror_vs = mirror_mesh_vs::load(device.clone())?;
             let fs = toon_mesh_fs::load(device.clone())?;
+            let anime_fs = anime_mesh_fs::load(device.clone())?;
             let emissive_fs = emissive_toon_mesh_fs::load(device.clone())?;
             let unlit_fs = unlit_mesh_fs::load(device.clone())?;
             let mirror_fs = mirror_mesh_fs::load(device.clone())?;
@@ -999,6 +1036,18 @@ mod vulkano_backend {
                 ),
             ];
 
+            let anime_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    vs.entry_point("main")
+                        .ok_or("missing toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    anime_fs
+                        .entry_point("main")
+                        .ok_or("missing anime-mesh.frag entry point")?,
+                ),
+            ];
+
             let grid_stages = vec![
                 PipelineShaderStageCreateInfo::new(
                     grid_vs
@@ -1021,6 +1070,19 @@ mod vulkano_backend {
                 PipelineShaderStageCreateInfo::new(
                     fs.entry_point("main")
                         .ok_or("missing toon-mesh.frag entry point")?,
+                ),
+            ];
+
+            let skinned_anime_stages = vec![
+                PipelineShaderStageCreateInfo::new(
+                    skinned_vs
+                        .entry_point("main")
+                        .ok_or("missing cached-skinned-toon-mesh.vert entry point")?,
+                ),
+                PipelineShaderStageCreateInfo::new(
+                    anime_fs
+                        .entry_point("main")
+                        .ok_or("missing anime-mesh.frag entry point")?,
                 ),
             ];
 
@@ -1480,6 +1542,10 @@ mod vulkano_backend {
 
             let pipeline_toon_mesh =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci.clone())?;
+            let mut pipeline_ci_anime = pipeline_ci.clone();
+            pipeline_ci_anime.stages = anime_stages.clone().into();
+            let pipeline_anime_mesh =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_anime.clone())?;
             let mut pipeline_ci_unlit = pipeline_ci.clone();
             pipeline_ci_unlit.stages = unlit_stages.clone().into();
             let pipeline_unlit_mesh =
@@ -1537,6 +1603,10 @@ mod vulkano_backend {
             });
             let pipeline_toon_mesh_transparent =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_transparent.clone())?;
+            let mut pipeline_ci_anime_transparent = pipeline_ci_transparent.clone();
+            pipeline_ci_anime_transparent.stages = anime_stages.clone().into();
+            let pipeline_anime_mesh_transparent =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_anime_transparent.clone())?;
             let mut pipeline_ci_unlit_transparent = pipeline_ci_transparent.clone();
             pipeline_ci_unlit_transparent.stages = unlit_stages.clone().into();
             let pipeline_unlit_mesh_transparent =
@@ -1578,6 +1648,10 @@ mod vulkano_backend {
             ));
             let pipeline_toon_mesh_cutout =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_cutout.clone())?;
+            let mut pipeline_ci_anime_cutout = pipeline_ci_cutout.clone();
+            pipeline_ci_anime_cutout.stages = anime_stages.clone().into();
+            let pipeline_anime_mesh_cutout =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_anime_cutout.clone())?;
             let mut pipeline_ci_unlit_cutout = pipeline_ci_cutout.clone();
             pipeline_ci_unlit_cutout.stages = unlit_stages.clone().into();
             let pipeline_unlit_mesh_cutout =
@@ -1610,6 +1684,12 @@ mod vulkano_backend {
             pipeline_ci_skinned.vertex_input_state = Some(vertex_input_state_skinned.clone());
             let pipeline_skinned_toon_mesh =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned.clone())?;
+
+            let mut pipeline_ci_skinned_anime = pipeline_ci.clone();
+            pipeline_ci_skinned_anime.stages = skinned_anime_stages.clone().into();
+            pipeline_ci_skinned_anime.vertex_input_state = Some(vertex_input_state_skinned.clone());
+            let pipeline_skinned_anime_mesh =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_anime)?;
 
             let mut pipeline_ci_skinned_emissive = pipeline_ci.clone();
             pipeline_ci_skinned_emissive.stages = skinned_emissive_stages.clone().into();
@@ -1653,6 +1733,13 @@ mod vulkano_backend {
                 Some(vertex_input_state_skinned.clone());
             let pipeline_skinned_toon_mesh_transparent =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_transparent)?;
+
+            let mut pipeline_ci_skinned_anime_transparent = pipeline_ci_transparent.clone();
+            pipeline_ci_skinned_anime_transparent.stages = skinned_anime_stages.clone().into();
+            pipeline_ci_skinned_anime_transparent.vertex_input_state =
+                Some(vertex_input_state_skinned.clone());
+            let pipeline_skinned_anime_mesh_transparent =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_anime_transparent)?;
 
             let mut pipeline_ci_skinned_emissive_transparent = pipeline_ci_transparent.clone();
             pipeline_ci_skinned_emissive_transparent.stages =
@@ -1699,6 +1786,13 @@ mod vulkano_backend {
                 Some(vertex_input_state_skinned.clone());
             let pipeline_skinned_toon_mesh_cutout =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_cutout)?;
+
+            let mut pipeline_ci_skinned_anime_cutout = pipeline_ci_cutout.clone();
+            pipeline_ci_skinned_anime_cutout.stages = skinned_anime_stages.into();
+            pipeline_ci_skinned_anime_cutout.vertex_input_state =
+                Some(vertex_input_state_skinned.clone());
+            let pipeline_skinned_anime_mesh_cutout =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_skinned_anime_cutout)?;
 
             let mut pipeline_ci_skinned_emissive_cutout = pipeline_ci_cutout.clone();
             pipeline_ci_skinned_emissive_cutout.stages = skinned_emissive_stages.clone().into();
@@ -1841,6 +1935,12 @@ mod vulkano_backend {
             let pipeline_opaque_clipped =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_opaque_clipped)?;
 
+            let mut pipeline_ci_anime_clipped = pipeline_ci_anime.clone();
+            pipeline_ci_anime_clipped.depth_stencil_state = Some(clipped_depth_stencil.clone());
+            pipeline_ci_anime_clipped.dynamic_state = stencil_dynamic_state.clone();
+            let pipeline_anime_mesh_clipped =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_anime_clipped)?;
+
             let mut pipeline_ci_mirror_clipped = pipeline_ci_mirror.clone();
             pipeline_ci_mirror_clipped.depth_stencil_state = Some(clipped_depth_stencil.clone());
             pipeline_ci_mirror_clipped.dynamic_state = stencil_dynamic_state.clone();
@@ -1877,6 +1977,12 @@ mod vulkano_backend {
             pipeline_ci_transparent_clipped.dynamic_state = stencil_dynamic_state.clone();
             let pipeline_toon_mesh_transparent_clipped =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_transparent_clipped)?;
+            let mut pipeline_ci_anime_transparent_clipped = pipeline_ci_anime_transparent.clone();
+            pipeline_ci_anime_transparent_clipped.depth_stencil_state =
+                Some(transparent_clipped_depth_stencil.clone());
+            pipeline_ci_anime_transparent_clipped.dynamic_state = stencil_dynamic_state.clone();
+            let pipeline_anime_mesh_transparent_clipped =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_anime_transparent_clipped)?;
             let mut pipeline_ci_unlit_transparent_clipped = pipeline_ci_unlit_transparent.clone();
             pipeline_ci_unlit_transparent_clipped.depth_stencil_state =
                 Some(transparent_clipped_depth_stencil.clone());
@@ -1929,6 +2035,24 @@ mod vulkano_backend {
             pipeline_ci_cutout_clipped.dynamic_state = stencil_dynamic_state.clone();
             let pipeline_toon_mesh_cutout_clipped =
                 GraphicsPipeline::new(device.clone(), None, pipeline_ci_cutout_clipped)?;
+            let mut pipeline_ci_anime_cutout_clipped = pipeline_ci_anime_cutout;
+            pipeline_ci_anime_cutout_clipped.depth_stencil_state = Some(DepthStencilState {
+                depth: Some(DepthState::simple()),
+                stencil: Some(StencilState {
+                    front: StencilOpState {
+                        ops: stencil_ops_test,
+                        ..Default::default()
+                    },
+                    back: StencilOpState {
+                        ops: stencil_ops_test,
+                        ..Default::default()
+                    },
+                }),
+                ..Default::default()
+            });
+            pipeline_ci_anime_cutout_clipped.dynamic_state = stencil_dynamic_state.clone();
+            let pipeline_anime_mesh_cutout_clipped =
+                GraphicsPipeline::new(device.clone(), None, pipeline_ci_anime_cutout_clipped)?;
             let mut pipeline_ci_unlit_cutout_clipped = pipeline_ci_unlit_cutout.clone();
             pipeline_ci_unlit_cutout_clipped.depth_stencil_state = Some(DepthStencilState {
                 depth: Some(DepthState::simple()),
@@ -2075,6 +2199,13 @@ mod vulkano_backend {
                 pipeline_toon_mesh_transparent_clipped,
                 pipeline_toon_mesh_cutout_clipped,
 
+                pipeline_anime_mesh,
+                pipeline_anime_mesh_transparent,
+                pipeline_anime_mesh_cutout,
+                pipeline_anime_mesh_clipped,
+                pipeline_anime_mesh_transparent_clipped,
+                pipeline_anime_mesh_cutout_clipped,
+
                 pipeline_unlit_mesh,
                 pipeline_unlit_mesh_transparent,
                 pipeline_unlit_mesh_cutout,
@@ -2104,6 +2235,10 @@ mod vulkano_backend {
                 pipeline_skinned_toon_mesh,
                 pipeline_skinned_toon_mesh_transparent,
                 pipeline_skinned_toon_mesh_cutout,
+
+                pipeline_skinned_anime_mesh,
+                pipeline_skinned_anime_mesh_transparent,
+                pipeline_skinned_anime_mesh_cutout,
 
                 pipeline_skinned_emissive_toon_mesh,
                 pipeline_skinned_emissive_toon_mesh_transparent,
@@ -3137,6 +3272,7 @@ mod vulkano_backend {
                         texture: None,
                         texture_filtering: TextureFiltering::Nearest,
                         quant_steps: 1.0,
+                        anime_shading: Default::default(),
                         stencil_ref: 0,
                         start: slot,
                         count: 1,
@@ -3267,7 +3403,7 @@ mod vulkano_backend {
             for (handle, texture) in self.pending_runtime_texture_updates.drain() {
                 self.textures.insert(handle, texture);
                 self.cached_material_sets
-                    .retain(|(_, texture_handle, _, _), _| *texture_handle != handle);
+                    .retain(|(_, texture_handle, _, _, _), _| *texture_handle != handle);
             }
         }
 
@@ -3814,6 +3950,7 @@ mod vulkano_backend {
             texture_handle: TextureHandle,
             filtering: TextureFiltering,
             quant_steps: f32,
+            anime_shading: crate::engine::graphics::visual_world::AnimeShadingParams,
         ) -> Result<Option<Arc<DescriptorSet>>, Box<dyn std::error::Error>> {
             match material {
                 crate::engine::graphics::MaterialHandle::TOON_MESH
@@ -3827,6 +3964,8 @@ mod vulkano_backend {
                 | crate::engine::graphics::MaterialHandle::SKINNED_REFRACTION_MESH
                 | crate::engine::graphics::MaterialHandle::ROUGH_TRANSMISSION_MESH
                 | crate::engine::graphics::MaterialHandle::SKINNED_ROUGH_TRANSMISSION_MESH => {}
+                crate::engine::graphics::MaterialHandle::ANIME_MESH
+                | crate::engine::graphics::MaterialHandle::SKINNED_ANIME_MESH => {}
                 _ => return Ok(None),
             }
 
@@ -3835,12 +3974,18 @@ mod vulkano_backend {
             };
 
             let quant_bits = quant_steps.to_bits();
-            let material_key = (material, texture_handle, filtering, quant_bits);
+            let material_key = (
+                material,
+                texture_handle,
+                filtering,
+                quant_bits,
+                anime_shading.key_bits(),
+            );
             if let Some(set) = self.cached_material_sets.get(&material_key) {
                 return Ok(Some(set.clone()));
             }
 
-            let material_ubo = Self::create_material_ubo(material, quant_steps);
+            let material_ubo = Self::create_material_ubo(material, quant_steps, anime_shading);
             let material_buffer: Subbuffer<MaterialUBO> = Buffer::from_data(
                 self.context.memory_allocator().clone(),
                 BufferCreateInfo {

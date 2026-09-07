@@ -3,7 +3,7 @@ use crate::engine::ecs::component::BackgroundColorComponent;
 use crate::engine::ecs::component::OverlayComponent;
 use crate::engine::ecs::component::morph_target::active_factors;
 use crate::engine::ecs::component::{
-    BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
+    AnimeShadingComponent, BackgroundComponent, BoundsComponent, ColorComponent, EmissiveComponent,
     LayoutVisualPlacementComponent, LightQuantizationComponent, MeshComponent, OpacityComponent,
     RenderableComponent, RendererSettingsComponent, TransformComponent, TransmissiveModel,
     TransparentCutoutComponent, UVComponent, UnlitComponent, resolve_transmissive_model,
@@ -75,6 +75,10 @@ pub struct RenderableSystem {
     ///
     /// Keyed by the RenderableComponent's ComponentId.
     pending_quant_steps: HashMap<ComponentId, f32>,
+
+    /// Per-renderable albedo-derived anime material parameters.
+    pending_anime_shading:
+        HashMap<ComponentId, crate::engine::graphics::visual_world::AnimeShadingParams>,
 
     /// NormalVisualisationComponents waiting for their subtree to be spawned.
     ///
@@ -226,6 +230,15 @@ fn clone_mesh_with_uv_overrides(
 }
 
 impl RenderableSystem {
+    fn anime_material_for(material: MaterialHandle) -> MaterialHandle {
+        match material {
+            MaterialHandle::SKINNED_TOON_MESH
+            | MaterialHandle::SKINNED_EMISSIVE_TOON_MESH
+            | MaterialHandle::SKINNED_ANIME_MESH => MaterialHandle::SKINNED_ANIME_MESH,
+            _ => MaterialHandle::ANIME_MESH,
+        }
+    }
+
     fn uv_clone_audit_enabled() -> bool {
         std::env::var("CAT_DEBUG_RENDERABLE_UV_CLONES")
             .ok()
@@ -290,6 +303,35 @@ impl RenderableSystem {
                 .get_component_by_id_as::<UnlitComponent>(child)
                 .is_some()
         })
+    }
+
+    fn immediate_anime_shading_child(
+        world: &World,
+        node: ComponentId,
+    ) -> Option<(ComponentId, AnimeShadingComponent)> {
+        world.children_of(node).iter().find_map(|&child| {
+            world
+                .get_component_by_id_as::<AnimeShadingComponent>(child)
+                .copied()
+                .map(|component| (child, component))
+        })
+    }
+
+    fn resolve_anime_shading(
+        world: &World,
+        renderable: ComponentId,
+    ) -> Option<(ComponentId, AnimeShadingComponent)> {
+        if let Some(component) = Self::immediate_anime_shading_child(world, renderable) {
+            return Some(component);
+        }
+        let mut current = renderable;
+        while let Some(parent) = world.parent_of(current) {
+            if let Some(component) = Self::immediate_anime_shading_child(world, parent) {
+                return Some(component);
+            }
+            current = parent;
+        }
+        None
     }
 
     fn resolve_effective_renderable_style(
@@ -446,6 +488,34 @@ impl RenderableSystem {
 
             let _ = visuals.update_quant_steps(handle, quant_steps);
             let _ = self.pending_quant_steps.remove(&renderable_cid);
+        }
+    }
+
+    fn apply_pending_anime_updates_to_registered_renderables(
+        &mut self,
+        world: &mut World,
+        visuals: &mut VisualWorld,
+    ) {
+        let keys: Vec<ComponentId> = self.pending_anime_shading.keys().copied().collect();
+        for renderable_cid in keys {
+            let Some(renderable_comp) =
+                world.get_component_by_id_as::<RenderableComponent>(renderable_cid)
+            else {
+                let _ = self.pending_anime_shading.remove(&renderable_cid);
+                continue;
+            };
+            let Some(handle) = renderable_comp.get_handle() else {
+                continue;
+            };
+            let Some(params) = self.pending_anime_shading.get(&renderable_cid).copied() else {
+                continue;
+            };
+            if let Some(instance) = visuals.instance(handle) {
+                let material = Self::anime_material_for(instance.renderable.material);
+                let _ = visuals.update_material(handle, material);
+            }
+            let _ = visuals.update_anime_shading(handle, params);
+            let _ = self.pending_anime_shading.remove(&renderable_cid);
         }
     }
 
@@ -835,6 +905,42 @@ impl RenderableSystem {
         }
     }
 
+    pub fn register_anime_shading(
+        &mut self,
+        world: &mut World,
+        visuals: &mut VisualWorld,
+        component: ComponentId,
+    ) {
+        if world
+            .get_component_by_id_as::<AnimeShadingComponent>(component)
+            .is_none()
+        {
+            return;
+        }
+        let Some(owner) = world.parent_of(component) else {
+            return;
+        };
+
+        let mut queue = VecDeque::from([owner]);
+        while let Some(node) = queue.pop_front() {
+            queue.extend(world.children_of(node).iter().copied());
+            if world
+                .get_component_by_id_as::<RenderableComponent>(node)
+                .is_none()
+            {
+                continue;
+            }
+            let Some((resolved_id, shading)) = Self::resolve_anime_shading(world, node) else {
+                continue;
+            };
+            if resolved_id == component {
+                self.pending_anime_shading
+                    .insert(node, shading.gpu_params());
+            }
+        }
+        self.apply_pending_anime_updates_to_registered_renderables(world, visuals);
+    }
+
     pub fn register_emissive(
         &mut self,
         world: &mut World,
@@ -1029,6 +1135,7 @@ impl RenderableSystem {
         let _ = self.pending_cutout.remove(&component);
         let _ = self.pending_emissive.remove(&component);
         let _ = self.pending_quant_steps.remove(&component);
+        let _ = self.pending_anime_shading.remove(&component);
 
         if let Some(r) = world.get_component_by_id_as_mut::<RenderableComponent>(component) {
             if let Some(handle) = r.handle.take() {
@@ -1117,6 +1224,10 @@ impl RenderableSystem {
                 mesh_key,
             },
         );
+        if let Some((_, shading)) = Self::resolve_anime_shading(world, component) {
+            self.pending_anime_shading
+                .insert(component, shading.gpu_params());
+        }
 
         // Mark draw cache dirty only when we actually insert into visuals.
         let _ = visuals;
@@ -1280,6 +1391,9 @@ impl RenderableSystem {
                 _ if Self::has_immediate_unlit_child(world, p.renderable_cid) => {
                     MaterialHandle::UNLIT_MESH
                 }
+                _ if self.pending_anime_shading.contains_key(&p.renderable_cid) => {
+                    Self::anime_material_for(p.material)
+                }
                 _ => p.material,
             };
 
@@ -1356,6 +1470,9 @@ impl RenderableSystem {
                 None,
                 quant_steps,
             );
+            if let Some(params) = self.pending_anime_shading.get(&p.renderable_cid).copied() {
+                let _ = visuals.update_anime_shading(handle, params);
+            }
             Self::trace_registered_layout_renderable(
                 world,
                 visuals,
@@ -1405,6 +1522,9 @@ impl RenderableSystem {
             // Quant steps have now been applied.
             let _ = self.pending_quant_steps.remove(&p.renderable_cid);
 
+            // Anime material parameters have now been applied.
+            let _ = self.pending_anime_shading.remove(&p.renderable_cid);
+
             // (If you log ComponentId in a format string, use {:?}.)
             self.pending.remove(&key);
             inserted_any = true;
@@ -1421,6 +1541,7 @@ impl RenderableSystem {
         self.apply_pending_cutout_updates_to_registered_renderables(world, visuals);
         self.apply_pending_emissive_updates_to_registered_renderables(world, visuals);
         self.apply_pending_quant_updates_to_registered_renderables(world, visuals);
+        self.apply_pending_anime_updates_to_registered_renderables(world, visuals);
 
         self.spawn_pending_normal_vis(world, render_assets, queue);
 
@@ -1706,9 +1827,10 @@ mod tests {
     use crate::engine::ecs::CommandQueue;
     use crate::engine::ecs::World;
     use crate::engine::ecs::component::{
-        BackgroundComponent, ColorComponent, EmissiveComponent, OpacityComponent, OverlayComponent,
-        RefractionComponent, RenderableComponent, RoughTransmissionComponent, TextComponent,
-        TransformComponent, TransparentCutoutComponent, UnlitComponent,
+        AnimeShadingComponent, BackgroundComponent, ColorComponent, EmissiveComponent,
+        OpacityComponent, OverlayComponent, RefractionComponent, RenderableComponent,
+        RoughTransmissionComponent, TextComponent, TransformComponent, TransparentCutoutComponent,
+        UnlitComponent,
     };
     use crate::engine::graphics::primitives::{
         CpuMeshHandle, MaterialHandle, MeshHandle, Renderable,
@@ -1879,6 +2001,60 @@ mod tests {
             assert_eq!(visuals.refraction_stream().1.len(), 1);
             assert!(visuals.opaque_stream().1.is_empty());
             assert!(visuals.transparent_single_stream().1.is_empty());
+        }
+    }
+
+    #[test]
+    fn inherited_anime_shading_routes_static_and_skinned_materials() {
+        for (source_material, expected_material) in [
+            (MaterialHandle::TOON_MESH, MaterialHandle::ANIME_MESH),
+            (
+                MaterialHandle::SKINNED_TOON_MESH,
+                MaterialHandle::SKINNED_ANIME_MESH,
+            ),
+        ] {
+            let mut world = World::default();
+            let mut visuals = VisualWorld::default();
+            let mut renderable_system = RenderableSystem::default();
+            let mut render_assets = RenderAssets::new();
+            let mut uploader = TestUploader::default();
+            let mut queue = CommandQueue::new();
+
+            let model_root = world.add_component(TransformComponent::new());
+            let shading = AnimeShadingComponent::new()
+                .with_shade_color([0.6, 0.4, 0.5])
+                .with_shade_strength(0.45)
+                .with_shade_threshold(0.25)
+                .with_lit_threshold(0.65)
+                .with_rim_strength(0.2)
+                .with_rim_power(3.0);
+            let expected_params = shading.gpu_params();
+            let shading = world.add_component(shading);
+            let generated_node = world.add_component(TransformComponent::new());
+            let renderable = world.add_component(RenderableComponent::new(Renderable::new(
+                CpuMeshHandle::CUBE,
+                source_material,
+            )));
+            world.add_child(model_root, shading).unwrap();
+            world.add_child(model_root, generated_node).unwrap();
+            world.add_child(generated_node, renderable).unwrap();
+
+            renderable_system.register_renderable_from_world(&mut world, &mut visuals, renderable);
+            assert!(renderable_system.flush_pending(
+                &mut world,
+                &mut visuals,
+                &mut render_assets,
+                &mut uploader,
+                &mut queue,
+            ));
+
+            let handle = world
+                .get_component_by_id_as::<RenderableComponent>(renderable)
+                .and_then(RenderableComponent::get_handle)
+                .unwrap();
+            let instance = visuals.instance(handle).unwrap();
+            assert_eq!(instance.renderable.material, expected_material);
+            assert_eq!(instance.anime_shading, expected_params);
         }
     }
 
